@@ -4,7 +4,7 @@
 
 <h1 align="center"><code>sharedstuff</code></h1>
 
-Some stuff I use in different C17 projects.
+`sharedstuff` is some stuff I use in different C17 projects. It is a static library with an arena allocator, counted strings, growable buffers, and an error log.
 
 ## LLM disclosure
 
@@ -13,7 +13,7 @@ Some stuff I use in different C17 projects.
 
 ## Installation
 
-To install the library, headers, and CMake package metadata:
+Build the `release` preset, and then install the static library, its headers, and its CMake package files under a prefix:
 
 ```sh
 cmake --preset release
@@ -21,31 +21,37 @@ cmake --build --preset release -j 8
 cmake --install build/release --prefix /desired/prefix
 ```
 
+Instead of installing the library, a project can build it from source, as [Linking with CMake](#linking-with-cmake) describes.
+
 ## Usage
 
-The project provides the static library target `SharedStuff::SharedStuff`. Consumers can use the source tree directly:
+### Linking with CMake
+
+The CMake target of the library is `SharedStuff::SharedStuff`, a static library. A project can add the source tree of the library to its own build:
 
 ```cmake
 add_subdirectory(path/to/sharedstuff sharedstuff)
 target_link_libraries(MyTarget PRIVATE SharedStuff::SharedStuff)
 ```
 
-Or find an installed package:
+Or the project can find the installed package:
 
 ```cmake
 find_package(SharedStuff 0.1 CONFIG REQUIRED)
 target_link_libraries(MyTarget PRIVATE SharedStuff::SharedStuff)
 ```
 
-`SHAREDSTUFF_BUILD_TESTING` controls test creation and defaults to true only for a top-level build. `SHAREDSTUFF_INSTALL` controls install rules and has the same default. `SHAREDSTUFF_SANITIZER` accepts `none`, `address`, or `thread`.
+These variables configure the build. Set them with `-D`, or set them before the call to `add_subdirectory`:
 
-The library has four modules. Each one builds on the ones before it, so they are described in that order: the arena allocates memory, a string is a view of that memory, a buffer grows a string in an arena, and a log is a buffer of error messages.
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SHAREDSTUFF_BUILD_TESTING` | On for a top-level build, off otherwise | Builds the tests. If a parent project turns it on, the parent project must call `enable_testing()` at its top level. |
+| `SHAREDSTUFF_INSTALL` | On for a top-level build, off otherwise | Adds the install rules. |
+| `SHAREDSTUFF_SANITIZER` | `none` | Instruments the build with `address` (AddressSanitizer and UndefinedBehaviorSanitizer) or `thread` (ThreadSanitizer). The library target passes the link flags of the sanitizer to each target that links the library. |
 
-### `<shared/arena.h>`: memory
+### Defining `os_oom`
 
-**Why it exists.** A program that frees each allocation must say, for every pointer, who owns it and when it is freed, and every allocation can fail. The arena removes both problems. Memory comes from one region in order, nothing is freed piecemeal, and an allocation never returns `NULL`. Data lives as long as the region it was allocated in, unless it was allocated through a copy of the arena that is then dropped. `arena_discard` gives the pages behind a large buffer back early, which loses its bytes but leaves the buffer usable.
-
-**Define `os_oom` first.** When an allocation does not fit, the arena calls `os_oom`, which must not return. The library does not define it, because only the application knows what running out of memory should print and which status it should exit with. Every program that links the library defines it once:
+When an allocation does not fit in an arena, the arena calls `os_oom`. This function must not return. The library does not define `os_oom`, because only the application knows which message to print and which exit status to use when it runs out of memory. Each program that links the library must define `os_oom` once:
 
 ```c
 _Noreturn void os_oom(void) {
@@ -54,7 +60,20 @@ _Noreturn void os_oom(void) {
 }
 ```
 
-**Get a region.** `arena_reserve` reserves address space only. The arena makes pages usable as allocations reach them, so a large reservation costs memory only for what is used, even under strict overcommit. `arena_split` takes part of a region as a region of its own, such as one for each thread, and `arena_release` returns the whole reservation to the system. When the system refuses the full size, as under `ulimit -v`, `arena_reserve_halving` reserves a power-of-two fraction of it instead. `arena_discard` gives the pages behind a large buffer back to the system while its arena lives on. A test lowers `arena_reserve_len_max` to stand in for an address-space limit. A static array works too, with `limit` left `NULL`:
+## Modules
+
+The library has four modules. Each module builds on the modules before it:
+
+1. An arena allocates memory.
+2. A string is a view of that memory.
+3. A buffer grows a string in an arena.
+4. A log is a buffer of error messages.
+
+### Arenas
+
+`<shared/arena.h>` defines `struct Arena`, which allocates memory in sequence from one region. If a program frees each allocation separately, it must decide for each pointer who owns it and when to free it, and each allocation can fail. An arena does not free allocations one at a time, and its allocation functions never return `NULL`. If an allocation does not fit, the arena calls [`os_oom`](#defining-os_oom). Data lives as long as its region, unless the program allocated the data through a copy of the arena and then dropped that copy.
+
+`arena_reserve` reserves only address space. The arena makes pages usable when allocations reach them, so a large reservation costs memory only for the pages that allocations reach, even on a system with strict overcommit. An arena can also use a static array as its region. In that case, leave `limit` as `NULL`:
 
 ```c
 struct Arena arena;
@@ -66,28 +85,50 @@ static char storage[1 << 16];
 struct Arena fixed = {.beg = storage, .end = storage + sizeof storage};
 ```
 
-**Allocate.** `arena_new(&arena, count, Type)` returns zeroed, aligned storage for `count` objects of `Type`. `arena_grow` doubles a growable array, in place when it is the last allocation, and `arena_extend` appends raw bytes right after the last allocation.
+| Call | Effect |
+| --- | --- |
+| `arena_reserve(len, &arena)` | Reserves `len` bytes of address space. If the system refuses the reservation, it returns `-1` and sets `errno`. |
+| `arena_reserve_halving(len, &arena)` | Reserves `len` bytes. If the system refuses the full size, for example because of `ulimit -v`, it reserves a power-of-two fraction of `len`. Returns the number of times that it halved the size. |
+| `arena_split(&arena, len)` | Removes the first `len` bytes from the free space of `arena`, and returns a new arena over them, for example one arena for each thread. |
+| `arena_release(region)` | Gives a whole reserved region back to the system. |
+| `arena_new(&arena, count, Type)` | Returns zeroed, aligned storage for `count` objects of `Type`. |
+| `arena_alloc(&arena, count, size, align)` | Returns zeroed storage for `count` objects, with a size and an alignment in bytes. |
+| `arena_grow(&arena, data, &capacity, size, align)` | Doubles the capacity of a growable array. If the array is the last allocation, it grows in place. |
+| `arena_extend(&arena, count, size)` | Returns bytes directly after the last allocation, and does not zero them. |
+| `arena_discard(&arena, data, len)` | Gives the pages of a large buffer back to the system while the arena stays in use. The buffer loses its bytes, but the program can still use the buffer. |
 
-**Pass an arena by pointer to keep data, and by value for temporaries.** A function that returns data takes `struct Arena* perm` and allocates its result there. A function that only needs scratch space takes `struct Arena scratch` by value: it allocates through its own copy of the bounds, so everything it allocated is free again when it returns.
+To simulate an address-space limit, a test can lower `arena_reserve_len_max`.
+
+Pass an arena by pointer for data that the caller keeps, and by value for scratch memory. A function that returns data takes `struct Arena* perm` and allocates its result in that arena. A function that needs only scratch memory takes `struct Arena scratch` by value. The function allocates through its own copy of the bounds, so all of its allocations are free again when it returns:
 
 ```c
 struct Str render_title(struct Str name, struct Arena* perm, struct Arena scratch);
 ```
 
-**Rules for correct use:**
+To use an arena correctly:
 
-- Never assume two allocations are next to each other. The arena puts a gap between them in sanitizer builds. Use `arena_grow` or `arena_extend` to grow something in place.
+- Never assume that two allocations are next to each other. In a build with the address sanitizer, the arena puts a gap between allocations. To grow an allocation in place, use `arena_grow` or `arena_extend`.
 - Never let two threads allocate from the same arena. Give each thread its own region with `arena_split`.
-- Never grow a buffer or log in an arena that a callee also gets by value. The callee allocates the same bytes that the buffer grows into, and the two overwrite each other without a crash.
-- With the address sanitizer, an arena over a reserved region poisons the bytes it has not handed out, so an overflow past one allocation is reported. It cannot poison scratch memory again when a function returns, so a use of scratch memory after its function returns is not reported.
+- Never grow a buffer or a log in an arena that you also pass by value to another function. That function allocates the same bytes that the buffer grows into, so the two overwrite each other's data without a crash.
+- With the address sanitizer, an arena over a reserved region poisons all bytes that are not part of an allocation, so the sanitizer reports a read or write past the end of an allocation. When a function returns, the arena cannot poison the scratch memory of that function again, so the sanitizer does not report a later use of that memory.
 
-### `<shared/str.h>`: strings
+### Strings
 
-**Why it exists.** A C string finds its length by searching for a `NUL`, so a substring needs a copy, and lengths are unsigned, so `a - b` can wrap to a huge value. A `struct Str` is a pointer and a signed `ptrdiff_t` length. A substring is a view of the original bytes, a `NUL` is an ordinary byte, and length arithmetic cannot wrap.
+`<shared/str.h>` defines `struct Str`, which holds a pointer and a signed `ptrdiff_t` length. A C string marks its end with a `NUL`, so a substring needs a copy. The lengths of C strings are unsigned, so `a - b` can wrap to a very large value. A substring of a `struct Str` is a view of the original bytes, a `NUL` is an ordinary byte, and arithmetic on lengths cannot wrap. The zero value, `(struct Str){0}`, is the empty string.
 
-**Make one.** `S("literal")` makes a string from a literal, `STR_INIT("literal")` initializes one in a static table, and `str_from_cstr` wraps a C string from outside the program. The zero value, `(struct Str){0}`, is the empty string.
+| Call | Effect |
+| --- | --- |
+| `S("literal")` | Makes a string from a literal. |
+| `STR_INIT("literal")` | Initializes a string in a static table. |
+| `str_from_cstr(cstr)` | Wraps a C string that comes from outside the program. |
+| `str_head(s, n)`, `str_tail(s, n)` | Return a view of the first `n` bytes, or of the bytes after them. |
+| `str_cut(s, c)` | Splits `s` at the first `c` into a `head` view and a `tail` view. Sets `is_found` if `s` contains `c`. |
+| `str_eq`, `str_compare`, `str_startswith`, `str_endswith` | Compare two strings. |
+| `str_clone(s, arena)`, `str_concat(head, tail, arena)` | Copy the bytes into an arena. |
+| `str_cstr(s, arena)` | Copies the bytes into an arena and adds a terminator, for an interface that needs a C string. |
+| `STR_FMT(s)` | Expands to the two arguments that `%.*s` takes: the length as an `int`, and the data. |
 
-**Work with views.** `str_head`, `str_tail` and `str_cut` return views and copy nothing. `str_cut` splits at the first occurrence of a byte, and calling it again on the tail walks a delimited list:
+The view functions do not copy bytes. To walk a delimited list, call `str_cut` on each tail in turn:
 
 ```c
 struct StrCut cut = {.tail = S("a,b,c")};
@@ -97,21 +138,17 @@ while (cut.tail.len > 0) {
 }
 ```
 
-`str_eq`, `str_compare`, `str_startswith` and `str_endswith` compare. `str_clone` and `str_concat` copy into an arena.
+To use a string correctly:
 
-**Rules for correct use:**
+- Pass a `struct Str` by value. Its size is two machine words.
+- A view is valid only while the bytes that it points to exist. Before those bytes go away, copy the view with `str_clone`.
+- Convert a length to `size_t` only where you call a libc, POSIX, or vendored function. At that point, check that the length is not negative.
+- Make a C string with `str_cstr` only where an interface needs one, such as a path for a system call. A `NUL` inside the string ends the C string early. If the input can contain a `NUL`, check for it first.
+- Print a string with `%.*s` and `STR_FMT(s)`. `STR_FMT` evaluates its argument twice, so pass a variable, not an expression with side effects. `%.*s` stops at the first `NUL`, and does not print the bytes after it.
 
-- Pass a `struct Str` by value. It is two words.
-- A view lives only as long as the bytes it points at. Copy it with `str_clone` before those bytes go away.
-- Convert a length to `size_t` only at a libc, POSIX or vendored call, and check that it is not negative there.
-- Make a C string with `str_cstr` only where an interface needs one, such as a path for a system call. A `NUL` inside the string ends the C string early, so check for one first if the input can contain it.
-- Print a string with `%.*s` and `STR_FMT(s)`, which expands to its `int` length and its data. `STR_FMT` evaluates its argument twice, so pass a variable, not an expression with side effects. `%.*s` stops at a `NUL`.
+### Buffers
 
-### `<shared/buf.h>`: growable buffers
-
-**Why it exists.** Output such as a rendered page or a message is built from many small appends of unknown total size. A `struct Buf` grows in an arena, in place while it is the arena's last allocation, so building a large output usually copies nothing.
-
-**Use it.** Start a buffer with the arena it grows in, append to it, then read it back as a string:
+`<shared/buf.h>` defines `struct Buf`, which grows a string in an arena. A program often builds output, such as a rendered page or a message, from many small appends, and does not know the total size in advance. While the buffer is the last allocation in its arena, the buffer grows in place, so a large output usually needs no copies. Start a buffer with the arena that it grows in, append to it, and then read it back as a string:
 
 ```c
 struct Buf out = {.arena = perm};
@@ -121,19 +158,30 @@ buf_append_char(&out, '\n');
 struct Str html = buf_str(&out);
 ```
 
-`buf_cstr` adds a terminator that `len` does not count, for an interface that wants a C string. `buf_vprintf_measured` takes a `va_list` and the length `vsnprintf` measured, for the second pass of a function that formats its own arguments, as `buf_printf` does.
+| Call | Effect |
+| --- | --- |
+| `buf_append(&buffer, s)` | Appends a string. |
+| `buf_append_char(&buffer, c)` | Appends one byte. |
+| `buf_printf(&buffer, format, ...)` | Appends formatted text. It never truncates the text. |
+| `buf_vprintf_measured(&buffer, text_len, format, args)` | Appends the text of a `va_list`. The caller measures the text with `vsnprintf` and gives the length as `text_len`. A function that formats its own arguments, as `buf_printf` does, calls it in its second pass. |
+| `buf_str(&buffer)` | Returns all bytes in the buffer as a string. |
+| `buf_cstr(&buffer)` | Adds a terminator, which `len` does not count, and returns the buffer as a C string, for an interface that needs one. |
 
-**Rules for correct use:**
+To use a buffer correctly:
 
-- The buffer's arena must outlive the buffer, and the arena must be passed by pointer, never by value, while the buffer still grows.
-- A pointer into the buffer taken before a growth still reads the old bytes, but later appends do not reach it. Take `buf_str` after the last append.
-- `buf_printf` and `buf_vprintf_measured` carry the `format` attribute. Compile with `-Wformat` so the compiler checks each format against its arguments.
+- The buffer's arena must outlive the buffer. While the buffer grows, pass its arena by pointer, never by value.
+- If you take a pointer into the buffer and the buffer then grows, the pointer still reads the old bytes, but it does not see later appends. Call `buf_str` after the last append.
+- `buf_printf` and `buf_vprintf_measured` have the `format` attribute. Compile with `-Wformat`, so that the compiler checks each format against its arguments.
 
-### `<shared/log.h>`: error logs
+### Logs
 
-**Why it exists.** A fixed error buffer truncates long messages and holds only the first error. A `struct Log` is a buffer of error lines with a count. A program can keep going after an error, report every error at once, and check `log.errors` before it does anything it cannot undo.
+`<shared/log.h>` defines `struct Log`, which holds a buffer of error lines and a count of the errors. A fixed-size error buffer truncates long messages and holds only the first error. With a log, a program can do these things:
 
-**Use it.** Give the log its own arena, record errors with `printf` formats, and check the count before the first irreversible step:
+- Continue after an error.
+- Report all of the errors together.
+- Check `log.errors` before it does an action that it cannot undo.
+
+Give the log its own arena, record errors with `printf` formats, and check the count before the first action that the program cannot undo:
 
 ```c
 struct Log log = {.buf = {.arena = &log_arena}};
@@ -147,95 +195,62 @@ if (log.errors > 0) {
 }
 ```
 
-Inside a fallible function, `return log_error(log, "failed to read '%.*s': %s", STR_FMT(path), cause);` records one line and returns `-1`. `log_error_in(log, file, ...)` appends ` (in '<file>')` to a message about an error inside a file. A wrapper that adds context formats its own message into scratch memory and records it with `log_error(log, "%.*s", ...)`. `log_append` copies one log into another, such as a worker's log into the main log after the workers finish.
+| Call | Effect |
+| --- | --- |
+| `log_error(log, format, ...)` | Records one line and returns `-1`. This lets a function that can fail end with `return log_error(log, "failed to read '%.*s': %s", STR_FMT(path), cause);`. |
+| `log_error_in(log, file, format, ...)` | Records one line about an error inside `file`, adds ` (in '<file>')` to the end of the line, and returns `-1`. |
+| `log_append(log, source)` | Copies the lines of `source` into `log`, and adds the error count of `source` to the count of `log`. For example, after the workers finish, copy the log of each worker into the main log. |
 
-**Rules for correct use:**
+A wrapper that adds context formats its own message in scratch memory. Then it records the message with `log_error(log, "%.*s", ...)`.
 
-- Take the log as the last parameter of a fallible function, and return `-1` from the function when it records an error.
-- Put the log in an arena that nothing else allocates from by value. A region of its own is the simplest choice.
-- Give each thread its own log, and merge the logs with `log_append` in a fixed order after the threads finish, so the output does not depend on scheduling.
-- `log_error` and `log_error_in` carry the `format` attribute, and so must any wrapper that formats its own arguments.
+To use a log correctly:
 
-## Contributing
+- Make the log the last parameter of a function that can fail. When the function records an error, return `-1`.
+- Put the log in an arena that you never pass by value. The simplest choice is a region that only the log uses.
+- Give each thread its own log. After the threads finish, merge the logs with `log_append` in a fixed order, so that the output does not depend on the order in which the threads run.
+- `log_error` and `log_error_in` have the `format` attribute. Give the same attribute to each wrapper that formats its own arguments.
+
+## Development
 
 ### Prerequisites
 
-- POSIX-like system with CMake 3.25 or later and a C17 compiler such as Clang or GCC.
-- Optional build tools: `ninja` for the multi-config portability check.
-- Optional quality tools: `clang-format`, `cwrap`, `clang-tidy`, `cppcheck`.
+- A POSIX-like system with CMake 3.25 or later and a C17 compiler such as Clang or GCC.
+- Optional build tools: `ninja` for the `multi` preset.
+- Optional quality tools: `cwrap`, `clang-format`, `clang-tidy`, `cppcheck`.
 
-Vendored dependencies are included under `vendor/`:
-
-- [`acutest`](https://github.com/mity/acutest): Tests.
+The source tree includes the dependency in [vendor/](vendor/).
 
 ### Building
 
-Presets keep every build out of the source tree, in `build/<preset>`. A build with `CC` set goes in `build/<preset>/<CC>` instead, such as `build/debug/gcc-14`, so each compiler keeps its own CMake cache: CMake reads `CC` only when it first configures a directory. clang-tidy runs only with Clang, because it rejects GCC's warning options. The commands below use eight parallel build jobs. Adjust that number for the machine.
-
-#### Debug build
-
-The debug build enables `AddressSanitizer` and `UndefinedBehaviorSanitizer`. It also runs `clang-tidy` and `cppcheck` during compilation when they are available.
+Each preset builds in `build/<preset>`, outside the source tree, and treats compiler warnings as errors. If `CC` is set, the preset builds in `build/<preset>/<CC>` instead, such as `build/debug/gcc-14`. CMake reads `CC` only when it configures a directory for the first time, so each compiler needs its own CMake cache. The commands use eight parallel jobs. Change that number to suit your machine.
 
 ```sh
 cmake --preset debug
 cmake --build --preset debug -j 8
 ```
 
-The library is `build/debug/libSharedStuff.a`.
+| Preset | Configuration | Library |
+| --- | --- | --- |
+| `debug` | `Debug` with AddressSanitizer and UndefinedBehaviorSanitizer. It runs `clang-tidy` and `cppcheck` during compilation if they are available. | `build/debug/libSharedStuff.a` |
+| `tsan` | `Debug` with ThreadSanitizer. | `build/tsan/libSharedStuff.a` |
+| `release` | `RelWithDebInfo`, with no tests. | `build/release/libSharedStuff.a` |
+| `multi` | `Debug` and `RelWithDebInfo` in one build tree, with the `Ninja Multi-Config` generator. Build with `--preset multi-debug` or `--preset multi-relwithdebinfo`. | `build/multi/Debug/libSharedStuff.a`, `build/multi/RelWithDebInfo/libSharedStuff.a` |
 
-To run linting after configuring this preset:
+`clang-tidy` runs only with Clang, because it rejects the warning options of GCC. To run linting, configure the `debug` preset, and then run this command:
 
 ```sh
 cmake --build --preset lint
 ```
 
-#### TSan build
-
-The TSan build uses the `Debug` configuration and instruments the build for data races using `ThreadSanitizer`.
-
-```sh
-cmake --preset tsan
-cmake --build --preset tsan -j 8
-```
-
-The library is `build/tsan/libSharedStuff.a`.
-
-#### Release build
-
-The release preset uses `RelWithDebInfo`, treats compiler warnings as errors, and does not build the tests.
-
-```sh
-cmake --preset release
-cmake --build --preset release -j 8
-```
-
-The library is `build/release/libSharedStuff.a`.
-
-#### Multi-config build
-
-The multi-config preset uses the `Ninja Multi-Config` generator. One configured tree can build both configurations:
-
-```sh
-cmake --preset multi
-cmake --build --preset multi-debug -j 8
-cmake --build --preset multi-relwithdebinfo -j 8
-```
-
-The libraries are `build/multi/Debug/libSharedStuff.a` and `build/multi/RelWithDebInfo/libSharedStuff.a`.
-
 ### Testing
 
-CTest registers the colocated unit test suite.
-
-#### Debug tests
+CTest registers the unit tests and the compile tests. The compile tests check that the compiler rejects a bad call to `buf_printf`, `log_error`, or a wrapper with the same `format` attribute. Build a preset, and then run its tests:
 
 ```sh
-cmake --preset debug
-cmake --build --preset debug -j 8
 ctest --preset debug -j 8
 ```
 
-To select part of the debug suite:
+The test presets are `debug`, `tsan`, `multi-debug`, and `multi-relwithdebinfo`. The `multi-relwithdebinfo` tests check the same CMake configuration as the `release` preset, which builds no tests. To run only part of a suite, select the tests by label or by name pattern:
 
 ```sh
 ctest --preset debug -L unit -j 8
@@ -243,51 +258,21 @@ ctest --preset debug -R arena -j 8
 ctest --preset debug -R buf -j 8
 ```
 
-#### TSan tests
+### Continuous integration
+
+The workflow presets run the same configure, build, and test steps as CI:
+
+| Workflow | Steps |
+| --- | --- |
+| `cmake --workflow --preset ci-debug` | Build in `Debug`, run linting, and run all ASan and UBSan tests. |
+| `cmake --workflow --preset ci-tsan` | Build with TSan and run all TSan tests. |
+| `cmake --workflow --preset ci-release` | Build in `RelWithDebInfo`. |
+| `cmake --workflow --preset ci-multi` | Build and test in `Debug` and `RelWithDebInfo` with the `Ninja Multi-Config` generator. CI runs this workflow a second time with `CC=gcc-14` to check GCC. |
+
+To run the Linux workflows on a machine with Podman, build the pinned Ubuntu image from [Containerfile](Containerfile). Then run each workflow in a new container:
 
 ```sh
-cmake --preset tsan
-cmake --build --preset tsan -j 8
-ctest --preset tsan -j 8
-```
-
-#### Multi-config tests
-
-Each configuration must be named when building and testing:
-
-```sh
-cmake --preset multi
-
-cmake --build --preset multi-debug -j 8
-ctest --preset multi-debug -j 8
-
-cmake --build --preset multi-relwithdebinfo -j 8
-ctest --preset multi-relwithdebinfo -j 8
-```
-
-The `multi-relwithdebinfo` test preset exercises the same CMake configuration used by the release build. The release preset itself does not build tests.
-
-#### CI workflows
-
-Workflow presets run the complete configure, build, and test sequences used by CI. CI runs `ci-multi` a second time with `CC=gcc-14` to check GCC:
-
-- `cmake --workflow --preset ci-debug`: `Debug` build, linting, and all ASan/UBSan tests.
-- `cmake --workflow --preset ci-tsan`: TSan build and all tests.
-- `cmake --workflow --preset ci-release`: `Release` build.
-- `cmake --workflow --preset ci-multi`: `Debug` and `RelWithDebInfo` builds and tests under the `Ninja Multi-Config` generator.
-
-To run the same Linux workflows from a machine with Podman, build the pinned Ubuntu image:
-
-```sh
-podman build \
-  --tag sharedstuff-linux-ci \
-  --file Containerfile \
-  .
-```
-
-Docker BuildKit accepts the same command with `docker` in place of `podman`. The image contains a snapshot of the source tree, so container builds do not mix Linux products with the host `build/` directory. Run each workflow preset in a fresh container:
-
-```sh
+podman build --tag sharedstuff-linux-ci --file Containerfile .
 podman run --rm sharedstuff-linux-ci ci-debug
 podman run --rm sharedstuff-linux-ci ci-tsan
 podman run --rm sharedstuff-linux-ci ci-release
@@ -295,4 +280,14 @@ podman run --rm sharedstuff-linux-ci ci-multi
 podman run --rm -e CC=gcc-14 sharedstuff-linux-ci ci-multi
 ```
 
-The image supports x86-64 and AArch64 hosts and pins LLVM 23 and GCC 14.
+The image contains a snapshot of the source tree, including the vendored dependency, without `.git/` and `build/`, which [.containerignore](.containerignore) excludes, so the Linux build products stay in the container and do not go into the `build/` directory of the host. The image supports x86-64 and AArch64 hosts, and pins LLVM 23 and GCC 14.
+
+## Dependencies
+
+[vendor/](vendor/) contains this dependency. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists its license.
+
+- [acutest](https://github.com/mity/acutest): Unit tests.
+
+## License
+
+`sharedstuff` is MIT-licensed, as [LICENSE.txt](LICENSE.txt) states.
