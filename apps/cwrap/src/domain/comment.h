@@ -1,0 +1,216 @@
+#ifndef CWRAP_COMMENT_H
+#define CWRAP_COMMENT_H
+
+#include <stdbool.h>
+#include <stddef.h>
+
+#include "shared/str.h"
+
+struct Arena;
+struct Buf;
+struct CommentSpanList;
+
+/** Block decoration, classified from continuation lines rather than from the opener. */
+enum CommentShape {
+  /** Consecutive `//` lines at the same indent. */
+  COMMENT_SHAPE_LINE,
+
+  /** Continuation lines carry a leading `*`. The closer sits on its own last line, except when the
+      refilled prose leaves no continuation line, where it trails the opener. */
+  COMMENT_SHAPE_STARRED,
+
+  /** Continuations hang under the opener. The closer trails the last prose line. */
+  COMMENT_SHAPE_HANGING,
+};
+
+/** One wrappable comment region. Trailing comments are not grouped. */
+struct CommentBlock {
+  /** Decoration that governs prefix and closer placement. */
+  enum CommentShape shape;
+
+  /** Byte offset of the first marker in the block. */
+  ptrdiff_t start;
+
+  /** Byte offset immediately after the last byte of the block. */
+  ptrdiff_t end;
+
+  /** Display columns of leading whitespace before the opener. */
+  ptrdiff_t indent_columns;
+
+  /** Whether newly emitted lines use CRLF rather than LF. */
+  bool has_crlf_newlines;
+
+  /** Opener marker the block is emitted with, in static storage: `//`, `///`, `//!`, or slash-star
+      followed by nothing, a `*`, or a `!`. A line block repeats it on every line. */
+  struct Str opener;
+
+  /** Whether the opener line carries no prose, so it stays a marker-only line. */
+  bool is_opener_empty;
+
+  /** Whether `opener` is a Doxygen marker, any but `//` and a bare slash-star, so body lines can
+      carry Doxygen commands. */
+  bool is_doxygen;
+};
+
+/** Arena-owned list of wrappable comment blocks in source order. */
+struct CommentBlockList {
+  /** Block array. */
+  struct CommentBlock* items;
+
+  /** Number of blocks in `items`. */
+  ptrdiff_t count;
+};
+
+/** Kind of one decoration-stripped body line. */
+enum BodyLineKind {
+  /** Ordinary prose that may be joined and refilled, including a tag's continuation lines. */
+  BODY_LINE_PROSE,
+
+  /** A line of a Doxygen block that starts with a command such as `@brief` or `\param`. It starts a
+      paragraph whose later prose lines are its description. */
+  BODY_LINE_TAG,
+
+  /** A list item, left untouched. */
+  BODY_LINE_LIST,
+
+  /** A fenced or indented sample, or a Doxygen `@code` or `@verbatim` region including its fence
+      lines, left untouched. */
+  BODY_LINE_CODE,
+
+  /** A decorative run of punctuation, left untouched. */
+  BODY_LINE_DECORATION,
+
+  /** A tool directive such as `NOLINT` or `cppcheck-suppress`, left untouched so the tool still
+      finds it on its own line. */
+  BODY_LINE_DIRECTIVE,
+
+  /** An empty payload, which ends a paragraph. */
+  BODY_LINE_BLANK,
+};
+
+/** One decoration-stripped line of comment body. */
+struct BodyLine {
+  /** How this line participates in wrapping. */
+  enum BodyLineKind kind;
+
+  /** Payload after markers are stripped, a view into the source or text the arena owns. */
+  struct Str text;
+};
+
+/** Arena-owned list of body lines. */
+struct BodyLineList {
+  /** Line array. */
+  struct BodyLine* items;
+
+  /** Number of lines in `items`. */
+  ptrdiff_t count;
+};
+
+/**
+ * @brief Groups wrappable comment spans into blocks and classifies each block's decoration.
+ *
+ * Consecutive same-indent line comments with the same marker (`//`, `///`, or `//!`) and only a
+ * newline and the indent's spaces or tabs between them become one line block, at the left margin or
+ * indented. A trailing comment, a `//` comment continued by a backslash line splice, and a block
+ * with no alphanumeric or non-ASCII payload byte, such as a banner, are omitted. A slash-star block
+ * is starred when a continuation `*` sits at the decoration column, otherwise hanging. A `*`
+ * aligned under the prose is a list marker.
+ *
+ * @param source Source bytes referenced by `spans`.
+ * @param spans  Comment spans from `lex_comment_spans`. Must not be `NULL`.
+ * @param arena  Arena that owns the block array. Must not be `NULL`.
+ * @return The block list.
+ */
+struct CommentBlockList comment_group(struct Str source,
+                                      const struct CommentSpanList* spans,
+                                      struct Arena* arena) __attribute__((nonnull(2, 3)));
+
+/**
+ * @brief Strips decoration from `block` and classifies each remaining payload line.
+ *
+ * The closer is stripped before any `*` decoration, so a closer-only last line is dropped for both
+ * starred and hanging blocks. Hanging continuations lose only the hanging indent, so extra indent
+ * that marks a sample stays on the payload. In a Doxygen block, a line that starts with a command
+ * is a tag, `@code` through `@endcode` and `@verbatim` through `@endverbatim` are left untouched,
+ * and a prose line indented at any depth after a tag continues that tag with its indent removed.
+ *
+ * @param source Source bytes containing `block`. The line texts are views into it.
+ * @param block  Block whose body is extracted. Must not be `NULL`.
+ * @param arena  Arena that owns the line array. Must not be `NULL`.
+ * @return The line list.
+ */
+struct BodyLineList comment_extract_body(struct Str source,
+                                         const struct CommentBlock* block,
+                                         struct Arena* arena) __attribute__((nonnull(2, 3)));
+
+/**
+ * @brief Writes `block` reconstructed from `lines` onto `buffer`.
+ *
+ * Restores the recorded opener marker, the continuation prefixes, and the closer required by
+ * `block->shape`.
+ *
+ * @param buffer Buffer that receives the reconstructed comment. Must not be `NULL`.
+ * @param source Source bytes, used only to recover the original indent whitespace.
+ * @param block  Block whose decoration is restored. Must not be `NULL`.
+ * @param lines  Filled body lines. Must not be `NULL`.
+ */
+void comment_emit(struct Buf* buffer,
+                  struct Str source,
+                  const struct CommentBlock* block,
+                  const struct BodyLineList* lines) __attribute__((nonnull(1, 3, 4)));
+
+/**
+ * @brief Reports whether `comment_emit` puts the closer of `block` on its opener line.
+ *
+ * A starred block whose filled body is one line on the opener has no continuation to decorate, so
+ * its closer trails that line.
+ *
+ * @param block Block being emitted. Must not be `NULL`.
+ * @param lines Filled body lines. Must not be `NULL`.
+ * @return `true` when the closer trails the opener line, or `false` otherwise.
+ */
+bool comment_has_opener_closer(const struct CommentBlock* block, const struct BodyLineList* lines)
+    __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Returns the display-column width of the continuation prefix for `block`.
+ *
+ * @param block Block whose continuation prefix is measured. Must not be `NULL`.
+ * @return Columns occupied by indent plus the line marker and a space, ` * `, or hanging spaces as
+ *         wide as the opener marker and a space.
+ */
+ptrdiff_t comment_prefix_columns(const struct CommentBlock* block) __attribute__((nonnull(1)));
+
+/**
+ * @brief Returns the display-column width before the first body line for `block`.
+ *
+ * An inline opener occupies its marker plus one space, which is one more column than a starred
+ * continuation prefix for a three-byte slash-star marker. A marker-only opener puts the first body
+ * line on a continuation and therefore uses the continuation width.
+ *
+ * @param block Block whose first body-line prefix is measured. Must not be `NULL`.
+ * @return Columns occupied before the first body line.
+ */
+ptrdiff_t comment_prefix_columns_first(const struct CommentBlock* block)
+    __attribute__((nonnull(1)));
+
+/**
+ * @brief Reports whether `text` is a list item marker line.
+ *
+ * @param text Payload.
+ * @return `true` when the line starts with `- `, `* `, `+ `, or a numbered item such as `1. `.
+ */
+bool comment_is_list_line(struct Str text);
+
+/**
+ * @brief Reports whether `text` starts with a tool directive such as `NOLINT` or
+ *        `cppcheck-suppress`.
+ *
+ * A directive line is copied unchanged, and no refilled continuation line may start with one.
+ *
+ * @param text Payload.
+ * @return `true` when a known directive opens `text` as a whole word.
+ */
+bool comment_is_tool_directive(struct Str text);
+
+#endif
