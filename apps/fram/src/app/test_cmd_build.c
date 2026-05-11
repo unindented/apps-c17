@@ -1,0 +1,1520 @@
+#include <acutest.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "app/cmd_build.h"
+#include "app/exit_code.h"
+#include "build/job.h"
+#include "core/path_list.h"
+#include "domain/build_cache.h"
+#include "formats/image.h"
+#include "os_memory.h"
+#include "runtime/memory.h"
+#include "runtime/os.h"
+#include "runtime/pool.h"
+#include "shared/arena.h"
+#include "shared/buf.h"
+#include "shared/log.h"
+#include "shared/str.h"
+#include "test_jpeg_fixture.h"
+#include "test_support.h"
+
+// Every build here runs against the in-memory host, whose root is the working directory the build
+// resolves `fram.toml` from, and which keeps what the build prints. No fixture holds a video, so no
+// build here runs `ffprobe` or `ffmpeg`. The build that does is in `test_cmd_build_video.c`, on the
+// POSIX host. The golden galleries build the real executable on the real filesystem.
+
+/**
+ * Bytes of the arenas `build_in_tiny_arena` gives a build, a quarter for each of the main thread's
+ * and the worker's perm and scratch. Each is too small for the configuration the build loads.
+ */
+enum { TINY_ARENA_SIZE = 128 };
+
+/** Config body every fixture shares. Derivatives stay small so encoding stays cheap. */
+static const char* const GALLERY_CONFIG =
+    "title = \"Test Gallery\"\n"
+    "author = \"Tests\"\n"
+    "input_dir = \"photos\"\n"
+    "[derivatives.s]\nwidth = 8\nheight = 8\nquality = 70\ncrop = true\n"
+    "[derivatives.m]\nwidth = 16\nheight = 16\nquality = 75\n";
+
+/** Minimal album template. It renders without naming any derivative, so sizes stay free. */
+static const char* const ALBUM_TEMPLATE =
+    "<!doctype html><title>{{album.title}} - {{gallery.title}}</title>"
+    "{{#has_media}}<ul>{{#media}}<li>{{title}}</li>{{/media}}</ul>{{/has_media}}";
+
+/**
+ * Album template for the large album, which lists each item the way a real gallery's template does:
+ * its links, its derivatives' URLs and dimensions, and its title.
+ */
+static const char* const LARGE_ALBUM_TEMPLATE =
+    "<!doctype html><title>{{album.title}} - {{gallery.title}}</title><main>"
+    "{{#media}}<a class=\"item{{#is_image}} item--image{{/is_image}}"
+    "{{#is_video}} item--video{{/is_video}}\" href=\"{{original_url}}\" download=\"{{title}}\" "
+    "data-small-src=\"{{s.url}}\" data-small-width=\"{{s.width}}\" "
+    "data-small-height=\"{{s.height}}\"><img src=\"{{m.url}}\" width=\"{{m.width}}\" "
+    "height=\"{{m.height}}\" alt=\"{{title}}\"><span>{{title}}</span></a>{{/media}}</main>";
+
+/**
+ * @brief Writes one JPEG, creating its parent directories, as a fixture.
+ *
+ * The fixture encodes its own source rather than committing a binary file, so no test needs a
+ * checked-in image and none needs `ffmpeg`.
+ *
+ * @param os        Host to write to. Must not be `NULL`.
+ * @param file_path Terminated path of the JPEG. Must not be `NULL`.
+ */
+static void write_jpeg(struct Os* os, const char* file_path) {
+  struct Arena arena = test_arena();
+  struct Str jpeg = {0};
+  if (TEST_CHECK(test_jpeg_encode(24, 12, &arena, &jpeg) == 0)) {
+    os_memory_write_bytes(os, str_from_cstr(file_path), jpeg);
+  }
+}
+
+/**
+ * @brief Writes `fram.toml` and the album template.
+ *
+ * @param os           Host to write to. Must not be `NULL`.
+ * @param config_extra Config lines placed before the shared body, or `NULL` for the body alone. It
+ *                     must not repeat a key the body sets, because TOML rejects a duplicate key.
+ */
+static void write_gallery_fixture(struct Os* os, const char* config_extra) {
+  os_memory_write(os, "templates/album.html", ALBUM_TEMPLATE);
+  struct Arena arena = test_arena();
+  struct Buf config = {.arena = &arena};
+  if (config_extra != NULL) {
+    buf_append(&config, str_from_cstr(config_extra));
+  }
+  buf_append(&config, str_from_cstr(GALLERY_CONFIG));
+  os_memory_write(os, "fram.toml", buf_cstr(&config));
+}
+
+/** Files `every_output_kind_fixture` builds to, in byte order. */
+static const char* const EVERY_OUTPUT_KIND_FILES[] = {
+    "public/_fram/originals/album/one-jpg.jpg",
+    "public/_fram/v1-build-cache.tsv",
+    "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp",
+    "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp",
+    "public/album/index.html",
+    "public/fram.css",
+    "public/index.html",
+    "public/sitemap.xml",
+};
+
+/** Number of paths in `EVERY_OUTPUT_KIND_FILES`. */
+enum {
+  EVERY_OUTPUT_KIND_FILE_COUNT = sizeof(EVERY_OUTPUT_KIND_FILES) /
+  sizeof(EVERY_OUTPUT_KIND_FILES[0])
+};
+
+/**
+ * @brief Returns a host holding a gallery with one output of every kind: album pages, derivatives,
+ *        an original, an aggregate and a static file, beside a file in `input_dir` that is not
+ *        media, which build to `EVERY_OUTPUT_KIND_FILES`.
+ *
+ * @return The host.
+ */
+static struct Os* every_output_kind_fixture(void) {
+  struct Os* os = os_memory();
+  write_gallery_fixture(os, "aggregate_templates = [\"sitemap.xml\"]\n");
+  os_memory_write(os, "templates/sitemap.xml", "sitemap\n");
+  write_jpeg(os, "photos/album/one.jpg");
+  os_memory_write(os, "photos/album/notes.txt", "not media\n");
+  os_memory_write(os, "static/fram.css", "body{}\n");
+  return os;
+}
+
+/**
+ * @brief Executes a build with the given options in test arenas and collects its errors.
+ *
+ * @param options Build options passed to `cmd_build_execute`, whose worker count `0` stands for the
+ *                CPU count, as on the command line. Must not be `NULL`.
+ * @param os      Host the build runs against. Must not be `NULL`.
+ * @param log     Log that receives every build error. Its arena must be none of the arenas the
+ *                build allocates from, as `cmd_build_execute` requires. Must not be `NULL`.
+ * @return `0` on success, or `-1` on build failure.
+ */
+static int execute_build_with_options(const struct BuildOptions* options,
+                                      struct Os* os,
+                                      struct Log* log) {
+  struct BuildOptions resolved = *options;
+  if (resolved.worker_count == 0) {
+    resolved.worker_count = pool_resolve_worker_count();
+  }
+  struct Arena perm = test_arena();
+  struct JobArenas* worker_arenas = arena_new(&perm, resolved.worker_count, struct JobArenas);
+  for (ptrdiff_t i = 0; i < resolved.worker_count; i++) {
+    worker_arenas[i] = (struct JobArenas){.perm = test_arena(), .scratch = test_arena()};
+  }
+  return cmd_build_execute(&resolved, worker_arenas, os, perm, test_arena(), log);
+}
+
+/**
+ * @brief Executes a build with default options and collects its errors.
+ *
+ * @param os  Host the build runs against. Must not be `NULL`.
+ * @param log Log that receives every build error. Must not be `NULL`.
+ * @return `0` on success, or `-1` on build failure.
+ */
+static int execute_build(struct Os* os, struct Log* log) {
+  const struct BuildOptions options = {0};
+  return execute_build_with_options(&options, os, log);
+}
+
+/**
+ * @brief Executes a dry run with otherwise default options and collects its errors.
+ *
+ * @param os  Host the dry run runs against. Must not be `NULL`.
+ * @param log Log that receives every build error. Must not be `NULL`.
+ * @return `0` on success, or `-1` on build failure.
+ */
+static int execute_dry_run(struct Os* os, struct Log* log) {
+  const struct BuildOptions options = {.is_dry_run = true};
+  return execute_build_with_options(&options, os, log);
+}
+
+/**
+ * @brief Reports whether the regular files below `dir_path` are exactly `expected`, printing them
+ *        when they are not.
+ *
+ * @param os             Host to inspect. Must not be `NULL`.
+ * @param dir_path       Terminated directory to list. Must not be `NULL`.
+ * @param expected       Array of `expected_count` terminated paths in byte order. Must not be
+ *                       `NULL`.
+ * @param expected_count Number of expected paths.
+ * @return `true` when the files match.
+ */
+static bool is_file_list(struct Os* os,
+                         const char* dir_path,
+                         const char* const* expected,
+                         ptrdiff_t expected_count) {
+  const struct PathList files = os_memory_files(os, dir_path);
+  bool is_equal = files.count == expected_count;
+  for (ptrdiff_t i = 0; is_equal && i < expected_count; i++) {
+    is_equal = str_eq(files.items[i], str_from_cstr(expected[i]));
+  }
+  TEST_CHECK_(is_equal, "'%s' holds exactly the expected files", dir_path);
+  for (ptrdiff_t i = 0; !is_equal && i < files.count; i++) {
+    TEST_MSG("found: '%.*s'", STR_FMT(files.items[i]));
+  }
+  return is_equal;
+}
+
+/**
+ * @brief Reports whether `os_print` has written `line` as a whole line to `fd`, printing the stream
+ *        when it has not.
+ *
+ * @param os   Host to inspect. Must not be `NULL`.
+ * @param fd   `1` for standard output or `2` for standard error.
+ * @param line Terminated line, without its newline. Must not be `NULL`.
+ * @return `true` when one of the printed lines is `line`.
+ */
+static bool has_printed_line(struct Os* os, int fd, const char* line) {
+  const struct Str printed = os_memory_printed(os, fd);
+  bool is_printed = false;
+  struct StrCut cut = {.tail = printed, .is_found = true};
+  while (!is_printed && cut.is_found) {
+    cut = str_cut(cut.tail, '\n');
+    is_printed = str_eq(cut.head, str_from_cstr(line));
+  }
+  TEST_CHECK_(is_printed, "'%s' is a printed line", line);
+  if (!is_printed) {
+    TEST_MSG("printed: '%.*s'", STR_FMT(printed));
+  }
+  return is_printed;
+}
+
+/**
+ * @brief Reports whether the `write` lines a dry run printed name exactly the files below `public`
+ *        on another host, printing the listing when they do not.
+ *
+ * Every line must be a `write` line, and the manifest makes the listed paths distinct, so a count
+ * that matches and a path for each line that exists there make the two sets equal.
+ *
+ * @param dry_run_os Host the dry run printed its listing on. Must not be `NULL`.
+ * @param real_os    Host a real build of the same gallery wrote. Must not be `NULL`.
+ * @return `true` when the sets are equal.
+ */
+static bool is_write_set_of(struct Os* dry_run_os, struct Os* real_os) {
+  const struct Str printed = os_memory_printed(dry_run_os, 1);
+  const struct PathList files = os_memory_files(real_os, "public");
+  struct Arena arena = test_arena();
+  ptrdiff_t line_count = 0;
+  bool is_equal = true;
+  for (struct StrCut cut = str_cut(printed, '\n'); cut.is_found; cut = str_cut(cut.tail, '\n')) {
+    const struct StrCut fields = str_cut(cut.head, '\t');
+    is_equal = is_equal && str_eq(fields.head, S("write")) &&
+               os_memory_has_path(real_os, str_cstr(fields.tail, &arena));
+    line_count++;
+  }
+  is_equal = is_equal && line_count == files.count;
+  TEST_CHECK_(is_equal, "the dry run lists exactly the files a real build writes");
+  if (!is_equal) {
+    TEST_MSG("printed: '%.*s'", STR_FMT(printed));
+  }
+  return is_equal;
+}
+
+/**
+ * @brief Returns the path of the build cache below `public`, as a terminated string.
+ *
+ * @param arena Arena that owns the path. Must not be `NULL`.
+ * @return The path, owned by `arena`.
+ */
+static const char* build_cache_file(struct Arena* arena) {
+  return str_cstr(build_cache_path(S("public"), arena), arena);
+}
+
+/**
+ * @brief Returns the contents of the regular file at `file_path`, copied into `arena`, or an empty
+ *        string when there is none.
+ *
+ * @param os        Host to read. Must not be `NULL`.
+ * @param file_path Terminated path of the file. Must not be `NULL`.
+ * @param arena     Arena that owns the copy. Must not be `NULL`.
+ * @return The contents.
+ */
+static struct Str file_contents(struct Os* os, const char* file_path, struct Arena* arena) {
+  struct Str data = {0};
+  if (os_memory_file(os, file_path, &data) != 0) {
+    return (struct Str){0};
+  }
+  return str_clone(data, arena);
+}
+
+/** Every file below one directory and its contents, as `snapshot_files` took them. */
+struct FileSnapshot {
+  /** Sorted paths of the files. */
+  struct PathList paths;
+
+  /** Contents of each file, parallel to `paths`. */
+  struct Str* contents;
+};
+
+/**
+ * @brief Records every file below `dir_path` and its contents.
+ *
+ * @param os       Host to read. Must not be `NULL`.
+ * @param dir_path Terminated directory to read. Must not be `NULL`.
+ * @param arena    Arena that owns the copies. Must not be `NULL`.
+ * @return The snapshot, owned by `arena`.
+ */
+static struct FileSnapshot snapshot_files(struct Os* os,
+                                          const char* dir_path,
+                                          struct Arena* arena) {
+  struct FileSnapshot snapshot = {.paths = os_memory_files(os, dir_path)};
+  snapshot.contents = arena_new(arena, snapshot.paths.count, struct Str);
+  for (ptrdiff_t i = 0; i < snapshot.paths.count; i++) {
+    snapshot.contents[i] = file_contents(os, str_cstr(snapshot.paths.items[i], arena), arena);
+  }
+  return snapshot;
+}
+
+/**
+ * @brief Reports whether the files below `dir_path` are exactly those of `snapshot`, byte for byte,
+ *        naming the first that differs when they are not.
+ *
+ * @param os       Host to read. Must not be `NULL`.
+ * @param dir_path Terminated directory to read. Must not be `NULL`.
+ * @param snapshot Files the directory must hold. Must not be `NULL`.
+ * @return `true` when every path and every byte match.
+ */
+static bool is_snapshot(struct Os* os, const char* dir_path, const struct FileSnapshot* snapshot) {
+  struct Arena arena = test_arena();
+  const struct FileSnapshot now = snapshot_files(os, dir_path, &arena);
+  bool is_equal = now.paths.count == snapshot->paths.count;
+  for (ptrdiff_t i = 0; is_equal && i < now.paths.count; i++) {
+    is_equal = str_eq(now.paths.items[i], snapshot->paths.items[i]) &&
+               str_eq(now.contents[i], snapshot->contents[i]);
+    if (!is_equal) {
+      TEST_MSG("differs: '%.*s'", STR_FMT(now.paths.items[i]));
+    }
+  }
+  TEST_CHECK_(is_equal, "'%s' holds the same files with the same bytes", dir_path);
+  return is_equal;
+}
+
+/**
+ * @brief Runs a one-worker build in `TINY_ARENA_SIZE` bytes of arenas. Run through `test_is_oom`,
+ *        which calls it in a child process.
+ *
+ * @param userdata Host the build runs against, as a `struct Os*`. Must not be `NULL`.
+ */
+static void build_in_tiny_arena(void* userdata) {
+  static _Alignas(max_align_t) char memory[TINY_ARENA_SIZE];
+  struct Arena rest = {.beg = memory, .end = memory + sizeof(memory)};
+  const struct Arena perm = arena_split(&rest, sizeof(memory) / 4);
+  const struct Arena scratch = arena_split(&rest, sizeof(memory) / 4);
+  struct JobArenas worker_arenas[1] = {
+      {.perm = arena_split(&rest, sizeof(memory) / 4), .scratch = rest}};
+  struct Log log = test_log();
+  const struct BuildOptions options = {.worker_count = 1};
+  (void)cmd_build_execute(&options, worker_arenas, userdata, perm, scratch, &log);
+}
+
+// A configured album template name is used instead of the default.
+static void test_honors_configured_album_template(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, "album_template = \"album-page.html\"\n");
+  write_jpeg(os, "photos/one.jpg");
+  os_memory_write(os, "templates/album-page.html", "<main>{{album.title}}</main>\n");
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+
+  TEST_CHECK(os_memory_is_file(os, "public/index.html", "<main>Test Gallery</main>\n"));
+}
+
+// A build writes exactly the manifest's intended outputs: album pages, derivatives, originals,
+// aggregate outputs and static files, and nothing for a file in `input_dir` that is not media.
+static void test_writes_exactly_manifest_outputs(void) {
+  struct Os* os = every_output_kind_fixture();
+  struct Log log = test_log();
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  // Exactly the expected set, so neither an extra output nor the non-media file passes.
+  TEST_CHECK(is_file_list(os, "public", EVERY_OUTPUT_KIND_FILES, EVERY_OUTPUT_KIND_FILE_COUNT));
+}
+
+// A trailing slash on `input_dir` does not leak the directory name into the output tree. The prefix
+// strip that places each media item in its album compares `<input_dir>/`, so an unnormalized
+// `"photos/"` would miss and publish `public/photos/album/index.html`.
+static void test_tolerates_trailing_slash_on_input_dir(void) {
+  struct Os* os = os_memory();
+  // The shared config sets `input_dir`, so this fixture writes its own.
+  os_memory_write(os, "fram.toml",
+                  "title = \"Test Gallery\"\n"
+                  "author = \"Tests\"\n"
+                  "input_dir = \"photos/\"\n"
+                  "[derivatives.s]\nwidth = 8\nheight = 8\nquality = 70\ncrop = true\n"
+                  "[derivatives.m]\nwidth = 16\nheight = 16\nquality = 75\n");
+  os_memory_write(os, "templates/album.html", ALBUM_TEMPLATE);
+  write_jpeg(os, "photos/album/one.jpg");
+  struct Log log = test_log();
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  // No output, page, derivative or original, carries the name of `input_dir`.
+  static const char* const expected[] = {
+      "public/_fram/originals/album/one-jpg.jpg",
+      "public/_fram/v1-build-cache.tsv",
+      "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp",
+      "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp",
+      "public/album/index.html",
+      "public/index.html",
+  };
+  TEST_CHECK(is_file_list(os, "public", expected, sizeof(expected) / sizeof(expected[0])));
+}
+
+// A gallery that ships no `static` directory builds. `static_dir` is optional with a default, so an
+// absent one is skipped rather than reported.
+static void test_builds_with_no_static_dir(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  TEST_CHECK(!os_memory_has_path(os, "static"));
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_has_path(os, "public/index.html"));
+  TEST_CHECK(os_memory_has_path(os, "public/album/index.html"));
+  TEST_CHECK(os_memory_has_path(os, "public/_fram/originals/album/one-jpg.jpg"));
+}
+
+// A `static` directory is mirrored into `output_dir` as-is, so a top-level file lands at the output
+// root and a nested one keeps its directories.
+static void test_copies_static_files_when_present(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  os_memory_write(os, "static/robots.txt", "User-agent: *\n");
+  os_memory_write(os, "static/assets/fram.css", "body{}\n");
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_has_path(os, "public/robots.txt"));
+  TEST_CHECK(os_memory_has_path(os, "public/assets/fram.css"));
+}
+
+// Same-named sources in different directories publish to distinct, non-colliding outputs. One file
+// name repeated in three nested albums is not a collision, because the album slug is part of every
+// output path. Each directory level still gets its own album page.
+static void test_distinguishes_same_name_in_different_dirs(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/one.jpg");
+  write_jpeg(os, "photos/trip/one.jpg");
+  write_jpeg(os, "photos/trip/deep/one.jpg");
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_has_path(os, "public/trip/index.html"));
+  TEST_CHECK(os_memory_has_path(os, "public/trip/deep/index.html"));
+  TEST_CHECK(os_memory_has_path(os, "public/_fram/originals/one-jpg.jpg"));
+  TEST_CHECK(os_memory_has_path(os, "public/_fram/originals/trip/one-jpg.jpg"));
+  TEST_CHECK(os_memory_has_path(os, "public/_fram/originals/trip/deep/one-jpg.jpg"));
+}
+
+// An album holding only sub-directories has no media of its own. Its own page is still written, and
+// the zero-length media and sub-album arrays it allocates are valid rather than a failure.
+static void test_builds_an_album_with_no_media_of_its_own(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/container/inner/one.jpg");
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_has_path(os, "public/index.html"));
+  TEST_CHECK(os_memory_has_path(os, "public/container/index.html"));
+  TEST_CHECK(os_memory_has_path(os, "public/container/inner/index.html"));
+}
+
+// The configured sort orders reach the rendered pages. With both descending, the root page lists
+// its media and its sub-albums last name first, and each sub-album's cover is its last file by
+// name, the first it lists.
+static void test_renders_configured_sort_orders(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os,
+                        "album_template = \"sorted.html\"\n"
+                        "sort = { albums = \"desc\", media = \"desc\" }\n");
+  write_jpeg(os, "photos/a.jpg");
+  write_jpeg(os, "photos/b.jpg");
+  write_jpeg(os, "photos/x/1.jpg");
+  write_jpeg(os, "photos/x/2.jpg");
+  write_jpeg(os, "photos/y/1.jpg");
+  write_jpeg(os, "photos/y/2.jpg");
+  os_memory_write(os, "templates/sorted.html",
+                  "{{#media}}{{title}} {{/media}}|"
+                  "{{#sub_albums}} {{title}}:{{cover.title}}{{/sub_albums}}\n");
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+
+  TEST_CHECK(os_memory_is_file(os, "public/index.html", "b.jpg a.jpg | y:2.jpg x:2.jpg\n"));
+  TEST_CHECK(os_memory_is_file(os, "public/x/index.html", "2.jpg 1.jpg |\n"));
+}
+
+// A second build over a finished output tree succeeds and produces the same set of outputs.
+static void test_rebuild_succeeds_and_repeats_its_outputs(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  const ptrdiff_t public_count_built = os_memory_files(os, "public").count;
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  // The album page, the root page, both derivatives, the copied original and the build cache: the
+  // second build adds nothing and removes nothing.
+  TEST_CHECK(public_count_built == 6);
+  TEST_CHECK(os_memory_files(os, "public").count == public_count_built);
+}
+
+// A rebuild removes what the current inputs no longer produce: the outputs of a deleted source, an
+// old recipe directory, and a file added to `output_dir` by hand. Every current output stays, and a
+// third build finds nothing more to remove.
+static void test_rebuild_removes_stale_outputs(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  write_jpeg(os, "photos/album/two.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(os_memory_has_path(os, "public/_fram/originals/album/two-jpg.jpg"));
+
+  TEST_CHECK(os_remove(os, S("photos/album/two.jpg"), S("failed to remove fixture"), &log) == 0);
+  os_memory_write(os, "public/notes.txt", "hand");
+  os_memory_write(os, "public/_fram/v1-old/album/one-jpg-s.jpg", "old");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  // The album page, the root page, both derivatives and the copied original of the one source left,
+  // and the build cache.
+  TEST_CHECK(os_memory_files(os, "public").count == 6);
+  TEST_CHECK(os_memory_has_path(os, "public/_fram/originals/album/one-jpg.jpg"));
+  TEST_CHECK(!os_memory_has_path(os, "public/_fram/originals/album/two-jpg.jpg"));
+  TEST_CHECK(!os_memory_has_path(os, "public/notes.txt"));
+  TEST_CHECK(!os_memory_has_path(os, "public/_fram/v1-old"));
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_files(os, "public").count == 6);
+}
+
+// An `output_dir` that a symlink inside `input_dir` reaches is left out of the media walk, so a
+// rebuild does not read the first build's outputs back as sources. The derivatives here are JPEG
+// files, which the walk would otherwise discover as media.
+static void test_rebuild_skips_output_dir_linked_from_input_dir(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  os_memory_symlink(os, "../public", "photos/published");
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  // The album page, the root page, both derivatives, the copied original and the build cache, and
+  // no album for the linked output tree.
+  TEST_CHECK(os_memory_files(os, "public").count == 6);
+  TEST_CHECK(!os_memory_has_path(os, "public/published"));
+}
+
+// A dry run of a gallery with every kind of output succeeds and creates nothing, not even
+// `output_dir`, which shows `prepare_output_dir` was withheld. Its `write` lines name exactly the
+// files a real build of the same gallery writes, so no site left a path pending.
+static void test_dry_run_lists_every_output_and_writes_nothing(void) {
+  struct Os* real_os = every_output_kind_fixture();
+  struct Os* dry_run_os = every_output_kind_fixture();
+  struct Log log = test_log();
+
+  TEST_CHECK(execute_build(real_os, &log) == 0);
+  TEST_CHECK(execute_dry_run(dry_run_os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(!os_memory_has_path(dry_run_os, "public"));
+  TEST_CHECK(is_write_set_of(dry_run_os, real_os));
+}
+
+// After a build, a dry run lists every derivative and the original as `keep`, because they are
+// fresh, and every page as `write`, in manifest order.
+static void test_dry_run_keeps_fresh_media(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+
+  TEST_CHECK(execute_dry_run(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_printed(
+      os, 1,
+      "write\tpublic/index.html\n"
+      "write\tpublic/album/index.html\n"
+      "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp\n"
+      "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
+      "keep\tpublic/_fram/originals/album/one-jpg.jpg\n"
+      "write\tpublic/_fram/v1-build-cache.tsv\n"));
+}
+
+// After a build, a changed `[derivatives.*]` table makes a dry run list the new derivatives as
+// `write` and the old recipe directory as `remove`, sorted, with everything in it. The old
+// directory is still there afterward.
+static void test_dry_run_lists_stale_recipe_and_keeps_it(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  os_memory_write(os, "fram.toml",
+                  "title = \"Test Gallery\"\n"
+                  "author = \"Tests\"\n"
+                  "input_dir = \"photos\"\n"
+                  "[derivatives.s]\nwidth = 4\nheight = 4\nquality = 70\ncrop = true\n"
+                  "[derivatives.m]\nwidth = 16\nheight = 16\nquality = 75\n");
+
+  TEST_CHECK(execute_dry_run(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_printed(
+      os, 1,
+      "write\tpublic/index.html\n"
+      "write\tpublic/album/index.html\n"
+      "write\tpublic/_fram/v2-s-4x4c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp\n"
+      "write\tpublic/_fram/v2-s-4x4c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
+      "keep\tpublic/_fram/originals/album/one-jpg.jpg\n"
+      "write\tpublic/_fram/v1-build-cache.tsv\n"
+      "remove\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000\n"
+      "remove\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album\n"
+      "remove\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
+      "remove\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp\n"));
+  TEST_CHECK(
+      os_memory_has_path(os, "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp"));
+  TEST_CHECK(!os_memory_has_path(os, "public/_fram/v2-s-4x4c-q70-m-16x16-q75-f1000"));
+}
+
+// A dry run over an existing tree, with a new photo to write and a stale file to remove, where
+// every write and every removal below `output_dir` would fail, still succeeds, so it attempts
+// neither.
+static void test_dry_run_attempts_no_change(void) {
+  struct Os* os = every_output_kind_fixture();
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  os_memory_write(os, "public/notes.txt", "hand");
+  write_jpeg(os, "photos/album/two.jpg");
+  os_memory_fail(os, OS_MEMORY_OP_WRITE, "public", EACCES);
+  os_memory_fail(os, OS_MEMORY_OP_REMOVE, "public", EACCES);
+
+  TEST_CHECK(execute_dry_run(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_file(os, "public/notes.txt", "hand"));
+}
+
+// A dry run leaves nothing behind that a later build sees: a real build after it writes the same
+// files as a real build alone.
+static void test_dry_run_leaves_no_state(void) {
+  struct Os* os = every_output_kind_fixture();
+  struct Log log = test_log();
+  TEST_CHECK(execute_dry_run(os, &log) == 0);
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(is_file_list(os, "public", EVERY_OUTPUT_KIND_FILES, EVERY_OUTPUT_KIND_FILE_COUNT));
+  TEST_CHECK(os_memory_is_file(os, "public/sitemap.xml", "sitemap\n"));
+}
+
+// A build after an unchanged build takes every source's probe facts from the build cache, so it
+// reads no source, here where every read of one would fail, and it leaves every output, the build
+// cache included, byte for byte as the first build wrote it.
+static void test_warm_build_reads_no_source_and_repeats_its_bytes(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  write_jpeg(os, "photos/two.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  const struct FileSnapshot built = snapshot_files(os, "public", &arena);
+  os_memory_fail(os, OS_MEMORY_OP_READ, "photos", EACCES);
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(is_snapshot(os, "public", &built));
+}
+
+// `--force` ignores the build cache for one build, so it probes every source, here where the read
+// of the one source fails.
+static void test_force_probes_every_source(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  os_memory_fail(os, OS_MEMORY_OP_READ, "photos", EACCES);
+
+  const struct BuildOptions options = {.is_forced = true};
+  TEST_CHECK(execute_build_with_options(&options, os, &log) == -1);
+  TEST_CHECK(
+      test_log_is(&log, "failed to probe media: %s ('photos/album/one.jpg')\n", strerror(EACCES)));
+}
+
+// A build rewrites the build cache with a row for each current source, sorted by path, and none for
+// a source deleted since.
+static void test_rewrites_build_cache_without_deleted_sources(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/c.jpg");
+  write_jpeg(os, "photos/album/b.jpg");
+  write_jpeg(os, "photos/album/a.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(os_remove(os, S("photos/album/b.jpg"), S("failed to remove fixture"), &log) == 0);
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  struct Buf header = {.arena = &arena};
+  build_cache_format_header(&header);
+  const struct Str cache = file_contents(os, build_cache_file(&arena), &arena);
+  struct StrCut cut = str_cut(cache, '\n');
+  TEST_CHECK(str_eq(str_head(cache, cut.head.len + 1), buf_str(&header)));
+  cut = str_cut(cut.tail, '\n');
+  TEST_CHECK(str_startswith(cut.head, S("album/a.jpg\t")));
+  cut = str_cut(cut.tail, '\n');
+  TEST_CHECK(str_startswith(cut.head, S("album/c.jpg\t")));
+  TEST_CHECK(cut.tail.len == 0);
+  TEST_MSG("build cache: '%.*s'", STR_FMT(cache));
+}
+
+// A build cache whose first line names another build, such as an earlier release, is not used, so
+// the build probes every source, and the verbose log says why.
+static void test_ignores_build_cache_of_another_build(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  const char* cache_file = build_cache_file(&arena);
+  const struct Str cache = file_contents(os, cache_file, &arena);
+  struct Buf other = {.arena = &arena};
+  buf_append(&other, S("fram-build-cache\tfram 0.0.0-other\n"));
+  buf_append(&other, str_cut(cache, '\n').tail);
+  os_memory_write_bytes(os, str_from_cstr(cache_file), buf_str(&other));
+  os_memory_fail(os, OS_MEMORY_OP_READ, "photos", EACCES);
+
+  const struct BuildOptions options = {.is_verbose = true};
+  TEST_CHECK(execute_build_with_options(&options, os, &log) == -1);
+  TEST_CHECK(
+      test_log_is(&log, "failed to probe media: %s ('photos/album/one.jpg')\n", strerror(EACCES)));
+  TEST_CHECK(has_printed_line(
+      os, 2,
+      "build cache not used, probing every source: build cache was written by another build"));
+}
+
+// A build cache of another format version has another name, so a build never reads it, and the
+// stale-output prune removes it as it removes any output the build no longer makes.
+static void test_prunes_build_cache_of_another_version(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  os_memory_write(os, "public/_fram/v0-build-cache.tsv", "an older format\n");
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(!os_memory_has_path(os, "public/_fram/v0-build-cache.tsv"));
+  TEST_CHECK(os_memory_has_path(os, build_cache_file(&arena)));
+}
+
+// A build whose probe fails stops before it writes anything, so the build cache an earlier build
+// left is unchanged.
+static void test_failed_probe_keeps_build_cache(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  const char* cache_file = build_cache_file(&arena);
+  const struct Str cache = file_contents(os, cache_file, &arena);
+  TEST_CHECK(cache.len > 0);
+  os_memory_write(os, "photos/album/bad.jpg", "not jpeg");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  const struct Str errors = buf_str(&log.buf);
+  TEST_CHECK(str_startswith(errors, S("failed to probe media: failed to probe JPEG: ")) &&
+             str_endswith(errors, S(" ('photos/album/bad.jpg')\n")));
+  TEST_MSG("log: '%.*s'", STR_FMT(errors));
+  TEST_CHECK(log.errors == 1);
+  TEST_CHECK(str_eq(file_contents(os, cache_file, &arena), cache));
+}
+
+// A dry run uses the build cache as a build does, so it reads no source, and it leaves the build
+// cache unchanged.
+static void test_dry_run_uses_build_cache_and_leaves_it(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  const struct FileSnapshot built = snapshot_files(os, "public", &arena);
+  os_memory_fail(os, OS_MEMORY_OP_READ, "photos", EACCES);
+
+  TEST_CHECK(execute_dry_run(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(is_snapshot(os, "public", &built));
+}
+
+// A caller-supplied `worker_count` reaches every pool instead of being replaced by the detected
+// default. A build with it produces the same bytes as the default build. The resolved count is not
+// observable from the return value, so it is read off the verbose phase lines, which are the only
+// place the module reports it. Workers finish their jobs in any order, so the progress lines are
+// not compared.
+static void test_honors_requested_worker_count(void) {
+  // One worker, requested explicitly, must be honored rather than read as unset. A guard spelled
+  // `worker_count != 1` instead of `!= 0` swallows that request and falls back to the detected core
+  // count, which asking for `2` cannot see. Asking for one is also the only way to ask for a serial
+  // build. A request the build dropped would show the detected count. Both cases assume the host
+  // reports at least three cores.
+  static const ptrdiff_t worker_counts[] = {2, 1};
+  static const char* const photo_paths[] = {"photos/a.jpg", "photos/b.jpg", "photos/c.jpg"};
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(worker_counts) / sizeof(worker_counts[0])); i++) {
+    struct Os* os = os_memory();
+    write_gallery_fixture(os, NULL);
+    for (ptrdiff_t j = 0; j < (ptrdiff_t)(sizeof(photo_paths) / sizeof(photo_paths[0])); j++) {
+      write_jpeg(os, photo_paths[j]);
+    }
+    const struct BuildOptions options = {.worker_count = worker_counts[i], .is_verbose = true};
+    TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
+    TEST_CHECK(os_memory_is_printed(os, 1, ""));
+    struct Arena arena = test_arena();
+    struct Buf probe_line = {.arena = &arena};
+    struct Buf derivative_line = {.arena = &arena};
+    struct Buf album_line = {.arena = &arena};
+    buf_printf(&probe_line, "probing media, workers: %td", worker_counts[i]);
+    buf_printf(&derivative_line, "generating derivatives, workers: %td", worker_counts[i]);
+    buf_printf(&album_line, "rendering albums, workers: %td", worker_counts[i]);
+    TEST_CHECK(has_printed_line(os, 2, buf_cstr(&probe_line)));
+    TEST_CHECK(has_printed_line(os, 2, buf_cstr(&derivative_line)));
+    TEST_CHECK(has_printed_line(os, 2, buf_cstr(&album_line)));
+    // The requested count changes only how the work is scheduled, never the output.
+    TEST_CHECK(os_memory_is_file(os, "public/index.html",
+                                 "<!doctype html><title>Test Gallery - Test Gallery</title><ul>"
+                                 "<li>a.jpg</li><li>b.jpg</li><li>c.jpg</li></ul>"));
+  }
+}
+
+// A build runs at most four workers per online CPU, however many it is asked for, and the verbose
+// phase lines name that count. `BUILD_WORKER_PER_CPU_MAX` is file-local to `cmd_build.c`, so the
+// four is spelled here, and changing it must change this test.
+static void test_caps_the_worker_count_at_four_per_cpu(void) {
+  struct Os* os = os_memory();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/one.jpg");
+  const struct BuildOptions options = {.worker_count = 100000, .is_verbose = true};
+  TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
+  static const char* const phases[] = {"probing media", "generating derivatives",
+                                       "rendering albums"};
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(phases) / sizeof(phases[0])); i++) {
+    struct Arena arena = test_arena();
+    struct Buf line = {.arena = &arena};
+    buf_printf(&line, "%s, workers: %td", phases[i], 4 * pool_resolve_worker_count());
+    TEST_CHECK(has_printed_line(os, 2, buf_cstr(&line)));
+  }
+  TEST_CHECK(os_memory_has_path(os, "public/index.html"));
+}
+
+// Under an address-space limit the build halves its worker count, down to one, before it halves any
+// arena, and the verbose phase lines name the count it kept. The limits follow the sizes in
+// `cmd_build.c`: 30 GiB lies between the 22 GiB two workers need and the 36.5 GiB four need, and
+// 10 GiB is under the 14.75 GiB of one, which then runs on arenas halved twice.
+static void test_cuts_workers_before_arenas_under_limit(void) {
+  static const struct {
+    ptrdiff_t len_max;
+    ptrdiff_t worker_count;
+  } cases[] = {
+      {(ptrdiff_t)30 << 30, 2},
+      {(ptrdiff_t)10 << 30, 1},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    struct Os* os = os_memory();
+    write_gallery_fixture(os, NULL);
+    write_jpeg(os, "photos/one.jpg");
+    const struct BuildOptions options = {.worker_count = 4, .is_verbose = true};
+    arena_reserve_len_max = cases[i].len_max;
+    TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
+    arena_reserve_len_max = PTRDIFF_MAX;
+    struct Arena arena = test_arena();
+    struct Buf line = {.arena = &arena};
+    buf_printf(&line, "probing media, workers: %td", cases[i].worker_count);
+    TEST_CHECK(has_printed_line(os, 2, buf_cstr(&line)));
+    TEST_CHECK(os_memory_has_path(os, "public/index.html"));
+    TEST_MSG("case %td", i);
+  }
+}
+
+// An album of many items builds. A page render's temporaries grow with the items it lists, about a
+// kilobyte each.
+static void test_builds_a_large_album(void) {
+  enum { ITEM_COUNT = 500 };
+  struct Os* os = os_memory();
+  write_gallery_fixture(os, NULL);
+  os_memory_write(os, "templates/album.html", LARGE_ALBUM_TEMPLATE);
+  struct Arena arena = test_arena();
+  struct Str jpeg = {0};
+  if (!TEST_CHECK(test_jpeg_encode(2, 2, &arena, &jpeg) == 0)) {
+    return;
+  }
+  for (int i = 0; i < ITEM_COUNT; i++) {
+    char path[64];
+    (void)snprintf(path, sizeof(path), "photos/big/%05d.jpg", i);
+    os_memory_write_bytes(os, str_from_cstr(path), jpeg);
+  }
+  const struct BuildOptions options = {.worker_count = 1};
+  struct Log log = test_log();
+  TEST_CHECK(execute_build_with_options(&options, os, &log) == 0);
+  TEST_MSG("errors: %s", buf_cstr(&log.buf));
+}
+
+// A gallery with no media skips the probe and derivative phases, so the verbose log carries no
+// status or progress line for either. A phase with no jobs returns before it prints, so an empty
+// gallery does not report a worker count for work it never starts. The album page phase still runs,
+// for the root album alone.
+static void test_skips_empty_phases_in_verbose_output(void) {
+  struct Os* os = os_memory();
+  write_gallery_fixture(os, NULL);
+  // A file that is not media keeps `input_dir` present while the gallery holds no media.
+  os_memory_write(os, "photos/notes.txt", "not media\n");
+  const struct BuildOptions options = {.worker_count = 3, .is_verbose = true};
+
+  TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
+  TEST_CHECK(os_memory_is_printed(os, 1, ""));
+  TEST_CHECK(os_memory_is_printed(os, 2,
+                                  "loading config\n"
+                                  "discovering media\n"
+                                  "discovering static files\n"
+                                  "planning albums\n"
+                                  "loading build cache\n"
+                                  "no build cache, probing every source\n"
+                                  "building output manifest\n"
+                                  "writing build cache\n"
+                                  "rendering albums, workers: 3\n"
+                                  "\rrendering albums 1/1\n"
+                                  "writing album pages\n"
+                                  "rendering aggregate templates\n"
+                                  "copying static files\n"
+                                  "removing stale outputs\n"
+                                  "removed stale outputs: 0\n"
+                                  "build complete\n"));
+}
+
+// A build that succeeds leaves its log empty, which is the other half of `cmd_build_execute`'s
+// `log` contract. Without this a phase that logged on the success path would go unnoticed, since
+// every other test that inspects the log is a failure test.
+static void test_leaves_log_empty_on_success(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+}
+
+// `cmd_build_run` reports failure as `EXIT_CODE_FAILURE` and prints the collected diagnostic to
+// standard error exactly once, which no other test asserts. Every other test routes failures
+// through `cmd_build_execute` to inspect the message, so without this the boundary itself is
+// unasserted: the exit code and the single print.
+static void test_run_prints_diagnostic_once_and_fails(void) {
+  // No `fram.toml`, the earliest failure, so the diagnostic is a single known line.
+  struct Os* os = os_memory();
+  const struct BuildOptions options = {0};
+
+  TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(os_memory_is_printed(os, 1, ""));
+  // Compared whole rather than by substring: "exactly once" is the claim, and only a whole-buffer
+  // comparison can tell one print from two.
+  struct Arena arena = test_arena();
+  struct Buf expected = {.arena = &arena};
+  buf_printf(&expected, "failed to read config: %s ('fram.toml')\n", strerror(ENOENT));
+  TEST_CHECK(os_memory_is_printed(os, 2, buf_cstr(&expected)));
+}
+
+// A build whose arena is too small for its data ends in `os_oom` rather than failing with a
+// diagnostic or overrunning the arena. Under the test build's `os_oom` that is the process exiting
+// with `TEST_OOM_EXIT_STATUS`. `main.c`'s `os_oom` exits with `EXIT_CODE_FAILURE` instead, so this
+// test does not pin the production exit status.
+static void test_tiny_arena_ends_in_oom(void) {
+  struct Os* os = os_memory();
+  write_gallery_fixture(os, NULL);
+  TEST_CHECK(test_is_oom(build_in_tiny_arena, os));
+}
+
+// A missing `fram.toml` is logged with its cause, and nothing prints it before the command
+// boundary. The cause is part of the claim: a missing config must not read like an unreadable one.
+static void test_reports_missing_config(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(os_memory_is_printed(os, 2, ""));
+  // Exact, not by substring: a substring check would also pass for this message with something
+  // appended to it.
+  TEST_CHECK(test_log_is(&log, "failed to read config: %s ('fram.toml')\n", strerror(ENOENT)));
+}
+
+// `input_dir` is required, so an absent one is a failure, reported as a resolution failure carrying
+// the system cause. `ENOENT` and `EACCES` need different fixes and nothing later would report
+// either, so the cause has to appear here. Only the optional read root is skipped when missing.
+// Compared exactly, so a caller that appended the path a second time would fail.
+static void test_reports_absent_input_dir(void) {
+  struct Os* os = os_memory();
+  write_gallery_fixture(os, NULL);
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log, "failed to resolve config directory 'input_dir': %s ('photos')\n",
+                         strerror(ENOENT)));
+}
+
+// `templates_dir` is required the same way, and reports the key the user has to fix rather than the
+// one that happened to be checked first. A root that cannot be inspected reports its own cause.
+static void test_reports_absent_templates_dir(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "fram.toml", GALLERY_CONFIG);
+  write_jpeg(os, "photos/album/one.jpg");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to resolve config directory 'templates_dir': %s ('templates')\n",
+                         strerror(ENOENT)));
+
+  os_memory_fail(os, OS_MEMORY_OP_STAT, "photos", EACCES);
+  log = test_log();
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to resolve config directory 'input_dir': %s ('photos')\nfailed "
+                         "to resolve config directory 'templates_dir': %s ('templates')\n",
+                         strerror(EACCES), strerror(ENOENT)));
+}
+
+// A directory key the config load rejects is reported once. Its default names a directory the user
+// never chose, so the build does not go on to report that default missing as well.
+static void test_reports_a_rejected_directory_key_once(void) {
+  static const char* const cases[][4] = {
+      {"input_dir = 5\n", "photos/album/one.jpg", "templates/album.html",
+       "config key 'input_dir' must be a string"},
+      {"input_dir = \"/\"\n", "photos/album/one.jpg", "templates/album.html",
+       "config key 'input_dir' must not be empty"},
+      {"input_dir = \"photos\"\ntemplates_dir = [\"layouts\"]\n", "photos/album/one.jpg",
+       "layouts/album.html", "config key 'templates_dir' must be a string"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    TEST_CASE(cases[i][0]);
+    struct Os* os = os_memory();
+    struct Arena config_arena = test_arena();
+    struct Buf config = {.arena = &config_arena};
+    buf_append(&config, S("title = \"Test Gallery\"\nauthor = \"Tests\"\n"));
+    buf_append(&config, str_from_cstr(cases[i][0]));
+    buf_append(&config, S("[derivatives.s]\nwidth = 8\nheight = 8\nquality = 70\n"));
+    os_memory_write(os, "fram.toml", buf_cstr(&config));
+    write_jpeg(os, cases[i][1]);
+    os_memory_write(os, cases[i][2], ALBUM_TEMPLATE);
+    struct Log log = test_log();
+    TEST_CHECK(execute_build(os, &log) == -1);
+    TEST_CHECK(test_log_is_one(&log, cases[i][3]));
+  }
+  TEST_CASE_(NULL);
+}
+
+// A rejected `static_dir` is reported once too, even when its default names something that would
+// fail on its own: here a regular file, which the static walk would report as not a directory.
+static void test_reports_a_rejected_static_dir_once(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, "static_dir = \"\"\n");
+  write_jpeg(os, "photos/album/one.jpg");
+  os_memory_write(os, "static", "not a directory\n");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is_one(&log, "config key 'static_dir' must not be empty"));
+}
+
+// A `templates_dir` that exists but is a regular file is reported as the wrong type, which is its
+// own cause rather than an `errno`, so the message carries no system text.
+static void test_reports_templates_dir_that_is_a_file(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  os_memory_write(os, "fram.toml", GALLERY_CONFIG);
+  write_jpeg(os, "photos/album/one.jpg");
+  os_memory_write(os, "templates", "not a directory\n");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to resolve config directory 'templates_dir': not a directory "
+                         "('templates')\n"));
+}
+
+// A configured `output_dir` that already exists as a regular file is reported once the manifest has
+// passed, where the build creates `output_dir`, before any derivative is written. The reason names
+// the component that failed and the caller does not repeat the configured root, so the message is
+// compared whole.
+static void test_reports_unusable_output_dir(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  // `public` is the default `output_dir`, so a file there is what makes `os_mkdirs` fail.
+  os_memory_write(os, "public", "not a directory");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(
+      &log, "failed to prepare output directory: exists and is not a directory ('public')\n"));
+}
+
+// An `output_dir` that is a dangling symlink is reported once the manifest has passed, where the
+// build creates `output_dir`, before any derivative is written. A dangling symlink has no identity,
+// so the manifest sees nothing there, and `os_mkdirs` then fails the inspection that follows
+// `mkdir`'s `EEXIST`. The message is compared whole.
+static void test_reports_dangling_output_dir_symlink(void) {
+  struct Os* os = os_memory();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  // `public` is the default `output_dir`, so a dangling symlink there is what makes `os_mkdirs`
+  // fail.
+  os_memory_symlink(os, "missing", "public");
+  struct Log log = test_log();
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(
+      &log, "failed to prepare output directory: cannot inspect directory: %s ('public')\n",
+      strerror(ENOENT)));
+}
+
+// An `output_dir` below `input_dir` is refused before media is discovered or probed, so no earlier
+// build's output can be read back as a source, and it is refused although it does not exist yet.
+// The verbose phase lines show that the build stopped before the media walk, and the refused build
+// creates none of the nested directories.
+static void test_rejects_output_dir_inside_input_dir(void) {
+  struct Os* os = os_memory();
+  write_gallery_fixture(os, "output_dir = \"photos/generated/site\"\n");
+  write_jpeg(os, "photos/album/one.jpg");
+  const struct BuildOptions options = {.is_verbose = true};
+
+  TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(os_memory_is_printed(os, 1, ""));
+  TEST_CHECK(os_memory_is_printed(os, 2,
+                                  "loading config\n"
+                                  "output directory would write inside 'input_dir': "
+                                  "'photos/generated/site'\n"));
+  TEST_CHECK(!os_memory_has_path(os, "photos/generated"));
+}
+
+// An `output_dir` that holds `input_dir`, such as `output_dir = "."`, is refused before media is
+// discovered, so the gallery's own files never share a tree with its outputs, and the refused build
+// writes nothing beside them.
+static void test_rejects_output_dir_holding_input_dir(void) {
+  struct Os* os = os_memory();
+  write_gallery_fixture(os, "output_dir = \".\"\n");
+  write_jpeg(os, "photos/album/one.jpg");
+  const struct BuildOptions options = {.is_verbose = true};
+
+  TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(os_memory_is_printed(os, 1, ""));
+  TEST_CHECK(os_memory_is_printed(os, 2,
+                                  "loading config\n"
+                                  "output directory would hold 'input_dir': '.'\n"));
+  // The config, the template, and the source.
+  TEST_CHECK(os_memory_files(os, ".").count == 3);
+}
+
+// Slugging is lossy, so two different source names can claim one output path. The manifest reports
+// the collision and names both sources instead of letting the second write win, once, at the first
+// output the two share, although they share both derivatives and the original. A non-ASCII byte
+// folds to hex, so `caf\xC3\xA9` produces the slug a literal `cafc3a9` also produces. The refused
+// build creates no `output_dir`, because nothing is written before the manifest passes.
+static void test_rejects_colliding_source_names(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/caf\xC3\xA9.jpg");
+  write_jpeg(os, "photos/album/cafc3a9.jpg");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  // Exact, not by substring: a substring check would also pass for this message with something
+  // appended to it.
+  TEST_CHECK(
+      test_log_is(&log,
+                  "duplicate output path for 'photos/album/cafc3a9.jpg' and "
+                  "'photos/album/caf\xC3\xA9.jpg': "
+                  "'public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/cafc3a9-jpg-s.webp'\n"));
+  TEST_CHECK(log.errors == 1);
+  TEST_CHECK(!os_memory_has_path(os, "public"));
+}
+
+// A static file copied to the output root shares its paths with the generated pages, so one named
+// after the root album page is rejected as a duplicate of it rather than overwriting it or being
+// overwritten. The refused build creates no `output_dir`.
+static void test_rejects_static_file_colliding_with_album_page(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  os_memory_write(os, "static/index.html", "static\n");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "duplicate output path for 'photos' and "
+                         "'static/index.html': 'public/index.html'\n"));
+  TEST_CHECK(!os_memory_has_path(os, "public"));
+}
+
+// An album template that fails to parse fails the build at the page phase. The diagnostic carries
+// the parser's cause, its position and the template name, followed by the album that was being
+// rendered, so a template error reads apart from a template that cannot be read. This and
+// `test_reports_a_shared_render_failure_once` are the tests that reach the build's page-render arm.
+static void test_reports_bad_template(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, "album_template = \"broken.html\"\n");
+  // The section never closes, so the template is read but fails to compile.
+  os_memory_write(os, "templates/broken.html", "{{#media}}unclosed");
+  write_jpeg(os, "photos/one.jpg");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  // Exact, not by substring: a substring check would also pass for this message with something
+  // appended to it.
+  TEST_CHECK(test_log_is(&log,
+                         "section-opening tag has no closer at line 1, column 1 (in 'broken.html') "
+                         "(while rendering the root album)\n"));
+}
+
+// A dry run renders every page, so an album template that does not compile fails it with the
+// diagnostic a real build gives, and no listing is printed.
+static void test_dry_run_reports_bad_template(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, "album_template = \"broken.html\"\n");
+  os_memory_write(os, "templates/broken.html", "{{#media}}unclosed");
+  write_jpeg(os, "photos/one.jpg");
+
+  TEST_CHECK(execute_dry_run(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "section-opening tag has no closer at line 1, column 1 (in 'broken.html') "
+                         "(while rendering the root album)\n"));
+  TEST_CHECK(os_memory_is_printed(os, 1, ""));
+}
+
+// A dry run of two sources on one output path fails with the duplicate-path diagnostic a real build
+// gives, and no listing is printed.
+static void test_dry_run_rejects_colliding_source_names(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/caf\xC3\xA9.jpg");
+  write_jpeg(os, "photos/album/cafc3a9.jpg");
+
+  TEST_CHECK(execute_dry_run(os, &log) == -1);
+  TEST_CHECK(
+      test_log_is(&log,
+                  "duplicate output path for 'photos/album/cafc3a9.jpg' and "
+                  "'photos/album/caf\xC3\xA9.jpg': "
+                  "'public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/cafc3a9-jpg-s.webp'\n"));
+  TEST_CHECK(os_memory_is_printed(os, 1, ""));
+}
+
+// A build that fails removes nothing, so a stale file from an earlier build is still there after a
+// render failure.
+static void test_failed_build_removes_no_stale_output(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/one.jpg");
+  os_memory_write(os, "public/notes.txt", "hand");
+  os_memory_write(os, "templates/album.html", "{{#media}}unclosed");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(log.errors == 1);
+  TEST_CHECK(os_memory_is_file(os, "public/notes.txt", "hand"));
+}
+
+// A stale entry that cannot be removed fails the build after every output is written, and the
+// failure names the entry.
+static void test_reports_stale_output_that_cannot_be_removed(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/one.jpg");
+  os_memory_write(os, "public/notes.txt", "hand");
+  os_memory_fail(os, OS_MEMORY_OP_REMOVE, "public/notes.txt", EACCES);
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log, "failed to remove stale output: %s ('public/notes.txt')\n",
+                         strerror(EACCES)));
+  TEST_CHECK(os_memory_has_path(os, "public/index.html"));
+  TEST_CHECK(os_memory_has_path(os, "public/notes.txt"));
+}
+
+// Two albums that fail to render through one missing template fail for one cause. The report prints
+// the first album's line whole and counts the second, and both count as errors.
+static void test_reports_a_shared_render_failure_once(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, "album_template = \"missing.html\"\n");
+  write_jpeg(os, "photos/album/one.jpg");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  // Albums are sorted with the root first, so the root album is the one printed.
+  TEST_CHECK(test_log_is(&log,
+                         "failed to read template: %s ('templates/missing.html') (while rendering "
+                         "the root album)\n\xE2\x80\xA6 and 1 more failures\n",
+                         strerror(ENOENT)));
+  TEST_CHECK(log.errors == 2);
+}
+
+// Two media items that both fail to probe log one line each, so neither is lost to the other. The
+// lines differ in the source they name, so the report collapses neither, and a log that overwrote,
+// or that ran two messages together, would still satisfy every single-item test.
+static void test_reports_one_line_per_failing_media_item(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  // Not JPEG data, so the probe fails for both sources.
+  os_memory_write(os, "photos/album/a.jpg", "not a JPEG\n");
+  os_memory_write(os, "photos/album/b.jpg", "not a JPEG\n");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  // Sources are walked in sorted order, so `a.jpg` precedes `b.jpg`. Compared whole, with the
+  // separator in the middle, so a dropped newline or a lost line both fail here.
+  TEST_CHECK(test_log_is(&log,
+                         "failed to probe media: failed to probe JPEG: Not a JPEG file: starts "
+                         "with 0x6e 0x6f ('photos/album/a.jpg')\n"
+                         "failed to probe media: failed to probe JPEG: Not a JPEG file: starts "
+                         "with 0x6e 0x6f ('photos/album/b.jpg')\n"));
+  TEST_CHECK(log.errors == 2);
+}
+
+// Several independent mistakes in one gallery are all reported by one build, and the build writes
+// nothing: an unknown config key, two sources that cannot be probed, two sources whose names slug
+// alike, and a static file that claims the root album's page. Each kind comes from a different
+// phase, so the order is the phase order, and within a phase it is the sorted walk order. The probe
+// failures do not stop the build before the manifest, because no output path depends on a probed
+// dimension.
+static void test_reports_every_independent_error(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, "colour = \"blue\"\n");
+  os_memory_write(os, "photos/album/bad-a.jpg", "not a JPEG\n");
+  os_memory_write(os, "photos/album/bad-b.jpg", "not a JPEG\n");
+  write_jpeg(os, "photos/album/caf\xC3\xA9.jpg");
+  write_jpeg(os, "photos/album/cafc3a9.jpg");
+  os_memory_write(os, "static/index.html", "static\n");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "unknown config key 'colour'\n"
+                         "failed to probe media: failed to probe JPEG: Not a JPEG file: starts "
+                         "with 0x6e 0x6f ('photos/album/bad-a.jpg')\n"
+                         "failed to probe media: failed to probe JPEG: Not a JPEG file: starts "
+                         "with 0x6e 0x6f ('photos/album/bad-b.jpg')\n"
+                         "duplicate output path for 'photos/album/cafc3a9.jpg' and "
+                         "'photos/album/caf\xC3\xA9.jpg': "
+                         "'public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/cafc3a9-jpg-s.webp'\n"
+                         "duplicate output path for 'photos' and 'static/index.html': "
+                         "'public/index.html'\n"));
+  TEST_CHECK(log.errors == 5);
+  TEST_CHECK(!os_memory_has_path(os, "public"));
+}
+
+// A JPEG over the media read limit is rejected by its probe read. The file is sparse, so the
+// fixture costs no memory.
+static void test_rejects_oversize_source_at_probe(void) {
+  const ptrdiff_t big_source_len = (ptrdiff_t)4 * 1024 * 1024 * 1024;
+  struct Os* os = os_memory();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/big.jpg");
+  os_memory_truncate(os, "photos/big.jpg", big_source_len);
+  const struct BuildOptions options = {.worker_count = 1};
+  struct Log log = test_log();
+
+  TEST_CHECK(execute_build_with_options(&options, os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to probe media: exceeds max file size (%d bytes) at %td "
+                         "bytes ('photos/big.jpg')\n",
+                         IMAGE_INPUT_LEN_MAX, big_source_len));
+}
+
+// An output path that cannot be opened as a file fails the build at the write phase, after every
+// album has rendered successfully. That is the last of `cmd_build_execute`'s phase arms and the
+// only one reached with a complete set of rendered pages in hand, so a write failure reported as
+// success would otherwise pass the suite with the pages silently missing. One page path is an
+// existing directory. The phase stops at its first failure, so a second build fails the root
+// album's page, which is written first, with an injected `EACCES`, as an unwritable directory would
+// refuse it.
+static void test_reports_unwritable_output(void) {
+  struct Os* os = os_memory();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  // A directory at the page path cannot be opened as a file.
+  os_memory_mkdir(os, "public/album/index.html");
+  struct Log log = test_log();
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to write output for 'album': %s ('public/album/index.html')\n",
+                         strerror(EISDIR)));
+
+  os_memory_fail(os, OS_MEMORY_OP_WRITE, "public/index.html", EACCES);
+  log = test_log();
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to write output for the root album: %s ('public/index.html')\n",
+                         strerror(EACCES)));
+}
+
+// A `static_dir` that exists but is a regular file is reported. Skipping an absent optional root
+// must not also skip a misconfigured one, which is why the skip asks whether anything is there
+// rather than whether a directory is there: the wrong type survives the skip and reaches the type
+// check, which names it.
+static void test_reports_static_dir_that_is_a_file(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  os_memory_write(os, "static", "not a directory\n");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to resolve config directory 'static_dir': not a directory "
+                         "('static')\n"));
+}
+
+// A `static_dir` that cannot be inspected is reported with its cause rather than skipped as absent,
+// because it may well be there. A symlink that resolves to itself stands in for any such cause.
+static void test_reports_static_dir_that_cannot_be_inspected(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  os_memory_symlink(os, "static", "static");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log, "failed to resolve config directory 'static_dir': %s ('static')\n",
+                         strerror(ELOOP)));
+}
+
+TEST_LIST = {
+    {"honors configured album template", test_honors_configured_album_template},
+    {"writes exactly manifest outputs", test_writes_exactly_manifest_outputs},
+    {"tolerates trailing slash on input_dir", test_tolerates_trailing_slash_on_input_dir},
+    {"builds with no static dir", test_builds_with_no_static_dir},
+    {"copies static files when present", test_copies_static_files_when_present},
+    {"distinguishes same name in different dirs", test_distinguishes_same_name_in_different_dirs},
+    {"builds an album with no media of its own", test_builds_an_album_with_no_media_of_its_own},
+    {"renders configured sort orders", test_renders_configured_sort_orders},
+    {"rebuild succeeds and repeats its outputs", test_rebuild_succeeds_and_repeats_its_outputs},
+    {"rebuild removes stale outputs", test_rebuild_removes_stale_outputs},
+    {"rebuild skips output dir linked from input dir",
+     test_rebuild_skips_output_dir_linked_from_input_dir},
+    {"dry run lists every output and writes nothing",
+     test_dry_run_lists_every_output_and_writes_nothing},
+    {"dry run keeps fresh media", test_dry_run_keeps_fresh_media},
+    {"dry run lists stale recipe and keeps it", test_dry_run_lists_stale_recipe_and_keeps_it},
+    {"dry run attempts no change", test_dry_run_attempts_no_change},
+    {"dry run leaves no state", test_dry_run_leaves_no_state},
+    {"warm build reads no source and repeats its bytes",
+     test_warm_build_reads_no_source_and_repeats_its_bytes},
+    {"force probes every source", test_force_probes_every_source},
+    {"rewrites build cache without deleted sources",
+     test_rewrites_build_cache_without_deleted_sources},
+    {"ignores build cache of another build", test_ignores_build_cache_of_another_build},
+    {"prunes build cache of another version", test_prunes_build_cache_of_another_version},
+    {"failed probe keeps build cache", test_failed_probe_keeps_build_cache},
+    {"dry run uses build cache and leaves it", test_dry_run_uses_build_cache_and_leaves_it},
+    {"honors requested worker count", test_honors_requested_worker_count},
+    {"caps the worker count at four per CPU", test_caps_the_worker_count_at_four_per_cpu},
+    {"cuts workers before arenas under limit", test_cuts_workers_before_arenas_under_limit},
+    {"builds a large album", test_builds_a_large_album},
+    {"skips empty phases in verbose output", test_skips_empty_phases_in_verbose_output},
+    {"leaves log empty on success", test_leaves_log_empty_on_success},
+    {"run prints diagnostic once and fails", test_run_prints_diagnostic_once_and_fails},
+    {"tiny arena ends in oom", test_tiny_arena_ends_in_oom},
+    {"reports missing config", test_reports_missing_config},
+    {"reports absent input dir", test_reports_absent_input_dir},
+    {"reports absent templates dir", test_reports_absent_templates_dir},
+    {"reports a rejected directory key once", test_reports_a_rejected_directory_key_once},
+    {"reports a rejected static dir once", test_reports_a_rejected_static_dir_once},
+    {"reports templates dir that is a file", test_reports_templates_dir_that_is_a_file},
+    {"reports unusable output dir", test_reports_unusable_output_dir},
+    {"reports dangling output dir symlink", test_reports_dangling_output_dir_symlink},
+    {"rejects output dir inside input dir", test_rejects_output_dir_inside_input_dir},
+    {"rejects output dir holding input dir", test_rejects_output_dir_holding_input_dir},
+    {"rejects colliding source names", test_rejects_colliding_source_names},
+    {"rejects static file colliding with album page",
+     test_rejects_static_file_colliding_with_album_page},
+    {"reports bad template", test_reports_bad_template},
+    {"dry run reports bad template", test_dry_run_reports_bad_template},
+    {"dry run rejects colliding source names", test_dry_run_rejects_colliding_source_names},
+    {"failed build removes no stale output", test_failed_build_removes_no_stale_output},
+    {"reports stale output that cannot be removed",
+     test_reports_stale_output_that_cannot_be_removed},
+    {"reports a shared render failure once", test_reports_a_shared_render_failure_once},
+    {"reports one line per failing media item", test_reports_one_line_per_failing_media_item},
+    {"reports every independent error", test_reports_every_independent_error},
+    {"rejects oversize source at probe", test_rejects_oversize_source_at_probe},
+    {"reports unwritable output", test_reports_unwritable_output},
+    {"reports static dir that is a file", test_reports_static_dir_that_is_a_file},
+    {"reports static dir that cannot be inspected",
+     test_reports_static_dir_that_cannot_be_inspected},
+    {NULL, NULL},
+};
