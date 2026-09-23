@@ -1,0 +1,31 @@
+:PROPERTIES:
+:ID:       9b3e2f4a-7c1d-4e8b-a5f6-0d2c8e1b7a39
+:END:
+#+title: Org Document
+#+date: [2026-07-20 Mon]
+#+last_modified: [2026-07-25 Sat 16:39]
+#+description: An Org note.
+#+filetags: :org:
+
+* Headline
+This paragraph has /emphasis/, *bold* text, a [[https://example.com][link]], and H_{2}O.
+
+** Subheadline
+It cites a footnote.[fn:1]
+
+#+BEGIN_SRC c
+int main(void) { return 0; }
+#+END_SRC
+
+The loop at [[(loop)]] counts down, as src_c{n--} does.
+
+#+BEGIN_SRC c -n
+while (n > 0) { (ref:loop)
+  n--;
+}
+#+END_SRC
+
+[[file:nested/diagram.svg]]
+
+* Footnotes
+[fn:1] Org files the definition under this headline.

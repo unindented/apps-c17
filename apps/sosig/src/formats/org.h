@@ -1,0 +1,54 @@
+#ifndef SOSIG_ORG_H
+#define SOSIG_ORG_H
+
+#include <stddef.h>
+
+#include "shared/arena.h"
+#include "shared/str.h"
+
+struct LinkTargets;
+
+/**
+ * Upper bound on Org input passed to `org_to_html`, in bytes.
+ *
+ * It is 256 MiB for the reasons `MARKDOWN_INPUT_LEN_MAX` gives, and `entry_renderer` reads each
+ * content file with the same limit.
+ *
+ * The org4c API addresses input with `ORG_SIZE` (`unsigned`). The 256 MiB cap is far below that
+ * range. The API can address all accepted input.
+ */
+enum { ORG_INPUT_LEN_MAX = 256 * 1024 * 1024 };
+
+/**
+ * @brief Converts Org to HTML using the configured org4c flags and the file's `#+OPTIONS:` lines.
+ *
+ * org4c parses the Org, and this module's callbacks write the HTML, because org4c's own HTML
+ * renderer offers no way to change how an element is written. The HTML is built in `perm`, growing
+ * in place while nothing else allocates there. org4c's own working memory comes from `malloc`, and
+ * a failed allocation there ends in `os_oom`, like one from `perm`.
+ *
+ * This is reentrant, so content jobs may render in parallel across the worker pool. org4c holds no
+ * writable global state, the highlighter's grammars are immutable once loaded under its lock, and
+ * all per-render state lives in this function's frame. A vendor bump that introduced a global would
+ * invalidate that without any call site changing.
+ *
+ * Every link's and image's target goes to `link_targets` first, with its org4c type, such as `file`
+ * or `fuzzy`, and its path. A `file` link without a description shows the URL that the callback
+ * wrote, as Emacs shows the path it exports.
+ *
+ * @param org          Input bytes of Org, at most `ORG_INPUT_LEN_MAX`.
+ * @param link_targets Callback that may write the URL of a target, or `NULL` to write every target
+ *                     as the renderer does by itself.
+ * @param perm         Arena that owns the HTML. Must not be `NULL`.
+ * @param scratch      Arena for what is held until its element ends: a figure's caption, a
+ *                     footnote's body, a source block's code and code references, and an inline
+ *                     source's code; and for highlighting them, in a region split off when the
+ *                     conversion starts.
+ * @return The HTML, owned by `perm`.
+ */
+struct Str org_to_html(struct Str org,
+                       const struct LinkTargets* link_targets,
+                       struct Arena* perm,
+                       struct Arena scratch) __attribute__((nonnull(3)));
+
+#endif

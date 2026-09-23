@@ -1,0 +1,11 @@
+/* Generated from `sosig_version.c.in`. Change project(VERSION), not the generated source. */
+
+#include "core/sosig_version.h"
+
+struct Str sosig_version_string(void) {
+  return S("@PROJECT_VERSION@");
+}
+
+struct Str sosig_generator_string(void) {
+  return S("@PROJECT_NAME@ @PROJECT_VERSION@");
+}
