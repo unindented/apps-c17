@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  sosig:
+    name: sosig
+    uses: ./.github/workflows/checks.yml
+    with:
+      working-directory: apps/sosig
+      grammars: true
+
+  fram:
+    name: fram
+    uses: ./.github/workflows/checks.yml
+    with:
+      working-directory: apps/fram
+      linux-packages: ffmpeg nasm
+      macos-packages: ffmpeg
+
+  cwrap:
+    name: cwrap
+    uses: ./.github/workflows/checks.yml
+    with:
+      working-directory: apps/cwrap
+      tsan: false
+
+  shared:
+    name: shared
+    uses: ./.github/workflows/checks.yml
+    with:
+      working-directory: libs/shared
+
+  # The ruleset requires only this job. It waits for every other job, even when one fails, and
+  # fails when any of them failed or was cancelled.
+  summary:
+    name: Summary
+    if: always()
+    needs:
+      - sosig
+      - fram
+      - cwrap
+      - shared
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the result of every job
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for result in $RESULTS; do
+            case "$result" in
+              success | skipped) ;;
+              *)
+                echo "a required job ended with result '$result'" >&2
+                exit 1
+                ;;
+            esac
+          done

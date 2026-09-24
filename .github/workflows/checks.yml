@@ -1,0 +1,174 @@
+name: Checks
+
+# Reusable CI job shared by workflows so install/build steps stay in a single place and cannot
+# drift.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to check out; defaults to the triggering ref when empty"
+        required: false
+        type: string
+        default: ""
+      working-directory:
+        description: "Directory of the CMake project to check, relative to the repository root"
+        required: true
+        type: string
+      linux-packages:
+        description: "Extra apt packages that the project needs on Linux"
+        required: false
+        type: string
+        default: ""
+      macos-packages:
+        description: "Extra Homebrew packages that the project needs on macOS"
+        required: false
+        type: string
+        default: ""
+      tsan:
+        description: "Run the ci-tsan workflow preset"
+        required: false
+        type: boolean
+        default: true
+      grammars:
+        description: "Run the ci-grammars workflow preset on Linux"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: CI (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-latest
+          - macos-26
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install quality tools (Linux)
+        if: runner.os == 'Linux'
+        env:
+          EXTRA_PACKAGES: ${{ inputs.linux-packages }}
+        run: |
+          wget --output-document="$RUNNER_TEMP/llvm.sh" https://apt.llvm.org/llvm.sh
+          chmod +x "$RUNNER_TEMP/llvm.sh"
+          sudo "$RUNNER_TEMP/llvm.sh" 23 all
+          # shellcheck disable=SC2086 # EXTRA_PACKAGES is a list of package names.
+          sudo apt-get install -y cppcheck ninja-build $EXTRA_PACKAGES
+          echo "CC=clang-23" >> "$GITHUB_ENV"
+
+      - name: Install quality tools (macOS)
+        if: runner.os == 'macOS'
+        env:
+          EXTRA_PACKAGES: ${{ inputs.macos-packages }}
+        run: |
+          # shellcheck disable=SC2086 # EXTRA_PACKAGES is a list of package names.
+          brew install llvm cppcheck ninja $EXTRA_PACKAGES
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+
+      - name: Install cwrap
+        env:
+          CWRAP_VERSION: 0.3.1
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) target=x86_64-linux-musl ;;
+            macOS-ARM64) target=aarch64-macos ;;
+            *)
+              echo "no cwrap release for $RUNNER_OS-$RUNNER_ARCH" >&2
+              exit 1
+              ;;
+          esac
+          archive="cwrap-$CWRAP_VERSION-$target.tar.gz"
+          release="https://github.com/unindented/apps-c17/releases/download/cwrap-v$CWRAP_VERSION"
+          cd "$RUNNER_TEMP" || exit
+          curl --fail --silent --show-error --location \
+            --remote-name "$release/$archive" --remote-name "$release/SHA256SUMS"
+          # `SHA256SUMS` lists every target's archive, so the check reads only this target's line.
+          awk -v archive="$archive" '$2 == archive' SHA256SUMS > cwrap.sha256
+          if [ ! -s cwrap.sha256 ]; then
+            echo "no digest for '$archive' in the SHA256SUMS of cwrap-v$CWRAP_VERSION" >&2
+            exit 1
+          fi
+          shasum --algorithm 256 --check --quiet cwrap.sha256
+          tar -xzf "$archive"
+          echo "$RUNNER_TEMP/cwrap-$CWRAP_VERSION-$target/bin" >> "$GITHUB_PATH"
+
+      - name: Record build tool versions
+        run: |
+          cmake --version
+          ninja --version
+          "${CC:-cc}" --version
+          cwrap --version
+
+      - name: Resolve build and test parallelism
+        run: |
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$(getconf _NPROCESSORS_ONLN)" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$(getconf _NPROCESSORS_ONLN)" >> "$GITHUB_ENV"
+
+      - name: Lint, build, and test with ASan and UBSan
+        run: cmake --workflow --preset ci-debug
+
+      - name: Build and test with TSan
+        if: inputs.tsan
+        run: cmake --workflow --preset ci-tsan
+
+      - name: Build the release configuration
+        run: cmake --workflow --preset ci-release
+
+      - name: Build with one grammar
+        if: inputs.grammars && runner.os == 'Linux'
+        run: cmake --workflow --preset ci-grammars
+
+      - name: Build and test two configurations with a second generator
+        run: cmake --workflow --preset ci-multi
+
+  gcc:
+    name: CI (ubuntu-latest, GCC)
+    runs-on: ubuntu-latest
+    env:
+      CC: gcc-14
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install build tools
+        env:
+          EXTRA_PACKAGES: ${{ inputs.linux-packages }}
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2086 # EXTRA_PACKAGES is a list of package names.
+          sudo apt-get install -y gcc-14 ninja-build $EXTRA_PACKAGES
+
+      - name: Record build tool versions
+        run: |
+          cmake --version
+          ninja --version
+          "$CC" --version
+
+      - name: Resolve build and test parallelism
+        run: |
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$(getconf _NPROCESSORS_ONLN)" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$(getconf _NPROCESSORS_ONLN)" >> "$GITHUB_ENV"
+
+      # The sanitizer passes run in the Clang job, which also runs clang-tidy and cppcheck. This job
+      # checks that GCC builds the project with its own warnings as errors and that the tests pass in
+      # both configurations. clang-tidy disables itself for a compiler other than Clang.
+      - name: Build and test two configurations with GCC
+        run: cmake --workflow --preset ci-multi
