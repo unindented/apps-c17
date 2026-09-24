@@ -1,0 +1,54 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "timezone": "America/Los_Angeles",
+  "schedule": ["after 8pm every weekday", "every weekend"],
+  "automergeType": "pr",
+  "platformAutomerge": true,
+  "rebaseWhen": "conflicted",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track vendored libraries that THIRD_PARTY_NOTICES.md records by release.",
+      "managerFilePatterns": ["/^apps/[^/]+/THIRD_PARTY_NOTICES\\.md$/"],
+      "matchStrings": [
+        "### (?<depName>\\S+) \\((?<packageName>https://[^)\\s]+)\\)\\n\\nVendored at release `(?<currentValue>[^`]+)`"
+      ],
+      "datasourceTemplate": "git-tags"
+    },
+    {
+      "customType": "regex",
+      "description": "Track the cwrap release that CI and the Linux image install.",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/checks\\.yml$/",
+        "/^(apps/[^/]+|libs/shared)/Containerfile$/"
+      ],
+      "matchStrings": ["CWRAP_VERSION[:=] ?(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "cwrap",
+      "packageNameTemplate": "unindented/apps-c17",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^cwrap-v(?<version>\\d+\\.\\d+\\.\\d+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "A vendored release needs its sources replaced by hand, so its update is a reminder, never merged as is.",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["git-tags"],
+      "extractVersion": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$",
+      "allowedVersions": "!/\\.9\\d$/",
+      "automerge": false,
+      "prBodyNotes": [
+        "This updates only the release recorded in `THIRD_PARTY_NOTICES.md`. Before merging, replace the vendored sources under the app's `vendor/` with that release, and update the commit recorded next to it."
+      ]
+    },
+    {
+      "description": "A cwrap release needs new digests, so its update is a reminder, never merged as is.",
+      "matchDepNames": ["cwrap"],
+      "automerge": false,
+      "prBodyNotes": [
+        "Before merging, replace the SHA-256 digests next to `CWRAP_VERSION` in `.github/workflows/checks.yml` and every `Containerfile` with the ones in the release's `SHA256SUMS`."
+      ]
+    }
+  ]
+}
