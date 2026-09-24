@@ -16,11 +16,11 @@ set(GRAPHVIZ_EXTERNAL_LIBS TRUE)
 set(GRAPHVIZ_CUSTOM_TARGETS FALSE)
 
 set(GRAPHVIZ_IGNORE_TARGETS
-    "fram_build_tests"
+    "apps_build_tests"
     "fram_os_memory"
     "fram_test_support"
     "fram_unit_.*"
-    "fram_vendor_acutest"
+    "vendor_acutest"
 )
 
 set(GRAPHVIZ_GENERATE_PER_TARGET FALSE)

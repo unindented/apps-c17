@@ -1,7 +1,7 @@
 #ifndef SOSIG_TREE_SITTER_WCTYPE_H
 #define SOSIG_TREE_SITTER_WCTYPE_H
 
-// `vendor/CMakeLists.txt` includes this header ahead of each tree-sitter grammar's own sources. The
+// `vendor.cmake` includes this header ahead of each tree-sitter grammar's own sources. The
 // grammars' scanners classify characters with `iswalpha`, `iswalnum`, `iswdigit` and `iswspace`,
 // whose answer for a character outside ASCII depends on the C library: in the C locale, which sosig
 // never changes, macOS and glibc take none of them as a letter or a space, and musl takes many, so

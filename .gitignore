@@ -1,2 +1,4 @@
 /build/
-/CMakeUserPresets.json
+/apps/*/build/
+/libs/build/
+CMakeUserPresets.json

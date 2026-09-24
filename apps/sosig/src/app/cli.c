@@ -322,8 +322,8 @@ static void record_error(struct CliOptions* options, struct Arena* arena, const 
     return;
   }
   // The first pass measures the message and the second writes it into `arena`, as `buf_printf`
-  // does. Starting the list twice needs no `va_copy`, and forwarding it to `buf_vprintf` instead
-  // makes Clang's analyzer report a false `va_end` on AArch64 Linux.
+  // does. Starting the list twice needs no `va_copy`, and forwarding it to another formatter
+  // instead makes Clang's analyzer report a false `va_end` on AArch64 Linux.
   va_list args;
   va_start(args, format);
   const int message_len = vsnprintf(NULL, 0, format, args);

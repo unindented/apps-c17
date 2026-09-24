@@ -236,7 +236,7 @@ This guide takes its ideas and conventions from these sources:
 
 ### Hosts
 
-- Run a new test against the in-memory host (`fram_add_unit_test(<module> OS memory)`) unless it needs a fact that only a real filesystem has, such as the umask, a FIFO, permissions, or an interrupted write. A memory-host test builds its tree with the `os_memory_*` helpers, injects failures with `os_memory_fail`, and has no fixture to remove.
+- Run a new test against the in-memory host (`apps_add_unit_test(<module> OS memory)`) unless it needs a fact that only a real filesystem has, such as the umask, a FIFO, permissions, or an interrupted write. A memory-host test builds its tree with the `os_memory_*` helpers, injects failures with `os_memory_fail`, and has no fixture to remove.
 - Keep a test that starts a child process, such as the `ffprobe` and `ffmpeg` fakes, on the POSIX host, because `proc` and `video` work on the real host, whichever host the test links. Thus the video cases of a memory-host module are a separate executable (`test_*_video.c`).
 - Every unit test that is registered without `OS memory` links the POSIX host. These tests are:
   - The POSIX layer's own tests (`fs`, `os_posix`), the test-support test, and the tests that run processes or decode video (`proc`, `video` and the `*_video` tests), which need the real host.

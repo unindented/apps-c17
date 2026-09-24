@@ -1,6 +1,6 @@
-// This file is compiled, never linked or run, by the `sharedstuff.format_compile.*` tests. Each
-// test defines one `TEST_FORMAT_` macro and expects the compile to fail with the error that names
-// the problem. With no macro defined, the file compiles, which shows that a failure comes from the
+// This file is compiled, never linked or run, by the `shared.format_compile.*` tests. Each test
+// defines one `TEST_FORMAT_` macro and expects the compile to fail with the error that names the
+// problem. With no macro defined, the file compiles, which shows that a failure comes from the
 // rejected call and not from the setup.
 
 #include <stdarg.h>

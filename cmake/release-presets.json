@@ -1,0 +1,56 @@
+{
+  "version": 6,
+  "include": ["presets.json"],
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "release-linux-x86_64",
+      "inherits": "release",
+      "displayName": "x86_64 Linux musl release",
+      "toolchainFile": "${fileDir}/toolchains/x86_64-linux-musl.cmake",
+      "cacheVariables": {
+        "APPS_RELEASE_TARGET": "x86_64-linux-musl"
+      }
+    },
+    {
+      "name": "release-linux-aarch64",
+      "inherits": "release",
+      "displayName": "aarch64 Linux musl release",
+      "toolchainFile": "${fileDir}/toolchains/aarch64-linux-musl.cmake",
+      "cacheVariables": {
+        "APPS_RELEASE_TARGET": "aarch64-linux-musl"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "release-linux-x86_64",
+      "configurePreset": "release-linux-x86_64"
+    },
+    {
+      "name": "release-linux-aarch64",
+      "configurePreset": "release-linux-aarch64"
+    }
+  ],
+  "packagePresets": [
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "generators": ["TGZ"]
+    },
+    {
+      "name": "release-linux-x86_64",
+      "configurePreset": "release-linux-x86_64",
+      "generators": ["TGZ"]
+    },
+    {
+      "name": "release-linux-aarch64",
+      "configurePreset": "release-linux-aarch64",
+      "generators": ["TGZ"]
+    }
+  ]
+}

@@ -16,11 +16,11 @@ set(GRAPHVIZ_EXTERNAL_LIBS TRUE)
 set(GRAPHVIZ_CUSTOM_TARGETS FALSE)
 
 set(GRAPHVIZ_IGNORE_TARGETS
-    "cwrap_build_tests"
+    "apps_build_tests"
     "cwrap_os_memory"
     "cwrap_test_support"
     "cwrap_unit_.*"
-    "cwrap_vendor_acutest"
+    "vendor_acutest"
 )
 
 set(GRAPHVIZ_GENERATE_PER_TARGET FALSE)

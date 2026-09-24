@@ -166,7 +166,7 @@ struct Writer {
 
 /**
  * The grammars, by the names a code block gives its language: those `SOSIG_GRAMMARS` selects, which
- * `vendor/CMakeLists.txt` declares in `tree_sitter_grammars.h`, with their names.
+ * `vendor.cmake` declares in `tree_sitter_grammars.h`, with their names.
  */
 static struct HighlightGrammar grammars[] = {TREE_SITTER_GRAMMARS};
 

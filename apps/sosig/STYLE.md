@@ -233,7 +233,7 @@ This guide takes its ideas and conventions from these sources:
 
 ### Hosts
 
-- Run a new test against the in-memory host (`sosig_add_unit_test(<module> OS memory)`) unless it needs a fact that only a real filesystem has, such as the umask, a FIFO, permissions, or an interrupted write. A memory-host test builds its tree with the `os_memory_*` helpers, injects failures with `os_memory_fail`, and has no fixture to remove.
+- Run a new test against the in-memory host (`apps_add_unit_test(<module> OS memory)`) unless it needs a fact that only a real filesystem has, such as the umask, a FIFO, permissions, or an interrupted write. A memory-host test builds its tree with the `os_memory_*` helpers, injects failures with `os_memory_fail`, and has no fixture to remove.
 - Every unit test that is registered without `OS memory` links the POSIX host. These tests are:
   - The POSIX layer's own tests (`fs`, `os_posix`) and the test-support test, which need a real filesystem.
   - The suites that are not yet converted to the in-memory host (`cli`, `cli_dispatch`, `cmd_config`, `entry_renderer`, `site_config`, `template`).

@@ -6,11 +6,11 @@ target_sources(
          FILES cli.h cli_dispatch.h cmd_build.h cmd_config.h exit_code.h
 )
 
-if(SOSIG_BUILD_TESTING)
+if(APPS_BUILD_TESTING)
   foreach(module IN ITEMS cli cli_dispatch cmd_config)
-    sosig_add_unit_test(${module})
+    apps_add_unit_test(${module})
   endforeach()
   # A build reads, walks and writes only through `runtime/os.h`, so its tests use the in-memory
   # host.
-  sosig_add_unit_test(cmd_build OS memory)
+  apps_add_unit_test(cmd_build OS memory)
 endif()

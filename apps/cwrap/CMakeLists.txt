@@ -10,7 +10,7 @@ project(
   cwrap
   VERSION 0.3.1
   DESCRIPTION "A small C comment formatter written in C17"
-  HOMEPAGE_URL "https://github.com/unindented/cwrap-c17"
+  HOMEPAGE_URL "https://github.com/unindented/apps-c17"
   LANGUAGES C
 )
 
@@ -18,11 +18,11 @@ if(PROJECT_IS_TOP_LEVEL AND "${PROJECT_SOURCE_DIR}" STREQUAL "${PROJECT_BINARY_D
   message(FATAL_ERROR "in-source builds are unsupported; use a preset or '-B build/<name>'")
 endif()
 
-if(NOT DEFINED CWRAP_BUILD_TESTING)
-  set(CWRAP_BUILD_TESTING "${PROJECT_IS_TOP_LEVEL}")
+if(NOT DEFINED APPS_BUILD_TESTING)
+  set(APPS_BUILD_TESTING "${PROJECT_IS_TOP_LEVEL}")
 endif()
 
-if(CWRAP_BUILD_TESTING)
+if(APPS_BUILD_TESTING)
   if(PROJECT_IS_TOP_LEVEL)
     enable_testing()
   else()
@@ -47,24 +47,30 @@ if(PROJECT_IS_TOP_LEVEL)
   set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
 endif()
 
-list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
+# The root `cmake/` directory holds the modules that every project shares, and the app's own
+# `cmake/` directory holds the modules of this app.
+list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/../../cmake" "${PROJECT_SOURCE_DIR}/cmake")
 
-include(cwrap_build_profiles)
+include(apps_build_profiles)
 
 if(PROJECT_IS_TOP_LEVEL)
-  include(cwrap_quality)
+  include(apps_quality)
+  include(cwrap_lint)
 endif()
-if(CWRAP_BUILD_TESTING)
-  include(cwrap_testing)
+if(APPS_BUILD_TESTING)
+  include(apps_testing)
 endif()
 
-add_subdirectory(vendor)
+include(vendor.cmake)
+# The libraries build only when a target of this app links them, with this app's build profiles.
+# `SYSTEM` keeps this app's analysis to its own sources.
+add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)
 add_subdirectory(src)
 
-if(CWRAP_BUILD_TESTING)
+if(APPS_BUILD_TESTING)
   add_subdirectory(tests)
 endif()
 
 if(PROJECT_IS_TOP_LEVEL)
-  include(cwrap_packaging)
+  include(apps_packaging)
 endif()

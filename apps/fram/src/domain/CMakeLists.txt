@@ -6,8 +6,8 @@ target_sources(
          FILES album.h build_cache.h gallery_config.h manifest.h media_item.h
 )
 
-if(FRAM_BUILD_TESTING)
+if(APPS_BUILD_TESTING)
   foreach(module IN ITEMS album build_cache gallery_config manifest media_item)
-    fram_add_unit_test(${module})
+    apps_add_unit_test(${module})
   endforeach()
 endif()

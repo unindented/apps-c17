@@ -14,7 +14,7 @@ The top-level [CMakeLists.txt](CMakeLists.txt) sets the project policy, includes
 | [vendor/CMakeLists.txt](vendor/CMakeLists.txt) | Defines a target for each vendored dependency |
 | [cmake/cwrap_build_profiles.cmake](cmake/cwrap_build_profiles.cmake) | Sets warnings, optimization, fortification and sanitizers |
 | [cmake/cwrap_quality.cmake](cmake/cwrap_quality.cmake) | Configures formatting and static analysis |
-| [cmake/cwrap_testing.cmake](cmake/cwrap_testing.cmake) | Defines `cwrap_add_unit_test`, which registers a unit test and selects the host that the test links |
+| [cmake/cwrap_testing.cmake](cmake/cwrap_testing.cmake) | Defines `apps_add_unit_test`, which registers a unit test and selects the host that the test links |
 | [cmake/cwrap_run_golden.cmake](cmake/cwrap_run_golden.cmake) | Runs the golden test |
 | [cmake/cwrap_run_idempotent.cmake](cmake/cwrap_run_idempotent.cmake) | Runs the idempotence test |
 | [cmake/cwrap_packaging.cmake](cmake/cwrap_packaging.cmake) | Configures installation and CPack archives |
@@ -35,9 +35,9 @@ The CMake build has one application library, two hosts, one target for each vend
 
 Each source directory holds the code for one purpose. Except for the host in `src/runtime/`, the source directories add their files to `cwrap_app` and do not define libraries of their own, because more libraries would add link boundaries without independent APIs. `src/CMakeLists.txt` links the vendored dependencies.
 
-`cwrap_app` links `cwrap_vendor_sharedstuff` as a `PUBLIC` dependency, because the application headers expose the types of this library. The other dependencies are `PRIVATE`.
+`cwrap_app` links `shared` as a `PUBLIC` dependency, because the application headers expose the types of this library. The other dependencies are `PRIVATE`.
 
-`cwrap_vendor_sharedstuff` supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. `src/app/main.c` defines the `os_oom` of `cwrap`, which [ARCHITECTURE.md](ARCHITECTURE.md#out-of-memory-exits-the-process) describes. `cwrap_test_support` defines the `os_oom` of the unit tests.
+`shared` supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. `src/app/main.c` defines the `os_oom` of `cwrap`, which [ARCHITECTURE.md](ARCHITECTURE.md#out-of-memory-exits-the-process) describes. `cwrap_test_support` defines the `os_oom` of the unit tests.
 
 ### Hosts
 
@@ -71,8 +71,8 @@ Each vendored project has its own target: the header-only projects, acutest and 
 
 Two interface targets carry the compile and link options:
 
-- `cwrap_build_project` sets the strict warnings for first-party code and the sanitizer options.
-- `cwrap_build_tests` sets the common warning group and the sanitizer options.
+- `apps_build_project` sets the strict warnings for first-party code and the sanitizer options.
+- `apps_build_tests` sets the common warning group and the sanitizer options.
 
 Both targets require C17 or later. A parent project can select a newer standard, but not an older one.
 
@@ -82,9 +82,9 @@ The presets set `CMAKE_COMPILE_WARNING_AS_ERROR`, so the compiler treats warning
 
 ### Sanitizers
 
-`CWRAP_SANITIZER` accepts `none` or `address`. `address` enables AddressSanitizer and UndefinedBehaviorSanitizer. The option adds flags to the standard CMake configurations and does not create custom build types.
+`APPS_SANITIZER` accepts `none` or `address`. `address` enables AddressSanitizer and UndefinedBehaviorSanitizer. The option adds flags to the standard CMake configurations and does not create custom build types.
 
-With `address`, the CMake build instruments first-party code and vendored code. `cwrap_vendor_sharedstuff` builds with the first-party profile, so vendored code also keeps every check.
+With `address`, the CMake build instruments first-party code and vendored code. `shared` builds with the first-party profile, so vendored code also keeps every check.
 
 ## Linting and formatting
 
@@ -92,21 +92,21 @@ When this repository is the top-level CMake project, the `C_CLANG_TIDY` and `C_C
 
 Test targets run `cppcheck` but not `clang-tidy`, because their intentional failure cases cause analyzer errors. When CMake cross-compiles, neither tool runs. Zig supplies the headers for the target platform, and the analyzers on the host cannot find these headers when they repeat the compile command. When the compiler is not Clang, the CMake build turns off `clang-tidy`, because `clang-tidy` reads the compile command and rejects GCC-only warning options such as `-Wlogical-op`. `cppcheck` runs with any compiler.
 
-The `cwrap_format` and `cwrap_lint` targets run `clang-format` and then `cwrap`, which refills comment prose to 100 columns, the `.clang-format` column limit. Either tool is skipped when it is not installed. CI and the Linux image install a pinned `cwrap` release. It is the installed `cwrap`, not the one this tree builds, so a change to how it rewraps reaches these sources only through a new release and the pin in CI and the Linux image.
+The `format` and `lint` targets run `clang-format` and then `cwrap`, which refills comment prose to 100 columns, the `.clang-format` column limit. Either tool is skipped when it is not installed. CI and the Linux image install a pinned `cwrap` release. It is the installed `cwrap`, not the one this tree builds, so a change to how it rewraps reaches these sources only through a new release and the pin in CI and the Linux image.
 
 Both targets run both tools on the first-party files in an explicit list, `cwrap_owned_sources` in `cmake/cwrap_quality.cmake`. They also run both tools on the template [src/app/cwrap_version.c.in](src/app/cwrap_version.c.in), which `clang-format` reads as `cwrap_version.c` because of `--assume-filename`. When you add a source file or a test file, add it to this list and to its target. A glob at configure time would not find a new file until CMake configures the project again.
 
 ## Tests
 
-`CWRAP_BUILD_TESTING` controls whether CMake defines the tests. It is on by default when this repository is the top-level CMake project, and off by default when a parent project adds this repository as a subproject.
+`APPS_BUILD_TESTING` controls whether CMake defines the tests. It is on by default when this repository is the top-level CMake project, and off by default when a parent project adds this repository as a subproject.
 
 Each source directory adds its own unit tests. `tests/` adds the golden and idempotence tests, `cwrap_test_support`, `cwrap_os_memory` and the seeded random tests. Every CTest case has the label `cwrap`, and also the label `unit`, `golden` or `idempotent`.
 
 ### Unit tests
 
-`cwrap_add_unit_test(<module>)` compiles `test_<module>.c` into the executable `cwrap_unit_<module>`, and registers this executable as the CTest case `cwrap.<module>`. The executable links `cwrap_build_tests`, acutest, `cwrap_test_support`, `cwrap_app` and one host.
+`apps_add_unit_test(<module>)` compiles `test_<module>.c` into the executable `cwrap_unit_<module>`, and registers this executable as the CTest case `cwrap.<module>`. The executable links `apps_build_tests`, acutest, `cwrap_test_support`, `cwrap_app` and one host.
 
-With the `OS memory` option, `cwrap_add_unit_test` links the in-memory host and compiles the test with `CWRAP_TEST_OS_MEMORY` set to 1. New tests use this option. The tests registered without `OS memory` link the POSIX host. These tests are:
+With the `OS memory` option, `apps_add_unit_test` links the in-memory host and compiles the test with `CWRAP_TEST_OS_MEMORY` set to 1. New tests use this option. The tests registered without `OS memory` link the POSIX host. These tests are:
 
 - the tests that need a real filesystem: `fs` and `os_posix`, which test the POSIX layer; and `test_support`, which tests the test-support library
 - the suites that are not yet converted to the in-memory host, which create their fixtures in a real temporary directory: `cli` and `cli_dispatch`
@@ -173,7 +173,7 @@ The installation contains the executable and its documentation files, `README.md
 
 ### Packages
 
-CPack creates one stripped archive for each release target, `cwrap-<version>-<target>.tar.gz`. The cache variable `CWRAP_RELEASE_TARGET` names the release target, for example `x86_64-linux-musl` in a Linux preset.
+CPack creates one stripped archive for each release target, `cwrap-<version>-<target>.tar.gz`. The cache variable `APPS_RELEASE_TARGET` names the release target, for example `x86_64-linux-musl` in a Linux preset.
 
 The macOS deployment target, `CMAKE_OSX_DEPLOYMENT_TARGET`, is `13.0` by default. You can set a higher value in the CMake cache.
 

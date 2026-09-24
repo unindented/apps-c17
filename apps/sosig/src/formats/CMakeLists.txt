@@ -8,15 +8,15 @@ target_sources(
 
 target_link_libraries(
   sosig_app
-  PRIVATE sosig_vendor_md4c
-          sosig_vendor_org4c
-          sosig_vendor_tree_sitter_grammars
-          sosig_vendor_tree_sitter
+  PRIVATE vendor_md4c
+          vendor_org4c
+          vendor_tree_sitter_grammars
+          vendor_tree_sitter
 )
 
-if(SOSIG_BUILD_TESTING)
+if(APPS_BUILD_TESTING)
   foreach(module IN ITEMS body_html html markdown org toml)
-    sosig_add_unit_test(${module})
+    apps_add_unit_test(${module})
   endforeach()
-  sosig_add_unit_test(highlight OS memory)
+  apps_add_unit_test(highlight OS memory)
 endif()

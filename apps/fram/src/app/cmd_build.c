@@ -918,7 +918,7 @@ static void build_verbose(const struct BuildState* state, const char* format, ..
     return;
   }
   // The first pass measures the line and the second writes it, as `buf_printf` does. Starting the
-  // list twice needs no `va_copy`, and forwarding it to `buf_vprintf` instead makes Clang's
+  // list twice needs no `va_copy`, and forwarding it to another formatter instead makes Clang's
   // analyzer report a false `va_end` on AArch64 Linux.
   va_list args;
   va_start(args, format);

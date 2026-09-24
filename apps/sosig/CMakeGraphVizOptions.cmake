@@ -16,11 +16,11 @@ set(GRAPHVIZ_EXTERNAL_LIBS TRUE)
 set(GRAPHVIZ_CUSTOM_TARGETS FALSE)
 
 set(GRAPHVIZ_IGNORE_TARGETS
-    "sosig_build_tests"
+    "apps_build_tests"
     "sosig_os_memory"
     "sosig_test_support"
     "sosig_unit_.*"
-    "sosig_vendor_acutest"
+    "vendor_acutest"
 )
 
 set(GRAPHVIZ_GENERATE_PER_TARGET FALSE)

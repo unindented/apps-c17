@@ -6,8 +6,8 @@ target_sources(
          FILES ascii.h error.h parse.h path.h path_list.h sosig_version.h text.h
 )
 
-if(SOSIG_BUILD_TESTING)
+if(APPS_BUILD_TESTING)
   foreach(module IN ITEMS ascii error parse path path_list text)
-    sosig_add_unit_test(${module})
+    apps_add_unit_test(${module})
   endforeach()
 endif()

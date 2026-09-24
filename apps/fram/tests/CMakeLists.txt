@@ -3,29 +3,29 @@
 # Unit-test plumbing shared by every unit-test executable. It is an object library rather than a
 # static one so that its `os_oom` is always linked in: a static archive member would be pulled only
 # by a reference that precedes it on the link line, and the reference comes from the arena in
-# `fram_vendor_sharedstuff`, which follows it.
+# `shared`, which follows it.
 add_library(fram_test_support OBJECT test_support.c)
 target_include_directories(fram_test_support PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>")
-target_link_libraries(fram_test_support PRIVATE fram_build_tests fram_vendor_acutest fram_app)
+target_link_libraries(fram_test_support PRIVATE apps_build_tests vendor_acutest fram_app)
 # The fixture JPEG encoder and the WebP output decoder call their codecs themselves.
 target_sources(fram_test_support PRIVATE test_jpeg_fixture.c test_webp_output.c)
-target_link_libraries(fram_test_support PRIVATE fram_vendor_libjpeg_turbo fram_vendor_libwebp)
+target_link_libraries(fram_test_support PRIVATE vendor_libjpeg_turbo vendor_libwebp)
 if(PROJECT_IS_TOP_LEVEL)
-  fram_enable_test_analysis(fram_test_support)
+  apps_enable_test_analysis(fram_test_support)
 endif()
-fram_add_unit_test(test_support)
+apps_add_unit_test(test_support)
 
 # The in-memory implementation of `src/runtime/os.h`, which a unit test registered with `OS memory`
 # links in place of the POSIX one. It is an object library for the same reason as the POSIX one.
 add_library(fram_os_memory OBJECT os_memory.c)
 target_include_directories(fram_os_memory PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>")
-target_link_libraries(fram_os_memory PRIVATE fram_build_tests fram_vendor_acutest fram_app)
+target_link_libraries(fram_os_memory PRIVATE apps_build_tests vendor_acutest fram_app)
 if(PROJECT_IS_TOP_LEVEL)
-  fram_enable_test_analysis(fram_os_memory)
+  apps_enable_test_analysis(fram_os_memory)
 endif()
 
 # Seeded random tests over the EXIF and JPEG-header parsers.
-fram_add_unit_test(random)
+apps_add_unit_test(random)
 
 find_program(FRAM_FFMPEG ffmpeg)
 find_program(FRAM_FFPROBE ffprobe)

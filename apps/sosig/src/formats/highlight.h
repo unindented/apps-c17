@@ -45,8 +45,8 @@ struct HighlightLines {
 /**
  * @brief Returns the grammars the build links, by the names `SOSIG_GRAMMARS` takes.
  *
- * @return The names, such as `c, bash, json`, joined by `, ` in the order `vendor/CMakeLists.txt`
- *         gives the grammars. The text is static.
+ * @return The names, such as `c, bash, json`, joined by `, ` in the order `vendor.cmake` gives the
+ *         grammars. The text is static.
  */
 struct Str highlight_grammar_list(void);
 

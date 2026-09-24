@@ -1131,8 +1131,8 @@ static void render_fail(struct ProviderData* provider_data,
                         ...) {
   if (!provider_data->has_failed) {
     // The first pass measures the message and the second writes it into the render's scratch, as
-    // `buf_printf` does. Starting the list twice needs no `va_copy`, and forwarding it to
-    // `log_error_v` instead makes Clang's analyzer report a false `va_end` on AArch64 Linux.
+    // `buf_printf` does. Starting the list twice needs no `va_copy`, and forwarding it to another
+    // formatter instead makes Clang's analyzer report a false `va_end` on AArch64 Linux.
     va_list args;
     va_start(args, format);
     const int message_len = vsnprintf(NULL, 0, format, args);

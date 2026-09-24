@@ -6,8 +6,8 @@ target_sources(
          FILES ascii.h parse.h
 )
 
-if(CWRAP_BUILD_TESTING)
+if(APPS_BUILD_TESTING)
   foreach(module IN ITEMS ascii parse)
-    cwrap_add_unit_test(${module})
+    apps_add_unit_test(${module})
   endforeach()
 endif()

@@ -18,17 +18,17 @@ add_subdirectory(runtime)
 
 target_link_libraries(
   sosig_app
-  PUBLIC sosig_vendor_tomlc17
-         sosig_vendor_sharedstuff
-  PRIVATE sosig_build_project
-          sosig_vendor_copt
+  PUBLIC vendor_tomlc17
+         shared
+  PRIVATE apps_build_project
+          vendor_copt
           Threads::Threads
 )
 
 add_executable(sosig app/main.c)
-target_link_libraries(sosig PRIVATE sosig_build_project sosig_app sosig_os_posix)
+target_link_libraries(sosig PRIVATE apps_build_project sosig_app sosig_os_posix)
 
 if(PROJECT_IS_TOP_LEVEL)
-  sosig_enable_project_analysis(sosig_app)
-  sosig_enable_project_analysis(sosig)
+  apps_enable_project_analysis(sosig_app)
+  apps_enable_project_analysis(sosig)
 endif()

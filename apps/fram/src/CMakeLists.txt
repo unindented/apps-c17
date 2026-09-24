@@ -18,17 +18,17 @@ add_subdirectory(runtime)
 
 target_link_libraries(
   fram_app
-  PUBLIC fram_vendor_tomlc17
-         fram_vendor_sharedstuff
-  PRIVATE fram_build_project
-          fram_vendor_copt
+  PUBLIC vendor_tomlc17
+         shared
+  PRIVATE apps_build_project
+          vendor_copt
           Threads::Threads
 )
 
 add_executable(fram app/main.c)
-target_link_libraries(fram PRIVATE fram_build_project fram_app fram_os_posix)
+target_link_libraries(fram PRIVATE apps_build_project fram_app fram_os_posix)
 
 if(PROJECT_IS_TOP_LEVEL)
-  fram_enable_project_analysis(fram_app)
-  fram_enable_project_analysis(fram)
+  apps_enable_project_analysis(fram_app)
+  apps_enable_project_analysis(fram)
 endif()

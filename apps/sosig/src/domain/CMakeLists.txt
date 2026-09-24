@@ -6,8 +6,8 @@ target_sources(
          FILES build_cache.h content_entry.h frontmatter.h manifest.h permalink.h site_config.h
 )
 
-if(SOSIG_BUILD_TESTING)
+if(APPS_BUILD_TESTING)
   foreach(module IN ITEMS build_cache content_entry frontmatter manifest permalink site_config)
-    sosig_add_unit_test(${module})
+    apps_add_unit_test(${module})
   endforeach()
 endif()

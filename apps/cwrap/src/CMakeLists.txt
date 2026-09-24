@@ -16,14 +16,14 @@ add_subdirectory(runtime)
 
 target_link_libraries(
   cwrap_app
-  PUBLIC cwrap_vendor_sharedstuff
-  PRIVATE cwrap_build_project cwrap_vendor_copt
+  PUBLIC shared
+  PRIVATE apps_build_project vendor_copt
 )
 
 add_executable(cwrap app/main.c)
-target_link_libraries(cwrap PRIVATE cwrap_build_project cwrap_app cwrap_os_posix)
+target_link_libraries(cwrap PRIVATE apps_build_project cwrap_app cwrap_os_posix)
 
 if(PROJECT_IS_TOP_LEVEL)
-  cwrap_enable_project_analysis(cwrap_app)
-  cwrap_enable_project_analysis(cwrap)
+  apps_enable_project_analysis(cwrap_app)
+  apps_enable_project_analysis(cwrap)
 endif()
