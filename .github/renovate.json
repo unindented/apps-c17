@@ -6,6 +6,18 @@
   "automergeType": "pr",
   "platformAutomerge": true,
   "rebaseWhen": "conflicted",
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/vendor/**",
+    "**/examples/**",
+    "**/__tests__/**",
+    "**/test/**",
+    "**/tests/**",
+    "**/__fixtures__/**",
+    "apps/*/.github/**",
+    "libs/*/.github/**"
+  ],
   "customManagers": [
     {
       "customType": "regex",
