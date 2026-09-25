@@ -12,8 +12,9 @@
 - [src/core/](src/core/): Small reusable primitives, containers, diagnostics, text, and path logic.
 - [tests/](tests/): The golden test suite, the shared unit-test support library [tests/test_support.h](tests/test_support.h), and the in-memory host [tests/os_memory.h](tests/os_memory.h). The fixture gallery [tests/fixtures/gallery](tests/fixtures/gallery/), which mixes JPEG and MP4 sources, has its expected output in [tests/expected/gallery](tests/expected/gallery/).
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
-- [cmake/](cmake/): CMake profiles, quality tools, packaging, the golden test driver, and reusable cross toolchains. [BUILD.md](BUILD.md) documents their boundaries and policy.
-- [vendor/](vendor/): The bundled dependencies `sharedstuff`, `copt`, `tomlc17`, `libjpeg-turbo`, `libwebp`, `stb`, `mustache4c`, and `acutest`.
+- [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](BUILD.md) documents their boundaries and policy.
+- [libs/shared/](../../libs/shared/): The `shared` library, which the `libs/` project builds and tests.
+- [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `libjpeg-turbo`, `libwebp`, `stb`, `mustache4c`, and `acutest`.
 
 ### Dependency rules
 
@@ -31,7 +32,7 @@ A module can skip layers, and modules in the same directory can depend on each o
 
 These words have one meaning everywhere in this document:
 
-- **Arena.** A `struct Arena` from `sharedstuff`. It has two pointers, `beg` and `end`, into one region. When the region is reserved and the arena commits pages on demand, it has a third pointer, `limit`. An arena never frees an individual allocation.
+- **Arena.** A `struct Arena` from `shared`. It has two pointers, `beg` and `end`, into one region. When the region is reserved and the arena commits pages on demand, it has a third pointer, `limit`. An arena never frees an individual allocation.
 - **Perm.** A thread's arena for data that lives longer than the function that makes it. A function takes it by pointer, as `struct Arena* perm`.
 - **Scratch.** A thread's arena for temporary data. A function takes it by value, as `struct Arena scratch`, so its allocations are free again when the function returns.
 - **Log.** A `struct Log`: a growable buffer with one line for each error, and an error count. A command prints its log once. A log grows in an arena of its own, or in an arena that all users of the log get by pointer, so no callee gets the log's arena by value.
@@ -155,7 +156,7 @@ Each item below links to the module's header, which documents its interface. The
   - `os_stat` reports identity, type, size, and modification time.
   - `os_list` closes a directory before it returns. It classifies each directory entry, and for a symlink it classifies the target. It skips dangling links, and directory entries that were removed after it read them.
   - `os_print` carries every byte that the program prints: the log at the end of a command, a rejected command line, `--help` and `--version`, the resolved config, the verbose status lines, and the workers' progress lines, so a test on the in-memory host sees all of it. One call writes its text as a whole. A caller that prints from more than one thread holds its own lock around the call.
-  - `os_oom` is the one other member. `sharedstuff` declares it, and each program defines it.
+  - `os_oom` is the one other member. `shared` declares it, and each program defines it.
 - [pool](src/runtime/pool.h): Runs indexed jobs through a pthread pool of bounded size. It completes every job, even when one job fails, and joins every worker before it returns. Each job gets the index of the worker that runs it, so the job can use that worker's arenas. The module also gets the default worker count from the number of online CPUs. The build runs its jobs in parallel because decoding a JPEG, resizing and encoding a WebP, and running `ffmpeg` take time for each file.
 - [proc](src/runtime/proc.h): Runs one argument vector without a shell, and captures the process output up to a limit. It reads standard output and standard error together, so the child never waits on a full pipe. When the child exits with a failure, the reason ends with the newest standard-error bytes that fit, because the last line of the child usually names the cause. Each run of line breaks shows as `; `, so the error stays on one line. The copy of the argument vector that the spawn takes lives in the caller's scratch arena.
 - [video](src/runtime/video.h): Wraps `ffprobe` to probe the duration, and `ffmpeg` to extract an auto-rotated JPEG frame. `video_frame_position_ms` places the frame for both the probe and a deferred extraction. Each video has a frame slot: a temporary path that the build allocates before the probe, which `video_extract_frame` fills with `mkostemp`, and a flag that marks a frame as created until `video_frame_remove` removes it.
@@ -302,7 +303,7 @@ Each decision below states what the code does and why, and some decisions also s
 - An arena gets memory back only when its region is released. If the buffers of the decode were in a worker's scratch, the largest decode of each worker would stay committed for the rest of the build. At the measured peaks for a 100-megapixel 4:2:2 photo, that is up to 302 MiB for a baseline JPEG decoded at full size, and 683 MiB for a progressive one, so about 2.9 GiB or 6.7 GiB with 10 workers. A progressive CMYK one peaks at about 1.05 GiB.
 - The decode budget would stop working. It counts a reservation as returned when the job calls `image_free`, but the pages would stay committed in the worker's region, so the worker count would bound memory again.
 - Pixels are large and short-lived, the code allocates them once for each file, and the decode budget bounds them. `malloc` handles that case well, and a bump arena handles it badly.
-- The exception has one type, `struct Image`, and two files, `formats/image.c` and `vendor/stb/stb.c`. [STYLE.md](STYLE.md#memory-and-resources) allows `malloc` and `free` only in those two files, and in the allocator wrapper that `formats/toml.c` gives to tomlc17.
+- The exception has one type, `struct Image`, and two files, `formats/image.c` and `formats/stb.c`. [STYLE.md](STYLE.md#memory-and-resources) allows `malloc` and `free` only in those two files, and in the allocator wrapper that `formats/toml.c` gives to tomlc17.
 - Pixels do not go in a worker's region with a primitive that decommits it. Under strict overcommit, `madvise(MADV_DONTNEED)` leaves the pages charged, so the code would need `mmap(MAP_FIXED, PROT_NONE)` to return them. A stale by-value copy whose `end` is above the mark would then write into `PROT_NONE` pages and crash, but `arena.h` documents that a copy which makes pages usable again changes nothing. libwebp has no allocator hooks, so its memory could get into an arena only if the code patched its `malloc` calls, and the budget would have to wait for the decommit. All of this would remove only about eight `malloc` and `free` calls from one module. `arena_discard` avoids the hazard: it maps the pages again as readable and writable, so they stay usable, and it applies to a buffer that the caller names, not to the free space of an arena.
 - Pixels get no fixed share of the reservation. The largest decode, of a 100-megapixel progressive CMYK JPEG, peaks at about 1.05 GiB, and the budget leaves room for two such decodes, so a fixed share would refuse any build under a `ulimit -v` below about 3 GB, including galleries of 24-megapixel photos.
 - The decode budget does not scale with what the arenas leave, because that would change how many decodes run at the same time on a limited system, and it would need a second planner, based on decode memory.
@@ -319,7 +320,7 @@ Instead, the scaled decode makes the budget count bytes, so a decode reserves wh
 
 ### Counted strings with signed lengths
 
-**Decision.** Every first-party string is a `struct Str` from [str.h](vendor/sharedstuff/include/shared/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. JPEG bytes also travel as a `struct Str`. Every length, count, and pixel dimension is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. A pixel dimension changes to `int` only at a call into stb or libwebp, and to the unsigned `JDIMENSION` of libjpeg-turbo only at a call into libjpeg-turbo. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`, `error_system_message` fills a caller's buffer through `strerror_r`, and `video` builds each `ffprobe` and `ffmpeg` argument with `str_cstr`.
+**Decision.** Every first-party string is a `struct Str` from [str.h](../../libs/shared/include/shared/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. JPEG bytes also travel as a `struct Str`. Every length, count, and pixel dimension is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. A pixel dimension changes to `int` only at a call into stb or libwebp, and to the unsigned `JDIMENSION` of libjpeg-turbo only at a call into libjpeg-turbo. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`, `error_system_message` fills a caller's buffer through `strerror_r`, and `video` builds each `ffprobe` and `ffmpeg` argument with `str_cstr`.
 
 **Reasons.**
 
@@ -353,7 +354,7 @@ Instead, the scaled decode makes the budget count bytes, so a decode reserves wh
 
 ### Log messages use checked format strings
 
-**Decision.** A log call takes one `printf` format and its arguments. `log_error`, `log_error_in`, `log_error_v`, `buf_printf`, and `buf_vprintf` have `__attribute__((format(printf, ...)))`. A `struct Str` prints with `%.*s` and `STR_FMT`, and an integer prints with the conversion for its type. For example:
+**Decision.** A log call takes one `printf` format and its arguments. `log_error`, `log_error_in`, `buf_printf`, and `buf_vprintf_measured` have `__attribute__((format(printf, ...)))`. A `struct Str` prints with `%.*s` and `STR_FMT`, and an integer prints with the conversion for its type. For example:
 
 ```c
 log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_path));
@@ -362,7 +363,7 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 **Reasons.**
 
 - Each message is one sentence in the source, so a reader reads its wording on one line, and `grep` finds it.
-- The compiler checks the number and the types of the arguments against the format. `-Wformat=2` is on for first-party code and for `sharedstuff`.
+- The compiler checks the number and the types of the arguments against the format. `-Wformat=2` is on for first-party code and for `shared`.
 - `%td` prints a `ptrdiff_t` with no cast. Only a string needs a helper, `STR_FMT`.
 - Each first-party function that formats a message has the attribute, so its callers get the same check.
 
@@ -370,8 +371,8 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 - `STR_FMT` evaluates its argument two times. Give it a variable or another lvalue, and put a computed string in a variable first.
 - A string longer than `INT_MAX` bytes causes an assertion failure at run time, because the `%.*s` precision is an `int`.
-- The attribute is the only guard on the code that reads the arguments. Each formatting function measures the text with `vsnprintf`, allocates the text, and writes it with a second `vsnprintf`. These functions are `buf_printf` and `buf_vprintf` in `sharedstuff`, which grow the buffer in place, and the first-party functions that format their own message. Only those functions change the measured `int` length to a `ptrdiff_t`.
-- A first-party variadic function does not pass its `va_list` on to `log_error_v` or `buf_vprintf`. If it did, the Clang analyzer, version 22, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does. `record_error` in `cli.c`, `build_verbose` in `cmd_build.c`, `render_fail` in `template.c`, and `test_log_is` in `tests/test_support.c` follow this rule.
+- The attribute is the only guard on the code that reads the arguments. Each formatting function measures the text with `vsnprintf`, allocates the text, and writes it with a second `vsnprintf`. These functions are `buf_printf` in `shared`, which grows the buffer in place through `buf_vprintf_measured`, and the first-party functions that format their own message. Only those functions change the measured `int` length to a `ptrdiff_t`.
+- A first-party variadic function does not pass its `va_list` on to another formatter. If it did, the Clang analyzer, version 22, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does. `record_error` in `cli.c`, `build_verbose` in `cmd_build.c`, `render_fail` in `template.c`, and `test_log_is` in `tests/test_support.c` follow this rule.
 - `%.*s` stops at a `NUL` byte. The text readers reject a `NUL` in config and template content, `toml_datum_is_text` and `toml_require_known_keys` reject a `NUL` in TOML strings and keys, and the `os` boundary rejects a `NUL` in paths, so a message gets no `NUL` from text input. No message prints JPEG bytes. The `os` boundary's `EINVAL` message quotes a path that contains a `NUL` only up to that byte, and the contract test for this case shows the result.
 - An `off_t` has no conversion of its own. It prints with `%jd` and a cast to `intmax_t`.
 - `clang-format` breaks a string literal that is longer than the column limit, so some long messages are in two literals.
@@ -404,6 +405,6 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 ### Where the shared code lives
 
-**Decision.** `sharedstuff` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. Each program defines `os_oom`, and has its own `os` interface and its own arena layout. The decoded-pixel exception stays out of `sharedstuff`.
+**Decision.** `shared`, the library in [libs/shared/](../../libs/shared/), holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. Each program defines `os_oom`, and has its own `os` interface and its own arena layout. The decoded-pixel exception stays out of `shared`.
 
 **Reason.** These parts do not depend on what a program does.

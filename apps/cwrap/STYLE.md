@@ -1,6 +1,6 @@
 # Style guide
 
-This guide describes the target style for the code that this repository owns. It does not describe the current baseline. Existing code that differs from this guide is a deviation to report or fix. The guide does not apply to vendored code under `vendor/`.
+This guide describes the target style for the code that this repository owns. It does not describe the current baseline. Existing code that differs from this guide is a deviation to report or fix. The guide does not apply to vendored code under the root `vendor/` directory.
 
 `.clang-format` owns mechanical layout, and `cwrap` refills comment prose to the same 100 columns. Do not restate whitespace, wrapping, indentation, brace-placement, or alignment rules here unless they affect meaning.
 
@@ -163,7 +163,7 @@ This guide takes its ideas and conventions from these sources:
 - Print a `struct Str` with `%.*s` and `STR_FMT`. Give `STR_FMT` a plain variable or another lvalue, because it evaluates its argument twice. Put a computed string, such as a `str_head` result, into a variable before you pass it to `STR_FMT`.
 - Print a C string with `%s`. Print an integer with the conversion for its own type: `%td` for `ptrdiff_t`, `%d` for `int` and enum constants, `%u` for `unsigned`, and `%zu` for `size_t`. Do not cast an integer only to print it. The one exception is a type that has no conversion of its own, such as `off_t`. Print that type with `%jd` and `(intmax_t)`.
 - Give a function that formats a message the `format(printf, n, m)` attribute, so that the compiler checks its callers in the same way as it checks the callers of `log_error`. Never pass a format that is not a string literal.
-- A first-party variadic function formats its own message and does not pass its `va_list` to another formatter such as `log_error_v` or `buf_vprintf`. It measures the text with `vsnprintf`, allocates space for the text, and writes the text with a second `vsnprintf`. It starts the list again for each pass. `buf_printf`, `record_error` in `cli.c`, and `test_log_is` and `test_text_is` in `tests/test_support.c` do this. The reason is that Clang's analyzer, version 22 on AArch64 Linux, reports a false `va_end` finding on a function that passes its list to `log_error_v` or `buf_vprintf`.
+- A first-party variadic function formats its own message and does not pass its `va_list` to another formatter. It measures the text with `vsnprintf`, allocates space for the text, and writes the text with a second `vsnprintf`. It starts the list again for each pass. `buf_printf`, `record_error` in `cli.c`, and `test_log_is` and `test_text_is` in `tests/test_support.c` do this. The reason is that Clang's analyzer, version 22 on AArch64 Linux, reports a false `va_end` finding on a function that passes its list to another formatter.
 
 ### Wording
 
@@ -196,7 +196,7 @@ This guide takes its ideas and conventions from these sources:
 - Keep comments accurate and close to the code they explain. Remove stale comments when you change code.
 - Comment on the code as it stands, not on how it got there, in documentation and implementation comments alike. Do not narrate an edit history, and do not argue with a decision that is no longer in the tree, because that gives a reader nothing to act on. State why the code is as it is today. A pointer to planned work is not history, so a comment can explain why something exists before its first use.
 - Write comments as prose: full sentences that start with a capital letter and end with a period. A trailing end-of-line comment can be a lowercase phrase without punctuation.
-- Capitalize the names of languages and formats wherever they are prose, including inside a diagnostic, because a lowercase name is harder to recognize and to search for. The help text's `Rewrap C comments to a wrapping column` is an example, and no diagnostic names a language yet. Identifiers, filenames, and the spelling that a library uses for its own name stay lowercase, because in those places the text is the token and not the name (`rewrite_source`, `domain/doxygen.c`, `copt`, `sharedstuff`, `.c`).
+- Capitalize the names of languages and formats wherever they are prose, including inside a diagnostic, because a lowercase name is harder to recognize and to search for. The help text's `Rewrap C comments to a wrapping column` is an example, and no diagnostic names a language yet. Identifiers, filenames, and the spelling that a library uses for its own name stay lowercase, because in those places the text is the token and not the name (`rewrite_source`, `domain/doxygen.c`, `copt`, `shared`, `.c`).
 - Quote literal paths, filenames, directory names, and option names with backticks, in the same way as code identifiers in Doxygen blocks.
 
 ## Function documentation

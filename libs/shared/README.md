@@ -2,52 +2,27 @@
   <img src="media/logo.webp" height="300" alt="">
 </div>
 
-<h1 align="center"><code>sharedstuff</code></h1>
+<h1 align="center"><code>shared</code></h1>
 
-`sharedstuff` is some stuff I use in different C17 projects. It is a static library with an arena allocator, counted strings, growable buffers, and an error log.
+`shared` is the library that the C17 apps in this repository share. It is a static library with an arena allocator, counted strings, growable buffers, and an error log. It is one library of the [libs/](../) project.
 
 ## LLM disclosure
 
 > [!warning]
 > I used LLMs extensively to create this project, mostly Claude Opus 4.8 and 5.
 
-## Installation
-
-Build the `release` preset, and then install the static library, its headers, and its CMake package files under a prefix:
-
-```sh
-cmake --preset release
-cmake --build --preset release -j 8
-cmake --install build/release --prefix /desired/prefix
-```
-
-Instead of installing the library, a project can build it from source, as [Linking with CMake](#linking-with-cmake) describes.
-
 ## Usage
 
 ### Linking with CMake
 
-The CMake target of the library is `SharedStuff::SharedStuff`, a static library. A project can add the source tree of the library to its own build:
+The CMake target of the library is `shared`, a static library. An app adds the `libs/` project to its own build, and links the target:
 
 ```cmake
-add_subdirectory(path/to/sharedstuff sharedstuff)
-target_link_libraries(MyTarget PRIVATE SharedStuff::SharedStuff)
+add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)
+target_link_libraries(myapp_app PUBLIC shared)
 ```
 
-Or the project can find the installed package:
-
-```cmake
-find_package(SharedStuff 0.1 CONFIG REQUIRED)
-target_link_libraries(MyTarget PRIVATE SharedStuff::SharedStuff)
-```
-
-These variables configure the build. Set them with `-D`, or set them before the call to `add_subdirectory`:
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `SHAREDSTUFF_BUILD_TESTING` | On for a top-level build, off otherwise | Builds the tests. If a parent project turns it on, the parent project must call `enable_testing()` at its top level. |
-| `SHAREDSTUFF_INSTALL` | On for a top-level build, off otherwise | Adds the install rules. |
-| `SHAREDSTUFF_SANITIZER` | `none` | Instruments the build with `address` (AddressSanitizer and UndefinedBehaviorSanitizer) or `thread` (ThreadSanitizer). The library target passes the link flags of the sanitizer to each target that links the library. |
+The library builds only when a target of the app links it. It compiles with the `apps_build_project` profile of the app, so the `APPS_SANITIZER` of the app also instruments the library. The library target passes the link flags of the sanitizer to each target that links the library. An app never builds the tests of the library.
 
 ### Defining `os_oom`
 
@@ -218,11 +193,11 @@ To use a log correctly:
 - Optional build tools: `ninja` for the `multi` preset.
 - Optional quality tools: `cwrap`, `clang-format`, `clang-tidy`, `cppcheck`.
 
-The source tree includes the dependency in [vendor/](vendor/).
+The repository includes the dependency in [vendor/](../../vendor/).
 
 ### Building
 
-Each preset builds in `build/<preset>`, outside the source tree, and treats compiler warnings as errors. If `CC` is set, the preset builds in `build/<preset>/<CC>` instead, such as `build/debug/gcc-14`. CMake reads `CC` only when it configures a directory for the first time, so each compiler needs its own CMake cache. The commands use eight parallel jobs. Change that number to suit your machine.
+The `libs/` project builds, tests and checks every library. Run the commands in this section and in the sections below from `libs/`. Each preset builds in `build/<preset>`, outside the source tree, and treats compiler warnings as errors. If `CC` is set, the preset builds in `build/<preset>/<CC>` instead, such as `build/debug/gcc-14`. CMake reads `CC` only when it configures a directory for the first time, so each compiler needs its own CMake cache. The commands use eight parallel jobs. Change that number to suit your machine.
 
 ```sh
 cmake --preset debug
@@ -231,10 +206,10 @@ cmake --build --preset debug -j 8
 
 | Preset | Configuration | Library |
 | --- | --- | --- |
-| `debug` | `Debug` with AddressSanitizer and UndefinedBehaviorSanitizer. It runs `clang-tidy` and `cppcheck` during compilation if they are available. | `build/debug/libSharedStuff.a` |
-| `tsan` | `Debug` with ThreadSanitizer. | `build/tsan/libSharedStuff.a` |
-| `release` | `RelWithDebInfo`, with no tests. | `build/release/libSharedStuff.a` |
-| `multi` | `Debug` and `RelWithDebInfo` in one build tree, with the `Ninja Multi-Config` generator. Build with `--preset multi-debug` or `--preset multi-relwithdebinfo`. | `build/multi/Debug/libSharedStuff.a`, `build/multi/RelWithDebInfo/libSharedStuff.a` |
+| `debug` | `Debug` with AddressSanitizer and UndefinedBehaviorSanitizer. It runs `clang-tidy` and `cppcheck` during compilation if they are available. | `build/debug/shared/libshared.a` |
+| `tsan` | `Debug` with ThreadSanitizer. | `build/tsan/shared/libshared.a` |
+| `release` | `RelWithDebInfo`, with no tests. | `build/release/shared/libshared.a` |
+| `multi` | `Debug` and `RelWithDebInfo` in one build tree, with the `Ninja Multi-Config` generator. Build with `--preset multi-debug` or `--preset multi-relwithdebinfo`. | `build/multi/shared/Debug/libshared.a`, `build/multi/shared/RelWithDebInfo/libshared.a` |
 
 `clang-tidy` runs only with Clang, because it rejects the warning options of GCC. To run linting, configure the `debug` preset, and then run this command:
 
@@ -269,25 +244,25 @@ The workflow presets run the same configure, build, and test steps as CI:
 | `cmake --workflow --preset ci-release` | Build in `RelWithDebInfo`. |
 | `cmake --workflow --preset ci-multi` | Build and test in `Debug` and `RelWithDebInfo` with the `Ninja Multi-Config` generator. CI runs this workflow a second time with `CC=gcc-14` to check GCC. |
 
-To run the Linux workflows on a machine with Podman, build the pinned Ubuntu image from [Containerfile](Containerfile). Then run each workflow in a new container:
+To run the Linux workflows on a machine with Podman, build the pinned Ubuntu image from the root [Containerfile](../../Containerfile) in the repository root. Then run each workflow in a new container, with `libs/` as the working directory:
 
 ```sh
-podman build --tag sharedstuff-linux-ci --file Containerfile .
-podman run --rm sharedstuff-linux-ci ci-debug
-podman run --rm sharedstuff-linux-ci ci-tsan
-podman run --rm sharedstuff-linux-ci ci-release
-podman run --rm sharedstuff-linux-ci ci-multi
-podman run --rm -e CC=gcc-14 sharedstuff-linux-ci ci-multi
+podman build --tag apps-c17-linux-ci --file Containerfile .
+podman run --rm --workdir /src/libs apps-c17-linux-ci ci-debug
+podman run --rm --workdir /src/libs apps-c17-linux-ci ci-tsan
+podman run --rm --workdir /src/libs apps-c17-linux-ci ci-release
+podman run --rm --workdir /src/libs apps-c17-linux-ci ci-multi
+podman run --rm --workdir /src/libs -e CC=gcc-14 apps-c17-linux-ci ci-multi
 ```
 
-The image contains a snapshot of the source tree, including the vendored dependency, without `.git/` and `build/`, which [.containerignore](.containerignore) excludes, so the Linux build products stay in the container and do not go into the `build/` directory of the host. The image supports x86-64 and AArch64 hosts, and pins LLVM 23 and GCC 14.
+The image contains a snapshot of the repository, including the vendored dependencies, without `.git/` and the `build/` directories, which [.containerignore](../../.containerignore) excludes, so the Linux build products stay in the container and do not go into a `build/` directory of the host. The image supports x86-64 and AArch64 hosts, and pins LLVM 23 and GCC 14.
 
 ## Dependencies
 
-[vendor/](vendor/) contains this dependency. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists its license.
+The root [vendor/](../../vendor/) directory contains this dependency. [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) lists its license.
 
 - [acutest](https://github.com/mity/acutest): Unit tests.
 
 ## License
 
-`sharedstuff` is MIT-licensed, as [LICENSE.txt](LICENSE.txt) states.
+`shared` is MIT-licensed, as [LICENSE.txt](../../LICENSE.txt) states.

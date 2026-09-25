@@ -2,7 +2,7 @@
 
 ## Vendored
 
-This project vendors the following third-party libraries.
+The tests of the libraries use the following third-party library, from the root `vendor/` directory.
 
 ### acutest (https://github.com/mity/acutest)
 

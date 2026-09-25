@@ -4,27 +4,29 @@ This document describes the targets of the `fram` CMake build, how the targets l
 
 ## Layout
 
-The top-level [CMakeLists.txt](CMakeLists.txt) sets the project policy, finds the thread library, includes its CMake modules, and adds each source directory. These are the other CMake files:
+The top-level [CMakeLists.txt](CMakeLists.txt) sets the project policy, finds the thread library, includes the CMake modules of the root [cmake/](../../cmake/) directory and of its own [cmake/](cmake/) directory, includes [vendor.cmake](vendor.cmake), adds the libraries project [libs/](../../libs/), and adds each source directory. These are the other CMake files:
 
 | Path | Responsibility |
 | --- | --- |
 | [src/CMakeLists.txt](src/CMakeLists.txt) | Defines the application library `fram_app` and the `fram` executable |
 | `src/*/CMakeLists.txt` | Add the sources, the header file sets and the unit tests of their directory. [src/runtime/CMakeLists.txt](src/runtime/CMakeLists.txt) also defines the POSIX host `fram_os_posix` |
 | [tests/CMakeLists.txt](tests/CMakeLists.txt) | Adds the golden test, the unit-test support library, the in-memory host and the seeded random tests |
-| [vendor/CMakeLists.txt](vendor/CMakeLists.txt) | Defines a target for each vendored dependency |
-| [cmake/fram_build_profiles.cmake](cmake/fram_build_profiles.cmake) | Sets warnings, optimization, fortification and sanitizers |
-| [cmake/fram_quality.cmake](cmake/fram_quality.cmake) | Configures formatting and static analysis |
-| [cmake/fram_testing.cmake](cmake/fram_testing.cmake) | Defines `apps_add_unit_test`, which registers a unit test and selects the host that the test links |
+| [vendor.cmake](vendor.cmake) | Defines a target for each vendored dependency that `fram` uses, from the sources in the root [vendor/](../../vendor/) directory |
+| [../../libs/CMakeLists.txt](../../libs/CMakeLists.txt) | Defines the `shared` library, which `fram_app` links |
+| [../../cmake/apps_build_profiles.cmake](../../cmake/apps_build_profiles.cmake) | Sets warnings, optimization, fortification and sanitizers |
+| [../../cmake/apps_quality.cmake](../../cmake/apps_quality.cmake) | Configures formatting and static analysis |
+| [cmake/fram_lint.cmake](cmake/fram_lint.cmake) | Lists the first-party sources that the `format` and `lint` targets check |
+| [../../cmake/apps_testing.cmake](../../cmake/apps_testing.cmake) | Defines `apps_add_unit_test`, which registers a unit test and selects the host that the test links |
 | [cmake/fram_run_golden.cmake](cmake/fram_run_golden.cmake) | Runs the golden test |
-| [cmake/fram_packaging.cmake](cmake/fram_packaging.cmake) | Configures installation and CPack archives |
-| [cmake/fram_restyle_graphviz_svg.cmake](cmake/fram_restyle_graphviz_svg.cmake) | Adds light and dark styles to the target graph |
-| [cmake/toolchains/](cmake/toolchains/) | Configures Zig to cross-compile for the Linux `musl` release targets |
+| [../../cmake/apps_packaging.cmake](../../cmake/apps_packaging.cmake) | Configures installation and CPack archives |
+| [../../cmake/apps_restyle_graphviz_svg.cmake](../../cmake/apps_restyle_graphviz_svg.cmake) | Adds light and dark styles to the target graph |
+| [../../cmake/toolchains/](../../cmake/toolchains/) | Configures Zig to cross-compile for the Linux `musl` release targets |
 | [CMakeGraphVizOptions.cmake](CMakeGraphVizOptions.cmake) | Sets the filters and the layout of the target graph |
-| [CMakePresets.json](CMakePresets.json) | Defines the configure, build, test, package and workflow presets |
+| [CMakePresets.json](CMakePresets.json) | Includes the configure, build, test, package and workflow presets of [../../cmake/release-presets.json](../../cmake/release-presets.json), which includes [../../cmake/presets.json](../../cmake/presets.json) |
 
 ## Targets
 
-The CMake build has one application library, two hosts, one target for each vendored dependency, and the interface targets of [Build profiles](#build-profiles). Each executable links the application library and one of the two hosts. CMake generates this graph of the targets and their links from the `release` preset. The graph does not show the dependencies between source modules, and it does not show test-only targets such as the in-memory host `fram_os_memory`.
+The CMake build has one application library, two hosts, one target for each vendored dependency, the `shared` library, and the interface targets of [Build profiles](#build-profiles). Each executable links the application library and one of the two hosts. CMake generates this graph of the targets and their links from the `release` preset. The graph does not show the dependencies between source modules, and it does not show test-only targets such as the in-memory host `fram_os_memory`.
 
 ![CMake target dependency graph](media/dependencies.svg)
 
@@ -36,7 +38,7 @@ Each source directory holds the code for one purpose. Except for the host in `sr
 
 `fram_app` links `vendor_tomlc17` and `shared` as `PUBLIC` dependencies, because the application headers expose the types of these libraries. The other dependencies are `PRIVATE`. `Threads::Threads` is one of the `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 
-`shared` supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. `src/app/main.c` defines the `os_oom` of `fram`, which [ARCHITECTURE.md](ARCHITECTURE.md#out-of-memory-exits-the-process) describes. `fram_test_support` defines the `os_oom` of the unit tests.
+`shared`, the library in [libs/shared/](../../libs/shared/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. `src/app/main.c` defines the `os_oom` of `fram`, which [ARCHITECTURE.md](ARCHITECTURE.md#out-of-memory-exits-the-process) describes. `fram_test_support` defines the `os_oom` of the unit tests.
 
 ### Hosts
 
@@ -46,31 +48,31 @@ Both hosts are object libraries, because `fram_app` refers to them and a single-
 
 ### Vendored dependencies
 
-Each vendored project has its own target: the header-only projects, acutest and copt, are interface libraries, and the other vendored projects are static libraries.
+The sources of each vendored project are in the root [vendor/](../../vendor/) directory, and [vendor.cmake](vendor.cmake) compiles the sources that `fram` uses. Each vendored project has its own target: the header-only projects, acutest and copt, are interface libraries, and the other vendored projects are static libraries.
 
-The pinned stb implementation has its own translation unit, `vendor/stb/stb.c`. This file compiles the resizer with its allocator hooks, and it keeps the warnings of vendored code out of the compilation of first-party code.
+The pinned stb implementation has its own translation unit, [src/formats/stb.c](src/formats/stb.c), which the target `vendor_stb` compiles. This file compiles the resizer with its allocator hooks, and it keeps the warnings of vendored code out of the compilation of first-party code.
 
-The libjpeg-turbo target compiles the source files that the build system of libjpeg-turbo compiles. It uses the configuration headers in `vendor/libjpeg-turbo/config/` in place of the headers that this build system generates. On x86-64, the SIMD routines of libjpeg-turbo compile from NASM sources, so an x86-64 build needs NASM. On AArch64, these routines compile from Neon intrinsics, and other architectures use the C routines. The NASM sources are the object library `vendor_libjpeg_turbo_simd`, because the options of the vendored-code profile are for the C compiler, and NASM rejects them.
+The libjpeg-turbo target compiles the source files that the build system of libjpeg-turbo compiles. It uses the configuration headers in the root `vendor/libjpeg-turbo/config/` directory in place of the headers that this build system generates. On x86-64, the SIMD routines of libjpeg-turbo compile from NASM sources, so an x86-64 build needs NASM. On AArch64, these routines compile from Neon intrinsics, and other architectures use the C routines. The NASM sources are the object library `vendor_libjpeg_turbo_simd`, because the options of the vendored-code profile are for the C compiler, and NASM rejects them.
 
 The libwebp target compiles the encoder, the decoder, the DSP sources and utility sources that they use, and libsharpyuv. It does not use the configuration header that the build system of libwebp generates. Only the tests decode WebP, so `fram` links no part of the decoder. The encoder selects its SIMD routines at run time. On x86-64, the CMake build compiles the SSE4.1 and AVX2 sources with their instruction sets enabled, and tells every other source that these routines exist. `WEBP_USE_THREAD` makes the one-time DSP setup of the encoder safe when several workers encode at the same time. libwebp also calls the math library, which glibc supplies separately from the C library. Thus the CMake build links `libm` only when a call to a math function does not link without it.
 
 ### Regenerating the graph
 
 > [!tip]
-> Use these commands to update the graph:
+> Use these commands in `apps/fram` to update the graph:
 >
 > ```sh
 > cmake --preset release --graphviz=build/release/target-dependencies.dot
 > dot -Tsvg build/release/target-dependencies.dot \
 >   -o build/release/target-dependencies.raw.svg
 > cmake \
->   -DFRAM_GRAPHVIZ_SVG_INPUT=build/release/target-dependencies.raw.svg \
->   -DFRAM_GRAPHVIZ_SVG_OUTPUT=media/dependencies.svg \
->   -P cmake/fram_restyle_graphviz_svg.cmake
+>   -DAPPS_GRAPHVIZ_SVG_INPUT=build/release/target-dependencies.raw.svg \
+>   -DAPPS_GRAPHVIZ_SVG_OUTPUT=media/dependencies.svg \
+>   -P ../../cmake/apps_restyle_graphviz_svg.cmake
 > ```
 
 > [!important]
-> CMake reads `CMakeGraphVizOptions.cmake` automatically when you use `--graphviz`. Do not include this file from `CMakeLists.txt`.
+> CMake reads `CMakeGraphVizOptions.cmake` automatically when you use `--graphviz`, but only from the directory of the top-level project, so each app has its own copy. Do not include this file from `CMakeLists.txt`.
 
 ## Build profiles
 
@@ -90,21 +92,21 @@ The presets set `CMAKE_COMPILE_WARNING_AS_ERROR`, so the compiler treats warning
 
 `APPS_SANITIZER` accepts `none`, `address` or `thread`. `address` enables AddressSanitizer and UndefinedBehaviorSanitizer, and `thread` enables ThreadSanitizer. The option adds flags to the standard CMake configurations and does not create custom build types.
 
-With `address`, the CMake build instruments first-party code and vendored code. For vendored code, it turns off the `null` and `object-size` checks, because vendored code does not support these checks. First-party code keeps every check.
+With `address`, the CMake build instruments first-party code, the `shared` library and vendored code. `shared` builds with the first-party profile, so it keeps every check. For vendored code, it turns off the `null` and `object-size` checks, because vendored code does not support these checks. First-party code keeps every check.
 
 ## Linting and formatting
 
-When this repository is the top-level CMake project, the `C_CLANG_TIDY` and `C_CPPCHECK` properties of the first-party targets make CMake run `clang-tidy` and `cppcheck` while it compiles these targets. Neither tool checks vendored code. The include path of `cppcheck` contains the vendored `sharedstuff` headers, because `cppcheck` needs these headers to expand `STR_FMT`. Thus `cppcheck` also analyzes the inline functions that these headers define.
+When `fram` is the top-level CMake project, the `C_CLANG_TIDY` and `C_CPPCHECK` properties of the first-party targets make CMake run `clang-tidy` and `cppcheck` while it compiles these targets. Neither tool checks vendored code or the `shared` library, which the `libs/` project checks. The include path of `cppcheck` contains the headers of `shared` in `libs/shared/include`, because `cppcheck` needs these headers to expand `STR_FMT`. Thus `cppcheck` also analyzes the inline functions that these headers define.
 
 Test targets run `cppcheck` but not `clang-tidy`, because their intentional failure cases cause analyzer errors. When CMake cross-compiles, neither tool runs. Zig supplies the headers for the target platform, and the analyzers on the host cannot find these headers when they repeat the compile command. When the compiler is not Clang, the CMake build turns off `clang-tidy`, because `clang-tidy` reads the compile command and rejects GCC-only warning options such as `-Wlogical-op`. `cppcheck` runs with any compiler.
 
 The `format` and `lint` targets run `clang-format` and then `cwrap`, which refills comment prose to 100 columns, the `.clang-format` column limit. Either tool is skipped when it is not installed. CI and the Linux image install a pinned `cwrap` release.
 
-Both targets run both tools on the first-party files in an explicit list, `fram_owned_sources` in `cmake/fram_quality.cmake`. They also run both tools on the template [src/core/fram_version.c.in](src/core/fram_version.c.in), which `clang-format` reads as `fram_version.c` because of `--assume-filename`. When you add a source file or a test file, add it to this list and to its target. A glob at configure time would not find a new file until CMake configures the project again.
+Both targets run both tools on the first-party files in an explicit list, the `SOURCES` of `apps_add_lint_targets` in [cmake/fram_lint.cmake](cmake/fram_lint.cmake). They also run both tools on the template [src/core/fram_version.c.in](src/core/fram_version.c.in), which `clang-format` reads as `fram_version.c` because of `--assume-filename`. When you add a source file or a test file, add it to this list and to its target. A glob at configure time would not find a new file until CMake configures the project again.
 
 ## Tests
 
-`APPS_BUILD_TESTING` controls whether CMake defines the tests. It is on by default when this repository is the top-level CMake project, and off by default when a parent project adds this repository as a subproject.
+`APPS_BUILD_TESTING` controls whether CMake defines the tests. It is on by default when `fram` is the top-level CMake project, and off by default when a parent project adds `fram` as a subproject.
 
 Each source directory adds its own unit tests. `tests/` adds the golden test, `fram_test_support`, `fram_os_memory` and the seeded random tests in `tests/test_random.c`. Every CTest case has the label `fram`, and also the label `unit` or `golden`.
 
@@ -156,9 +158,9 @@ The script compares the non-media files and the copied originals byte for byte, 
 
 The script finds the expected files and the actual files with globs after `fram` runs. These globs run in the test and are not inputs of the CMake build, so a change to a fixture does not require CMake to configure the project again.
 
-### Format checks in sharedstuff
+### Format checks in shared
 
-`sharedstuff` has its own compile-fail tests for `buf_printf` and `log_error`. These tests check that a call does not compile when its arguments do not match its format. The test cases are:
+`shared` has its own compile-fail tests for `buf_printf` and `log_error`. These tests check that a call does not compile when its arguments do not match its format. The test cases are:
 
 - a raw `struct Str` for `%.*s`
 - a missing argument
@@ -167,7 +169,7 @@ The script finds the expected files and the actual files with globs after `fram`
 - a value that is not a string, given to `STR_FMT`
 - a mismatch through a forwarding wrapper
 
-These tests run in the `sharedstuff` repository. The vendored copy holds no tests.
+These tests run in the `libs/` project, as `shared.format_compile.*`. The `fram` build does not register them.
 
 ### Tests in a parent build
 
@@ -191,6 +193,6 @@ CPack creates one stripped archive for each release target, `fram-<version>-<tar
 
 The macOS deployment target, `CMAKE_OSX_DEPLOYMENT_TARGET`, is `13.0` by default. You can set a higher value in the CMake cache.
 
-The Linux `musl` presets cross-compile with the Zig toolchain files in `cmake/toolchains/`. These files select `llvm-strip`, because the strip tool of the host cannot read the cross-compiled ELF files.
+The Linux `musl` presets cross-compile with the Zig toolchain files in the root `cmake/toolchains/` directory. These files select `llvm-strip`, because the strip tool of the host cannot read the cross-compiled ELF files.
 
-The source archive, `fram-<version>-source.tar.gz`, keeps the default CPack exclusions for version-control directories and temporary files. It also leaves out `build/` and `CMakeUserPresets.json`.
+The source archive, `fram-<version>-source.tar.gz`, holds the whole repository except the directories of the other apps, because `fram` builds with the root CMake modules, the libraries in `libs/` and the sources in `vendor/`. The archive keeps the default CPack exclusions for version-control directories and temporary files. It also leaves out the `build/` directories and `CMakeUserPresets.json`.

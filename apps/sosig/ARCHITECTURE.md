@@ -15,8 +15,9 @@
   - [site_index_permalink](tests/fixtures/site_index_permalink/) covers a permalink that publishes a directory index for each entry.
   - [site_nested_sections](tests/fixtures/site_nested_sections/) covers nested and lopsided sections, source names with spaces, punctuation and non-ASCII characters, partials that include partials, and aggregate and feed outputs in subdirectories next to content outputs.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
-- [cmake/](cmake/): CMake profiles, quality tools, packaging, the golden test driver, and reusable cross toolchains. [BUILD.md](BUILD.md) documents their boundaries and policy.
-- [vendor/](vendor/): The bundled dependencies `sharedstuff`, `copt`, `tomlc17`, `md4c`, `org4c`, `mustache4c`, `acutest`, and `tree-sitter` with these grammars:
+- [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](BUILD.md) documents their boundaries and policy.
+- [libs/shared/](../../libs/shared/): The `shared` library, which the `libs/` project builds and tests.
+- [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `md4c`, `org4c`, `mustache4c`, `acutest`, and `tree-sitter` with these grammars:
   - `tree-sitter-c`
   - `tree-sitter-bash`
   - `tree-sitter-html`
@@ -41,7 +42,7 @@ A module can skip layers, and modules in the same directory can depend on each o
 
 These words have one meaning everywhere in this document:
 
-- **Arena.** A `struct Arena` from `sharedstuff`. It has two pointers, `beg` and `end`, into one region. When the region is reserved and the arena commits pages on demand, it has a third pointer, `limit`. An arena never frees an individual allocation.
+- **Arena.** A `struct Arena` from `shared`. It has two pointers, `beg` and `end`, into one region. When the region is reserved and the arena commits pages on demand, it has a third pointer, `limit`. An arena never frees an individual allocation.
 - **Perm.** A thread's arena for data that lives longer than the function that makes it. A function takes it by pointer, as `struct Arena* perm`.
 - **Scratch.** A thread's arena for temporary data. A function takes it by value, as `struct Arena scratch`, so its allocations are free again when the function returns.
 - **Log.** A `struct Log`: a growable buffer with one line for each error, and an error count. A command prints its log once. A log grows in an arena of its own, or in an arena that all users of the log get by pointer, so no callee gets the log's arena by value.
@@ -145,7 +146,7 @@ Each item below links to the module's header, which documents its interface. The
 ### Formats (`src/formats`)
 
 - [body_html](src/formats/body_html.h): The markup that the Markdown and Org renderers share, written in one place for both: headings, footnotes, task checkboxes, admonitions, math, code blocks that `highlight` highlights, and the escaping of link targets. It also defines `LinkTargets`, a callback that both renderers give the target of every link and image. The callback can write a URL of its own for a target, or decline, and then the renderer writes the target itself. The formats know nothing about content files.
-- [highlight](src/formats/highlight.h): Syntax highlighting of a code block with tree-sitter. `highlight_grammar_find` finds the grammar for a language name among the grammars that `SOSIG_GRAMMARS` compiles in. `vendor/CMakeLists.txt` declares these grammars in a header that it generates. `highlight_grammar_list` names those grammars. `highlight_write` writes the code with a `<span class="tok-…">` around each token that the grammar's highlight query captures. It writes the code plain, only escaped, when there is no grammar or when the code block goes past a memory limit.
+- [highlight](src/formats/highlight.h): Syntax highlighting of a code block with tree-sitter. `highlight_grammar_find` finds the grammar for a language name among the grammars that `SOSIG_GRAMMARS` compiles in. [vendor.cmake](vendor.cmake) declares these grammars in a header that it generates. `highlight_grammar_list` names those grammars. `highlight_write` writes the code with a `<span class="tok-…">` around each token that the grammar's highlight query captures. It writes the code plain, only escaped, when there is no grammar or when the code block goes past a memory limit.
 - [html](src/formats/html.h): HTML escaping of untrusted text for generated markup.
 - [markdown](src/formats/markdown.h): `markdown_to_html` parses Markdown with md4c and the project's extension set, and writes the HTML through its own callbacks. It gives each link and image destination, as written, to the `LinkTargets` callback of its caller.
 - [org](src/formats/org.h): `org_to_html` parses Org with org4c, the project's flags, and the file's `#+OPTIONS:` lines, and writes the HTML through its own callbacks. It gives the org4c type and the path of each link and image to the `LinkTargets` callback of its caller. A `file` link without a description shows the URL that the callback wrote.
@@ -161,7 +162,7 @@ Each item below links to the module's header, which documents its interface. The
   - `os_stat` reports identity, type, size, and modification time.
   - `os_list` closes a directory before it returns. It classifies each directory entry, and for a symlink it classifies the target. It skips dangling links, and directory entries that were removed after it read them.
   - `os_print` carries every byte that the program prints: the log at the end of a command, a rejected command line, `--help` and `--version`, the resolved config, the verbose status lines, and the workers' progress lines, so a test on the in-memory host sees all of it. One call writes its text as a whole. A caller that prints from more than one thread holds its own lock around the call.
-  - `os_oom` is the one other member. `sharedstuff` declares it, and each program defines it.
+  - `os_oom` is the one other member. `shared` declares it, and each program defines it.
 - [pool](src/runtime/pool.h): Runs indexed jobs through a pthread pool of bounded size. It completes every job, even when one job fails, and joins every worker before it returns. Each job gets the index of the worker that runs it, so the job can use that worker's arenas. The module also gets the default worker count from the number of online CPUs.
 - [walk](src/runtime/walk.h): Finds and sorts the matching regular files in a directory tree. It uses only `os_list` and `os_stat`, so it behaves the same on every host. It follows symlinked directories, but walks each directory once, by device and inode. It skips a cycle or a second alias of a directory, so an aliased directory publishes one copy of its files. A caller can name one directory to exclude. The walk records that directory as already visited, so it skips every path to it. The build excludes `output_dir`. The walk visits directory entries in byte order, and visits each symlinked directory only after every real directory, so it lists the path without a symlink when such a path exists. Only one directory is open at a time, and no level of the recursion holds a path buffer in its frame.
 
@@ -317,7 +318,7 @@ Each decision below states what the code does and why, and some decisions also s
 
 ### Counted strings with signed lengths
 
-**Decision.** Every first-party string is a `struct Str` from [str.h](vendor/sharedstuff/include/shared/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. Every length and count is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`, and `error_system_message` fills a caller's buffer through `strerror_r`.
+**Decision.** Every first-party string is a `struct Str` from [str.h](../../libs/shared/include/shared/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. Every length and count is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`, and `error_system_message` fills a caller's buffer through `strerror_r`.
 
 **Reasons.**
 
@@ -351,7 +352,7 @@ Each decision below states what the code does and why, and some decisions also s
 
 ### Log messages use checked format strings
 
-**Decision.** A log call takes one `printf` format and its arguments. `log_error`, `log_error_in`, `log_error_v`, `buf_printf`, and `buf_vprintf` have `__attribute__((format(printf, ...)))`. A `struct Str` prints with `%.*s` and `STR_FMT`, and an integer prints with the conversion for its type. For example:
+**Decision.** A log call takes one `printf` format and its arguments. `log_error`, `log_error_in`, `buf_printf`, and `buf_vprintf_measured` have `__attribute__((format(printf, ...)))`. A `struct Str` prints with `%.*s` and `STR_FMT`, and an integer prints with the conversion for its type. For example:
 
 ```c
 log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_path));
@@ -360,7 +361,7 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 **Reasons.**
 
 - Each message is one sentence in the source, so a reader reads its wording on one line, and `grep` finds it.
-- The compiler checks the number and the types of the arguments against the format. `-Wformat=2` is on for first-party code and for `sharedstuff`.
+- The compiler checks the number and the types of the arguments against the format. `-Wformat=2` is on for first-party code and for `shared`.
 - `%td` prints a `ptrdiff_t` with no cast. Only a string needs a helper, `STR_FMT`.
 - Each first-party function that formats a message has the attribute, so its callers get the same check.
 
@@ -368,8 +369,8 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 - `STR_FMT` evaluates its argument two times. Give it a variable or another lvalue, and put a computed string in a variable first.
 - A string longer than `INT_MAX` bytes causes an assertion failure at run time, because the `%.*s` precision is an `int`.
-- The attribute is the only guard on the code that reads the arguments. Each formatting function measures the text with `vsnprintf`, allocates the text, and writes it with a second `vsnprintf`. These functions are `buf_printf` and `buf_vprintf` in `sharedstuff`, which grow the buffer in place, and the first-party functions that format their own message. Only those functions change the measured `int` length to a `ptrdiff_t`.
-- A first-party variadic function does not pass its `va_list` on to `log_error_v` or `buf_vprintf`. If it did, the Clang analyzer, version 22, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does. `record_error` in `cli.c`, `build_verbose` in `cmd_build.c`, `render_fail` in `template.c`, and `test_log_is` in `tests/test_support.c` follow this rule.
+- The attribute is the only guard on the code that reads the arguments. Each formatting function measures the text with `vsnprintf`, allocates the text, and writes it with a second `vsnprintf`. These functions are `buf_printf` in `shared`, which grows the buffer in place through `buf_vprintf_measured`, and the first-party functions that format their own message. Only those functions change the measured `int` length to a `ptrdiff_t`.
+- A first-party variadic function does not pass its `va_list` on to another formatter. If it did, the Clang analyzer, version 22, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does. `record_error` in `cli.c`, `build_verbose` in `cmd_build.c`, `render_fail` in `template.c`, and `test_log_is` in `tests/test_support.c` follow this rule.
 - `%.*s` stops at a `NUL` byte. The input checks reject a `NUL` in file content, in TOML strings and keys, and in paths at the `os` boundary, so a message gets no `NUL` from input. The `os` boundary's `EINVAL` message quotes a path that contains a `NUL` only up to that byte, and the contract test for this case shows the result.
 - An `off_t` has no conversion of its own. It prints with `%jd` and a cast to `intmax_t`.
 - `clang-format` breaks a string literal that is longer than the column limit, so some long messages are in two literals.
@@ -391,6 +392,6 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 ### Where the shared code lives
 
-**Decision.** `sharedstuff` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. Each program defines `os_oom`, and has its own `os` interface and its own arena layout.
+**Decision.** `shared`, the library in [libs/shared/](../../libs/shared/), holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. Each program defines `os_oom`, and has its own `os` interface and its own arena layout.
 
 **Reason.** These parts do not depend on what a program does.

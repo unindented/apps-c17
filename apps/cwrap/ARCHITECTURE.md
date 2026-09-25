@@ -10,8 +10,9 @@
 - [src/core/](src/core/): Small reusable primitives for parsing and ASCII classification.
 - [tests/](tests/): The golden and idempotence test suites, the seeded random tests, the shared unit-test support library [tests/test_support.h](tests/test_support.h), and the in-memory host [tests/os_memory.h](tests/os_memory.h). Each C file under [tests/fixtures/](tests/fixtures/) has a matching file of expected output under [tests/expected/](tests/expected/). The idempotence test also rewraps these files and every first-party source file at several widths.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
-- [cmake/](cmake/): CMake profiles, quality tools, packaging, the golden and idempotence test drivers, and reusable cross toolchains. [BUILD.md](BUILD.md) documents their boundaries and policy.
-- [vendor/](vendor/): The bundled dependencies `sharedstuff`, `copt`, and `acutest`.
+- [cmake/](cmake/): The lint list and the golden and idempotence test drivers. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](BUILD.md) documents their boundaries and policy.
+- [libs/shared/](../../libs/shared/): The `shared` library, which the `libs/` project builds and tests.
+- [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt` and `acutest`.
 
 ### Dependency rules
 
@@ -27,7 +28,7 @@ A module can skip layers, and modules in the same directory can depend on each o
 
 These words have one meaning everywhere in this document:
 
-- **Arena.** A `struct Arena` from `sharedstuff`. It has two pointers, `beg` and `end`, into one region. When the region is reserved and the arena commits pages on demand, it has a third pointer, `limit`. An arena never frees an individual allocation.
+- **Arena.** A `struct Arena` from `shared`. It has two pointers, `beg` and `end`, into one region. When the region is reserved and the arena commits pages on demand, it has a third pointer, `limit`. An arena never frees an individual allocation.
 - **Perm.** An arena for data that lives longer than the function that makes it. A function takes it by pointer, as `struct Arena* perm`. `wrap_input_read_file` reads a source into a copy of the input arena, and takes this copy as its perm.
 - **Scratch.** The run's arena for temporary data. A function takes it by value, as `struct Arena scratch`, so its allocations are free again when the function returns.
 - **Input arena.** The run's arena for the source and the rewritten output of one input. A function takes a copy by value, as `struct Arena input`, so the next input reuses its memory.
@@ -109,7 +110,7 @@ Each item below links to the module's header, which documents its interface. The
   - `os_read_stdin` reads standard input to its end, up to a size limit, and does not close it. It rejects input that contains a `NUL`.
   - `os_write` rewrites a user's source, so the write is atomic. It `fsync`s and closes a temporary file next to the destination, and then renames the temporary file over the destination, so a failure leaves an existing file as it was. An existing destination keeps its permission bits, and a new file gets mode `0666` reduced by the process umask.
   - `os_print` carries every byte that the program prints: the rewritten source in the default mode, the log at the end of a run, a rejected command line, `--help` and `--version`, so a test on the in-memory host sees all of it. One call writes its text as a whole. It retries a short write, in writes of at most 1 GiB, because macOS refuses a count above `INT_MAX`.
-  - `os_oom` is the one other member. `sharedstuff` declares it, and each program defines it.
+  - `os_oom` is the one other member. `shared` declares it, and each program defines it.
 
 ### Core (`src/core`)
 
@@ -242,7 +243,7 @@ Then `os_oom` exits with `EXIT_CODE_FAILURE`.
 
 ### Counted strings with signed lengths
 
-**Decision.** Every first-party string is a `struct Str` from [str.h](vendor/sharedstuff/include/shared/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. Every length, count and column is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`.
+**Decision.** Every first-party string is a `struct Str` from [str.h](../../libs/shared/include/shared/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. Every length, count and column is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`.
 
 **Reasons.**
 
@@ -274,7 +275,7 @@ Then `os_oom` exits with `EXIT_CODE_FAILURE`.
 
 ### Log messages use checked format strings
 
-**Decision.** A log call takes one `printf` format and its arguments. `log_error`, `log_error_in`, `log_error_v`, `buf_printf`, and `buf_vprintf` have `__attribute__((format(printf, ...)))`. A `struct Str` prints with `%.*s` and `STR_FMT`, and an integer prints with the conversion for its type. For example:
+**Decision.** A log call takes one `printf` format and its arguments. `log_error`, `log_error_in`, `buf_printf`, and `buf_vprintf_measured` have `__attribute__((format(printf, ...)))`. A `struct Str` prints with `%.*s` and `STR_FMT`, and an integer prints with the conversion for its type. For example:
 
 ```c
 log_error(log, "failed to read file: %s ('%.*s')", reason, STR_FMT(path));
@@ -283,7 +284,7 @@ log_error(log, "failed to read file: %s ('%.*s')", reason, STR_FMT(path));
 **Reasons.**
 
 - Each message is one sentence in the source, so a reader reads its wording on one line, and `grep` finds it.
-- The compiler checks the number and the types of the arguments against the format. `-Wformat=2` is on for first-party code and for `sharedstuff`.
+- The compiler checks the number and the types of the arguments against the format. `-Wformat=2` is on for first-party code and for `shared`.
 - `%td` prints a `ptrdiff_t` with no cast. Only a string needs a helper, `STR_FMT`.
 - Each first-party function that formats a message has the attribute, so its callers get the same check.
 
@@ -291,8 +292,8 @@ log_error(log, "failed to read file: %s ('%.*s')", reason, STR_FMT(path));
 
 - `STR_FMT` evaluates its argument two times. Give it a variable or another lvalue, and put a computed string in a variable first.
 - A string longer than `INT_MAX` bytes causes an assertion failure at run time, because the `%.*s` precision is an `int`.
-- The attribute is the only guard on the code that reads the arguments. Each formatting function measures the text with `vsnprintf`, allocates the text, and writes it with a second `vsnprintf`. These functions are `buf_printf` and `buf_vprintf` in `sharedstuff`, which grow the buffer in place, and the first-party functions that format their own message. Only those functions change the measured `int` length to a `ptrdiff_t`.
-- A first-party variadic function does not pass its `va_list` on to `log_error_v` or `buf_vprintf`. If it did, the Clang analyzer, version 22, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does. `record_error` in `cli.c`, and `test_log_is` and `test_text_is` in `tests/test_support.c`, follow this rule.
+- The attribute is the only guard on the code that reads the arguments. Each formatting function measures the text with `vsnprintf`, allocates the text, and writes it with a second `vsnprintf`. These functions are `buf_printf` in `shared`, which grows the buffer in place through `buf_vprintf_measured`, and the first-party functions that format their own message. Only those functions change the measured `int` length to a `ptrdiff_t`.
+- A first-party variadic function does not pass its `va_list` on to another formatter. If it did, the Clang analyzer, version 22, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does. `record_error` in `cli.c`, and `test_log_is` and `test_text_is` in `tests/test_support.c`, follow this rule.
 - `%.*s` stops at a `NUL` byte. The input checks reject a `NUL` in file content, on standard input, and in paths at the `os` boundary, and a message quotes only the command-line arguments and the name `stdin`, so a message gets no `NUL` from input. The `os` boundary's `EINVAL` message quotes a path that contains a `NUL` only up to that byte, and the contract test for this case shows the result.
 - An `off_t` has no conversion of its own. It prints with `%jd` and a cast to `intmax_t`.
 - `clang-format` breaks a string literal that is longer than the column limit, so some long messages are in two literals.
@@ -348,6 +349,6 @@ If the log has an error after that pass, the run writes no file. The default mod
 
 ### Where the shared code lives
 
-**Decision.** `sharedstuff` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. Each program defines `os_oom`, and has its own `os` interface and its own arena layout.
+**Decision.** `shared`, the library in [libs/shared/](../../libs/shared/), holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. Each program defines `os_oom`, and has its own `os` interface and its own arena layout.
 
 **Reason.** These parts do not depend on what a program does.

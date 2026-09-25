@@ -58,7 +58,7 @@ void* memcpy(void* dest, const void* src, size_t n) {
 
 ## Installation
 
-Download a prebuilt binary from the [Releases](https://github.com/unindented/cwrap-c17/releases) page, or [build it from source](#building).
+Download a prebuilt binary from a `cwrap-v` release on the [Releases](https://github.com/unindented/apps-c17/releases) page, or [build it from source](#building).
 
 ## Usage
 
@@ -132,11 +132,11 @@ The tool reserves its memory once, when it starts, in fixed sizes that come from
 - Optional quality tools: `cwrap`, `clang-format`, `clang-tidy`, `cppcheck`.
 - Zig 0.17 and `llvm-strip` for the Linux `musl` archives.
 
-The source tree includes the dependencies in [vendor/](vendor/).
+The repository includes the dependencies in [vendor/](../../vendor/), and the `shared` library in [libs/shared/](../../libs/shared/).
 
 ### Building
 
-Each preset builds in `build/<preset>`, outside the source tree, and treats compiler warnings as errors. If `CC` is set, the preset builds in `build/<preset>/<CC>` instead, such as `build/debug/gcc-14`. CMake reads `CC` only when it configures a directory for the first time, so each compiler needs its own CMake cache. The commands use eight parallel jobs. Change that number to suit your machine.
+Run the commands in this section and in the sections below from `apps/cwrap`, the directory of this README. Each preset builds in `build/<preset>`, outside the source tree, and treats compiler warnings as errors. If `CC` is set, the preset builds in `build/<preset>/<CC>` instead, such as `build/debug/gcc-14`. CMake reads `CC` only when it configures a directory for the first time, so each compiler needs its own CMake cache. The commands use eight parallel jobs. Change that number to suit your machine.
 
 ```sh
 cmake --preset debug
@@ -146,6 +146,7 @@ cmake --build --preset debug -j 8
 | Preset | Configuration | Binary |
 | --- | --- | --- |
 | `debug` | `Debug` with AddressSanitizer and UndefinedBehaviorSanitizer. It runs `clang-tidy` and `cppcheck` during compilation if they are available. | `build/debug/bin/cwrap` |
+| `tsan` | `Debug` with ThreadSanitizer. | `build/tsan/bin/cwrap` |
 | `release` | `RelWithDebInfo`, with no tests. The binary in the build tree keeps its debug information, and packaging strips the installed copy. | `build/release/bin/cwrap` |
 | `multi` | `Debug` and `RelWithDebInfo` in one build tree, with the `Ninja Multi-Config` generator. Build with `--preset multi-debug` or `--preset multi-relwithdebinfo`. | `build/multi/bin/Debug/cwrap`, `build/multi/bin/RelWithDebInfo/cwrap` |
 
@@ -163,7 +164,7 @@ CTest registers the unit tests and the end-to-end golden and idempotence tests. 
 ctest --preset debug -j 8
 ```
 
-The test presets are `debug`, `multi-debug`, and `multi-relwithdebinfo`. The `multi-relwithdebinfo` tests check the same CMake configuration as the `release` preset, which builds no tests. To run only part of a suite, select the tests by label or by name pattern:
+The test presets are `debug`, `tsan`, `multi-debug`, and `multi-relwithdebinfo`. CI does not run the `tsan` preset for `cwrap`, because `cwrap` starts no threads. The `multi-relwithdebinfo` tests check the same CMake configuration as the `release` preset, which builds no tests. To run only part of a suite, select the tests by label or by name pattern:
 
 ```sh
 ctest --preset debug -L unit -j 8
@@ -179,20 +180,21 @@ The workflow presets run the same configure, build, and test steps as CI:
 | Workflow | Steps |
 | --- | --- |
 | `cmake --workflow --preset ci-debug` | Build in `Debug`, run linting, and run all ASan and UBSan tests. |
+| `cmake --workflow --preset ci-tsan` | Build with TSan and run all TSan tests. CI does not run this workflow for `cwrap`. |
 | `cmake --workflow --preset ci-release` | Build in `RelWithDebInfo`. |
 | `cmake --workflow --preset ci-multi` | Build and test in `Debug` and `RelWithDebInfo` with the `Ninja Multi-Config` generator. CI runs this workflow a second time with `CC=gcc-14` to check GCC. |
 
-To run the Linux workflows on a machine with Podman, build the pinned Ubuntu image from [Containerfile](Containerfile). Then run each workflow in a new container:
+To run the Linux workflows on a machine with Podman, build the pinned Ubuntu image from the root [Containerfile](../../Containerfile) in the repository root. Then run each workflow in a new container, with the directory of `cwrap` as the working directory:
 
 ```sh
-podman build --tag cwrap-linux-ci --file Containerfile .
-podman run --rm cwrap-linux-ci ci-debug
-podman run --rm cwrap-linux-ci ci-release
-podman run --rm cwrap-linux-ci ci-multi
-podman run --rm -e CC=gcc-14 cwrap-linux-ci ci-multi
+podman build --tag apps-c17-linux-ci --file Containerfile .
+podman run --rm --workdir /src/apps/cwrap apps-c17-linux-ci ci-debug
+podman run --rm --workdir /src/apps/cwrap apps-c17-linux-ci ci-release
+podman run --rm --workdir /src/apps/cwrap apps-c17-linux-ci ci-multi
+podman run --rm --workdir /src/apps/cwrap -e CC=gcc-14 apps-c17-linux-ci ci-multi
 ```
 
-The image contains a snapshot of the source tree, including the vendored dependencies, without `.git/` and `build/`, which [.containerignore](.containerignore) excludes, so the Linux build products stay in the container and do not go into the `build/` directory of the host. The image supports x86-64 and AArch64 hosts, and pins LLVM 23 and GCC 14. It does not include Zig, because only the release archives need Zig.
+The image contains a snapshot of the repository, including the vendored dependencies, without `.git/` and the `build/` directories, which [.containerignore](../../.containerignore) excludes, so the Linux build products stay in the container and do not go into a `build/` directory of the host. The image supports x86-64 and AArch64 hosts, and pins LLVM 23 and GCC 14. It does not include Zig, because only the release archives need Zig.
 
 ### Packaging
 
@@ -210,7 +212,7 @@ cpack --preset release
 | `release-linux-x86_64` | `build/release-linux-x86_64/cwrap-<version>-x86_64-linux-musl.tar.gz`, cross-built with Zig. |
 | `release-linux-aarch64` | `build/release-linux-aarch64/cwrap-<version>-aarch64-linux-musl.tar.gz`, cross-built with Zig. |
 
-A source archive needs a configured tree but no compiled binary. It does not contain build products or private workspace metadata:
+A source archive needs a configured tree but no compiled binary. It holds the repository without the other apps, and it does not contain build products or private workspace metadata:
 
 ```sh
 cmake --preset release
@@ -219,16 +221,16 @@ cpack --config build/release/CPackSourceConfig.cmake
 
 The source archive is `build/release/cwrap-<version>-source.tar.gz`.
 
-The version of every archive comes from `project(VERSION)` in [CMakeLists.txt](CMakeLists.txt). Tag each release commit with the matching `vMAJOR.MINOR.PATCH`.
+The version of every archive comes from `project(VERSION)` in [CMakeLists.txt](CMakeLists.txt). Tag each release commit with the matching `cwrap-vMAJOR.MINOR.PATCH`. The tag starts the root release workflow, [release.yml](../../.github/workflows/release.yml), which tests, packages and publishes `cwrap` only. A manual run of this workflow with `dry_run` tests and packages the dispatched commit, and publishes nothing.
 
 ## Dependencies
 
-[vendor/](vendor/) contains these dependencies. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists their licenses.
+The root [vendor/](../../vendor/) directory contains these dependencies, except `shared`. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the licenses of the vendored dependencies.
 
-- [sharedstuff](https://github.com/unindented/sharedstuff-c17): Arena allocation, counted strings, output buffers, and the diagnostic log.
+- [shared](../../libs/shared/): Arena allocation, counted strings, output buffers, and the diagnostic log.
 - [copt](https://github.com/fardaniqbal/copt): Command-line option parsing.
 - [acutest](https://github.com/mity/acutest): Unit tests.
 
 ## License
 
-`cwrap` is MIT-licensed, as [LICENSE.txt](LICENSE.txt) states.
+`cwrap` is MIT-licensed, as [LICENSE.txt](../../LICENSE.txt) states.
