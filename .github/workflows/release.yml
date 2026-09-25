@@ -29,6 +29,11 @@ on:
         required: false
         type: boolean
         default: false
+      without_cwrap:
+        description: "Run CI without the pinned cwrap release, while that release does not exist yet"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -187,6 +192,7 @@ jobs:
       macos-packages: ${{ needs.resolve.outputs.macos_packages }}
       tsan: ${{ needs.resolve.outputs.tsan == 'true' }}
       grammars: ${{ needs.resolve.outputs.grammars == 'true' }}
+      cwrap: ${{ !inputs.without_cwrap }}
 
   package:
     name: Package ${{ matrix.target }}
@@ -251,11 +257,16 @@ jobs:
 
       - name: Build package
         env:
+          APP: ${{ needs.resolve.outputs.app }}
           PRESET: ${{ matrix.preset }}
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          cmake --preset "$PRESET" -DAPPS_RELEASE_TARGET="$TARGET"
+          # A tag made before the apps shared their CMake modules names the platform label
+          # `<APP>_RELEASE_TARGET`, so the workflow sets both names.
+          app_upper=$(printf '%s' "$APP" | tr '[:lower:]' '[:upper:]')
+          cmake --preset "$PRESET" -DAPPS_RELEASE_TARGET="$TARGET" \
+            "-D${app_upper}_RELEASE_TARGET=$TARGET"
           cmake --build --preset "$PRESET"
           cpack --preset "$PRESET"
 

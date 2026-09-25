@@ -14,8 +14,8 @@ struct Log;
 // with `main_posix.cpp` and `main_test.cpp`:
 //
 // - `runtime/fs.c` is the POSIX implementation, which the `cwrap` executable and every unit test
-//   registered without `OS memory` link (`cmake/cwrap_testing.cmake` says which tests those are and
-//   why).
+//   registered without `OS memory` link (`cmake/apps_testing.cmake` in the repository root says
+//   which tests those are and why).
 // - `tests/os_memory.c` is an in-memory implementation, which the unit tests registered with
 //   `OS memory` link, so they set up their inputs and read back their output without touching the
 //   disk or the process's descriptors.

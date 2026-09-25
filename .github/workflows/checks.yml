@@ -34,6 +34,11 @@ on:
         required: false
         type: boolean
         default: false
+      cwrap:
+        description: "Install the pinned cwrap release; without it, the lint target skips cwrap"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -79,6 +84,7 @@ jobs:
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
       - name: Install cwrap
+        if: inputs.cwrap
         env:
           CWRAP_VERSION: 0.3.1
         run: |
@@ -110,7 +116,7 @@ jobs:
           cmake --version
           ninja --version
           "${CC:-cc}" --version
-          cwrap --version
+          if command -v cwrap >/dev/null; then cwrap --version; fi
 
       - name: Resolve build and test parallelism
         run: |
@@ -119,6 +125,23 @@ jobs:
 
       - name: Lint, build, and test with ASan and UBSan
         run: cmake --workflow --preset ci-debug
+
+      # The `shared` library compiles with the profile of the project that builds it, so its objects
+      # in the ASan build carry the sanitizer's symbols, and its arena poisoning runs in that build.
+      - name: Check that the ASan build instruments the shared library
+        run: |
+          set -euo pipefail
+          objects=$(find build/debug -path '*/shared.dir/*.o')
+          if [ -z "$objects" ]; then
+            echo "the ASan build has no objects of the shared library" >&2
+            exit 1
+          fi
+          for object in $objects; do
+            if ! nm "$object" | grep -q __asan; then
+              echo "$object has no AddressSanitizer symbols" >&2
+              exit 1
+            fi
+          done
 
       - name: Build and test with TSan
         if: inputs.tsan

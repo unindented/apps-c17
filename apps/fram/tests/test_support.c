@@ -74,8 +74,8 @@ struct Log test_log(void) {
 
 bool test_log_is(const struct Log* log, const char* format, ...) {
   // The first pass measures the expected text and the second writes it, as `buf_printf` does.
-  // Starting the list twice needs no `va_copy`, and forwarding it to another formatter instead
-  // makes Clang's analyzer report a false `va_end` on AArch64 Linux.
+  // Starting the list twice needs no `va_copy`, and forwarding it to a formatter that copies it
+  // with `va_copy` instead makes Clang's analyzer report a false `va_end` on AArch64 Linux.
   va_list args;
   va_start(args, format);
   const int expected_len = vsnprintf(NULL, 0, format, args);
