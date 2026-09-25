@@ -10,8 +10,83 @@ permissions:
   contents: read
 
 jobs:
+  # Classifies the changed paths. An app's job runs unless every change is in another app's
+  # directory, `apps/<other>/`. The `libs` job runs unless every change is under `apps/`. So a change
+  # to `libs/`, `vendor/`, `cmake/`, `.github/`, a dotfile or the Containerfile runs every job.
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    outputs:
+      sosig: ${{ steps.classify.outputs.sosig }}
+      fram: ${{ steps.classify.outputs.fram }}
+      cwrap: ${{ steps.classify.outputs.cwrap }}
+      libs: ${{ steps.classify.outputs.libs }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: classify
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          apps="sosig fram cwrap"
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="$BASE_SHA"
+          else
+            base="$BEFORE_SHA"
+          fi
+
+          # A push that creates the branch, or a base this clone does not have, runs everything.
+          changed=""
+          everything=true
+          if [ -n "$base" ] && ! [[ "$base" =~ ^0+$ ]] &&
+            git cat-file -e "$base^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$base...$HEAD_SHA")
+            everything=false
+          fi
+          if [ "$everything" = false ] && [ -z "$changed" ]; then
+            everything=true
+          fi
+
+          declare -A run
+          for app in $apps libs; do
+            run[$app]="$everything"
+          done
+
+          if [ "$everything" = false ]; then
+            while IFS= read -r path; do
+              if [[ "$path" =~ ^apps/([^/]+)/ ]]; then
+                owner="${BASH_REMATCH[1]}"
+                for app in $apps; do
+                  if [ "$app" = "$owner" ]; then
+                    run[$app]=true
+                  fi
+                done
+              else
+                for app in $apps libs; do
+                  run[$app]=true
+                done
+              fi
+            done <<< "$changed"
+          fi
+
+          printf '%s\n' "$changed"
+          for app in $apps libs; do
+            echo "$app=${run[$app]}" | tee -a "$GITHUB_OUTPUT"
+          done
+
   sosig:
     name: sosig
+    needs: changes
+    if: needs.changes.outputs.sosig == 'true'
     uses: ./.github/workflows/checks.yml
     with:
       working-directory: apps/sosig
@@ -19,6 +94,8 @@ jobs:
 
   fram:
     name: fram
+    needs: changes
+    if: needs.changes.outputs.fram == 'true'
     uses: ./.github/workflows/checks.yml
     with:
       working-directory: apps/fram
@@ -27,27 +104,33 @@ jobs:
 
   cwrap:
     name: cwrap
+    needs: changes
+    if: needs.changes.outputs.cwrap == 'true'
     uses: ./.github/workflows/checks.yml
     with:
       working-directory: apps/cwrap
       tsan: false
 
-  shared:
-    name: shared
+  libs:
+    name: libs
+    needs: changes
+    if: needs.changes.outputs.libs == 'true'
     uses: ./.github/workflows/checks.yml
     with:
-      working-directory: libs/shared
+      working-directory: libs
 
   # The ruleset requires only this job. It waits for every other job, even when one fails, and
-  # fails when any of them failed or was cancelled.
+  # fails when any of them failed or was cancelled. A job that the path rule skipped counts as
+  # passed here.
   summary:
     name: Summary
     if: always()
     needs:
+      - changes
       - sosig
       - fram
       - cwrap
-      - shared
+      - libs
     runs-on: ubuntu-latest
     steps:
       - name: Check the result of every job

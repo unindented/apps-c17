@@ -31,23 +31,33 @@ RUN mkdir -p /etc/apt/keyrings \
       "libclang-rt-${LLVM_VERSION}-dev" \
     && rm -rf /var/lib/apt/lists/*
 
-# cwrap has no distribution package, so the image installs a pinned release and checks its digest.
+# cwrap has no distribution package, so the image installs a pinned release and checks its archive
+# against the release's `SHA256SUMS`.
 ARG CWRAP_VERSION=0.3.1
 RUN case "$(uname -m)" in \
-      x86_64) target=x86_64-linux-musl sha256=abb3b27c528cd04d1712e54da502b153b348454a650109a5acec88f2c680fd47 ;; \
-      aarch64) target=aarch64-linux-musl sha256=a63d4312d16471e4360b4853fddd0425fea93b2b37fde3de77c400eb29575408 ;; \
+      x86_64) target=x86_64-linux-musl ;; \
+      aarch64) target=aarch64-linux-musl ;; \
       *) echo "no cwrap release for $(uname -m)" >&2; exit 1 ;; \
     esac \
     && archive="cwrap-${CWRAP_VERSION}-${target}.tar.gz" \
-    && wget --quiet "https://github.com/unindented/cwrap-c17/releases/download/v${CWRAP_VERSION}/${archive}" \
-      --output-document="/tmp/${archive}" \
-    && echo "${sha256}  /tmp/${archive}" | sha256sum --check --quiet \
-    && tar -xzf "/tmp/${archive}" -C /usr/local --strip-components=1 --no-same-owner \
+    && release="https://github.com/unindented/apps-c17/releases/download/cwrap-v${CWRAP_VERSION}" \
+    && dir="$(mktemp -d)" \
+    && cd "${dir}" \
+    && wget --quiet "${release}/${archive}" "${release}/SHA256SUMS" \
+    && awk -v archive="${archive}" '$2 == archive' SHA256SUMS > cwrap.sha256 \
+    && if [ ! -s cwrap.sha256 ]; then \
+      echo "no digest for '${archive}' in the SHA256SUMS of cwrap-v${CWRAP_VERSION}" >&2; exit 1; \
+    fi \
+    && sha256sum --check --quiet cwrap.sha256 \
+    && tar -xzf "${archive}" -C /usr/local --strip-components=1 --no-same-owner \
       "cwrap-${CWRAP_VERSION}-${target}/bin/cwrap" \
-    && rm "/tmp/${archive}"
+    && cd / \
+    && rm -rf "${dir}"
 
 ENV CC=clang-23
 
+# The image holds the whole repository. Each project has its own presets, so a run selects the
+# project's directory with `--workdir`, for example `--workdir /src/apps/sosig`.
 COPY . /src
 WORKDIR /src
 

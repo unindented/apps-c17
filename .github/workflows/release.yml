@@ -1,0 +1,439 @@
+name: Release
+
+# A tag `<app>-vX.Y.Z` releases one app. A manual run names the app, and either the `version` of an
+# existing tag, which it publishes again, or `dry_run`, which builds, packages and checks the
+# dispatched commit and publishes nothing.
+on:
+  push:
+    tags:
+      - "sosig-v*"
+      - "fram-v*"
+      - "cwrap-v*"
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "App to release"
+        required: true
+        type: choice
+        options:
+          - sosig
+          - fram
+          - cwrap
+      version:
+        description: "Version of an existing tag to publish again, for example v0.1.0"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Build, package and check the dispatched commit, and publish nothing"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve release
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.version.outputs.app }}
+      ref: ${{ steps.version.outputs.ref }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      dry_run: ${{ steps.version.outputs.dry_run }}
+      linux_packages: ${{ steps.app.outputs.linux_packages }}
+      macos_packages: ${{ steps.app.outputs.macos_packages }}
+      tsan: ${{ steps.app.outputs.tsan }}
+      grammars: ${{ steps.app.outputs.grammars }}
+      matrix: ${{ steps.targets.outputs.matrix }}
+      target_count: ${{ steps.targets.outputs.count }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Single source of truth for release targets: the package matrix and the archive-count check
+      # below both derive from this output.
+      - name: Enumerate release targets
+        id: targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          matrix='{"include":[{"target":"x86_64-linux-musl","runner":"ubuntu-latest","preset":"release-linux-x86_64"},{"target":"aarch64-linux-musl","runner":"ubuntu-latest","preset":"release-linux-aarch64"},{"target":"aarch64-macos","runner":"macos-26","preset":"release"}]}'
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "count=$(printf '%s' "$matrix" | jq '.include | length')" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve app and version
+        id: version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          INPUT_APP: ${{ inputs.app }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          read_version() {
+            sed -n 's/^ *VERSION \([0-9][0-9.]*\) *$/\1/p'
+          }
+
+          dry_run=false
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            app="$INPUT_APP"
+            if [ "$INPUT_DRY_RUN" = "true" ]; then
+              if [ -n "$INPUT_VERSION" ]; then
+                echo "a dry run builds the dispatched commit, so it takes no version" >&2
+                exit 1
+              fi
+              dry_run=true
+            elif [ -z "$INPUT_VERSION" ]; then
+              echo "a manual release needs a version, or dry_run" >&2
+              exit 1
+            fi
+            raw_version="${INPUT_VERSION#"$app"-}"
+          else
+            app="${REF_NAME%%-v*}"
+            raw_version="${REF_NAME#"$app"-}"
+          fi
+
+          case "$app" in
+            sosig | fram | cwrap) ;;
+            *)
+              echo "unknown app '$app'" >&2
+              exit 1
+              ;;
+          esac
+
+          if [ "$dry_run" = "true" ]; then
+            version=$(read_version < "apps/$app/CMakeLists.txt")
+            if [ -z "$version" ]; then
+              echo "no project(VERSION) in apps/$app/CMakeLists.txt" >&2
+              exit 1
+            fi
+            {
+              echo "app=$app"
+              echo "ref=$SHA"
+              echo "tag="
+              echo "version=$version"
+              echo "dry_run=true"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          case "$raw_version" in
+            v*) ;;
+            *) raw_version="v$raw_version" ;;
+          esac
+          if ! [[ "$raw_version" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]]; then
+            echo "version must match vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+          tag="$app-$raw_version"
+
+          git fetch --force --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
+
+          project_version=$(git show "$tag:apps/$app/CMakeLists.txt" | read_version)
+          if [ "$project_version" != "${raw_version#v}" ]; then
+            echo "tag $tag does not match project(VERSION $project_version) in apps/$app/CMakeLists.txt" >&2
+            exit 1
+          fi
+
+          {
+            echo "app=$app"
+            echo "ref=$tag"
+            echo "tag=$tag"
+            echo "version=${raw_version#v}"
+            echo "dry_run=false"
+          } >> "$GITHUB_OUTPUT"
+
+      # The same per-app inputs that `ci.yml` passes to `checks.yml`.
+      - name: Resolve the app's checks
+        id: app
+        shell: bash
+        env:
+          APP: ${{ steps.version.outputs.app }}
+        run: |
+          set -euo pipefail
+          linux_packages=""
+          macos_packages=""
+          tsan=true
+          grammars=false
+          case "$APP" in
+            sosig) grammars=true ;;
+            fram)
+              linux_packages="ffmpeg nasm"
+              macos_packages="ffmpeg"
+              ;;
+            cwrap) tsan=false ;;
+          esac
+          {
+            echo "linux_packages=$linux_packages"
+            echo "macos_packages=$macos_packages"
+            echo "tsan=$tsan"
+            echo "grammars=$grammars"
+          } >> "$GITHUB_OUTPUT"
+
+  ci:
+    name: CI
+    needs: resolve
+    uses: ./.github/workflows/checks.yml
+    with:
+      ref: ${{ needs.resolve.outputs.ref }}
+      working-directory: apps/${{ needs.resolve.outputs.app }}
+      linux-packages: ${{ needs.resolve.outputs.linux_packages }}
+      macos-packages: ${{ needs.resolve.outputs.macos_packages }}
+      tsan: ${{ needs.resolve.outputs.tsan == 'true' }}
+      grammars: ${{ needs.resolve.outputs.grammars == 'true' }}
+
+  package:
+    name: Package ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    needs:
+      - resolve
+      - ci
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: apps/${{ needs.resolve.outputs.app }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+
+      - name: Install Zig
+        if: runner.os == 'Linux'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+
+      - name: Install QEMU
+        if: matrix.target == 'aarch64-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user
+
+      - name: Install NASM
+        if: needs.resolve.outputs.app == 'fram' && matrix.target == 'x86_64-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm
+
+      - name: Install LLVM binutils
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm
+
+      - name: Install FFmpeg (Linux)
+        if: needs.resolve.outputs.app == 'fram' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install FFmpeg (macOS)
+        if: needs.resolve.outputs.app == 'fram' && runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: Check native macOS host
+        if: matrix.target == 'aarch64-macos'
+        run: |
+          set -euo pipefail
+          if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
+            echo "aarch64-macos packages must be built on an arm64 macOS host" >&2
+            exit 1
+          fi
+
+      - name: Build package
+        env:
+          PRESET: ${{ matrix.preset }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          cmake --preset "$PRESET" -DAPPS_RELEASE_TARGET="$TARGET"
+          cmake --build --preset "$PRESET"
+          cpack --preset "$PRESET"
+
+      - name: Unpack packaged binary
+        id: unpack
+        shell: bash
+        env:
+          APP: ${{ needs.resolve.outputs.app }}
+          PRESET: ${{ matrix.preset }}
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          archive="build/$PRESET/$APP-$VERSION-$TARGET.tar.gz"
+          tmp="$RUNNER_TEMP/smoke"
+          mkdir -p "$tmp"
+          tar -C "$tmp" -xzf "$archive"
+          bin="$tmp/$APP-$VERSION-$TARGET/bin/$APP"
+          emulator=""
+          if [ "$TARGET" = aarch64-linux-musl ]; then
+            emulator=qemu-aarch64
+          fi
+          $emulator "$bin" --version
+          {
+            echo "bin=$bin"
+            echo "emulator=$emulator"
+            echo "tmp=$tmp"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test packaged binary (sosig)
+        if: needs.resolve.outputs.app == 'sosig'
+        shell: bash
+        env:
+          BIN: ${{ steps.unpack.outputs.bin }}
+          EMULATOR: ${{ steps.unpack.outputs.emulator }}
+          TMP: ${{ steps.unpack.outputs.tmp }}
+        run: |
+          set -euo pipefail
+          # Every fixture site in the golden test suite, built by the installed binary rather than
+          # a build-tree binary.
+          for fixture in tests/fixtures/*; do
+            site=$(basename "$fixture")
+            cmake -DSOSIG_EXECUTABLE="$BIN" -DSOSIG_EMULATOR="$EMULATOR" \
+              -DSOSIG_SITE_DIR="$PWD/$fixture" -DSOSIG_EXPECTED_DIR="$PWD/tests/expected/$site" \
+              -DSOSIG_SCRATCH_DIR="$TMP/$site" -P cmake/sosig_run_golden.cmake
+          done
+
+      - name: Smoke test packaged binary (fram)
+        if: needs.resolve.outputs.app == 'fram'
+        shell: bash
+        env:
+          BIN: ${{ steps.unpack.outputs.bin }}
+          EMULATOR: ${{ steps.unpack.outputs.emulator }}
+          TMP: ${{ steps.unpack.outputs.tmp }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The fixture gallery from the golden test suite, built by the installed binary rather
+          # than a build-tree binary.
+          cmake -DFRAM_EXECUTABLE="$BIN" -DFRAM_EMULATOR="$EMULATOR" -DFRAM_VERSION="$VERSION" \
+            -DFRAM_GALLERY_DIR="$PWD/tests/fixtures/gallery" \
+            -DFRAM_EXPECTED_DIR="$PWD/tests/expected/gallery" \
+            -DFRAM_SCRATCH_DIR="$TMP/gallery" -P cmake/fram_run_golden.cmake
+
+      - name: Smoke test packaged binary (cwrap)
+        if: needs.resolve.outputs.app == 'cwrap'
+        shell: bash
+        env:
+          BIN: ${{ steps.unpack.outputs.bin }}
+          EMULATOR: ${{ steps.unpack.outputs.emulator }}
+          TMP: ${{ steps.unpack.outputs.tmp }}
+        run: |
+          set -euo pipefail
+          # Every fixture in the golden test suite, rewrapped by the installed binary rather than a
+          # build-tree binary.
+          cmake -DCWRAP_EXECUTABLE="$BIN" -DCWRAP_EMULATOR="$EMULATOR" \
+            -DCWRAP_FIXTURE_DIR="$PWD/tests/fixtures" -DCWRAP_EXPECTED_DIR="$PWD/tests/expected" \
+            -DCWRAP_SCRATCH_DIR="$TMP/golden" -P cmake/cwrap_run_golden.cmake
+
+      - name: Verify archive contents
+        shell: bash
+        env:
+          APP: ${{ needs.resolve.outputs.app }}
+          PRESET: ${{ matrix.preset }}
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          root="$APP-$VERSION-$TARGET"
+          archive="build/$PRESET/$root.tar.gz"
+          tar -tzf "$archive" > "$RUNNER_TEMP/contents.txt"
+          grep -Fx "$root/bin/$APP" "$RUNNER_TEMP/contents.txt"
+          grep -Fx "$root/share/doc/$APP/README.md" "$RUNNER_TEMP/contents.txt"
+          grep -Fx "$root/share/doc/$APP/LICENSE.txt" "$RUNNER_TEMP/contents.txt"
+          grep -Fx "$root/share/doc/$APP/THIRD_PARTY_NOTICES.md" "$RUNNER_TEMP/contents.txt"
+
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          tar -C "$tmp" -xzf "$archive" "$root/bin/$APP"
+          case "$TARGET" in
+            aarch64-macos)
+              if nm "$tmp/$root/bin/$APP" |
+                awk 'NF >= 3 && $2 ~ /^[a-z]$/ { found = 1 } END { exit(found ? 0 : 1) }'
+              then
+                echo "packaged Mach-O binary still carries local symbols" >&2
+                exit 1
+              fi
+              ;;
+            *)
+              if file "$tmp/$root/bin/$APP" | grep -q "not stripped"; then
+                echo "packaged ELF binary still carries its symbol table" >&2
+                exit 1
+              fi
+              ;;
+          esac
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}
+          path: apps/${{ needs.resolve.outputs.app }}/build/${{ matrix.preset }}/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs:
+      - resolve
+      - package
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create checksums
+        shell: bash
+        env:
+          APP: ${{ needs.resolve.outputs.app }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TARGET_COUNT: ${{ needs.resolve.outputs.target_count }}
+        run: |
+          set -euo pipefail
+          cd artifacts
+          shopt -s nullglob
+          archives=("$APP-$VERSION"-*.tar.gz)
+          if [ "${#archives[@]}" -ne "$TARGET_COUNT" ]; then
+            echo "expected $TARGET_COUNT release archives, found ${#archives[@]}" >&2
+            printf '%s\n' "${archives[@]}" >&2
+            exit 1
+          fi
+          sha256sum -- "${archives[@]}" > SHA256SUMS
+          for archive in "${archives[@]}"; do
+            echo "$archive:"
+            tar -tzf "$archive"
+          done
+
+      - name: Publish GitHub release
+        if: needs.resolve.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              --clobber \
+              artifacts/*.tar.gz \
+              artifacts/SHA256SUMS
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --verify-tag \
+              artifacts/*.tar.gz \
+              artifacts/SHA256SUMS
+          fi
