@@ -516,10 +516,10 @@ The workflow presets run the same configure, build, and test steps as CI:
 | `cmake --workflow --preset ci-grammars` | Build in `RelWithDebInfo` with only the TypeScript grammar. CI runs this workflow only on Linux. |
 | `cmake --workflow --preset ci-multi` | Build and test in `Debug` and `RelWithDebInfo` with the `Ninja Multi-Config` generator. CI runs this workflow a second time with `CC=gcc-14` to check GCC. |
 
-To run the Linux workflows on a machine with Podman, build the pinned Ubuntu image from the root [Containerfile](../../Containerfile) in the repository root. Then run each workflow in a new container, with the directory of `sosig` as the working directory:
+To run the Linux workflows on a machine with Podman, build the pinned Ubuntu image from the root [Containerfile](../../Containerfile), with the repository root as the build context. Then run each workflow in a new container, with the directory of `sosig` as the working directory:
 
 ```sh
-podman build --tag apps-c17-linux-ci --file Containerfile .
+podman build --tag apps-c17-linux-ci --file ../../Containerfile ../..
 podman run --rm --workdir /src/apps/sosig apps-c17-linux-ci ci-debug
 podman run --rm --workdir /src/apps/sosig apps-c17-linux-ci ci-tsan
 podman run --rm --workdir /src/apps/sosig apps-c17-linux-ci ci-release

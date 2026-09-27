@@ -131,6 +131,11 @@ jobs:
       - name: Check that the ASan build instruments the shared library
         run: |
           set -euo pipefail
+          # A tag made before the apps shared the `libs/` project builds a vendored copy instead.
+          if [ ! -d "$GITHUB_WORKSPACE/libs" ]; then
+            echo "this checkout has no libs/ project; skipping"
+            exit 0
+          fi
           objects=$(find build/debug -path '*/shared.dir/*.o')
           if [ -z "$objects" ]; then
             echo "the ASan build has no objects of the shared library" >&2
@@ -152,7 +157,13 @@ jobs:
 
       - name: Build with one grammar
         if: inputs.grammars && runner.os == 'Linux'
-        run: cmake --workflow --preset ci-grammars
+        run: |
+          # A tag made before the grammars preset has no such workflow.
+          if ! cmake --list-presets=workflow | grep -q '"ci-grammars"'; then
+            echo "this checkout has no ci-grammars preset; skipping"
+            exit 0
+          fi
+          cmake --workflow --preset ci-grammars
 
       - name: Build and test two configurations with a second generator
         run: cmake --workflow --preset ci-multi

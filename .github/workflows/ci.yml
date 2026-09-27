@@ -49,7 +49,9 @@ jobs:
           everything=true
           if [ -n "$base" ] && ! [[ "$base" =~ ^0+$ ]] &&
             git cat-file -e "$base^{commit}" 2>/dev/null; then
-            changed=$(git diff --name-only "$base...$HEAD_SHA")
+            # `--no-renames` lists both paths of a moved file, so a move out of a directory runs the
+            # jobs of that directory too.
+            changed=$(git diff --name-only --no-renames "$base...$HEAD_SHA")
             everything=false
           fi
           if [ "$everything" = false ] && [ -z "$changed" ]; then
