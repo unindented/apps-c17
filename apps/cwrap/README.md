@@ -233,4 +233,4 @@ The root [vendor/](../../vendor/) directory contains these dependencies, except 
 
 ## License
 
-`cwrap` is MIT-licensed, as [LICENSE.txt](../../LICENSE.txt) states.
+`cwrap` is MIT-licensed, as [LICENSE.txt](https://github.com/unindented/apps-c17/blob/main/LICENSE.txt) states.

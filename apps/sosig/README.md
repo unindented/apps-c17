@@ -579,4 +579,4 @@ The root [vendor/](../../vendor/) directory contains these dependencies, except 
 
 ## License
 
-`sosig` is MIT-licensed, as [LICENSE.txt](../../LICENSE.txt) states.
+`sosig` is MIT-licensed, as [LICENSE.txt](https://github.com/unindented/apps-c17/blob/main/LICENSE.txt) states.

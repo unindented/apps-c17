@@ -262,11 +262,14 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          # A tag made before the apps shared their CMake modules names the platform label
-          # `<APP>_RELEASE_TARGET`, so the workflow sets both names.
-          app_upper=$(printf '%s' "$APP" | tr '[:lower:]' '[:upper:]')
-          cmake --preset "$PRESET" -DAPPS_RELEASE_TARGET="$TARGET" \
-            "-D${app_upper}_RELEASE_TARGET=$TARGET"
+          # A tag made before the apps shared their CMake modules has no root packaging module, and
+          # names the platform label `<APP>_RELEASE_TARGET`.
+          if [ -f "$GITHUB_WORKSPACE/cmake/apps_packaging.cmake" ]; then
+            target_variable=APPS_RELEASE_TARGET
+          else
+            target_variable="$(printf '%s' "$APP" | tr '[:lower:]' '[:upper:]')_RELEASE_TARGET"
+          fi
+          cmake --preset "$PRESET" "-D$target_variable=$TARGET"
           cmake --build --preset "$PRESET"
           cpack --preset "$PRESET"
 
