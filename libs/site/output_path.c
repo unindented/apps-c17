@@ -1,8 +1,11 @@
-#include "build/output_path.h"
+#include "site/output_path.h"
 
+#include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "core/path.h"
+#include "shared/arena.h"
 #include "shared/log.h"
 #include "shared/str.h"
 
@@ -26,4 +29,18 @@ int output_path_check_limits(struct Str relative_path, struct Str source_label, 
   // Unreachable: the switch covers every `enum PathOutputVerdict`, and omits `default:` so that
   // `-Wswitch` fails the build when a verdict is added without a case here.
   abort();
+}
+
+struct Str output_path_to_root(struct Str relative_path, struct Arena* arena) {
+  // An accepted path is at most `OUTPUT_PATH_RELATIVE_LEN_MAX` bytes, so `depth * 3` cannot
+  // overflow.
+  ptrdiff_t depth = 0;
+  for (ptrdiff_t i = 0; i < relative_path.len; i++) {
+    depth += relative_path.data[i] == '/';
+  }
+  char* prefix = arena_new(arena, depth * 3, char);
+  for (ptrdiff_t i = 0; i < depth; i++) {
+    memcpy(prefix + i * 3, "../", 3);
+  }
+  return (struct Str){prefix, depth * 3};
 }

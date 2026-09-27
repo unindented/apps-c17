@@ -5,15 +5,15 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-#include "build/output_writer.h"
 #include "core/error.h"
 #include "core/path.h"
 #include "domain/gallery_config.h"
-#include "domain/manifest.h"
 #include "runtime/os.h"
 #include "shared/arena.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/manifest.h"
+#include "site/output_writer.h"
 
 /** Number of input roots the prune never enters: `input_dir`, `templates_dir`, `static_dir`. */
 enum { PRUNE_ROOT_COUNT = 3 };

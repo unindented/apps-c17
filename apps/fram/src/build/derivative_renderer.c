@@ -5,8 +5,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "build/job.h"
-#include "build/output_writer.h"
 #include "core/error.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
@@ -19,6 +17,8 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/job.h"
+#include "site/output_writer.h"
 
 /**
  * Bytes the largest decode can hold, as `image_decode_len` counts it: `IMAGE_PIXEL_COUNT_MAX`

@@ -1,5 +1,5 @@
-#ifndef SOSIG_MANIFEST_H
-#define SOSIG_MANIFEST_H
+#ifndef APPS_SITE_MANIFEST_H
+#define APPS_SITE_MANIFEST_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -103,8 +103,8 @@ struct ManifestPrefixCollision {
  *
  * `manifest_add` rejects only paths equal under ASCII case folding. This catches the other way two
  * outputs collide on disk: a file path that is also a directory prefix of a second output, like
- * `a/b` beside `a/b/c`. The prefix match folds ASCII case the same way, so `Blog/Feed` collides
- * with `blog/feed/index.html`. Run it after every output path is recorded. It examines each path's
+ * `a/b` beside `a/b/c`. The prefix match folds ASCII case the same way, so `Dir/Sub` collides with
+ * `dir/sub/index.html`. Run it after every output path is recorded. It examines each path's
  * ancestor prefixes, so it reports such a pair whichever order the two were added in.
  *
  * Each call resumes after the descendant of the pair `collision` holds, so a loop that starts from

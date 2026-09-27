@@ -22,6 +22,7 @@ set(GRAPHVIZ_IGNORE_TARGETS
     "os_memory"
     "os_posix"
     "runtime"
+    "site"
     "testing"
     "Threads::Threads"
     "vendor_acutest"

@@ -6,7 +6,7 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and its presets. An app adds the project with `add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)`, so a library builds only when the app links it. Configured on its own, the project builds every library, its tests, its analysis and its lint.
 - [vendor.cmake](vendor.cmake): The vendored targets that the libraries and their tests use when the project is configured on its own: `acutest` and `tomlc17`, from the root [vendor/](../vendor/) directory. An app that adds the project gives these targets from its own `vendor.cmake`.
-- [shared/](shared/), [core/](core/), [testing/](testing/), [runtime/](runtime/), [os_memory/](os_memory/) and [formats/](formats/): One directory for each library, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
+- [shared/](shared/), [core/](core/), [testing/](testing/), [runtime/](runtime/), [os_memory/](os_memory/), [formats/](formats/) and [site/](site/): One directory for each library, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
 
 ## Libraries
 
@@ -18,6 +18,7 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 | [`runtime`](#runtime) | The host interface, its POSIX implementation `os_posix`, the out-of-memory report, the worker pool and the directory walk. | sosig, fram |
 | [`os_memory`](#os_memory) | The in-memory implementation of the host interface. | the unit tests of sosig, fram and the libraries |
 | [`formats`](#formats) | HTML escaping and the TOML helpers. | sosig, fram |
+| [`site`](#site) | The output manifest, the build job, output paths and the output writer. | sosig, fram |
 
 cwrap has a smaller host interface of its own in its `src/runtime/`, and links neither `runtime` nor `os_memory`.
 
@@ -27,9 +28,10 @@ cwrap has a smaller host interface of its own in its `src/runtime/`, and links n
 - `testing` and `runtime` depend on `core` and `shared`.
 - `os_memory` depends on `runtime` and `testing`.
 - `formats` depends on `core`, `shared` and the vendored `tomlc17`. The project adds `formats` only when the `vendor_tomlc17` target exists, so an app that vendors no tomlc17, such as cwrap, builds without it.
+- `site` depends on `core`, `runtime` and `shared`.
 - No library depends on an app.
 
-A library include names the library and the module, for example `#include "core/parse.h"` or `#include "runtime/os.h"`. Each library has an include root of its own: `libs_add_include_root` makes a directory in the build tree that holds one link, named for the library, to the library's directory, and gives the target that directory as its include root. `shared` has its own include root in the source tree, `shared/include/`, as in `#include "shared/str.h"`. A target therefore reaches the headers of the libraries that it links and of no other library. A header guard is `APPS_<LIB>_<MODULE>_H`, for example `APPS_CORE_PARSE_H`. An app's own `src/<layer>/` holds only modules that no library it links has, so an app's include never resolves to a different file than the library's. An app's header can have the same path as a header of a library that the app does not link, as cwrap's `runtime/os.h` has.
+A library include names the library and the module, for example `#include "core/parse.h"` or `#include "site/manifest.h"`. Each library has an include root of its own: `libs_add_include_root` makes a directory in the build tree that holds one link, named for the library, to the library's directory, and gives the target that directory as its include root. `shared` has its own include root in the source tree, `shared/include/`, as in `#include "shared/str.h"`. A target therefore reaches the headers of the libraries that it links and of no other library. A header guard is `APPS_<LIB>_<MODULE>_H`, for example `APPS_CORE_PARSE_H`. An app's own `src/<layer>/` holds only modules that no library it links has, so an app's include never resolves to a different file than the library's. An app's header can have the same path as a header of a library that the app does not link, as cwrap's `runtime/os.h` has.
 
 ### Build profiles and analysis
 
@@ -81,3 +83,10 @@ Each property that a test checks against the in-memory host must have a contract
 
 - [html](formats/html.h): HTML escaping of untrusted text for generated markup.
 - [toml](formats/toml.h): TOML parsing, text validation at the boundary where parsed bytes become owned text, and the conversion and formatting of dates and datetimes. `toml_require_known_keys` is the shared check for unknown keys. It reports each table key that is not in the list of known keys that a loader gives, and it reports a key that contains a `NUL` byte without its name, but with the name of its table.
+
+## site
+
+- [job](site/job.h): `job_run` connects the parallel phases of a build to the worker pool. It gives each job a log of its own, in the share of the phase's scratch that the job's worker owns. It reports progress under a lock, and merges the logs of the failed jobs. When the lines of two jobs differ only after the text that the caller names, the two jobs count as one failure. Each job writes its results into its own slot, which the caller owns.
+- [manifest](site/manifest.h): An insertion-ordered map from `output_path` to `source_label`. A build makes it before it writes an output file. A 4-ary hash trie, with the ASCII-folded path as its key, lets `manifest_add` reject a duplicate. Each trie level uses the next two bits of the path's 64-bit FNV-1a hash, so a lookup goes down O(log n) levels in expectation, and the trie never moves a manifest entry that it placed. Two paths that differ only in ASCII case are duplicates. `manifest_find_prefix_collision` finds a path that is a `/`-delimited prefix of another path. Each manifest entry also holds a mark, which is pending until the output writer marks the path as written or kept. A mark changes no trie link, so parallel jobs mark their own paths at the same time.
+- [output_path](site/output_path.h): Reports a generated output path that exceeds either output-path limit, with the same wording for every producer, and builds the `../` prefix from an output file back to the output root (`output_path_to_root`).
+- [output_writer](site/output_writer.h): Makes every change that a build makes under the output directory: the writes, the creation of the output directory, and the prune's removals. Each write or keep marks its path in the manifest. The writer fails on a path that the manifest does not name, because the same build's prune would remove that path. In a dry run, the writer makes no change and records the removals, and `output_writer_report` lists its marks and removals.

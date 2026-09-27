@@ -1,10 +1,10 @@
 #include <acutest.h>
 #include <stddef.h>
 
-#include "domain/manifest.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"
+#include "site/manifest.h"
 #include "testing/test_support.h"
 
 /**

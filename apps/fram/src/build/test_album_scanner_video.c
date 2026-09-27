@@ -11,7 +11,6 @@
 #include <unistd.h>
 
 #include "build/album_scanner.h"
-#include "build/job.h"
 #include "build/test_album_scanner.h"
 #include "build/test_job_arenas.h"
 #include "core/path.h"
@@ -26,6 +25,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/job.h"
 #include "test_jpeg_fixture.h"
 #include "testing/test_support.h"
 

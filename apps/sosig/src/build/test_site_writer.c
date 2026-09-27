@@ -2,17 +2,17 @@
 #include <errno.h>
 #include <string.h>
 
-#include "build/output_writer.h"
 #include "build/site_writer.h"
 #include "core/path_list.h"
 #include "domain/content_entry.h"
-#include "domain/manifest.h"
 #include "domain/site_config.h"
 #include "os_memory/os_memory.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/manifest.h"
+#include "site/output_writer.h"
 #include "testing/test_support.h"
 
 // Every test here runs against the in-memory host: the writers read templates and static files and

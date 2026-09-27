@@ -3,8 +3,8 @@
 
 #include <stddef.h>
 
-#include "build/job.h"
 #include "shared/arena.h"
+#include "site/job.h"
 #include "testing/test_support.h"
 
 // This is header-only and `static inline` so that every unit test running a parallel phase can

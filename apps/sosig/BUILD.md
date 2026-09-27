@@ -12,7 +12,7 @@ The top-level [CMakeLists.txt](CMakeLists.txt) sets the project policy, finds th
 | `src/*/CMakeLists.txt` | Add the sources, the header file sets and the unit tests of their directory |
 | [tests/CMakeLists.txt](tests/CMakeLists.txt) | Adds the golden tests |
 | [vendor.cmake](vendor.cmake) | Defines a target for each vendored dependency that `sosig` uses, from the sources in the root [vendor/](../../vendor/) directory, and a target for each tree-sitter grammar that `SOSIG_GRAMMARS` selects, and generates the header that declares these grammars |
-| [../../libs/CMakeLists.txt](../../libs/CMakeLists.txt) | Defines the libraries that `sosig` links: `shared`, `core`, `runtime` with the POSIX host `os_posix`, and `formats`, and for the unit tests `testing` and the in-memory host `os_memory` |
+| [../../libs/CMakeLists.txt](../../libs/CMakeLists.txt) | Defines the libraries that `sosig` links: `shared`, `core`, `runtime` with the POSIX host `os_posix`, `formats` and `site`, and for the unit tests `testing` and the in-memory host `os_memory` |
 | [../../cmake/apps_build_profiles.cmake](../../cmake/apps_build_profiles.cmake) | Sets warnings, optimization, fortification and sanitizers |
 | [../../cmake/apps_quality.cmake](../../cmake/apps_quality.cmake) | Configures formatting and static analysis |
 | [cmake/sosig_lint.cmake](cmake/sosig_lint.cmake) | Lists the first-party sources that the `format` and `lint` targets check |
@@ -36,7 +36,7 @@ The CMake build has one application library, two hosts, one target for each vend
 
 Each source directory holds the code for one purpose. The source directories add their files to `sosig_app` and do not define libraries of their own, because more libraries would add link boundaries without independent APIs. `src/build/` and `src/formats/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 
-`sosig_app` links `vendor_tomlc17`, `core`, `formats`, `runtime` and `shared` as `PUBLIC` dependencies, because the application headers expose the types of these libraries. The other dependencies are `PRIVATE`. `Threads::Threads` is one of the `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+`sosig_app` links `vendor_tomlc17`, `core`, `formats`, `runtime`, `shared` and `site` as `PUBLIC` dependencies, because the application headers expose the types of these libraries. The other dependencies are `PRIVATE`. `Threads::Threads` is one of the `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 
 `shared`, the library in [libs/shared/](../../libs/shared/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. `src/app/main.c` defines the `os_oom` of `sosig`, which [ARCHITECTURE.md](ARCHITECTURE.md#out-of-memory-exits-the-process) describes. The `testing` library defines the `os_oom` of the unit tests.
 

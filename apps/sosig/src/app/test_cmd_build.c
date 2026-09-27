@@ -8,7 +8,6 @@
 
 #include "app/cmd_build.h"
 #include "build/entry_renderer.h"
-#include "build/job.h"
 #include "core/exit_code.h"
 #include "core/path_list.h"
 #include "domain/build_cache.h"
@@ -20,6 +19,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/job.h"
 #include "testing/test_support.h"
 
 // Every build here runs against the in-memory host, whose root is the working directory the build

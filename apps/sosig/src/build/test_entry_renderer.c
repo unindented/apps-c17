@@ -12,14 +12,11 @@
 #include <unistd.h>
 
 #include "build/entry_renderer.h"
-#include "build/job.h"
-#include "build/output_writer.h"
 #include "build/page_renderer.h"
 #include "core/error.h"
 #include "core/path.h"
 #include "core/path_list.h"
 #include "domain/content_entry.h"
-#include "domain/manifest.h"
 #include "domain/site_config.h"
 #include "runtime/fs.h"
 #include "runtime/os.h"
@@ -27,6 +24,9 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/job.h"
+#include "site/manifest.h"
+#include "site/output_writer.h"
 #include "testing/test_support.h"
 
 /**

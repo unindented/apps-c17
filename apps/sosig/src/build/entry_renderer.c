@@ -5,8 +5,6 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-#include "build/job.h"
-#include "build/output_path.h"
 #include "core/ascii.h"
 #include "core/path.h"
 #include "core/path_list.h"
@@ -24,6 +22,8 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/job.h"
+#include "site/output_path.h"
 
 /**
  * Worker context shared by all content entry parse jobs. Every field is read-only to a job, except

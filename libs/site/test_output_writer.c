@@ -2,13 +2,13 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "build/output_writer.h"
-#include "domain/manifest.h"
 #include "os_memory/os_memory.h"
 #include "runtime/os.h"
 #include "shared/arena.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/manifest.h"
+#include "site/output_writer.h"
 #include "testing/test_support.h"
 
 /**

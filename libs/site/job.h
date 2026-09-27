@@ -1,5 +1,5 @@
-#ifndef SOSIG_JOB_H
-#define SOSIG_JOB_H
+#ifndef APPS_SITE_JOB_H
+#define APPS_SITE_JOB_H
 
 #include <stdbool.h>
 #include <stddef.h>

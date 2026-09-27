@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "build/job.h"
 #include "build/page_renderer.h"
 #include "domain/album.h"
 #include "domain/gallery_config.h"
@@ -13,6 +12,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/job.h"
 #include "testing/test_support.h"
 
 // Every test here runs against the in-memory host: the page phase reads templates only through

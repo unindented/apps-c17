@@ -7,7 +7,6 @@
 #include <string.h>
 
 #include "app/cmd_build.h"
-#include "build/job.h"
 #include "core/exit_code.h"
 #include "core/path_list.h"
 #include "domain/build_cache.h"
@@ -20,6 +19,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/job.h"
 #include "test_jpeg_fixture.h"
 #include "testing/test_support.h"
 

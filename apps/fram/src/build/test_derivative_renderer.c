@@ -6,13 +6,10 @@
 #include <string.h>
 
 #include "build/derivative_renderer.h"
-#include "build/job.h"
-#include "build/output_writer.h"
 #include "build/test_derivative_renderer.h"
 #include "build/test_job_arenas.h"
 #include "core/error.h"
 #include "domain/gallery_config.h"
-#include "domain/manifest.h"
 #include "domain/media_item.h"
 #include "formats/image.h"
 #include "os_memory/os_memory.h"
@@ -22,6 +19,9 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/job.h"
+#include "site/manifest.h"
+#include "site/output_writer.h"
 #include "test_jpeg_fixture.h"
 #include "test_webp_output.h"
 #include "testing/test_support.h"

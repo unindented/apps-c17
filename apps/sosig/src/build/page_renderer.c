@@ -3,8 +3,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "build/job.h"
-#include "build/output_writer.h"
 #include "build/template.h"
 #include "domain/build_cache.h"
 #include "domain/content_entry.h"
@@ -14,6 +12,8 @@
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"
+#include "site/job.h"
+#include "site/output_writer.h"
 
 /**
  * Worker context shared by all content entry page render jobs. Every field is read-only to a job,

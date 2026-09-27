@@ -4,8 +4,6 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "build/job.h"
-#include "build/output_path.h"
 #include "core/path.h"
 #include "core/path_list.h"
 #include "core/text.h"
@@ -22,6 +20,8 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/job.h"
+#include "site/output_path.h"
 
 /** Temporary indexing state while a skeleton is assembled. */
 struct SkeletonState {

@@ -3,7 +3,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "build/job.h"
 #include "build/template.h"
 #include "core/path.h"
 #include "domain/album.h"
@@ -11,6 +10,7 @@
 #include "runtime/memory.h"
 #include "shared/arena.h"
 #include "shared/str.h"
+#include "site/job.h"
 
 /**
  * Worker context shared by all album page render jobs. Every field is read-only to a job, except

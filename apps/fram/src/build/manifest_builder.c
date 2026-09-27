@@ -4,13 +4,11 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-#include "build/output_path.h"
 #include "core/path.h"
 #include "core/path_list.h"
 #include "domain/album.h"
 #include "domain/build_cache.h"
 #include "domain/gallery_config.h"
-#include "domain/manifest.h"
 #include "domain/media_item.h"
 #include "runtime/os.h"
 #include "runtime/walk.h"
@@ -18,6 +16,8 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/manifest.h"
+#include "site/output_path.h"
 
 /**
  * Identities of the files this build reads, gathered before any output path is registered so an

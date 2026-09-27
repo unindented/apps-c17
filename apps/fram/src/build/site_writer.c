@@ -2,8 +2,6 @@
 
 #include <stddef.h>
 
-#include "build/output_path.h"
-#include "build/output_writer.h"
 #include "build/page_renderer.h"
 #include "build/template.h"
 #include "core/path.h"
@@ -15,6 +13,8 @@
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"
+#include "site/output_path.h"
+#include "site/output_writer.h"
 
 // This module's three exported writers are unit-tested in `src/build/test_site_writer.c`, and
 // CTest's golden test suite exercises them end to end by building every fixture gallery and

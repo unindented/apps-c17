@@ -1,4 +1,4 @@
-#include "domain/manifest.h"
+#include "site/manifest.h"
 
 #include <stdbool.h>
 #include <stddef.h>

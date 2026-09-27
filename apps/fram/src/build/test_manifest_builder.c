@@ -10,13 +10,13 @@
 #include "core/path_list.h"
 #include "domain/album.h"
 #include "domain/gallery_config.h"
-#include "domain/manifest.h"
 #include "domain/media_item.h"
 #include "os_memory/os_memory.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/manifest.h"
 #include "testing/test_support.h"
 
 // Every test here runs against the in-memory host. The identity checks see what they would see on

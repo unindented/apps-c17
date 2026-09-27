@@ -10,10 +10,8 @@
 
 #include "build/album_scanner.h"
 #include "build/derivative_renderer.h"
-#include "build/job.h"
 #include "build/manifest_builder.h"
 #include "build/output_pruner.h"
-#include "build/output_writer.h"
 #include "build/page_renderer.h"
 #include "build/site_writer.h"
 #include "build/template.h"
@@ -23,7 +21,6 @@
 #include "domain/album.h"
 #include "domain/build_cache.h"
 #include "domain/gallery_config.h"
-#include "domain/manifest.h"
 #include "domain/media_item.h"
 #include "formats/image.h"
 #include "runtime/memory.h"
@@ -36,6 +33,9 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
+#include "site/job.h"
+#include "site/manifest.h"
+#include "site/output_writer.h"
 
 /** Bytes in a mebibyte, the unit of the sizes below. */
 #define BUILD_MIB ((ptrdiff_t)1024 * 1024)

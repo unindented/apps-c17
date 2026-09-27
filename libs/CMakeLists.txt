@@ -125,6 +125,7 @@ add_subdirectory(os_memory)
 if(TARGET vendor_tomlc17)
   add_subdirectory(formats)
 endif()
+add_subdirectory(site)
 
 if(PROJECT_IS_TOP_LEVEL)
   get_property(libs_lint_sources GLOBAL PROPERTY apps_libs_lint_sources)
