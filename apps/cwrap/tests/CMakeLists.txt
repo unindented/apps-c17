@@ -28,12 +28,15 @@ set_tests_properties(
              ENVIRONMENT_MODIFICATION "UBSAN_OPTIONS=string_prepend:print_stacktrace=1:"
 )
 
+# The idempotence test also rewraps the sources of every library that cwrap links, which
+# `APPS_LIBRARIES` lists, separated by `|` because a `;` would split the argument.
+string(REPLACE ";" "|" cwrap_idempotent_libraries "${APPS_LIBRARIES}")
 add_test(
   NAME cwrap.idempotent
   COMMAND
     "${CMAKE_COMMAND}" "-DCWRAP_EXECUTABLE=$<TARGET_FILE:cwrap>"
     "-DCWRAP_SOURCE_DIR=${PROJECT_SOURCE_DIR}" "-DCWRAP_LIBS_DIR=${PROJECT_SOURCE_DIR}/../../libs"
-    "-DCWRAP_LIBRARIES=shared|core|testing"
+    "-DCWRAP_LIBRARIES=${cwrap_idempotent_libraries}"
     "-DCWRAP_SCRATCH_DIR=${PROJECT_BINARY_DIR}/idempotent/$<CONFIG>" -P
     "${PROJECT_SOURCE_DIR}/cmake/cwrap_run_idempotent.cmake"
 )
