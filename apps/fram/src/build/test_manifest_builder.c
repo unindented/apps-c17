@@ -12,7 +12,7 @@
 #include "domain/gallery_config.h"
 #include "domain/manifest.h"
 #include "domain/media_item.h"
-#include "os_memory.h"
+#include "os_memory/os_memory.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/log.h"

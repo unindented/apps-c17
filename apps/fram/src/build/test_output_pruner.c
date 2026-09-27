@@ -9,7 +9,7 @@
 #include "core/path_list.h"
 #include "domain/gallery_config.h"
 #include "domain/manifest.h"
-#include "os_memory.h"
+#include "os_memory/os_memory.h"
 #include "shared/arena.h"
 #include "shared/log.h"
 #include "shared/str.h"

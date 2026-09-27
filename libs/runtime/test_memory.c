@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "os_memory.h"
+#include "os_memory/os_memory.h"
 #include "runtime/memory.h"
 #include "shared/arena.h"
 #include "shared/log.h"
@@ -89,10 +89,10 @@ static void test_oom_report_prints_logs_and_file(void) {
   memory_oom_set_log(&log);
   memory_oom_set_job(S("input/b.jpg"), &job_log);
   struct Os* os = os_memory();
-  memory_oom_report(os);
+  memory_oom_report(os, S("app"));
   TEST_CHECK(os_memory_is_printed(os, 2,
                                   "failed to probe media 'input/a.jpg'\nunknown key 'x'\n"
-                                  "fram: out of memory (in 'input/b.jpg')\n"));
+                                  "app: out of memory (in 'input/b.jpg')\n"));
   memory_oom_set_log(NULL);
   memory_oom_set_job((struct Str){0}, NULL);
 }
@@ -101,16 +101,16 @@ static void test_oom_report_prints_logs_and_file(void) {
 static void test_oom_report_names_file_view(void) {
   memory_oom_set_job(str_head(S("input/b.jpg.tmp"), S("input/b.jpg").len), NULL);
   struct Os* os = os_memory();
-  memory_oom_report(os);
-  TEST_CHECK(os_memory_is_printed(os, 2, "fram: out of memory (in 'input/b.jpg')\n"));
+  memory_oom_report(os, S("app"));
+  TEST_CHECK(os_memory_is_printed(os, 2, "app: out of memory (in 'input/b.jpg')\n"));
   memory_oom_set_job((struct Str){0}, NULL);
 }
 
 // With no log and no file named, the report is the bare line.
 static void test_oom_report_without_context_is_one_line(void) {
   struct Os* os = os_memory();
-  memory_oom_report(os);
-  TEST_CHECK(os_memory_is_printed(os, 2, "fram: out of memory\n"));
+  memory_oom_report(os, S("app"));
+  TEST_CHECK(os_memory_is_printed(os, 2, "app: out of memory\n"));
 }
 
 TEST_LIST = {

@@ -377,8 +377,8 @@ static void test_extract_frame_cleans_failed_temp(void) {
 
   struct Str logged_path = {0};
   struct Log read_log = test_log();
-  TEST_CHECK(os_read(os_posix(), str_from_cstr(log_path), TEST_FILE_LEN_MAX, &arena, &logged_path,
-                     S("failed to read fixture"), &read_log) == 0);
+  TEST_CHECK(os_read(os_posix(), str_from_cstr(log_path), TEST_FILE_LEN_MAX, OS_READ_BYTES, &arena,
+                     &logged_path, S("failed to read fixture"), &read_log) == 0);
   TEST_CHECK(logged_path.len > 0);
   TEST_CHECK(access(str_cstr(logged_path, &arena), F_OK) != 0);
 

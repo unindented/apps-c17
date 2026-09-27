@@ -175,7 +175,7 @@ static int drain_fifo(const char* fifo_path, const char* expected, size_t expect
 // leaving the outputs untouched.
 static void test_read_rejects_fifo(void) {
   struct Log log = test_log();
-  char root_dir[] = "/tmp/fram-fs-read-fifo.XXXXXX";
+  char root_dir[] = "/tmp/apps-fs-read-fifo.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -188,7 +188,8 @@ static void test_read_rejects_fifo(void) {
     goto cleanup;
   }
 
-  TEST_CHECK(os_read(os_posix(), fifo, TEST_FILE_LEN_MAX, &arena, &file_data, S("op"), &log) == -1);
+  TEST_CHECK(os_read(os_posix(), fifo, TEST_FILE_LEN_MAX, OS_READ_BYTES, &arena, &file_data,
+                     S("op"), &log) == -1);
   TEST_CHECK(file_data.data == sentinel.data && file_data.len == sentinel.len);
   TEST_CHECK(test_log_is(&log, "op: not a regular file ('%.*s')\n", STR_FMT(fifo)));
 
@@ -201,7 +202,7 @@ cleanup:
 // existing file keeps that file's mode, because the write goes through the file.
 static void test_write_applies_umask_and_keeps_existing_mode(void) {
   struct Log log = test_log();
-  char root_dir[] = "/tmp/fram-fs-mode.XXXXXX";
+  char root_dir[] = "/tmp/apps-fs-mode.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -246,7 +247,7 @@ static void test_write_applies_umask_and_keeps_existing_mode(void) {
 // write failed before it opened the FIFO (the reader is then stopped, not awaited).
 static void test_write_retries_interrupted_write(void) {
   struct Log log = test_log();
-  char root_dir[] = "/tmp/fram-fs-write-eintr.XXXXXX";
+  char root_dir[] = "/tmp/apps-fs-write-eintr.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -344,7 +345,7 @@ cleanup:
 // opens it, and the destination is never created.
 static void test_write_rejects_fifo_source(void) {
   struct Log log = test_log();
-  char root_dir[] = "/tmp/fram-fs-copy-fifo.XXXXXX";
+  char root_dir[] = "/tmp/apps-fs-copy-fifo.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -371,7 +372,7 @@ cleanup:
 // naming the destination, and leaves the bytes below the limit and nothing beside the file.
 static void test_write_reports_destination_when_write_fails(void) {
   struct Log log = test_log();
-  char root_dir[] = "/tmp/fram-fs-write-fsize.XXXXXX";
+  char root_dir[] = "/tmp/apps-fs-write-fsize.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -402,7 +403,8 @@ static void test_write_reports_destination_when_write_fails(void) {
   TEST_CHECK(rc == -1);
   TEST_CHECK(test_log_is(&log, "op: %s ('%.*s')\n", strerror(EFBIG), STR_FMT(output)));
   struct Str data = {0};
-  TEST_CHECK(os_read(os_posix(), output, TEST_FILE_LEN_MAX, &arena, &data, S("op"), &log) == 0);
+  TEST_CHECK(os_read(os_posix(), output, TEST_FILE_LEN_MAX, OS_READ_BYTES, &arena, &data, S("op"),
+                     &log) == 0);
   TEST_CHECK(str_eq(data, S("long")));
   struct OsEntry* entries = NULL;
   ptrdiff_t count = 0;
@@ -413,8 +415,8 @@ static void test_write_reports_destination_when_write_fails(void) {
 }
 
 // A write to an existing file in a directory that may not be written succeeds, because it goes
-// through the file, as a rebuild of a derivative in a read-only directory does. A new file there
-// fails, naming the destination.
+// through the file, as a rebuilt output in a read-only directory does. A new file there fails,
+// naming the destination.
 static void test_write_goes_through_existing_file_in_read_only_dir(void) {
   struct Log log = test_log();
   // Root bypasses the permission bits, so the new file would be created.
@@ -422,7 +424,7 @@ static void test_write_goes_through_existing_file_in_read_only_dir(void) {
     return;
   }
 
-  char root_dir[] = "/tmp/fram-fs-write-read-only.XXXXXX";
+  char root_dir[] = "/tmp/apps-fs-write-read-only.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -446,7 +448,8 @@ static void test_write_goes_through_existing_file_in_read_only_dir(void) {
   TEST_CHECK(existing_rc == 0);
   TEST_CHECK(test_log_is_empty(&log));
   struct Str data = {0};
-  TEST_CHECK(os_read(os_posix(), existing, TEST_FILE_LEN_MAX, &arena, &data, S("op"), &log) == 0);
+  TEST_CHECK(os_read(os_posix(), existing, TEST_FILE_LEN_MAX, OS_READ_BYTES, &arena, &data, S("op"),
+                     &log) == 0);
   TEST_CHECK(str_eq(data, S("new")));
   TEST_CHECK(created_rc == -1);
   TEST_CHECK(test_log_is(&created_log, "op: %s ('%.*s')\n", strerror(EACCES), STR_FMT(created)));
@@ -464,7 +467,7 @@ static void test_mkdirs_rejects_uncreatable_component(void) {
     return;
   }
 
-  char root_dir[] = "/tmp/fram-fs-mkdir-refused.XXXXXX";
+  char root_dir[] = "/tmp/apps-fs-mkdir-refused.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -490,7 +493,7 @@ static void test_mkdirs_rejects_uncreatable_component(void) {
 // beside it. `test_os.c` checks the rest of the classification against both hosts.
 static void test_list_skips_fifo(void) {
   struct Log log = test_log();
-  char root_dir[] = "/tmp/fram-fs-list-fifo.XXXXXX";
+  char root_dir[] = "/tmp/apps-fs-list-fifo.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -522,7 +525,7 @@ static void test_list_rejects_unstatable_entry(void) {
     return;
   }
 
-  char root_dir[] = "/tmp/fram-fs-list-unstatable.XXXXXX";
+  char root_dir[] = "/tmp/apps-fs-list-unstatable.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -561,7 +564,7 @@ static void test_list_reports_uninspectable_entries_in_order(void) {
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
     TEST_CASE(cases[i].reported);
-    char root_dir[] = "/tmp/fram-fs-list-order.XXXXXX";
+    char root_dir[] = "/tmp/apps-fs-list-order.XXXXXX";
     if (init_fixture_dir(root_dir) != 0) {
       return;
     }
@@ -590,7 +593,7 @@ static void test_list_reports_uninspectable_entries_in_order(void) {
 static void test_walk_descends_deeper_than_open_file_limit(void) {
   struct Log log = test_log();
   enum { TREE_DEPTH = 64, OPEN_FILE_LIMIT = 32 };
-  char root_dir[] = "/tmp/fram-fs-list-deep.XXXXXX";
+  char root_dir[] = "/tmp/apps-fs-list-deep.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }

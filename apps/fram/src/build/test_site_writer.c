@@ -10,7 +10,7 @@
 #include "domain/album.h"
 #include "domain/gallery_config.h"
 #include "domain/manifest.h"
-#include "os_memory.h"
+#include "os_memory/os_memory.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/log.h"

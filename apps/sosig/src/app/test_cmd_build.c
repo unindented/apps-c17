@@ -13,7 +13,7 @@
 #include "core/path_list.h"
 #include "domain/build_cache.h"
 #include "formats/toml.h"
-#include "os_memory.h"
+#include "os_memory/os_memory.h"
 #include "runtime/os.h"
 #include "runtime/pool.h"
 #include "shared/arena.h"

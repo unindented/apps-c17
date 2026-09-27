@@ -7,7 +7,7 @@
 - [src/app/](src/app/): The process entry point, the command-line interface, the command boundary, and the rewrap of one input.
 - [src/domain/](src/domain/): Comment lexing, grouping, filling, Doxygen alignment, and source rewriting.
 - [src/runtime/](src/runtime/): The host interface and its POSIX implementation, and the out-of-memory report.
-- [tests/](tests/): The golden and idempotence test suites, the seeded random tests, and the in-memory host [tests/os_memory.h](tests/os_memory.h). Each C file under [tests/fixtures/](tests/fixtures/) has a matching file of expected output under [tests/expected/](tests/expected/). The idempotence test also rewraps these files and every first-party source file at several widths.
+- [tests/](tests/): The golden and idempotence test suites, the seeded random tests, and the in-memory host [tests/os_memory.h](tests/os_memory.h). Each C file under [tests/fixtures/](tests/fixtures/) has a matching file of expected output under [tests/expected/](tests/expected/). The idempotence test also rewraps these files, every first-party source file, and the sources of the libraries that `cwrap` links, at several widths.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
 - [cmake/](cmake/): The lint list and the golden and idempotence test drivers. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](BUILD.md) documents their boundaries and policy.
 - [libs/](../../libs/): The libraries that `cwrap` links: `shared` and `core`, and for the unit tests `testing`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
@@ -21,7 +21,7 @@ First-party dependencies point inward:
 - `domain` and `runtime` depend on no other directory in `src/`.
 - Every directory can depend on the libraries in `libs/`, and no library depends on `cwrap`.
 
-A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root or at the include root of a library that the app links, for example `#include "domain/fill.h"` or `#include "core/ascii.h"`, so every include names the directory or the library that it depends on.
+A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root or at the include root of a library that the app links, for example `#include "domain/fill.h"` or `#include "core/ascii.h"`, so every include names the directory or the library that it depends on. `cwrap` has its own `runtime/os.h` in `src/` and links no `runtime` library, so no include root of `cwrap` holds another `runtime/os.h`, and `#include "runtime/os.h"` always names the file in `src/`.
 
 ## Terms
 

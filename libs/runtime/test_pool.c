@@ -213,8 +213,8 @@ static void test_worker_index_respects_job_count_clamp(void) {
 }
 
 // One failing job fails the whole run, and every remaining index still runs. Workers deliberately
-// never observe `has_failed` (`src/runtime/pool.c`), so the count is the full job count, not
-// however many workers claimed before the failure.
+// never observe `has_failed` (`runtime/pool.c`), so the count is the full job count, not however
+// many workers claimed before the failure.
 static void test_propagates_job_failure(void) {
   struct PoolCounter counter;
   atomic_init(&counter.count, 0);

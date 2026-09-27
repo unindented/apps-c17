@@ -27,7 +27,7 @@ The top-level [CMakeLists.txt](CMakeLists.txt) sets the project policy, includes
 
 ## Targets
 
-The CMake build has one application library, two hosts, one target for each vendored dependency, the `shared` library, and the interface targets of [Build profiles](#build-profiles). Each executable links the application library and one of the two hosts. CMake generates this graph of the targets and their links from the `release` preset. The graph does not show the dependencies between source modules, and it does not show test-only targets such as the in-memory host `cwrap_os_memory`.
+The CMake build has one application library, two hosts, one target for each vendored dependency, the `shared` and `core` libraries, and the interface targets of [Build profiles](#build-profiles). Each executable links the application library and one of the two hosts. CMake generates this graph of the targets and their links from the `release` preset. The graph does not show the dependencies between source modules, and it does not show test-only targets such as the in-memory host `cwrap_os_memory`.
 
 ![CMake target dependency graph](media/dependencies.svg)
 
@@ -102,7 +102,7 @@ Both targets run both tools on the first-party files in an explicit list, the `S
 
 `APPS_BUILD_TESTING` controls whether CMake defines the tests. It is on by default when `cwrap` is the top-level CMake project, and off by default when a parent project adds `cwrap` as a subproject.
 
-Each source directory adds its own unit tests. `tests/` adds the golden and idempotence tests, `cwrap_test_support`, `cwrap_os_memory` and the seeded random tests. Every CTest case has the label `cwrap`, and also the label `unit`, `golden` or `idempotent`.
+Each source directory adds its own unit tests. `tests/` adds the golden and idempotence tests, `cwrap_os_memory` and the seeded random tests. The tests of the libraries run in the `libs/` project, and `cwrap` does not register them. Every CTest case has the label `cwrap`, and also the label `unit`, `golden` or `idempotent`.
 
 ### Unit tests
 

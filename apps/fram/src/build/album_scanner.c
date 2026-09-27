@@ -845,7 +845,8 @@ static int probe_image(struct MediaItem* item,
                        struct Str operation,
                        struct Log* log) {
   struct Str data = {0};
-  if (os_read(os, item->source_path, IMAGE_INPUT_LEN_MAX, &scratch, &data, operation, log) != 0) {
+  if (os_read(os, item->source_path, IMAGE_INPUT_LEN_MAX, OS_READ_BYTES, &scratch, &data, operation,
+              log) != 0) {
     return -1;
   }
   struct ImageHeader header;
@@ -897,7 +898,8 @@ static int probe_frame(struct Str source_path,
              STR_FMT(source_path));
   const struct Str read_operation = buf_str(&frame_operation);
   struct Str data = {0};
-  if (os_read(os, frame_path, IMAGE_INPUT_LEN_MAX, &scratch, &data, read_operation, log) != 0) {
+  if (os_read(os, frame_path, IMAGE_INPUT_LEN_MAX, OS_READ_BYTES, &scratch, &data, read_operation,
+              log) != 0) {
     return -1;
   }
   struct ImageHeader header;

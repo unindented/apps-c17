@@ -17,9 +17,9 @@ set(GRAPHVIZ_CUSTOM_TARGETS FALSE)
 
 set(GRAPHVIZ_IGNORE_TARGETS
     "apps_build_tests"
-    "sosig_os_memory"
     "sosig_test_support"
     "sosig_unit_.*"
+    "os_memory"
     "testing"
     "vendor_acutest"
 )

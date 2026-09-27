@@ -525,8 +525,8 @@ static int parse_content_entry_load_source(struct ContentEntry* entry,
   // and the next build sees it. A source that cannot be inspected fails the read below.
   (void)os_stat(os, source_path, &entry->source_stat);
   struct Str text = {0};
-  if (os_read(os, source_path, source_len_max, perm, &text, S("failed to read content"), log) !=
-      0) {
+  if (os_read(os, source_path, source_len_max, OS_READ_TEXT, perm, &text,
+              S("failed to read content"), log) != 0) {
     return -1;
   }
   // `cmd_build.c`'s `load_build_inputs_split_sources` keeps only `.md` and `.org`, in any letter

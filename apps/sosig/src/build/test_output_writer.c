@@ -4,7 +4,7 @@
 
 #include "build/output_writer.h"
 #include "domain/manifest.h"
-#include "os_memory.h"
+#include "os_memory/os_memory.h"
 #include "runtime/os.h"
 #include "shared/arena.h"
 #include "shared/log.h"

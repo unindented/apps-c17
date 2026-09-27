@@ -528,7 +528,7 @@ static int gallery_config_load_toml(struct Str config_path,
                                     toml_result_t* parsed_out,
                                     struct Log* log) {
   struct Str config_data = {0};
-  if (os_read(os, config_path, CONFIG_FILE_LEN_MAX, &scratch, &config_data,
+  if (os_read(os, config_path, CONFIG_FILE_LEN_MAX, OS_READ_BYTES, &scratch, &config_data,
               S("failed to read config"), log) != 0) {
     return -1;
   }

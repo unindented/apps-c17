@@ -15,7 +15,7 @@
 #include "domain/manifest.h"
 #include "domain/media_item.h"
 #include "formats/image.h"
-#include "os_memory.h"
+#include "os_memory/os_memory.h"
 #include "runtime/os.h"
 #include "runtime/video.h"
 #include "shared/arena.h"
@@ -153,7 +153,8 @@ static int probe_file(struct Str path,
   struct Str data = {0};
   struct Log log = test_log();
   struct Image decoded = {0};
-  int rc = os_read(os, path, TEST_FILE_LEN_MAX, &scratch, &data, S("failed to read output"), &log);
+  int rc = os_read(os, path, TEST_FILE_LEN_MAX, OS_READ_BYTES, &scratch, &data,
+                   S("failed to read output"), &log);
   if (rc == 0) {
     rc = test_webp_decode(data, &decoded);
   }

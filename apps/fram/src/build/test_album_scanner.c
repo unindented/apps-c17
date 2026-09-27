@@ -20,7 +20,7 @@
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
 #include "formats/image.h"
-#include "os_memory.h"
+#include "os_memory/os_memory.h"
 #include "runtime/os.h"
 #include "runtime/video.h"
 #include "shared/arena.h"

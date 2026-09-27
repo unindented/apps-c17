@@ -20,20 +20,21 @@
 #include "shared/str.h"
 #include "testing/test_support.h"
 
-#if SOSIG_TEST_OS_MEMORY
-#include "os_memory.h"
+#if APPS_TEST_OS_MEMORY
+#include "os_memory/os_memory.h"
 #else
 #include "runtime/fs.h"
 #endif
 
 // These are the contract tests of `runtime/os.h`. This one file builds two executables: one links
 // the POSIX host in `fs.c` and runs against a real temporary directory, and one links the in-memory
-// host in `tests/os_memory.c`. Both must pass. Every property that a test of another module checks
-// against the in-memory host is checked here against both, so the in-memory host cannot accept what
-// POSIX rejects. Facts only a real filesystem has, such as FIFOs, modes and interrupted writes, are
-// in `test_fs.c`, which also produces, from permission bits, two failures the in-memory host can
-// only inject: an entry that cannot be inspected and a directory that cannot be created. The
-// in-memory build ends with tests of that injection, which the POSIX build has no counterpart to.
+// host in `os_memory/os_memory.c`. Both must pass. Every property that a test of another module
+// checks against the in-memory host is checked here against both, so the in-memory host cannot
+// accept what POSIX rejects. Facts only a real filesystem has, such as FIFOs, modes and interrupted
+// writes, are in `test_fs.c`, which also produces, from permission bits, two failures the in-memory
+// host can only inject: an entry that cannot be inspected and a directory that cannot be created.
+// The in-memory build ends with tests of that injection, which the POSIX build has no counterpart
+// to.
 //
 // Every call under test here runs with the operation `op`, so an expected failure reads
 // `op: <cause>`. A system cause is spelled with `strerror` from the running libc, as both hosts
@@ -81,7 +82,7 @@ struct Contract {
  */
 static int contract_begin(char root_template[static 1], struct Contract* contract_out) {
   *contract_out = (struct Contract){.root_dir = root_template, .arena = test_arena()};
-#if SOSIG_TEST_OS_MEMORY
+#if APPS_TEST_OS_MEMORY
   contract_out->os = os_memory();
   os_memory_mkdir(contract_out->os, root_template);
   return 0;
@@ -97,7 +98,7 @@ static int contract_begin(char root_template[static 1], struct Contract* contrac
  * @param contract Contract that `contract_begin` set up. Must not be `NULL`.
  */
 static void contract_end(const struct Contract* contract) {
-#if SOSIG_TEST_OS_MEMORY
+#if APPS_TEST_OS_MEMORY
   (void)contract;
 #else
   remove_fixture_tree(contract->root_dir);
@@ -140,7 +141,7 @@ static void contract_write(struct Contract* contract, const char* relative_path,
  */
 static void contract_truncate(struct Contract* contract, const char* relative_path, ptrdiff_t len) {
   const struct Str file_path = contract_path(contract, relative_path);
-#if SOSIG_TEST_OS_MEMORY
+#if APPS_TEST_OS_MEMORY
   os_memory_truncate(contract->os, file_path.data, len);
 #else
   TEST_CHECK(truncate(file_path.data, (off_t)len) == 0);
@@ -158,7 +159,7 @@ static void contract_symlink(struct Contract* contract,
                              const char* target,
                              const char* relative_link_path) {
   const struct Str link_path = contract_path(contract, relative_link_path);
-#if SOSIG_TEST_OS_MEMORY
+#if APPS_TEST_OS_MEMORY
   os_memory_symlink(contract->os, target, link_path.data);
 #else
   TEST_CHECK(symlink(target, link_path.data) == 0);
@@ -179,7 +180,7 @@ static void contract_link(struct Contract* contract,
                           const char* relative_link_path) {
   const struct Str file_path = contract_path(contract, relative_file_path);
   const struct Str link_path = contract_path(contract, relative_link_path);
-#if SOSIG_TEST_OS_MEMORY
+#if APPS_TEST_OS_MEMORY
   os_memory_link(contract->os, file_path.data, link_path.data);
 #else
   TEST_CHECK(link(file_path.data, link_path.data) == 0);
@@ -199,8 +200,9 @@ static bool contract_is_file(struct Contract* contract,
                              struct Str expected) {
   struct Log log = test_log();
   struct Str data = {0};
-  const bool is_read = os_read(contract->os, contract_path(contract, relative_path),
-                               TEST_FILE_LEN_MAX, &contract->arena, &data, S("op"), &log) == 0;
+  const bool is_read =
+      os_read(contract->os, contract_path(contract, relative_path), TEST_FILE_LEN_MAX,
+              OS_READ_BYTES, &contract->arena, &data, S("op"), &log) == 0;
   const struct Str failure = buf_str(&log.buf);
   TEST_MSG("%.*s", STR_FMT(failure));
   return is_read && str_eq(data, expected);
@@ -271,7 +273,7 @@ static const struct OsEntry* entry_named(const struct OsEntry* entries,
 // An empty file reads back as zero bytes, and a file exactly at `data_len_max` bytes reads in full,
 // so the limit is inclusive.
 static void test_read_accepts_empty_and_file_at_limit(void) {
-  char root[] = "/tmp/sosig-os-read-limit.XXXXXX";
+  char root[] = "/tmp/apps-os-read-limit.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -281,20 +283,65 @@ static void test_read_accepts_empty_and_file_at_limit(void) {
   contract_write(&c, "four.md", S("four"));
 
   struct Str data = S("unchanged");
-  TEST_CHECK(os_read(c.os, contract_path(&c, "empty.md"), TEST_FILE_LEN_MAX, &c.arena, &data,
-                     S("op"), &log) == 0);
+  TEST_CHECK(os_read(c.os, contract_path(&c, "empty.md"), TEST_FILE_LEN_MAX, OS_READ_BYTES,
+                     &c.arena, &data, S("op"), &log) == 0);
   TEST_CHECK(data.len == 0);
-  TEST_CHECK(os_read(c.os, contract_path(&c, "four.md"), S("four").len, &c.arena, &data, S("op"),
-                     &log) == 0);
+  TEST_CHECK(os_read(c.os, contract_path(&c, "four.md"), S("four").len, OS_READ_BYTES, &c.arena,
+                     &data, S("op"), &log) == 0);
   TEST_CHECK(str_eq(data, S("four")));
   TEST_CHECK(test_log_is_empty(&log));
   contract_end(&c);
 }
 
-// A path one byte below `PATH_MAX` reads its file, so the limit rejects only a path the system
-// could not take whole. The path is `./` and `/.` pairs in front of a file in the working
-// directory, which is the test's directory on the POSIX host and the root on the in-memory one.
-static void test_read_accepts_path_below_path_max(void) {
+// With `OS_READ_BYTES`, a file holding `NUL` bytes, as an image does, reads back whole, and `perm`
+// ends right past it.
+static void test_read_accepts_embedded_nul(void) {
+  char root[] = "/tmp/apps-os-read-nul.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  contract_write(&c, "nul.md", S("before\0after"));
+  const struct Str path = contract_path(&c, "nul.md");
+
+  struct Log log = test_log();
+  struct Str data = {0};
+  TEST_CHECK(
+      os_read(c.os, path, TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena, &data, S("op"), &log) == 0);
+  TEST_CHECK(c.arena.beg == data.data + data.len);
+  TEST_CHECK(str_eq(data, S("before\0after")));
+  TEST_CHECK(test_log_is_empty(&log));
+  contract_end(&c);
+}
+
+// With `OS_READ_TEXT`, a file holding a `NUL` byte is rejected after it is read, and `perm` ends
+// where it started.
+static void test_read_rejects_embedded_nul_in_text(void) {
+  char root[] = "/tmp/apps-os-read-text-nul.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  contract_write(&c, "nul.txt", S("before\0after"));
+  const struct Str path = contract_path(&c, "nul.txt");
+
+  struct Log log = test_log();
+  const struct Str sentinel = S("unchanged");
+  struct Str data = sentinel;
+  char* const perm_beg = c.arena.beg;
+  TEST_CHECK(os_read(c.os, path, TEST_FILE_LEN_MAX, OS_READ_TEXT, &c.arena, &data, S("op"), &log) ==
+             -1);
+  TEST_CHECK(c.arena.beg == perm_beg);
+  TEST_CHECK(data.data == sentinel.data && data.len == sentinel.len);
+  TEST_CHECK(test_log_is(&log, "op: contains an embedded NUL byte ('%.*s')\n", STR_FMT(path)));
+  contract_end(&c);
+}
+
+// A path one byte below `PATH_MAX` writes and reads its file, so the limit rejects only a path the
+// system could not take whole, even where the file's name is short. The path is `./` and `/.` pairs
+// in front of a file in the working directory, which is the test's directory on the POSIX host and
+// the root on the in-memory one.
+static void test_read_and_write_accept_path_below_path_max(void) {
   static char long_path[PATH_MAX - 1];
   const struct Str name = S("/a.md");
   long_path[0] = '.';
@@ -309,31 +356,32 @@ static void test_read_accepts_path_below_path_max(void) {
   }
   memcpy(long_path + len, name.data, (size_t)name.len);
 
-  char root[] = "/tmp/sosig-os-path-limit.XXXXXX";
+  char root[] = "/tmp/apps-os-path-limit.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
   }
   struct Log log = test_log();
   struct Str data = {0};
+  const struct Str long_path_str = {long_path, PATH_MAX - 1};
   int rc = -1;
-#if !SOSIG_TEST_OS_MEMORY
+#if !APPS_TEST_OS_MEMORY
   int saved_dir_fd = -1;
   if (working_dir_enter(c.root_dir, &saved_dir_fd) != 0) {
     goto cleanup;
   }
 #endif
-  TEST_CHECK(os_write(c.os, S("a.md"), (struct OsSource){.bytes = S("a")}, S("op"), &log) == 0);
-  rc = os_read(c.os, (struct Str){long_path, PATH_MAX - 1}, TEST_FILE_LEN_MAX, &c.arena, &data,
-               S("op"), &log);
-#if !SOSIG_TEST_OS_MEMORY
+  TEST_CHECK(os_write(c.os, long_path_str, (struct OsSource){.bytes = S("a")}, S("op"), &log) == 0);
+  rc = os_read(c.os, long_path_str, TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena, &data, S("op"),
+               &log);
+#if !APPS_TEST_OS_MEMORY
   (void)working_dir_leave(saved_dir_fd);
 #endif
   TEST_CHECK(rc == 0);
   TEST_CHECK(str_eq(data, S("a")));
   TEST_CHECK(test_log_is_empty(&log));
 
-#if !SOSIG_TEST_OS_MEMORY
+#if !APPS_TEST_OS_MEMORY
 cleanup:
 #endif
   contract_end(&c);
@@ -341,7 +389,7 @@ cleanup:
 
 // A read follows a symlink to its file, and a symlink cycle fails with the system's message.
 static void test_read_follows_symlinks_and_rejects_cycle(void) {
-  char root[] = "/tmp/sosig-os-read-link.XXXXXX";
+  char root[] = "/tmp/apps-os-read-link.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -358,7 +406,8 @@ static void test_read_follows_symlinks_and_rejects_cycle(void) {
   struct Str data = {0};
   struct Log log = test_log();
   const struct Str loop = contract_path(&c, "loop-a");
-  TEST_CHECK(os_read(c.os, loop, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
+  TEST_CHECK(
+      os_read(c.os, loop, TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena, &data, S("op"), &log) == -1);
   TEST_CHECK(test_log_is(&log, "op: %s ('%.*s')\n", strerror(ELOOP), STR_FMT(loop)));
   contract_end(&c);
 }
@@ -368,7 +417,7 @@ static void test_read_follows_symlinks_and_rejects_cycle(void) {
 // The chain is read relative to the test's directory, the working directory on the POSIX host,
 // because a symlink in the path to that directory, as `/tmp` is on macOS, counts toward the limit.
 static void test_read_follows_symlink_chain_up_to_system_limit(void) {
-  char root[] = "/tmp/sosig-os-read-chain.XXXXXX";
+  char root[] = "/tmp/apps-os-read-chain.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -387,7 +436,7 @@ static void test_read_follows_symlink_chain_up_to_system_limit(void) {
   (void)snprintf(at_limit, sizeof(at_limit), "l%d", TEST_LINK_EXPANSION_COUNT_MAX);
   (void)snprintf(past_limit, sizeof(past_limit), "l%d", TEST_LINK_EXPANSION_COUNT_MAX + 1);
 
-#if SOSIG_TEST_OS_MEMORY
+#if APPS_TEST_OS_MEMORY
   const struct Str dir = str_from_cstr(c.root_dir);
 #else
   const struct Str dir = S(".");
@@ -399,16 +448,17 @@ static void test_read_follows_symlink_chain_up_to_system_limit(void) {
   struct Str data = {0};
   int at_limit_rc = -1;
   int past_limit_rc = 0;
-#if !SOSIG_TEST_OS_MEMORY
+#if !APPS_TEST_OS_MEMORY
   int saved_dir_fd = -1;
   if (working_dir_enter(c.root_dir, &saved_dir_fd) != 0) {
     goto cleanup;
   }
 #endif
-  at_limit_rc = os_read(c.os, at_limit_path, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log);
-  past_limit_rc =
-      os_read(c.os, past_limit_path, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &past_limit_log);
-#if !SOSIG_TEST_OS_MEMORY
+  at_limit_rc = os_read(c.os, at_limit_path, TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena, &data,
+                        S("op"), &log);
+  past_limit_rc = os_read(c.os, past_limit_path, TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena, &data,
+                          S("op"), &past_limit_log);
+#if !APPS_TEST_OS_MEMORY
   (void)working_dir_leave(saved_dir_fd);
 #endif
   TEST_CHECK(at_limit_rc == 0);
@@ -418,7 +468,7 @@ static void test_read_follows_symlink_chain_up_to_system_limit(void) {
   TEST_CHECK(
       test_log_is(&past_limit_log, "op: %s ('%.*s')\n", strerror(ELOOP), STR_FMT(past_limit_path)));
 
-#if !SOSIG_TEST_OS_MEMORY
+#if !APPS_TEST_OS_MEMORY
 cleanup:
 #endif
   contract_end(&c);
@@ -427,7 +477,7 @@ cleanup:
 // A file one byte over `data_len_max` is rejected with the limit and the size, and the output is
 // left as it was.
 static void test_read_rejects_oversize(void) {
-  char root[] = "/tmp/sosig-os-read-oversize.XXXXXX";
+  char root[] = "/tmp/apps-os-read-oversize.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -438,7 +488,7 @@ static void test_read_rejects_oversize(void) {
   const struct Str sentinel = S("unchanged");
   struct Str data = sentinel;
   const struct Str path = contract_path(&c, "five.md");
-  TEST_CHECK(os_read(c.os, path, 4, &c.arena, &data, S("op"), &log) == -1);
+  TEST_CHECK(os_read(c.os, path, 4, OS_READ_BYTES, &c.arena, &data, S("op"), &log) == -1);
   TEST_CHECK(data.data == sentinel.data && data.len == sentinel.len);
   TEST_CHECK(test_log_is(&log, "op: exceeds max file size (4 bytes) at 5 bytes ('%.*s')\n",
                          STR_FMT(path)));
@@ -446,11 +496,11 @@ static void test_read_rejects_oversize(void) {
 }
 
 // A file extended past its bytes has its whole size checked against the limit before any byte is
-// read. The file is sparse on disk, so the size costs nothing. Within the limit, the bytes past the
-// old end read as `NUL` bytes, which the read rejects.
+// read, and a stat reports that size. The file is sparse on disk, so the size costs nothing. Within
+// the limit, the bytes past the old end read back as `NUL` bytes, which a text read rejects.
 static void test_read_checks_size_of_extended_file(void) {
   enum { BIG_LEN = 1024 * 1024 * 1024 };
-  char root[] = "/tmp/sosig-os-read-extended.XXXXXX";
+  char root[] = "/tmp/apps-os-read-extended.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -463,21 +513,33 @@ static void test_read_checks_size_of_extended_file(void) {
   const struct Str big = contract_path(&c, "big.md");
   struct Str data = {0};
   struct Log log = test_log();
-  TEST_CHECK(os_read(c.os, big, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
+  TEST_CHECK(os_read(c.os, big, TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena, &data, S("op"), &log) ==
+             -1);
   TEST_CHECK(test_log_is(&log, "op: exceeds max file size (%d bytes) at %d bytes ('%.*s')\n",
                          TEST_FILE_LEN_MAX, BIG_LEN, STR_FMT(big)));
 
-  const struct Str small = contract_path(&c, "small.md");
+  struct OsStat st;
+  TEST_CHECK(os_stat(c.os, big, &st) == 0 && st.len == BIG_LEN);
   log = test_log();
-  TEST_CHECK(os_read(c.os, small, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
-  TEST_CHECK(test_log_is(&log, "op: contains an embedded NUL byte ('%.*s')\n", STR_FMT(small)));
+
+  const struct Str small = contract_path(&c, "small.md");
+  TEST_CHECK(
+      os_read(c.os, small, TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena, &data, S("op"), &log) == 0);
+  TEST_CHECK(str_eq(data, S("a\0\0\0")));
+  TEST_CHECK(test_log_is_empty(&log));
+  // A text read rejects the same bytes as an embedded `NUL`.
+  struct Log text_log = test_log();
+  TEST_CHECK(os_read(c.os, small, TEST_FILE_LEN_MAX, OS_READ_TEXT, &c.arena, &data, S("op"),
+                     &text_log) == -1);
+  TEST_CHECK(
+      test_log_is(&text_log, "op: contains an embedded NUL byte ('%.*s')\n", STR_FMT(small)));
   contract_end(&c);
 }
 
 // A missing path fails with the system's message, and a directory is not a regular file, which is a
 // first-party message.
 static void test_read_rejects_missing_and_directory(void) {
-  char root[] = "/tmp/sosig-os-read-missing.XXXXXX";
+  char root[] = "/tmp/apps-os-read-missing.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -486,43 +548,23 @@ static void test_read_rejects_missing_and_directory(void) {
   const struct Str sentinel = S("unchanged");
   struct Str data = sentinel;
   struct Log log = test_log();
-  TEST_CHECK(os_read(c.os, missing, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
+  TEST_CHECK(os_read(c.os, missing, TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena, &data, S("op"),
+                     &log) == -1);
   TEST_CHECK(data.data == sentinel.data && data.len == sentinel.len);
   TEST_CHECK(test_log_is(&log, "op: %s ('%.*s')\n", strerror(ENOENT), STR_FMT(missing)));
 
   log = test_log();
-  TEST_CHECK(os_read(c.os, str_from_cstr(c.root_dir), TEST_FILE_LEN_MAX, &c.arena, &data, S("op"),
-                     &log) == -1);
+  TEST_CHECK(os_read(c.os, str_from_cstr(c.root_dir), TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena,
+                     &data, S("op"), &log) == -1);
   TEST_CHECK(data.data == sentinel.data && data.len == sentinel.len);
   TEST_CHECK(test_log_is(&log, "op: not a regular file ('%s')\n", c.root_dir));
-  contract_end(&c);
-}
-
-// A file holding a `NUL` byte is rejected after it is read, and `perm` ends where it started.
-static void test_read_rejects_embedded_nul(void) {
-  char root[] = "/tmp/sosig-os-read-nul.XXXXXX";
-  struct Contract c;
-  if (contract_begin(root, &c) != 0) {
-    return;
-  }
-  contract_write(&c, "nul.md", S("before\0after"));
-  const struct Str path = contract_path(&c, "nul.md");
-
-  struct Log log = test_log();
-  const struct Str sentinel = S("unchanged");
-  struct Str data = sentinel;
-  char* const perm_beg = c.arena.beg;
-  TEST_CHECK(os_read(c.os, path, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
-  TEST_CHECK(c.arena.beg == perm_beg);
-  TEST_CHECK(data.data == sentinel.data && data.len == sentinel.len);
-  TEST_CHECK(test_log_is(&log, "op: contains an embedded NUL byte ('%.*s')\n", STR_FMT(path)));
   contract_end(&c);
 }
 
 // A path holding a `NUL` byte fails as `EINVAL`, and a path of `PATH_MAX` bytes fails as
 // `ENAMETOOLONG`, even when the bytes before the `NUL` name a real file.
 static void test_read_rejects_path_with_nul_and_path_at_path_max(void) {
-  char root[] = "/tmp/sosig-os-read-path.XXXXXX";
+  char root[] = "/tmp/apps-os-read-path.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -532,7 +574,8 @@ static void test_read_rejects_path_with_nul_and_path_at_path_max(void) {
 
   struct Str data = {0};
   struct Log log = test_log();
-  TEST_CHECK(os_read(c.os, nul_path, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
+  TEST_CHECK(os_read(c.os, nul_path, TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena, &data, S("op"),
+                     &log) == -1);
   // `%.*s` stops at the first `NUL`, so the message quotes the path only up to it.
   const struct Str nul_path_head = contract_path(&c, "a.md");
   TEST_CHECK(test_log_is(&log, "op: %s ('%.*s')\n", strerror(EINVAL), STR_FMT(nul_path_head)));
@@ -544,7 +587,8 @@ static void test_read_rejects_path_with_nul_and_path_at_path_max(void) {
   }
   const struct Str long_path_str = {long_path, PATH_MAX};
   log = test_log();
-  TEST_CHECK(os_read(c.os, long_path_str, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
+  TEST_CHECK(os_read(c.os, long_path_str, TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena, &data,
+                     S("op"), &log) == -1);
   TEST_CHECK(
       test_log_is(&log, "op: %s ('%.*s')\n", strerror(ENAMETOOLONG), STR_FMT(long_path_str)));
   contract_end(&c);
@@ -554,7 +598,7 @@ static void test_read_rejects_path_with_nul_and_path_at_path_max(void) {
 // a read, a listing and a stat, and so does a file followed by `/.`. A directory, or a symlink to
 // one, followed by `/` is the directory.
 static void test_trailing_slash_requires_directory(void) {
-  char root[] = "/tmp/sosig-os-trailing-slash.XXXXXX";
+  char root[] = "/tmp/apps-os-trailing-slash.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -570,7 +614,8 @@ static void test_trailing_slash_requires_directory(void) {
     const struct Str path = contract_path(&c, not_dirs[i]);
     struct Str data = {0};
     struct Log log = test_log();
-    TEST_CHECK(os_read(c.os, path, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
+    TEST_CHECK(os_read(c.os, path, TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena, &data, S("op"),
+                       &log) == -1);
     TEST_CHECK(test_log_is(&log, "op: %s ('%.*s')\n", strerror(ENOTDIR), STR_FMT(path)));
 
     struct OsEntry* entries = NULL;
@@ -604,7 +649,7 @@ static void test_trailing_slash_requires_directory(void) {
 // A write creates the missing parent directories and reads back byte for byte. The bytes are the
 // first allocation in `perm`'s free space, which then begins right past them.
 static void test_write_creates_parents_and_round_trips(void) {
-  char root[] = "/tmp/sosig-os-write.XXXXXX";
+  char root[] = "/tmp/apps-os-write.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -620,7 +665,8 @@ static void test_write_creates_parents_and_round_trips(void) {
   struct Str data = {0};
   struct Arena probe = c.arena;
   char* const perm_beg = arena_new(&probe, 0, char);
-  TEST_CHECK(os_read(c.os, path, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == 0);
+  TEST_CHECK(
+      os_read(c.os, path, TEST_FILE_LEN_MAX, OS_READ_BYTES, &c.arena, &data, S("op"), &log) == 0);
   TEST_CHECK(data.data == perm_beg);
   TEST_CHECK(c.arena.beg == data.data + S("deep").len);
   TEST_CHECK(str_eq(data, S("deep")));
@@ -631,7 +677,7 @@ static void test_write_creates_parents_and_round_trips(void) {
 // A second write replaces the contents, including bytes past the new end. It goes through the file
 // already there, so a hard link to it and a symlink to it see the new contents.
 static void test_write_overwrites_in_place(void) {
-  char root[] = "/tmp/sosig-os-overwrite.XXXXXX";
+  char root[] = "/tmp/apps-os-overwrite.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -648,28 +694,28 @@ static void test_write_overwrites_in_place(void) {
   contract_end(&c);
 }
 
-// A file source is copied byte for byte across several of the POSIX host's buffers. The copy moves
-// bytes by length, but the `os_read` that checks it rejects a `NUL`, so the bytes leave it out.
+// A file source is copied byte for byte, `NUL` bytes and all, across several of the POSIX host's
+// buffers.
 static void test_write_copies_file_source(void) {
-  char root[] = "/tmp/sosig-os-write-sources.XXXXXX";
+  char root[] = "/tmp/apps-os-write-sources.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
   }
   char* bytes = arena_new(&c.arena, TEST_STREAM_LEN, char);
   for (ptrdiff_t i = 0; i < TEST_STREAM_LEN; i++) {
-    bytes[i] = (char)(i * 7 % 251 + 1);
+    bytes[i] = (char)(i * 7 % 251);
   }
   const struct Str data = {bytes, TEST_STREAM_LEN};
   struct Log log = test_log();
-  contract_write(&c, "source.png", data);
+  contract_write(&c, "source.jpg", data);
   const struct OsSource file = {.kind = OS_SOURCE_FILE,
-                                .file_path = contract_path(&c, "source.png")};
-  TEST_CHECK(os_write(c.os, contract_path(&c, "copy/source.png"), file, S("op"), &log) == 0);
+                                .file_path = contract_path(&c, "source.jpg")};
+  TEST_CHECK(os_write(c.os, contract_path(&c, "copy/source.jpg"), file, S("op"), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   struct Str read = {0};
-  TEST_CHECK(os_read(c.os, contract_path(&c, "copy/source.png"), TEST_STREAM_LEN, &c.arena, &read,
-                     S("op"), &log) == 0);
+  TEST_CHECK(os_read(c.os, contract_path(&c, "copy/source.jpg"), TEST_STREAM_LEN, OS_READ_BYTES,
+                     &c.arena, &read, S("op"), &log) == 0);
   TEST_CHECK(str_eq(read, data));
   contract_end(&c);
 }
@@ -677,35 +723,56 @@ static void test_write_copies_file_source(void) {
 // A write through a symlink writes the file it names, from every source, and leaves the symlink a
 // symlink.
 static void test_write_follows_symlink_for_every_source(void) {
-  char root[] = "/tmp/sosig-os-write-symlink.XXXXXX";
+  char root[] = "/tmp/apps-os-write-symlink.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
   }
-  contract_write(&c, "out.png", S("old"));
-  contract_write(&c, "source.png", S("copied"));
-  contract_symlink(&c, "out.png", "link.png");
-  const struct Str link = contract_path(&c, "link.png");
+  contract_write(&c, "out.jpg", S("old"));
+  contract_write(&c, "source.jpg", S("copied"));
+  contract_symlink(&c, "out.jpg", "link.jpg");
+  const struct Str link = contract_path(&c, "link.jpg");
   struct Log log = test_log();
   TEST_CHECK(os_write(c.os, link,
                       (struct OsSource){.kind = OS_SOURCE_FILE,
-                                        .file_path = contract_path(&c, "source.png")},
+                                        .file_path = contract_path(&c, "source.jpg")},
                       S("op"), &log) == 0);
-  TEST_CHECK(contract_is_file(&c, "out.png", S("copied")));
+  TEST_CHECK(contract_is_file(&c, "out.jpg", S("copied")));
   TEST_CHECK(os_write(c.os, link, (struct OsSource){.bytes = S("bytes")}, S("op"), &log) == 0);
-  TEST_CHECK(contract_is_file(&c, "out.png", S("bytes")));
+  TEST_CHECK(contract_is_file(&c, "out.jpg", S("bytes")));
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(
-      is_identity_equal(contract_identity(&c, "link.png"), contract_identity(&c, "out.png")));
+      is_identity_equal(contract_identity(&c, "link.jpg"), contract_identity(&c, "out.jpg")));
   ptrdiff_t entry_count = 0;
   TEST_CHECK(contract_entry_count(&c, &entry_count) == 0 && entry_count == 3);
+  contract_end(&c);
+}
+
+// A write to a name at the system's 255-byte limit succeeds, and leaves nothing beside the output.
+static void test_write_accepts_name_at_name_max(void) {
+  char root[] = "/tmp/apps-os-write-name-max.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  char name[FILENAME_LEN_MAX + 1];
+  memset(name, 'a', FILENAME_LEN_MAX - 4);
+  memcpy(name + FILENAME_LEN_MAX - 4, ".jpg", sizeof(".jpg"));
+  contract_write(&c, name, S("old"));
+  struct Log log = test_log();
+  TEST_CHECK(os_write(c.os, contract_path(&c, name), (struct OsSource){.bytes = S("new")}, S("op"),
+                      &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(contract_is_file(&c, name, S("new")));
+  ptrdiff_t entry_count = 0;
+  TEST_CHECK(contract_entry_count(&c, &entry_count) == 0 && entry_count == 1);
   contract_end(&c);
 }
 
 // A write fails when a parent is a file, naming that parent, and when the target is a directory,
 // with the system's message.
 static void test_write_rejects_file_parent_and_dir_target(void) {
-  char root[] = "/tmp/sosig-os-write-fail.XXXXXX";
+  char root[] = "/tmp/apps-os-write-fail.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -728,7 +795,7 @@ static void test_write_rejects_file_parent_and_dir_target(void) {
 // A write and a directory creation on a path holding a `NUL` byte fail as `EINVAL`, quoting the
 // path up to that byte, and create nothing at the bytes before it.
 static void test_write_and_mkdirs_reject_path_with_nul(void) {
-  char root[] = "/tmp/sosig-os-write-nul.XXXXXX";
+  char root[] = "/tmp/apps-os-write-nul.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -754,21 +821,21 @@ static void test_write_and_mkdirs_reject_path_with_nul(void) {
 // A file source that is missing or not a regular file fails naming the source, and creates neither
 // the destination nor its parent.
 static void test_write_rejects_missing_and_directory_source(void) {
-  char root[] = "/tmp/sosig-os-write-source-fail.XXXXXX";
+  char root[] = "/tmp/apps-os-write-source-fail.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
   }
-  const struct Str missing = contract_path(&c, "missing.png");
+  const struct Str missing = contract_path(&c, "missing.jpg");
   struct Log log = test_log();
-  TEST_CHECK(os_write(c.os, contract_path(&c, "out/a.png"),
+  TEST_CHECK(os_write(c.os, contract_path(&c, "out/a.jpg"),
                       (struct OsSource){.kind = OS_SOURCE_FILE, .file_path = missing}, S("op"),
                       &log) == -1);
   TEST_CHECK(test_log_is(&log, "op: %s ('%.*s')\n", strerror(ENOENT), STR_FMT(missing)));
 
   log = test_log();
   TEST_CHECK(
-      os_write(c.os, contract_path(&c, "out/b.png"),
+      os_write(c.os, contract_path(&c, "out/b.jpg"),
                (struct OsSource){.kind = OS_SOURCE_FILE, .file_path = str_from_cstr(c.root_dir)},
                S("op"), &log) == -1);
   TEST_CHECK(test_log_is(&log, "op: not a regular file ('%s')\n", c.root_dir));
@@ -780,18 +847,18 @@ static void test_write_rejects_missing_and_directory_source(void) {
 // Every source fails on a directory target with the system's message, and leaves the directory and
 // the test's directory as they were.
 static void test_write_rejects_dir_target_for_every_source(void) {
-  char root[] = "/tmp/sosig-os-write-dir-target.XXXXXX";
+  char root[] = "/tmp/apps-os-write-dir-target.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
   }
-  contract_write(&c, "source.png", S("x"));
+  contract_write(&c, "source.jpg", S("x"));
   const struct Str dir = contract_path(&c, "dir");
   struct Log log = test_log();
   TEST_CHECK(os_mkdirs(c.os, dir, S("op"), &log) == 0);
   const struct OsSource sources[] = {
       {.bytes = S("x")},
-      {.kind = OS_SOURCE_FILE, .file_path = contract_path(&c, "source.png")},
+      {.kind = OS_SOURCE_FILE, .file_path = contract_path(&c, "source.jpg")},
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(sources) / sizeof(sources[0])); i++) {
     log = test_log();
@@ -808,7 +875,7 @@ static void test_write_rejects_dir_target_for_every_source(void) {
 // `os_mkdirs` creates a deep path, treats an empty path as a no-op, is idempotent, and accepts a
 // symlink to a directory as a component.
 static void test_mkdirs_creates_nested_and_is_idempotent(void) {
-  char root[] = "/tmp/sosig-os-mkdirs.XXXXXX";
+  char root[] = "/tmp/apps-os-mkdirs.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -831,7 +898,7 @@ static void test_mkdirs_creates_nested_and_is_idempotent(void) {
 // `os_mkdirs` fails on a component that is a file, naming that component whether it is the whole
 // path or a parent, and on a dangling symlink, which exists but cannot be inspected.
 static void test_mkdirs_rejects_file_and_dangling_components(void) {
-  char root[] = "/tmp/sosig-os-mkdirs-fail.XXXXXX";
+  char root[] = "/tmp/apps-os-mkdirs-fail.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -845,7 +912,7 @@ static void test_mkdirs_rejects_file_and_dangling_components(void) {
   TEST_CHECK(os_mkdirs(c.os, contract_path(&c, "file/child"), S("op"), &log) == -1);
   TEST_CHECK(test_log_is(&log, "op: exists and is not a directory ('%.*s')\n", STR_FMT(file)));
 
-  contract_symlink(&c, "/sosig-nonexistent-symlink-target", "dangling");
+  contract_symlink(&c, "/apps-nonexistent-symlink-target", "dangling");
   const struct Str dangling = contract_path(&c, "dangling");
   log = test_log();
   TEST_CHECK(os_mkdirs(c.os, dangling, S("op"), &log) == -1);
@@ -858,7 +925,7 @@ static void test_mkdirs_rejects_file_and_dangling_components(void) {
 // leaves its twin's bytes in place. A path that names nothing, or whose parent is missing, counts
 // as removed.
 static void test_remove_removes_files_and_links(void) {
-  char root[] = "/tmp/sosig-os-remove.XXXXXX";
+  char root[] = "/tmp/apps-os-remove.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -890,7 +957,7 @@ static void test_remove_removes_files_and_links(void) {
 // `os_remove` refuses a directory, with the cause the system gives `unlink`, and a path holding a
 // `NUL` byte.
 static void test_remove_rejects_directory_and_path_with_nul(void) {
-  char root[] = "/tmp/sosig-os-remove-fail.XXXXXX";
+  char root[] = "/tmp/apps-os-remove-fail.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -922,7 +989,7 @@ static void test_remove_rejects_directory_and_path_with_nul(void) {
 // even an empty one followed by `/`, and a directory followed by `/` characters up to `PATH_MAX`
 // bytes, which it leaves in place.
 static void test_remove_dir_removes_only_empty_directories(void) {
-  char root[] = "/tmp/sosig-os-remove-dir.XXXXXX";
+  char root[] = "/tmp/apps-os-remove-dir.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -981,7 +1048,7 @@ static void test_remove_dir_removes_only_empty_directories(void) {
 // A listing classifies each entry after following a symlink, and leaves out `.`, `..`, a dangling
 // symlink and a symlink cycle. Its order is not specified, so each entry is looked up by name.
 static void test_list_classifies_entries_and_skips_links_to_nothing(void) {
-  char root[] = "/tmp/sosig-os-list.XXXXXX";
+  char root[] = "/tmp/apps-os-list.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -1019,7 +1086,7 @@ static void test_list_classifies_entries_and_skips_links_to_nothing(void) {
 
 // A listing of a missing path or of a file fails at the open, with the system's message.
 static void test_list_rejects_missing_and_file(void) {
-  char root[] = "/tmp/sosig-os-list-fail.XXXXXX";
+  char root[] = "/tmp/apps-os-list-fail.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -1046,7 +1113,7 @@ static void test_list_rejects_missing_and_file(void) {
 // listing returns it as an entry that could not be inspected, with its `errno`, and reports nothing
 // itself. The caller reports it where its own order reaches it.
 static void test_list_marks_link_through_file_failed(void) {
-  char root[] = "/tmp/sosig-os-list-link.XXXXXX";
+  char root[] = "/tmp/apps-os-list-link.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -1068,21 +1135,21 @@ static void test_list_marks_link_through_file_failed(void) {
 // `os_stat` reports a file's size, and a file written after another is at least as new, whether the
 // write created it or overwrote it, which is what a freshness check relies on.
 static void test_stat_reports_size_and_write_order(void) {
-  char root[] = "/tmp/sosig-os-stat-time.XXXXXX";
+  char root[] = "/tmp/apps-os-stat-time.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
   }
-  contract_write(&c, "overwritten.md", S("old"));
-  contract_write(&c, "source.md", S("source"));
-  contract_write(&c, "created.md", S("output"));
-  contract_write(&c, "overwritten.md", S("out"));
+  contract_write(&c, "overwritten.jpg", S("old"));
+  contract_write(&c, "source.jpg", S("source"));
+  contract_write(&c, "created.jpg", S("output"));
+  contract_write(&c, "overwritten.jpg", S("out"));
   struct OsStat source;
   struct OsStat created;
   struct OsStat overwritten;
-  TEST_CHECK(os_stat(c.os, contract_path(&c, "source.md"), &source) == 0);
-  TEST_CHECK(os_stat(c.os, contract_path(&c, "created.md"), &created) == 0);
-  TEST_CHECK(os_stat(c.os, contract_path(&c, "overwritten.md"), &overwritten) == 0);
+  TEST_CHECK(os_stat(c.os, contract_path(&c, "source.jpg"), &source) == 0);
+  TEST_CHECK(os_stat(c.os, contract_path(&c, "created.jpg"), &created) == 0);
+  TEST_CHECK(os_stat(c.os, contract_path(&c, "overwritten.jpg"), &overwritten) == 0);
   TEST_CHECK(source.len == 6 && created.len == 6 && overwritten.len == 3);
   TEST_CHECK(!source.is_dir && source.mtime_ns >= 0 && source.mtime_ns < 1000000000);
   const struct OsStat* const later[] = {&created, &overwritten};
@@ -1097,7 +1164,7 @@ static void test_stat_reports_size_and_write_order(void) {
 // in a subdirectory whose `../` target resolves from that subdirectory, and a hard link share the
 // file's identity, and another file does not. It reports the type after following a symlink.
 static void test_stat_identifies_files(void) {
-  char root[] = "/tmp/sosig-os-stat.XXXXXX";
+  char root[] = "/tmp/apps-os-stat.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -1133,7 +1200,7 @@ static void test_stat_identifies_files(void) {
 // A path that cannot be inspected fails with `errno` set and the caller's struct left alone: a
 // missing file, a dangling symlink, a path through a file, and a symlink cycle.
 static void test_stat_rejects_what_names_nothing(void) {
-  char root[] = "/tmp/sosig-os-stat-fail.XXXXXX";
+  char root[] = "/tmp/apps-os-stat-fail.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -1162,7 +1229,7 @@ static void test_stat_rejects_what_names_nothing(void) {
 // writes nothing. On the POSIX host both streams are captured at their descriptors, and the
 // in-memory host keeps what it was given.
 static void test_print_writes_each_stream_in_order(void) {
-  char root[] = "/tmp/sosig-os-print.XXXXXX";
+  char root[] = "/tmp/apps-os-print.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
@@ -1173,7 +1240,7 @@ static void test_print_writes_each_stream_in_order(void) {
   int print_bc_rc = -1;
   struct Str out_text = {0};
   struct Str err_text = {0};
-#if !SOSIG_TEST_OS_MEMORY
+#if !APPS_TEST_OS_MEMORY
   struct StreamCapture out;
   struct StreamCapture err;
   char out_buffer[TEST_PRINTED_SIZE];
@@ -1190,7 +1257,7 @@ static void test_print_writes_each_stream_in_order(void) {
   print_err_rc = os_print(c.os, 2, S("err\n"));
   print_empty_rc = os_print(c.os, 1, S(""));
   print_bc_rc = os_print(c.os, 1, S("bc\n"));
-#if SOSIG_TEST_OS_MEMORY
+#if APPS_TEST_OS_MEMORY
   out_text = os_memory_printed(c.os, 1);
   err_text = os_memory_printed(c.os, 2);
 #else
@@ -1203,7 +1270,7 @@ static void test_print_writes_each_stream_in_order(void) {
   TEST_CHECK(str_eq(out_text, S("abc\n")));
   TEST_CHECK(str_eq(err_text, S("err\n")));
 
-#if !SOSIG_TEST_OS_MEMORY
+#if !APPS_TEST_OS_MEMORY
 cleanup:
 #endif
   contract_end(&c);
@@ -1211,14 +1278,15 @@ cleanup:
 
 TEST_LIST = {
     {"read accepts empty and file at limit", test_read_accepts_empty_and_file_at_limit},
-    {"read accepts path below path max", test_read_accepts_path_below_path_max},
+    {"read accepts embedded nul", test_read_accepts_embedded_nul},
+    {"read rejects embedded nul in text", test_read_rejects_embedded_nul_in_text},
+    {"read and write accept path below path max", test_read_and_write_accept_path_below_path_max},
     {"read follows symlinks and rejects cycle", test_read_follows_symlinks_and_rejects_cycle},
     {"read follows symlink chain up to system limit",
      test_read_follows_symlink_chain_up_to_system_limit},
     {"read rejects oversize", test_read_rejects_oversize},
     {"read checks size of extended file", test_read_checks_size_of_extended_file},
     {"read rejects missing and directory", test_read_rejects_missing_and_directory},
-    {"read rejects embedded nul", test_read_rejects_embedded_nul},
     {"read rejects path with nul and path at path max",
      test_read_rejects_path_with_nul_and_path_at_path_max},
     {"trailing slash requires directory", test_trailing_slash_requires_directory},
@@ -1226,6 +1294,7 @@ TEST_LIST = {
     {"write overwrites in place", test_write_overwrites_in_place},
     {"write copies file source", test_write_copies_file_source},
     {"write follows symlink for every source", test_write_follows_symlink_for_every_source},
+    {"write accepts name at name max", test_write_accepts_name_at_name_max},
     {"write rejects file parent and dir target", test_write_rejects_file_parent_and_dir_target},
     {"write and mkdirs reject path with nul", test_write_and_mkdirs_reject_path_with_nul},
     {"write rejects missing and directory source", test_write_rejects_missing_and_directory_source},

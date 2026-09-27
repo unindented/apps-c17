@@ -126,8 +126,8 @@ static const char* build_and_take_tool_runs(const char* root_dir,
   }
   struct Str runs = {0};
   struct Log read_log = test_log();
-  if (os_read(os_posix(), str_from_cstr(log_path), 4096, arena, &runs, S("failed to read runs"),
-              &read_log) != 0) {
+  if (os_read(os_posix(), str_from_cstr(log_path), 4096, OS_READ_BYTES, arena, &runs,
+              S("failed to read runs"), &read_log) != 0) {
     runs = S("");
   }
   struct Log write_log = test_log();

@@ -9,7 +9,7 @@
 
 #include "build/job.h"
 #include "core/error.h"
-#include "os_memory.h"
+#include "os_memory/os_memory.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/log.h"

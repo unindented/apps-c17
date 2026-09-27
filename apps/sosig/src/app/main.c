@@ -7,6 +7,7 @@
 #include "runtime/fs.h"
 #include "runtime/memory.h"
 #include "shared/arena.h"
+#include "shared/str.h"
 
 /**
  * @brief Reports that the program ran out of memory and ends the process with `EXIT_CODE_FAILURE`.
@@ -33,7 +34,7 @@
 _Noreturn void os_oom(void) {
   static pthread_mutex_t report_lock = PTHREAD_MUTEX_INITIALIZER;
   (void)pthread_mutex_lock(&report_lock);
-  memory_oom_report(os_posix());
+  memory_oom_report(os_posix(), S("sosig"));
   _Exit(EXIT_CODE_FAILURE);
 }
 

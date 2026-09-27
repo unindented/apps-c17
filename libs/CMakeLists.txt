@@ -49,6 +49,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/../cmake")
 
+set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+find_package(Threads REQUIRED)
+
 include(apps_build_profiles)
 
 if(PROJECT_IS_TOP_LEVEL)
@@ -57,20 +60,32 @@ if(PROJECT_IS_TOP_LEVEL)
 endif()
 
 # Registers a unit test of `library`, built from `SOURCE` (by default `test_<module>.c` in the
-# calling directory), as the test `<library>.<module>`. The test links the library and
-# `LIBRARIES`.
+# calling directory), as the test `<library>.<NAME>`. `NAME` defaults to `module`, and names the
+# executable and the test when one source builds more than one. The test links the library and
+# `LIBRARIES`. `OS` names the implementation of `runtime/os.h` the test links: `posix` for
+# `os_posix`, or `memory` for `os_memory`, in which case the test is compiled with
+# `APPS_TEST_OS_MEMORY` set to 1. A test without `OS` links no host.
 function(libs_add_unit_test library module)
-  cmake_parse_arguments(PARSE_ARGV 2 arg "" "SOURCE" "LIBRARIES")
+  cmake_parse_arguments(PARSE_ARGV 2 arg "" "SOURCE;NAME;OS" "LIBRARIES")
   if(NOT arg_SOURCE)
     set(arg_SOURCE "test_${module}.c")
   endif()
-  set(target "${library}_unit_${module}")
+  if(NOT arg_NAME)
+    set(arg_NAME "${module}")
+  endif()
+  set(target "${library}_unit_${arg_NAME}")
   add_executable(${target} "${arg_SOURCE}")
   target_link_libraries(
     ${target} PRIVATE apps_build_tests vendor_acutest ${library} ${arg_LIBRARIES}
   )
+  if(arg_OS)
+    target_link_libraries(${target} PRIVATE os_${arg_OS})
+  endif()
+  if(arg_OS STREQUAL "memory")
+    target_compile_definitions(${target} PRIVATE APPS_TEST_OS_MEMORY=1)
+  endif()
 
-  add_test(NAME "${library}.${module}" COMMAND ${target} WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+  add_test(NAME "${library}.${arg_NAME}" COMMAND ${target} WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
   # A unit test that hangs fails after this many seconds instead of stopping the whole run. The apps
   # use the same limits, which `apps_add_unit_test` explains.
   set(timeout 60)
@@ -78,7 +93,7 @@ function(libs_add_unit_test library module)
     set(timeout 300)
   endif()
   set_tests_properties(
-    "${library}.${module}"
+    "${library}.${arg_NAME}"
     PROPERTIES LABELS "${library};unit"
                TIMEOUT ${timeout}
                ENVIRONMENT_MODIFICATION "UBSAN_OPTIONS=string_prepend:print_stacktrace=1:"
@@ -89,7 +104,7 @@ endfunction()
 # Gives `target` the include root of `library`: a directory in the build tree that holds one link,
 # named for the library, to the library's source directory. `#include "<library>/<module>.h"` then
 # finds the library's headers through that root and no other file of `libs/`, so a library can
-# have the same layer name as a directory of an app.
+# have the same layer name as a directory of an app, as `runtime` has in cwrap and fram.
 function(libs_add_include_root target library)
   set(root "${PROJECT_BINARY_DIR}/include/${library}")
   if(NOT EXISTS "${root}/${library}")
@@ -103,6 +118,8 @@ endfunction()
 add_subdirectory(shared)
 add_subdirectory(core)
 add_subdirectory(testing)
+add_subdirectory(runtime)
+add_subdirectory(os_memory)
 
 if(PROJECT_IS_TOP_LEVEL)
   get_property(libs_lint_sources GLOBAL PROPERTY apps_libs_lint_sources)

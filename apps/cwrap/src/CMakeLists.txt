@@ -1,7 +1,7 @@
 # The private application library contains project code except `app/main.c` and the POSIX host in
 # `runtime/fs.c`. The `cwrap` executable is built from `app/main.c` and links the POSIX host. Each
 # unit test links the same library, the host it is registered with, and the unit-test `os_oom` from
-# `tests/`.
+# the `testing` library.
 
 configure_file(
   app/cwrap_version.c.in "${CMAKE_CURRENT_BINARY_DIR}/app/cwrap_version.c" @ONLY

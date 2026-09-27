@@ -12,7 +12,7 @@
 #include "domain/content_entry.h"
 #include "domain/manifest.h"
 #include "domain/site_config.h"
-#include "os_memory.h"
+#include "os_memory/os_memory.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/log.h"

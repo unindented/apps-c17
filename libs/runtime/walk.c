@@ -168,7 +168,7 @@ static bool has_any_suffix(struct Str text,
  * @param text         String to test.
  * @param suffix       Suffix to look for.
  * @param is_fold_case Whether ASCII case differences are ignored, as in `text_has_suffix_folded`,
- *                     so `.JpG` matches `.jpg`.
+ *                     so `.TxT` matches `.txt`.
  * @return `true` when `text` ends with `suffix`, `false` otherwise.
  */
 static bool has_suffix(struct Str text, struct Str suffix, bool is_fold_case);

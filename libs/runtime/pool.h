@@ -1,5 +1,5 @@
-#ifndef FRAM_POOL_H
-#define FRAM_POOL_H
+#ifndef APPS_RUNTIME_POOL_H
+#define APPS_RUNTIME_POOL_H
 
 #include <stddef.h>
 

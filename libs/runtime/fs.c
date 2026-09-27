@@ -38,7 +38,7 @@ struct Os {
 /**
  * Where an action reports its failure: the caller's log, and the caller's operation, which leads
  * every message so the user reads what failed before why, as in
- * `failed to read config: No such file or directory ('fram.toml')`.
+ * `failed to read config: No such file or directory ('app.toml')`.
  */
 struct FsReport {
   /** Operation the caller was performing, such as `failed to read config`. */
@@ -104,7 +104,7 @@ static int os_read_bytes(char* data,
  * `fstat` and `fread` are two observations of a file another process may be writing, so a read that
  * returns anything other than `data_len` bytes is a changed file rather than a partial success.
  * Both directions are rejected: too few bytes means the file shrank, and one readable byte past
- * `data_len` means it grew. Byte values have no policy here; text consumers validate separately.
+ * `data_len` means it grew. Byte values have no policy here: `os_read` applies the caller's kind.
  *
  * @param data      Buffer of at least `data_len` bytes that receives the file contents. Must not be
  *                  `NULL`.
@@ -294,7 +294,7 @@ static bool is_slash_on_non_dir(struct Str path, mode_t mode);
  * @brief Reports `error_number` as the cause of the caller's operation failing on `path`.
  *
  * This is for a failure on the path the caller's operation targeted, as in
- * `failed to read config: No such file or directory ('fram.toml')`.
+ * `failed to read config: No such file or directory ('app.toml')`.
  *
  * @param report       Where the failure is reported. Must not be `NULL`.
  * @param path         Path the operation targeted.
@@ -330,6 +330,7 @@ struct Os* os_posix(void) {
 int os_read(struct Os* os,
             struct Str file_path,
             ptrdiff_t data_len_max,
+            enum OsReadKind kind,
             struct Arena* perm,
             struct Str* data_out,
             struct Str operation,
@@ -362,6 +363,11 @@ int os_read(struct Os* os,
   (void)arena_alloc(&arena, 0, 1, 1);
   char* data = arena_extend(&arena, data_len, 1);
   if (os_read_bytes(data, data_len, fd, file_path, &report) != 0) {
+    return -1;
+  }
+  if (kind == OS_READ_TEXT && !text_is_nul_free((struct Str){data, data_len})) {
+    (void)log_error(log, "%.*s: contains an embedded NUL byte ('%.*s')", STR_FMT(operation),
+                    STR_FMT(file_path));
     return -1;
   }
   *perm = arena;
@@ -758,7 +764,10 @@ static int open_regular(struct Str file_path,
   const int fd =
       copy_cstr(file_path, path) == 0 ? open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC) : -1;
   if (fd < 0) {
-    return report_errno(report, file_path, errno);
+    // `report_errno` always returns `-1`, but the analyzer cannot see it, so this path returns `-1`
+    // itself: a caller reads `st_out` only after a `0`.
+    (void)report_errno(report, file_path, errno);
+    return -1;
   }
   int rc = 0;
   if (fstat(fd, st_out) != 0) {

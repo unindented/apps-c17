@@ -1,5 +1,5 @@
-#ifndef FRAM_MEMORY_H
-#define FRAM_MEMORY_H
+#ifndef APPS_RUNTIME_MEMORY_H
+#define APPS_RUNTIME_MEMORY_H
 
 #include "shared/str.h"
 
@@ -34,12 +34,13 @@ void memory_oom_set_job(struct Str file_path, const struct Log* log);
 /**
  * @brief Prints the out-of-memory report to standard error.
  *
- * Prints the command's log, then the calling thread's job log, then `fram: out of memory`, followed
- * by ` (in '<file>')` when the thread named a file. It allocates nothing, so it works with every
- * arena full. The program's `os_oom` calls it.
+ * Prints the command's log, then the calling thread's job log, then `<program>: out of memory`,
+ * followed by ` (in '<file>')` when the thread named a file. It allocates nothing, so it works with
+ * every arena full. The program's `os_oom` calls it.
  *
- * @param os Host to print on. Must not be `NULL`.
+ * @param os      Host to print on. Must not be `NULL`.
+ * @param program Name of the program, which leads the message.
  */
-void memory_oom_report(struct Os* os) __attribute__((nonnull(1)));
+void memory_oom_report(struct Os* os, struct Str program) __attribute__((nonnull(1)));
 
 #endif

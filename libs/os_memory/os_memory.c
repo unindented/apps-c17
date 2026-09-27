@@ -8,7 +8,7 @@
 #define _DARWIN_C_SOURCE
 #define _DEFAULT_SOURCE
 
-#include "os_memory.h"
+#include "os_memory/os_memory.h"
 
 #include <acutest.h>
 #include <assert.h>
@@ -704,6 +704,7 @@ bool os_memory_is_printed(struct Os* os, int fd, const char* expected) {
 int os_read(struct Os* os,
             struct Str file_path,
             ptrdiff_t data_len_max,
+            enum OsReadKind kind,
             struct Arena* perm,
             struct Str* data_out,
             struct Str operation,
@@ -719,6 +720,9 @@ int os_read(struct Os* os,
     if (len > data_len_max) {
       rc = log_error(log, "%.*s: exceeds max file size (%td bytes) at %td bytes ('%.*s')",
                      STR_FMT(operation), data_len_max, len, STR_FMT(file_path));
+    } else if (kind == OS_READ_TEXT && (node->zero_len > 0 || !text_is_nul_free(data))) {
+      rc = log_error(log, "%.*s: contains an embedded NUL byte ('%.*s')", STR_FMT(operation),
+                     STR_FMT(file_path));
     } else {
       // The arena zeroes what it hands out, so the bytes past `data` read as `NUL`, as the bytes
       // past the old end of a truncated file do.

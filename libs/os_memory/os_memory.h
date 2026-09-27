@@ -1,5 +1,5 @@
-#ifndef SOSIG_OS_MEMORY_H
-#define SOSIG_OS_MEMORY_H
+#ifndef APPS_OS_MEMORY_OS_MEMORY_H
+#define APPS_OS_MEMORY_OS_MEMORY_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -9,11 +9,10 @@
 
 struct Os;
 
-// `os_memory.c` is the in-memory implementation of `src/runtime/os.h`. A unit test linking it
-// builds its fixture tree with the functions below and passes the host to the code under test,
-// which then reads, walks, stats and writes that tree as it would the disk. Nothing touches the
-// filesystem, so a test needs no temporary directory, no cleanup, and no change of working
-// directory.
+// `os_memory.c` is the in-memory implementation of `runtime/os.h`. A unit test linking it builds
+// its fixture tree with the functions below and passes the host to the code under test, which then
+// reads, walks, stats and writes that tree as it would the disk. Nothing touches the filesystem, so
+// a test needs no temporary directory, no cleanup, and no change of working directory.
 //
 // The tree models what the build can observe of a POSIX filesystem: directories, regular files,
 // hard links (two entries naming one file, so one identity), and symlinks with relative or absolute
@@ -25,15 +24,16 @@ struct Os;
 // A path ending in `/` must name a directory, and a listing comes newest entry first, an order
 // unlike the one a test builds its tree in. Each operation the code under test calls produces the
 // message the POSIX implementation would for the same situation, so a test written against this
-// host asserts the text a user sees. `src/runtime/test_os.c` runs the same tests against both hosts
-// to keep them in agreement: a property of the tree that a test relies on here needs a test there.
-// An injected failure is not one of those properties. It is reported with the message the POSIX
+// host asserts the text a user sees. `runtime/test_os.c` runs the same tests against both hosts to
+// keep them in agreement: a property of the tree that a test relies on here needs a test there. An
+// injected failure is not one of those properties. It is reported with the message the POSIX
 // implementation gives for that `errno` value, and it matches every path below the one it names,
 // which permission bits on a real tree do not always reproduce. Every operation holds the host's
 // lock, so the parallel phases can share one host.
 //
 // Modification times come from a counter that every change advances, so a later write is newer, and
-// `os_memory_touch` makes a file newer without writing it.
+// `os_memory_touch` makes a file newer without writing it. Modes are not modelled: what a write
+// does to them is checked against the POSIX host alone, in `runtime/test_fs.c`.
 
 /** Which operation an injected failure applies to. */
 enum OsMemoryOp {
@@ -42,6 +42,12 @@ enum OsMemoryOp {
 
   /** `os_write` of the path, as the open of the file itself fails. */
   OS_MEMORY_OP_WRITE,
+
+  /**
+   * `os_write` of the path, as the write of its bytes fails after the open, the way a full disk or
+   * a file size limit fails it, at its first byte.
+   */
+  OS_MEMORY_OP_WRITE_DATA,
 
   /** `os_list` of the path, as its open fails. */
   OS_MEMORY_OP_LIST,
@@ -76,11 +82,21 @@ void os_memory_write(struct Os* os, const char* file_path, const char* contents)
     __attribute__((nonnull(1, 2, 3)));
 
 /**
+ * @brief Writes a file whose contents may hold any byte, creating its parent directories.
+ *
+ * @param os        Host to write to. Must not be `NULL`.
+ * @param file_path Path of the file.
+ * @param contents  File contents.
+ */
+void os_memory_write_bytes(struct Os* os, struct Str file_path, struct Str contents)
+    __attribute__((nonnull(1)));
+
+/**
  * @brief Extends a regular file to `len` bytes, as `truncate` does, as a fixture.
  *
- * The bytes past the old end read as `NUL`, so a read that passes the size checks rejects them as
- * an embedded `NUL`. The host stores only their count, so a test can model a source far larger than
- * its memory, as a sparse file does on disk.
+ * The bytes past the old end read as `NUL`, so an `OS_READ_TEXT` read that passes the size checks
+ * rejects them as an embedded `NUL`. The host stores only their count, so a test can model a source
+ * far larger than its memory, as a sparse file does on disk.
  *
  * @param os        Host holding the file. Must not be `NULL`.
  * @param file_path Terminated path of an existing regular file. Must not be `NULL`.

@@ -1,5 +1,5 @@
-#ifndef SOSIG_OS_H
-#define SOSIG_OS_H
+#ifndef APPS_RUNTIME_OS_H
+#define APPS_RUNTIME_OS_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -10,24 +10,30 @@
 
 struct Log;
 
-// Every operation the build performs on the host goes through the functions below, and nothing else
-// in `src/` makes a system call on a path. Each is declared once here and defined by exactly one
-// implementation per executable, chosen when it is linked, as `_ssg` does with `main_posix.cpp` and
-// `main_test.cpp`:
+// Every operation an app performs on the host goes through the functions below, and no other code
+// makes a system call on a path, except an app's code that runs other programs, as the last
+// paragraph below says. Each is declared once here and defined by exactly one implementation per
+// executable, chosen when it is linked, as `_ssg` does with `main_posix.cpp` and `main_test.cpp`:
 //
-// - `runtime/fs.c` is the POSIX implementation, which the `sosig` executable and every unit test
-//   registered without `OS memory` link (`cmake/sosig_testing.cmake` says which tests those are and
-//   why).
-// - `tests/os_memory.c` is an in-memory implementation, which the unit tests registered with
-//   `OS memory` link, so they build their trees without touching the disk.
+// - `runtime/fs.c` is the POSIX implementation, the object library `os_posix`, which an app's
+//   executable and every unit test registered without `OS memory` link (`cmake/apps_testing.cmake`
+//   says which tests those are and why).
+// - `os_memory/os_memory.c` is an in-memory implementation, the object library `os_memory`, which
+//   the unit tests registered with `OS memory` link, so they build their trees without touching the
+//   disk.
 //
 // A link-time choice needs no table of function pointers, and the build never needs two
 // implementations in one process. `struct Os` is defined by the implementation, so each carries its
 // own state: none for POSIX, the whole tree for the in-memory one.
 //
 // `os_oom`, the remaining member of the interface, is declared in `shared/arena.h`, because the
-// arena calls it. It is not defined here but by each program: `app/main.c` for the executable and
-// `tests/test_support.c` for every unit test, whichever implementation it links.
+// arena calls it. It is not defined here but by each program: an app's `app/main.c` for the
+// executable and `testing/test_support.c` for every unit test, whichever implementation it links.
+//
+// Running other programs is not part of the interface. An app that spawns a program runs it on the
+// real host whichever implementation an executable links, and a file that the program writes is a
+// file on that host. A fake would have to emulate what the program writes, which tests the program
+// rather than the host.
 //
 // Every path is a `struct Str`. A path the POSIX system could not take whole fails rather than
 // naming some other file: one of `PATH_MAX` bytes or more fails as `ENAMETOOLONG`, as the system
@@ -38,22 +44,21 @@ struct Log;
 //
 // Every operation below that can fail and takes a `log` also takes the caller's `operation`, such
 // as `failed to read config`, and records one error in `log` that leads with it and then gives the
-// cause, as in `failed to read config: No such file or directory ('sosig.toml')`. The caller owns
-// the operation and its attribution, because one failed `os_write` is
-// `failed to write template output` from the aggregate phase and something else from the page
-// phase, while only the implementation knows which path failed: the file itself, or a directory
-// partway through a `mkdir -p`. First-party causes are lowercase. Operating-system messages keep
-// their spelling.
+// cause, as in `failed to read config: No such file or directory ('app.toml')`. The caller owns the
+// operation and its attribution, because one failed `os_write` can be
+// `failed to write template output` from one caller and name the page it writes from another, while
+// only the implementation knows which path failed: the file itself, or a directory partway through
+// a `mkdir -p`. First-party causes are lowercase. Operating-system messages keep their spelling.
 
-/** The host the build runs against. Each implementation defines it. */
+/** The host an app runs against. Each implementation defines it. */
 struct Os;
 
 /**
  * Identity of one existing file, as the device and inode pair naming it uniquely.
  *
  * Comparing identities answers "are these two paths the same file?" where comparing path strings
- * cannot. `./content/x.md` and `content/x.md` are the same file spelled two ways, and so are a
- * symlink and its target, a hard link and its twin, and two spellings that differ only in case on a
+ * cannot. `./dir/x.txt` and `dir/x.txt` are the same file spelled two ways, and so are a symlink
+ * and its target, a hard link and its twin, and two spellings that differ only in case on a
  * case-insensitive filesystem. These fields are wider than `dev_t` and `ino_t` so this header does
  * not put system types on its callers.
  */
@@ -96,8 +101,8 @@ struct OsStat {
   bool is_dir;
 
   /**
-   * Size in bytes of the file the path names, saturating at `PTRDIFF_MAX`. The build cache records
-   * it for each input a page depends on.
+   * Size in bytes of the file the path names, saturating at `PTRDIFF_MAX`. A build compares it, for
+   * example to record an input or to tell whether a copied file matches its source.
    */
   ptrdiff_t len;
 
@@ -105,9 +110,9 @@ struct OsStat {
   int64_t mtime_s;
 
   /**
-   * Nanoseconds within `mtime_s`. The build cache compares an input's modification time at this
-   * resolution, because an edit made in the same second as the build that read the file must still
-   * count as a change.
+   * Nanoseconds within `mtime_s`. A build compares modification times at this resolution, because
+   * an edit made in the same second as the build that read the file must still count as a change,
+   * and a whole-second comparison would accept a stale output as current.
    */
   int64_t mtime_ns;
 };
@@ -142,6 +147,21 @@ struct OsEntry {
   int error_number;
 };
 
+/** What `os_read` accepts in the bytes of a file. */
+enum OsReadKind {
+  /** Any byte value, for a file such as an image or a video. */
+  OS_READ_BYTES,
+
+  /**
+   * Text, without an embedded `NUL` byte. A `NUL` is an ordinary byte to every first-party string,
+   * but no text format that the apps read gives it a meaning, so an input carrying one is rejected
+   * here rather than passed through to the output. TOML string values are a separate boundary,
+   * because the parser can decode an escape into a `NUL` that was never in the file. See
+   * `toml_datum_is_text`.
+   */
+  OS_READ_TEXT,
+};
+
 /**
  * @brief Reads a regular file into `perm`.
  *
@@ -151,15 +171,14 @@ struct OsEntry {
  * than waited on. The size limit is checked before any byte is read or allocated, so an oversize
  * input never becomes resident. Each caller passes the limit for the kind of file it reads.
  *
- * It also rejects a file containing an embedded `NUL` byte. A `NUL` is an ordinary byte to every
- * first-party string, but no input format `sosig` reads gives it a meaning, so an input carrying
- * one is rejected here rather than passed through to the output. TOML string values are a separate
- * boundary, because the parser can decode an escape into a `NUL` that was never in the file. See
- * `toml_datum_is_text`.
+ * With `OS_READ_TEXT`, it also rejects a file that contains an embedded `NUL` byte. With
+ * `OS_READ_BYTES`, the bytes can hold any value, and a caller that reads text from them rejects a
+ * `NUL` itself with `text_is_nul_free`.
  *
  * @param os           Host to read from. Must not be `NULL`.
  * @param file_path    Path of the file to read.
  * @param data_len_max Largest accepted file size in bytes.
+ * @param kind         What the bytes of the file may hold.
  * @param perm         Arena that owns the file bytes. Must not be `NULL`.
  * @param data_out     Receives the file bytes. Must not be `NULL`.
  * @param operation    Operation leading the failure message, such as `failed to read config`. The
@@ -167,16 +186,17 @@ struct OsEntry {
  *                     apart from the system ones.
  * @param log          Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` when the file is missing, not regular, larger than
- *         `data_len_max`, changed size mid-read or contains an embedded `NUL`, and on an open, read
- *         or close failure.
+ *         `data_len_max`, changed size mid-read or, with `OS_READ_TEXT`, contains an embedded
+ *         `NUL`, and on an open, read or close failure.
  */
 int os_read(struct Os* os,
             struct Str file_path,
             ptrdiff_t data_len_max,
+            enum OsReadKind kind,
             struct Arena* perm,
             struct Str* data_out,
             struct Str operation,
-            struct Log* log) __attribute__((nonnull(1, 4, 5, 7)));
+            struct Log* log) __attribute__((nonnull(1, 5, 6, 8)));
 
 /** Where the bytes `os_write` writes come from. */
 enum OsSourceKind {
@@ -299,7 +319,7 @@ int os_remove_dir(struct Os* os, struct Str dir_path, struct Str operation, stru
  * behind those, so a caller loses nothing by never seeing them. An entry that exists but cannot be
  * inspected is listed as `OS_ENTRY_FAILED` with its `errno`, so a file the caller could not look at
  * is never silently missing, and the caller reports it where its own order reaches it. So is a
- * symlink through a regular file, such as `x -> file.md/y`, which fails as `ENOTDIR`. The entries
+ * symlink through a regular file, such as `x -> file.txt/y`, which fails as `ENOTDIR`. The entries
  * come in no particular order.
  *
  * The directory is closed again before this returns, so a recursive walk built on it holds no

@@ -220,7 +220,7 @@ static void test_probe_media_retains_clamped_video_frame(void) {
   TEST_CHECK(access(frames[0].path, F_OK) == 0);
 
   TEST_CHECK(test_log_is_empty(&log));
-  TEST_CHECK(os_read(os_posix(), log_path, TEST_FILE_LEN_MAX, &arena, &logged,
+  TEST_CHECK(os_read(os_posix(), log_path, TEST_FILE_LEN_MAX, OS_READ_BYTES, &arena, &logged,
                      S("failed to read fixture"), &read_log) == 0);
   TEST_CHECK(str_eq(logged, S("0.200")));
   album_scanner_remove_video_frames(frames, 1);

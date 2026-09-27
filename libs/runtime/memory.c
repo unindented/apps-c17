@@ -34,7 +34,7 @@ void memory_oom_set_job(struct Str file_path, const struct Log* log) {
   memory_oom_job = (struct MemoryOomJob){file_path, log};
 }
 
-void memory_oom_report(struct Os* os) {
+void memory_oom_report(struct Os* os, struct Str program) {
   // Each piece is printed as it is, because building one message would need memory. A print that
   // fails cannot be reported either, so the results are discarded.
   if (memory_oom_log != NULL) {
@@ -43,7 +43,8 @@ void memory_oom_report(struct Os* os) {
   if (memory_oom_job.log != NULL) {
     (void)os_print(os, 2, buf_str(&memory_oom_job.log->buf));
   }
-  (void)os_print(os, 2, S("fram: out of memory"));
+  (void)os_print(os, 2, program);
+  (void)os_print(os, 2, S(": out of memory"));
   if (memory_oom_job.file_path.len > 0) {
     (void)os_print(os, 2, S(" (in '"));
     (void)os_print(os, 2, memory_oom_job.file_path);

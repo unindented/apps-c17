@@ -196,8 +196,8 @@ static int read_output(const char* root_dir,
   const struct Str path = path_join(str_from_cstr(root_dir), str_from_cstr(relative_path), arena);
   // A missing page is an outcome some tests expect, so the read's diagnostic goes unread.
   struct Log log = test_log();
-  return os_read(os_posix(), path, OUTPUT_LEN_MAX, arena, page_out, S("failed to read output"),
-                 &log);
+  return os_read(os_posix(), path, OUTPUT_LEN_MAX, OS_READ_TEXT, arena, page_out,
+                 S("failed to read output"), &log);
 }
 
 /**

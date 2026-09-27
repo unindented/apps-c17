@@ -12,15 +12,6 @@ if(PROJECT_IS_TOP_LEVEL)
   apps_enable_test_analysis(fram_test_support)
 endif()
 
-# The in-memory implementation of `src/runtime/os.h`, which a unit test registered with `OS memory`
-# links in place of the POSIX one. It is an object library for the same reason as the POSIX one.
-add_library(fram_os_memory OBJECT os_memory.c)
-target_include_directories(fram_os_memory PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>")
-target_link_libraries(fram_os_memory PRIVATE apps_build_tests vendor_acutest testing fram_app)
-if(PROJECT_IS_TOP_LEVEL)
-  apps_enable_test_analysis(fram_os_memory)
-endif()
-
 # Seeded random tests over the EXIF and JPEG-header parsers.
 apps_add_unit_test(random)
 

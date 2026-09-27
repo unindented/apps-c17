@@ -1,5 +1,5 @@
-#ifndef SOSIG_WALK_H
-#define SOSIG_WALK_H
+#ifndef APPS_RUNTIME_WALK_H
+#define APPS_RUNTIME_WALK_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -15,7 +15,7 @@ struct PathList;
  * @brief Recursively lists regular files under `root_dir` whose name ends with any of `suffixes`.
  *
  * Appends each matching file's path to `paths` and sorts the whole list so builds are reproducible.
- * A match may fold ASCII case, which lets `.MD` match `.md` without making behavior
+ * A match may fold ASCII case, which lets `.TxT` match `.txt` without making behavior
  * locale-dependent. An empty suffix matches every regular file, and a zero suffix count matches
  * none.
  *
@@ -42,7 +42,7 @@ struct PathList;
  * @param root_dir     Directory tree to walk.
  * @param excluded_dir Directory left out of the walk, or empty to walk the whole tree. A path with
  *                     no identity excludes nothing.
- * @param suffixes     Array of `suffix_count` suffixes, such as `.md`. May be `NULL` only when
+ * @param suffixes     Array of `suffix_count` suffixes, such as `.txt`. May be `NULL` only when
  *                     `suffix_count` is 0.
  * @param suffix_count Number of suffixes. Zero matches no files.
  * @param is_fold_case Whether ASCII case differences are ignored when matching a suffix.

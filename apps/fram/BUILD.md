@@ -9,10 +9,10 @@ The top-level [CMakeLists.txt](CMakeLists.txt) sets the project policy, finds th
 | Path | Responsibility |
 | --- | --- |
 | [src/CMakeLists.txt](src/CMakeLists.txt) | Defines the application library `fram_app` and the `fram` executable |
-| `src/*/CMakeLists.txt` | Add the sources, the header file sets and the unit tests of their directory. [src/runtime/CMakeLists.txt](src/runtime/CMakeLists.txt) also defines the POSIX host `fram_os_posix` |
-| [tests/CMakeLists.txt](tests/CMakeLists.txt) | Adds the golden test, the unit-test support library, the in-memory host and the seeded random tests |
+| `src/*/CMakeLists.txt` | Add the sources, the header file sets and the unit tests of their directory. |
+| [tests/CMakeLists.txt](tests/CMakeLists.txt) | Adds the golden test, the test helpers of `fram` and the seeded random tests |
 | [vendor.cmake](vendor.cmake) | Defines a target for each vendored dependency that `fram` uses, from the sources in the root [vendor/](../../vendor/) directory |
-| [../../libs/CMakeLists.txt](../../libs/CMakeLists.txt) | Defines the libraries that `fram` links: `shared` and `core`, and for the unit tests `testing` |
+| [../../libs/CMakeLists.txt](../../libs/CMakeLists.txt) | Defines the libraries that `fram` links: `shared`, `core` and `runtime` with the POSIX host `os_posix`, and for the unit tests `testing` and the in-memory host `os_memory` |
 | [../../cmake/apps_build_profiles.cmake](../../cmake/apps_build_profiles.cmake) | Sets warnings, optimization, fortification and sanitizers |
 | [../../cmake/apps_quality.cmake](../../cmake/apps_quality.cmake) | Configures formatting and static analysis |
 | [cmake/fram_lint.cmake](cmake/fram_lint.cmake) | Lists the first-party sources that the `format` and `lint` targets check |
@@ -26,17 +26,17 @@ The top-level [CMakeLists.txt](CMakeLists.txt) sets the project policy, finds th
 
 ## Targets
 
-The CMake build has one application library, two hosts, one target for each vendored dependency, the `shared` library, and the interface targets of [Build profiles](#build-profiles). Each executable links the application library and one of the two hosts. CMake generates this graph of the targets and their links from the `release` preset. The graph does not show the dependencies between source modules, and it does not show test-only targets such as the in-memory host `fram_os_memory`.
+The CMake build has one application library, two hosts, one target for each vendored dependency, the libraries of [libs/](../../libs/), and the interface targets of [Build profiles](#build-profiles). Each executable links the application library and one of the two hosts. CMake generates this graph of the targets and their links from the `release` preset. The graph does not show the dependencies between source modules, and it does not show test-only targets such as the in-memory host `os_memory` and the `testing` library.
 
 ![CMake target dependency graph](media/dependencies.svg)
 
 ### Application library
 
-`fram_app` is a private static library that holds every application source except [src/app/main.c](src/app/main.c) and `src/runtime/fs.c`. The `fram` executable and every unit test link it. It is static because it supports one product and has no public ABI.
+`fram_app` is a private static library that holds every application source except [src/app/main.c](src/app/main.c). The `fram` executable and every unit test link it. It is static because it supports one product and has no public ABI.
 
 Each source directory holds the code for one purpose. The source directories add their files to `fram_app` and do not define libraries of their own, because more libraries would add link boundaries without independent APIs. `src/build/` and `src/formats/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 
-`fram_app` links `vendor_tomlc17`, `core` and `shared` as `PUBLIC` dependencies, because the application headers expose the types of these libraries. The other dependencies are `PRIVATE`. `Threads::Threads` is one of the `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+`fram_app` links `vendor_tomlc17`, `core`, `runtime` and `shared` as `PUBLIC` dependencies, because the application headers expose the types of these libraries. The other dependencies are `PRIVATE`. `Threads::Threads` is one of the `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 
 `shared`, the library in [libs/shared/](../../libs/shared/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. `src/app/main.c` defines the `os_oom` of `fram`, which [ARCHITECTURE.md](ARCHITECTURE.md#out-of-memory-exits-the-process) describes. The `testing` library defines the `os_oom` of the unit tests.
 
@@ -44,7 +44,7 @@ The other libraries of [libs/](../../libs/) that `fram_app` links hold the modul
 
 ### Hosts
 
-`src/runtime/fs.c` is the POSIX implementation of [src/runtime/os.h](src/runtime/os.h). CMake compiles this file into the object library `fram_os_posix`, outside `fram_app`, so each executable selects its host when it links. `fram` links `fram_os_posix`. The unit tests that use the default, `OS posix`, also link it (see [Unit tests](#unit-tests)). The tests registered with `OS memory` link `fram_os_memory`, the in-memory host in [tests/os_memory.c](tests/os_memory.c), instead.
+`runtime/fs.c` in the `runtime` library is the POSIX implementation of [runtime/os.h](../../libs/runtime/os.h). CMake compiles this file into the object library `os_posix`, outside `fram_app`, so each executable selects its host when it links. `fram` links `os_posix`. The unit tests that use the default, `OS posix`, also link it (see [Unit tests](#unit-tests)). The tests registered with `OS memory` link `os_memory`, the in-memory host in [os_memory/os_memory.c](../../libs/os_memory/os_memory.c), instead.
 
 Both hosts are object libraries, because `fram_app` refers to them and a single-pass linker skips a static archive when the archive comes before the code that uses it on the link line.
 
@@ -110,19 +110,19 @@ Both targets run both tools on the first-party files in an explicit list, the `S
 
 `APPS_BUILD_TESTING` controls whether CMake defines the tests. It is on by default when `fram` is the top-level CMake project, and off by default when a parent project adds `fram` as a subproject.
 
-Each source directory adds its own unit tests. `tests/` adds the golden test, `fram_test_support`, `fram_os_memory` and the seeded random tests in `tests/test_random.c`. Every CTest case has the label `fram`, and also the label `unit` or `golden`.
+Each source directory adds its own unit tests. `tests/` adds the golden test, `fram_test_support` and the seeded random tests in `tests/test_random.c`. The tests of the libraries run in the `libs/` project, and `fram` does not register them. Every CTest case has the label `fram`, and also the label `unit` or `golden`.
 
 ### Unit tests
 
 `apps_add_unit_test(<module>)` compiles `test_<module>.c` into the executable `fram_unit_<module>`, and registers this executable as the CTest case `fram.<module>`. The executable links `apps_build_tests`, acutest, the `testing` library, `fram_test_support`, `fram_app` and one host.
 
-With the `OS memory` option, `apps_add_unit_test` links the in-memory host and compiles the test with `FRAM_TEST_OS_MEMORY` set to 1. New tests use this option. The tests registered without `OS memory` link the POSIX host. These tests are:
+With the `OS memory` option, `apps_add_unit_test` links the in-memory host `os_memory` and compiles the test with `FRAM_TEST_OS_MEMORY` set to 1. New tests use this option. The tests registered without `OS memory` link the POSIX host. These tests are:
 
-- the tests that need the real host: `fs` and `os_posix`, which test the POSIX layer; `output_pruner_case`, which tests the prune on a case-insensitive `/tmp` and skips on a case-sensitive `/tmp`; and `proc`, `video`, `album_scanner_video`, `cmd_build_video` and `derivative_renderer_video`, which run processes or decode video
+- the tests that need the real host: `output_pruner_case`, which tests the prune on a case-insensitive `/tmp` and skips on a case-sensitive `/tmp`; and `proc`, `video`, `album_scanner_video`, `cmd_build_video` and `derivative_renderer_video`, which run processes or decode video
 - the suites that are not yet converted to the in-memory host, which create their fixtures in a real temporary directory: `cli`, `cli_dispatch`, `cmd_config`, `gallery_config` and `template`
 - the tests that use no host
 
-When one source file compiles into more than one executable, the `NAME` option sets the name of each executable and its test. [src/runtime/test_os.c](src/runtime/test_os.c) uses both options. It compiles into two tests: `fram.os_posix`, which works in a real temporary directory, and `fram.os_memory`. These tests are the contract tests of `src/runtime/os.h`, and both tests must pass.
+When one source file compiles into more than one executable, the `NAME` option sets the name of each executable and its test. The contract tests of `runtime/os.h`, `runtime.os_posix` and `runtime.os_memory`, run in the `libs/` project.
 
 Each unit test has a CTest timeout of 60 seconds, so a test that hangs fails and does not block the test run.
 

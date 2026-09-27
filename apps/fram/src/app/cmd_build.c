@@ -784,8 +784,8 @@ static void load_build_cache(struct BuildState* state) {
   struct Arena log_arena = state->scratch;
   struct Log cache_log = {.buf = {.arena = &log_arena}};
   struct Str text = {0};
-  if (os_read(state->os, state->build_cache_path, BUILD_CACHE_FILE_LEN_MAX, &state->perm, &text,
-              S("failed to read build cache"), &cache_log) != 0 ||
+  if (os_read(state->os, state->build_cache_path, BUILD_CACHE_FILE_LEN_MAX, OS_READ_BYTES,
+              &state->perm, &text, S("failed to read build cache"), &cache_log) != 0 ||
       build_cache_parse(text, &state->perm, &state->build_cache, &cache_log) != 0) {
     const struct Str logged = buf_str(&cache_log.buf);
     const struct Str reason = str_clone(str_head(logged, logged.len - 1), &state->perm);

@@ -209,8 +209,8 @@ static void test_generate_video_unlinks_frame_on_success_and_failure(void) {
     TEST_MSG("log: '%.*s'", STR_FMT(failure));
   }
 
-  TEST_CHECK(os_read(os_posix(), item.original_path, TEST_FILE_LEN_MAX, &arena, &original,
-                     S("failed to set up fixture"), &fixture_log) == 0);
+  TEST_CHECK(os_read(os_posix(), item.original_path, TEST_FILE_LEN_MAX, OS_READ_BYTES, &arena,
+                     &original, S("failed to set up fixture"), &fixture_log) == 0);
   TEST_CHECK(str_eq(original, S("video-bytes")));
 
 cleanup:

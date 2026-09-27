@@ -17,9 +17,9 @@ set(GRAPHVIZ_CUSTOM_TARGETS FALSE)
 
 set(GRAPHVIZ_IGNORE_TARGETS
     "apps_build_tests"
-    "fram_os_memory"
     "fram_test_support"
     "fram_unit_.*"
+    "os_memory"
     "testing"
     "vendor_acutest"
 )

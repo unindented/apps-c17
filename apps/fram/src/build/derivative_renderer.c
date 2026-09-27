@@ -518,8 +518,8 @@ static int render_derivatives_images(const struct DerivativeContext* context,
   // The bytes stay in `scratch` until the job returns, unless `decode_oriented` gives a large
   // source's pages back. The decode allocates nothing in an arena.
   struct Str data = {0};
-  if (os_read(context->os, derivative_source_path, IMAGE_INPUT_LEN_MAX, &scratch, &data,
-              S("failed to read derivative source"), log) != 0) {
+  if (os_read(context->os, derivative_source_path, IMAGE_INPUT_LEN_MAX, OS_READ_BYTES, &scratch,
+              &data, S("failed to read derivative source"), log) != 0) {
     return -1;
   }
   struct ImageHeader header;

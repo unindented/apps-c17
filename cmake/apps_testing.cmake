@@ -3,11 +3,12 @@
 include_guard(GLOBAL)
 
 # The calling app names its targets after its project name, `<app>`: the test links `<app>_app`, the
-# `testing` library, `<app>_test_support` when the app defines it, and the host `<app>_os_<OS>`, and
-# is registered as `<app>.<NAME>`.
+# `testing` library, `<app>_test_support` when the app defines it, and a host, and is registered as
+# `<app>.<NAME>`. The host is the app's own `<app>_os_<OS>` when the app defines one, and otherwise
+# the library's `os_<OS>`.
 #
-# `OS` names the implementation of `src/runtime/os.h` the test links: `posix` (the default) or
-# `memory` for the in-memory host in `tests/os_memory.c`. Every test registered without `OS memory`
+# `OS` names the implementation of `runtime/os.h` the test links: `posix` (the default) or
+# `memory` for an in-memory host. Every test registered without `OS memory`
 # links the POSIX host: the tests that need the real host, such as the POSIX layer's own tests; the
 # suites written before the in-memory host, which stay on it until they are converted; and the tests
 # that reach no host. New tests use the in-memory host. A test that
@@ -27,7 +28,8 @@ function(apps_add_unit_test module)
   set(target "${app}_unit_${arg_NAME}")
   add_executable(${target} "test_${module}.c")
   target_link_libraries(
-    ${target} PRIVATE apps_build_tests vendor_acutest testing ${app}_app ${app}_os_${arg_OS}
+    ${target} PRIVATE apps_build_tests vendor_acutest testing ${app}_app
+                      "$<IF:$<TARGET_EXISTS:${app}_os_${arg_OS}>,${app}_os_${arg_OS},os_${arg_OS}>"
   )
   # An app can add test helpers of its own in `<app>_test_support`, which its `tests/` directory
   # defines after the source directories register their tests, so the link is resolved at generate
