@@ -19,6 +19,7 @@ target_link_libraries(
   sosig_app
   PUBLIC vendor_tomlc17
          core
+         formats
          runtime
          shared
   PRIVATE apps_build_project

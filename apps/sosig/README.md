@@ -561,7 +561,7 @@ The version of every archive comes from `project(VERSION)` in [CMakeLists.txt](C
 
 The root [vendor/](../../vendor/) directory contains these dependencies, except the libraries in `libs/`. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the licenses of the vendored dependencies.
 
-- [libs/](../../libs/): The libraries that `sosig` shares with the other apps: `shared`, `core` and `runtime`, and for the unit tests `testing` and `os_memory`. [libs/shared/](../../libs/shared/) holds arena allocation, counted strings, output buffers, and the diagnostic log, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
+- [libs/](../../libs/): The libraries that `sosig` shares with the other apps: `shared`, `core`, `runtime` and `formats`, and for the unit tests `testing` and `os_memory`. [libs/shared/](../../libs/shared/) holds arena allocation, counted strings, output buffers, and the diagnostic log, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
 - [copt](https://github.com/fardaniqbal/copt): Command-line option parsing.
 - [tomlc17](https://github.com/cktan/tomlc17): TOML configuration and frontmatter parsing.
 - [md4c](https://github.com/mity/md4c): Markdown parsing.

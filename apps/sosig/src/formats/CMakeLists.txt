@@ -1,9 +1,9 @@
 target_sources(
   sosig_app
-  PRIVATE body_html.c highlight.c html.c markdown.c org.c toml.c
+  PRIVATE body_html.c highlight.c markdown.c org.c
   PUBLIC FILE_SET HEADERS
          BASE_DIRS "${PROJECT_SOURCE_DIR}/src"
-         FILES body_html.h highlight.h html.h markdown.h org.h toml.h
+         FILES body_html.h highlight.h markdown.h org.h
 )
 
 target_link_libraries(
@@ -15,7 +15,7 @@ target_link_libraries(
 )
 
 if(APPS_BUILD_TESTING)
-  foreach(module IN ITEMS body_html html markdown org toml)
+  foreach(module IN ITEMS body_html markdown org)
     apps_add_unit_test(${module})
   endforeach()
   apps_add_unit_test(highlight OS memory)

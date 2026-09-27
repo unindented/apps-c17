@@ -175,7 +175,12 @@ int toml_require_known_keys(toml_datum_t table,
     // A quoted key can hold a `NUL` decoded from an escape, where `%.*s` would stop and name a
     // different key, so such a key is rejected without being named, but with the table it is in. No
     // known key holds a `NUL`, so it is unknown too.
-    if (!text_is_nul_free(key)) {
+    if (!text_is_nul_free(key) && key_prefix.len > 0) {
+      // The table is named without the `.` that joins the prefix to a key.
+      const struct Str table_name = str_head(key_prefix, key_prefix.len - 1);
+      rc = log_error_in(log, file_path, "%.*s key under '%.*s' must not contain a NUL byte",
+                        STR_FMT(key_kind), STR_FMT(table_name));
+    } else if (!text_is_nul_free(key)) {
       rc = log_error_in(log, file_path, "%.*s key must not contain a NUL byte", STR_FMT(key_kind));
     } else {
       rc = log_error_in(log, file_path, "unknown %.*s key '%.*s%.*s'", STR_FMT(key_kind),

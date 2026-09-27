@@ -7,13 +7,13 @@
 - [src/app/](src/app/): The process entry point, the command-line interface, and the command boundaries.
 - [src/build/](src/build/): Build orchestration, the parallel phases, templates, manifest population, and output writing.
 - [src/domain/](src/domain/): Gallery configuration, albums, media items, the build cache, and the output manifest.
-- [src/formats/](src/formats/): The boundaries for HTML, JPEG, WebP, EXIF, and TOML data.
+- [src/formats/](src/formats/): The boundaries for JPEG, WebP, and EXIF data.
 - [src/runtime/](src/runtime/): Process and video services on the real host.
 - [src/core/](src/core/): The tool name and version.
 - [tests/](tests/): The golden test suite, the seeded random tests, and the test helpers of `fram`: the fixture JPEG encoder and the WebP output decoder. The fixture gallery [tests/fixtures/gallery](tests/fixtures/gallery/), which mixes JPEG and MP4 sources, has its expected output in [tests/expected/gallery](tests/expected/gallery/).
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
 - [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](BUILD.md) documents their boundaries and policy.
-- [libs/](../../libs/): The libraries that `fram` links: `shared`, `core` and `runtime`, and for the unit tests `testing` and `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
+- [libs/](../../libs/): The libraries that `fram` links: `shared`, `core`, `runtime` and `formats`, and for the unit tests `testing` and `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
 - [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `libjpeg-turbo`, `libwebp`, `stb`, `mustache4c`, and `acutest`.
 
 ### Dependency rules
@@ -143,9 +143,9 @@ Each item below links to the module's header, which documents its interface. The
 ### Formats (`src/formats`)
 
 - [exif](src/formats/exif.h): Reads the IFD0 orientation from JPEG EXIF data. When the metadata is missing or malformed, the reader uses the top-left orientation.
-- [html](src/formats/html.h): HTML escaping of untrusted text for generated markup.
 - [image](src/formats/image.h): Buffer-to-buffer JPEG probing, RGB decoding scaled in the DCT, EXIF-orientation transforms, linear-light resizing, crop views that copy no pixels, WebP encoding, and aspect-ratio calculations. The module wraps libjpeg-turbo for probing and decoding, stb for resizing, and libwebp for encoding, and does no filesystem I/O.
-- [toml](src/formats/toml.h): TOML text validation at the boundary where parsed bytes become owned text. `toml_require_known_keys` is the shared check for unknown keys. It reports each table key that is not in the list of known keys that a loader gives.
+
+The formats also use the `formats` library: [html](../../libs/formats/html.h) escapes untrusted text for generated markup, and [toml](../../libs/formats/toml.h) validates TOML text at the boundary where parsed bytes become owned text, and checks for unknown keys.
 
 ### Runtime (`src/runtime`)
 
@@ -185,7 +185,7 @@ Two jobs that run at the same time never share an arena or a log. Each job uses 
 
 Every first-party string is a counted `struct Str` with a signed `ptrdiff_t` length, and JPEG bytes travel as one too. Every length, count, and pixel dimension is a `ptrdiff_t`. See [Counted strings with signed lengths](#counted-strings-with-signed-lengths).
 
-`os_read` accepts any bytes, because JPEGs contain `NUL` bytes. No text format gives a meaning to a `NUL` byte, so the text consumers stop a `NUL` before it gets into the generated output. The TOML and template readers reject an embedded `NUL`. `toml_datum_is_text` rejects a TOML string that contains a decoded `NUL`. `toml_require_known_keys` rejects a TOML key that contains a `NUL`, before it names the key. A path that contains a `NUL` fails at the `os` boundary with `EINVAL`, because a system call would read the path only up to that byte.
+`os_read` reads with `OS_READ_BYTES` and accepts any bytes, because JPEGs contain `NUL` bytes. No text format gives a meaning to a `NUL` byte, so the text consumers stop a `NUL` before it gets into the generated output. The TOML and template readers reject an embedded `NUL`. `toml_datum_is_text` rejects a TOML string that contains a decoded `NUL`. `toml_require_known_keys` rejects a TOML key that contains a `NUL`, before it names the key. A path that contains a `NUL` fails at the `os` boundary with `EINVAL`, because a system call would read the path only up to that byte.
 
 ### Errors and diagnostics
 
@@ -397,6 +397,6 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 ### Where the shared code lives
 
-**Decision.** The libraries in [libs/](../../libs/) hold the code that `fram` shares with the other apps. `shared` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. `core` and `runtime` hold the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own arena layout. The decoded-pixel exception stays out of the libraries.
+**Decision.** The libraries in [libs/](../../libs/) hold the code that `fram` shares with the other apps. `shared` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. `core`, `runtime` and `formats` hold the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own arena layout. The decoded-pixel exception stays out of the libraries.
 
 **Reason.** These parts do not depend on what a program does.

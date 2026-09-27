@@ -1,5 +1,5 @@
-#ifndef SOSIG_TOML_H
-#define SOSIG_TOML_H
+#ifndef APPS_FORMATS_TOML_H
+#define APPS_FORMATS_TOML_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -55,8 +55,8 @@ int toml_parse_document(struct Str document,
  * @brief Reports whether a datum is a string whose bytes hold no embedded `NUL`.
  *
  * TOML permits an escape that decodes to `U+0000`, and tomlc17 encodes it as a `NUL` byte inside an
- * otherwise ordinary string value. Every caller that turns a TOML string into a configuration or
- * frontmatter value checks this first, which keeps the input policy of `text_is_nul_free`.
+ * otherwise ordinary string value. Every caller that turns a TOML string into a value of its own
+ * checks this first, which keeps the input policy of `text_is_nul_free`.
  *
  * @param value Datum to classify.
  * @return `true` when `value` is a string with no embedded `NUL`, `false` otherwise.
@@ -110,8 +110,9 @@ struct Str toml_datum_format_rfc3339(toml_datum_t value, struct Arena* arena)
  * rather than silently leaving its default in place. Keys match exactly, so a key that is a prefix
  * of a known key, or extends one, is as unknown as any other. Every unknown key is named. A quoted
  * key holding a `NUL` decoded from an escape is one of those unknown keys, but it is reported
- * without its name, which `%.*s` would cut at the `NUL`, as
- * `<key_kind> key must not contain a NUL byte`.
+ * without its name, which `%.*s` would cut at the `NUL`: as
+ * `<key_kind> key must not contain a NUL byte` in the top-level table, and as
+ * `<key_kind> key under '<table>' must not contain a NUL byte` in a nested one.
  *
  * @param table           Parsed TOML table. Must be a `TOML_TABLE` datum.
  * @param known_keys      Keys the table may hold. May be `NULL` only when `known_key_count` is 0.

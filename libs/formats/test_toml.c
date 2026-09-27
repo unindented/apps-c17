@@ -73,9 +73,9 @@ static void test_unix_epoch_anchor_converts_to_zero(void) {
 
 // A date before the epoch converts to a negative count, which is the half of the documented signed
 // range every other assertion in this file misses. All of them are at or after 1970, so a day count
-// or epoch product narrowed to 32 bits would still pass them while `1900-01-01` wrapped. The epoch
-// is the sole sort key for generated output, so a wrapped value would sort a 1900-dated entry as
-// the newest post. Both expected values came from a run.
+// or epoch product narrowed to 32 bits would still pass them while `1900-01-01` wrapped. An app can
+// sort generated output by the epoch alone, so a wrapped value would sort a 1900-dated entry as the
+// newest one. Both expected values came from a run.
 static void test_pre_epoch_dates_convert_to_negative(void) {
   toml_result_t result;
   toml_datum_t value = parse_value("1969-12-31T23:59:59Z", &result);
@@ -107,9 +107,9 @@ static void test_leap_day_converts_in_century_year(void) {
   // The two dates below exercise the conversion's `yoe / 100` century correction. `2000` cannot:
   // its year-of-era is `0`, so that term is `0` however it is spelled. The assertion above passes
   // with the correction removed. A year-of-era at or above `100` is what separates them, and
-  // neither of these is a leap year in the Gregorian rule that the correction implements. The epoch
-  // is the sole sort key for generated output, so a wrong one silently reorders posts rather than
-  // failing anything. Both values came from a run.
+  // neither of these is a leap year in the Gregorian rule that the correction implements. An app
+  // can sort generated output by the epoch alone, so a wrong one silently reorders entries rather
+  // than failing anything. Both values came from a run.
   toml_result_t yoe_300;
   toml_datum_t yoe_300_value = parse_value("1900-03-01T00:00:00Z", &yoe_300);
   int64_t yoe_300_epoch = 0;
@@ -198,8 +198,8 @@ static void test_fractional_seconds_preserved(void) {
 
   // A fraction of all zeros yields no fractional part at all, not a bare `.`. That is a separate
   // path from the trimming above rather than its extreme: `toml_datum_format_rfc3339` prints no `.`
-  // and no digits for a zero microsecond count, so `.12` cannot reach it. A frontmatter date
-  // written with an explicit `.000000` is the reachable way in.
+  // and no digits for a zero microsecond count, so `.12` cannot reach it. A date written with an
+  // explicit `.000000` is the reachable way in.
   toml_result_t zeros;
   toml_datum_t zeros_value = parse_value("2026-07-01T12:00:00.000000Z", &zeros);
   const struct Str zeros_text = toml_datum_format_rfc3339(zeros_value, &arena);
@@ -331,6 +331,18 @@ static void test_require_known_keys_rejects_nul_key_unnamed(void) {
   toml_free(result);
 }
 
+// A `NUL` key in a nested table is still not named, but its table is, without the `.` of the
+// prefix.
+static void test_require_known_keys_names_table_of_nul_key(void) {
+  struct Log log = test_log();
+  toml_result_t result;
+  TEST_CHECK(toml_require_known_keys(parse_value("{ \"x\\u0000\" = 1 }", &result), NULL, 0,
+                                     S("config"), S("table.s."), S("app.toml"), &log) == -1);
+  TEST_CHECK(test_log_is(
+      &log, "config key under 'table.s' must not contain a NUL byte (in 'app.toml')\n"));
+  toml_free(result);
+}
+
 // Every unknown key is reported, in table order, each naming the file when one is given.
 static void test_require_known_keys_reports_every_unknown_key(void) {
   static const struct Str known_keys[] = {STR_INIT("title")};
@@ -361,6 +373,7 @@ TEST_LIST = {
     {"require known keys accepts known keys", test_require_known_keys_accepts_known_keys},
     {"require known keys rejects unknown keys", test_require_known_keys_rejects_unknown_keys},
     {"require known keys rejects nul key unnamed", test_require_known_keys_rejects_nul_key_unnamed},
+    {"require known keys names table of nul key", test_require_known_keys_names_table_of_nul_key},
     {"require known keys reports every unknown key",
      test_require_known_keys_reports_every_unknown_key},
     {NULL, NULL},

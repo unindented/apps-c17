@@ -120,6 +120,11 @@ add_subdirectory(core)
 add_subdirectory(testing)
 add_subdirectory(runtime)
 add_subdirectory(os_memory)
+# `formats` needs tomlc17. An app that vendors no tomlc17 links no `formats`, so its build leaves the
+# library out.
+if(TARGET vendor_tomlc17)
+  add_subdirectory(formats)
+endif()
 
 if(PROJECT_IS_TOP_LEVEL)
   get_property(libs_lint_sources GLOBAL PROPERTY apps_libs_lint_sources)

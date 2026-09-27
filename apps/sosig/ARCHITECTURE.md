@@ -7,7 +7,7 @@
 - [src/app/](src/app/): The process entry point, the command-line interface, and the command boundaries.
 - [src/build/](src/build/): Build orchestration, the parallel phases, templates, manifest population, and output writing.
 - [src/domain/](src/domain/): Site configuration, content metadata, frontmatter, permalinks, the build cache, and the output manifest.
-- [src/formats/](src/formats/): The boundaries for HTML, Markdown, Org, and TOML data, and syntax highlighting.
+- [src/formats/](src/formats/): The boundaries for Markdown and Org data, and syntax highlighting.
 - [src/core/](src/core/): The tool name and version.
 - [tests/](tests/): The golden test suite. Each fixture site under [tests/fixtures/](tests/fixtures/) has a matching directory of expected output under [tests/expected/](tests/expected/):
   - [site_file_permalink](tests/fixtures/site_file_permalink/) covers Markdown, Org, links between denote notes, and templates with the default permalink.
@@ -15,7 +15,7 @@
   - [site_nested_sections](tests/fixtures/site_nested_sections/) covers nested and lopsided sections, source names with spaces, punctuation and non-ASCII characters, partials that include partials, and aggregate and feed outputs in subdirectories next to content outputs.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
 - [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](BUILD.md) documents their boundaries and policy.
-- [libs/](../../libs/): The libraries that `sosig` links: `shared`, `core` and `runtime`, and for the unit tests `testing` and `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
+- [libs/](../../libs/): The libraries that `sosig` links: `shared`, `core`, `runtime` and `formats`, and for the unit tests `testing` and `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
 - [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `md4c`, `org4c`, `mustache4c`, `acutest`, and `tree-sitter` with these grammars:
   - `tree-sitter-c`
   - `tree-sitter-bash`
@@ -147,10 +147,10 @@ Each item below links to the module's header, which documents its interface. The
 
 - [body_html](src/formats/body_html.h): The markup that the Markdown and Org renderers share, written in one place for both: headings, footnotes, task checkboxes, admonitions, math, code blocks that `highlight` highlights, and the escaping of link targets. It also defines `LinkTargets`, a callback that both renderers give the target of every link and image. The callback can write a URL of its own for a target, or decline, and then the renderer writes the target itself. The formats know nothing about content files.
 - [highlight](src/formats/highlight.h): Syntax highlighting of a code block with tree-sitter. `highlight_grammar_find` finds the grammar for a language name among the grammars that `SOSIG_GRAMMARS` compiles in. [vendor.cmake](vendor.cmake) declares these grammars in a header that it generates. `highlight_grammar_list` names those grammars. `highlight_write` writes the code with a `<span class="tok-…">` around each token that the grammar's highlight query captures. It writes the code plain, only escaped, when there is no grammar or when the code block goes past a memory limit.
-- [html](src/formats/html.h): HTML escaping of untrusted text for generated markup.
 - [markdown](src/formats/markdown.h): `markdown_to_html` parses Markdown with md4c and the project's extension set, and writes the HTML through its own callbacks. It gives each link and image destination, as written, to the `LinkTargets` callback of its caller.
 - [org](src/formats/org.h): `org_to_html` parses Org with org4c, the project's flags, and the file's `#+OPTIONS:` lines, and writes the HTML through its own callbacks. It gives the org4c type and the path of each link and image to the `LinkTargets` callback of its caller. A `file` link without a description shows the URL that the callback wrote.
-- [toml](src/formats/toml.h): TOML text validation, and the conversion and formatting of dates and datetimes. `toml_require_known_keys` is the shared check for unknown keys. It reports each table key that is not in the list of known keys that a loader gives.
+
+The formats also use the `formats` library: [html](../../libs/formats/html.h) escapes untrusted text for generated markup, and [toml](../../libs/formats/toml.h) validates TOML text, checks for unknown keys, and converts and formats the dates of entries.
 
 ### Runtime and core libraries
 
@@ -185,7 +185,7 @@ Two jobs that run at the same time never share an arena or a log. Each job uses 
 
 Every first-party string is a counted `struct Str` with a signed `ptrdiff_t` length, and every length and count is a `ptrdiff_t`. See [Counted strings with signed lengths](#counted-strings-with-signed-lengths).
 
-No input format gives a meaning to a `NUL` byte, so the input checks stop a `NUL` before it gets into the generated output. `os_read` rejects a file that contains a `NUL`, and reports this policy failure separately from system errors. `toml_datum_is_text` rejects a TOML string that contains a decoded `NUL`. `toml_require_known_keys` rejects a TOML key that contains a `NUL`, before it names the key. A path that contains a `NUL` fails at the `os` boundary with `EINVAL`, because a system call would read the path only up to that byte.
+No input format gives a meaning to a `NUL` byte, so the input checks stop a `NUL` before it gets into the generated output. `os_read` with `OS_READ_TEXT` rejects a file that contains a `NUL`, and reports this policy failure separately from system errors. `toml_datum_is_text` rejects a TOML string that contains a decoded `NUL`. `toml_require_known_keys` rejects a TOML key that contains a `NUL`, before it names the key. A path that contains a `NUL` fails at the `os` boundary with `EINVAL`, because a system call would read the path only up to that byte.
 
 ### Errors and diagnostics
 
@@ -381,6 +381,6 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 ### Where the shared code lives
 
-**Decision.** The libraries in [libs/](../../libs/) hold the code that `sosig` shares with the other apps. `shared` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. `core` and `runtime` hold the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own arena layout.
+**Decision.** The libraries in [libs/](../../libs/) hold the code that `sosig` shares with the other apps. `shared` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. `core`, `runtime` and `formats` hold the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own arena layout.
 
 **Reason.** These parts do not depend on what a program does.

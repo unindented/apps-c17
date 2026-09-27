@@ -5,8 +5,8 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 ## Layout
 
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and its presets. An app adds the project with `add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)`, so a library builds only when the app links it. Configured on its own, the project builds every library, its tests, its analysis and its lint.
-- [vendor.cmake](vendor.cmake): The vendored targets that the libraries and their tests use when the project is configured on its own: `acutest`, from the root [vendor/](../vendor/) directory. An app that adds the project gives these targets from its own `vendor.cmake`.
-- [shared/](shared/), [core/](core/), [testing/](testing/), [runtime/](runtime/) and [os_memory/](os_memory/): One directory for each library, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
+- [vendor.cmake](vendor.cmake): The vendored targets that the libraries and their tests use when the project is configured on its own: `acutest` and `tomlc17`, from the root [vendor/](../vendor/) directory. An app that adds the project gives these targets from its own `vendor.cmake`.
+- [shared/](shared/), [core/](core/), [testing/](testing/), [runtime/](runtime/), [os_memory/](os_memory/) and [formats/](formats/): One directory for each library, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
 
 ## Libraries
 
@@ -17,6 +17,7 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 | [`testing`](#testing) | The support that every unit test uses, and the `os_oom` of the unit tests. | the unit tests of every app and of the other libraries |
 | [`runtime`](#runtime) | The host interface, its POSIX implementation `os_posix`, the out-of-memory report, the worker pool and the directory walk. | sosig, fram |
 | [`os_memory`](#os_memory) | The in-memory implementation of the host interface. | the unit tests of sosig, fram and the libraries |
+| [`formats`](#formats) | HTML escaping and the TOML helpers. | sosig, fram |
 
 cwrap has a smaller host interface of its own in its `src/runtime/`, and links neither `runtime` nor `os_memory`.
 
@@ -25,6 +26,7 @@ cwrap has a smaller host interface of its own in its `src/runtime/`, and links n
 - `core` depends on `shared`.
 - `testing` and `runtime` depend on `core` and `shared`.
 - `os_memory` depends on `runtime` and `testing`.
+- `formats` depends on `core`, `shared` and the vendored `tomlc17`. The project adds `formats` only when the `vendor_tomlc17` target exists, so an app that vendors no tomlc17, such as cwrap, builds without it.
 - No library depends on an app.
 
 A library include names the library and the module, for example `#include "core/parse.h"` or `#include "runtime/os.h"`. Each library has an include root of its own: `libs_add_include_root` makes a directory in the build tree that holds one link, named for the library, to the library's directory, and gives the target that directory as its include root. `shared` has its own include root in the source tree, `shared/include/`, as in `#include "shared/str.h"`. A target therefore reaches the headers of the libraries that it links and of no other library. A header guard is `APPS_<LIB>_<MODULE>_H`, for example `APPS_CORE_PARSE_H`. An app's own `src/<layer>/` holds only modules that no library it links has, so an app's include never resolves to a different file than the library's. An app's header can have the same path as a header of a library that the app does not link, as cwrap's `runtime/os.h` has.
@@ -74,3 +76,8 @@ An executable selects its host when it links. A link-time choice needs no table 
 - [os_memory](os_memory/os_memory.h): The in-memory implementation of `runtime/os.h` for unit tests: an in-memory tree with symlinks, hard links, a modification-time counter, injected failures, and captured output. A lock guards the tree, so tests that run workers can use it.
 
 Each property that a test checks against the in-memory host must have a contract test. [runtime/test_os.c](runtime/test_os.c) compiles once against each host, as `runtime.os_posix` and `runtime.os_memory`, and both executables must pass, so every property that a test relies on in the in-memory host is also true on POSIX.
+
+## formats
+
+- [html](formats/html.h): HTML escaping of untrusted text for generated markup.
+- [toml](formats/toml.h): TOML parsing, text validation at the boundary where parsed bytes become owned text, and the conversion and formatting of dates and datetimes. `toml_require_known_keys` is the shared check for unknown keys. It reports each table key that is not in the list of known keys that a loader gives, and it reports a key that contains a `NUL` byte without its name, but with the name of its table.

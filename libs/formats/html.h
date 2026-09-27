@@ -1,5 +1,5 @@
-#ifndef SOSIG_HTML_H
-#define SOSIG_HTML_H
+#ifndef APPS_FORMATS_HTML_H
+#define APPS_FORMATS_HTML_H
 
 #include "shared/str.h"
 
@@ -11,9 +11,10 @@ struct Buf;
  * Replaces `&`, `<`, `>`, `"`, and `'` with their character references and copies every other byte
  * verbatim.
  *
- * This is the project's escaping boundary against markup injection. Every `{{ ... }}` interpolation
- * in a template reaches it through `out_escaped`, including untrusted text from the metadata and
- * bodies of content sources. The five bytes are sufficient for the two contexts that templates use:
+ * This is the escaping boundary of the apps against markup injection. Every `{{ ... }}`
+ * interpolation in a template reaches it through `out_escaped`, including untrusted text that an
+ * app reads from its inputs, such as metadata and file names. The five bytes are sufficient for the
+ * two contexts that templates use:
  * - element text
  * - a quoted attribute value in HTML or XML, with either quote style
  *
