@@ -13,7 +13,7 @@
 #include "shared/arena.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * @brief Creates a host and a configuration whose `output_dir` is `public`, holding the outputs

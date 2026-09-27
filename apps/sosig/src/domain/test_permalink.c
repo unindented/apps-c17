@@ -3,7 +3,7 @@
 #include "domain/permalink.h"
 #include "shared/arena.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // Expansion is exercised end-to-end by the golden test suite, whose `site_file_permalink` fixture
 // site covers the default pattern and whose `site_index_permalink` fixture site covers one ending

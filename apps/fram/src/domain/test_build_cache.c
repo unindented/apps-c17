@@ -8,7 +8,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * @brief Formats a build cache of `entries` the way a build writes one.

@@ -5,7 +5,7 @@
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * @brief Rewrites source text at a requested width.

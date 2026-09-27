@@ -9,11 +9,11 @@
 - [src/domain/](src/domain/): Gallery configuration, albums, media items, the build cache, and the output manifest.
 - [src/formats/](src/formats/): The boundaries for HTML, JPEG, WebP, EXIF, and TOML data.
 - [src/runtime/](src/runtime/): The host interface and its POSIX implementation, the directory walk, process and video services on the real host, the out-of-memory report, and the thread pool.
-- [src/core/](src/core/): Small reusable primitives, containers, diagnostics, text, and path logic.
-- [tests/](tests/): The golden test suite, the shared unit-test support library [tests/test_support.h](tests/test_support.h), and the in-memory host [tests/os_memory.h](tests/os_memory.h). The fixture gallery [tests/fixtures/gallery](tests/fixtures/gallery/), which mixes JPEG and MP4 sources, has its expected output in [tests/expected/gallery](tests/expected/gallery/).
+- [src/core/](src/core/): The tool name and version.
+- [tests/](tests/): The golden test suite, the seeded random tests, the test helpers of `fram`: the fixture JPEG encoder and the WebP output decoder, and the in-memory host [tests/os_memory.h](tests/os_memory.h). The fixture gallery [tests/fixtures/gallery](tests/fixtures/gallery/), which mixes JPEG and MP4 sources, has its expected output in [tests/expected/gallery](tests/expected/gallery/).
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
 - [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](BUILD.md) documents their boundaries and policy.
-- [libs/shared/](../../libs/shared/): The `shared` library, which the `libs/` project builds and tests.
+- [libs/](../../libs/): The libraries that `fram` links: `shared` and `core`, and for the unit tests `testing`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
 - [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `libjpeg-turbo`, `libwebp`, `stb`, `mustache4c`, and `acutest`.
 
 ### Dependency rules
@@ -25,8 +25,9 @@ First-party dependencies point inward:
 - `domain` can depend on `formats`, `runtime`, and `core`.
 - `formats` and `runtime` can depend on `core`.
 - `core` depends on no other first-party directory.
+- Every directory can depend on the libraries in `libs/`, and no library depends on `fram`.
 
-A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root, for example `#include "core/ascii.h"`, so every include names the directory that it depends on.
+A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root or at the include root of a library that the app links, for example `#include "build/template.h"` or `#include "core/ascii.h"`, so every include names the directory or the library that it depends on.
 
 ## Terms
 
@@ -51,7 +52,7 @@ These words have one meaning everywhere in this document:
 - [cli_dispatch](src/app/cli_dispatch.h): `cli_dispatch` calls `cli_parse`. For the run action, it calls the subcommand's function. For each other action, it prints one text through `os_print`: the diagnostic for the rejected command line, the `--help` text, or the `--version` text. It formats these texts in a reservation of its own, and releases that reservation when the command or the print returns. A command reserves its own memory.
 - [cmd_build](src/app/cmd_build.h): `cmd_build_run` generates the gallery, as [Build pipeline](#build-pipeline) describes.
 - [cmd_config](src/app/cmd_config.h): `cmd_config_run` loads `fram.toml` and prints the resolved config.
-- [exit_code](src/app/exit_code.h): Every command returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
+- [exit_code](../../libs/core/exit_code.h), in the `core` library: Every command returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
 
 ## Build pipeline
 
@@ -164,13 +165,11 @@ Each item below links to the module's header, which documents its interface. The
 
 ### Core (`src/core`)
 
-- [ascii](src/core/ascii.h): Locale-independent ASCII byte classification.
-- [error](src/core/error.h): Turns an `errno` into text, and is thread-safe. Diagnostics themselves go to the vendored `shared/log.h`, as `printf` formats that the compiler checks.
 - [fram_version](src/core/fram_version.h): The tool name and version, which CMake sets when it configures `fram`.
-- [parse](src/core/parse.h): Parsing of text into scalar values.
-- [path](src/core/path.h): Path construction and validation. `path_is_below` finds the part of a path below a root by text comparison. `manifest_builder` uses it to plan each static file output, and `site_writer` copies the static file to the same path below `output_dir`.
-- [path_list](src/core/path_list.h): A growable list of path strings.
-- [text](src/core/text.h): Text normalization, matching and validation.
+
+`fram` takes its small primitives from the `core` library, which [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#core) describes.
+
+- `manifest_builder` uses `path_is_below` to plan each static file output, and `site_writer` copies the static file to the same path below `output_dir`.
 
 ## Cross-cutting conventions
 
@@ -372,7 +371,7 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 - `STR_FMT` evaluates its argument two times. Give it a variable or another lvalue, and put a computed string in a variable first.
 - A string longer than `INT_MAX` bytes causes an assertion failure at run time, because the `%.*s` precision is an `int`.
 - The attribute is the only guard on the code that reads the arguments. Each formatting function measures the text with `vsnprintf`, allocates the text, and writes it with a second `vsnprintf`. These functions are `buf_printf` in `shared`, which grows the buffer in place through `buf_vprintf_measured`, and the first-party functions that format their own message. Only those functions change the measured `int` length to a `ptrdiff_t`.
-- A first-party variadic function does not pass its `va_list` on to a formatter that copies the list with `va_copy`. If it did, the Clang analyzer, version 22, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does, which hands its second pass to `buf_vprintf_measured`. `record_error` in `cli.c`, `build_verbose` in `cmd_build.c`, `render_fail` in `template.c`, and `test_log_is` in `tests/test_support.c` follow this rule.
+- A first-party variadic function does not pass its `va_list` on to a formatter that copies the list with `va_copy`. If it did, the Clang analyzer, version 22, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does, which hands its second pass to `buf_vprintf_measured`. `record_error` in `cli.c`, `build_verbose` in `cmd_build.c`, `render_fail` in `template.c`, and `test_log_is` in `testing/test_support.c` follow this rule.
 - `%.*s` stops at a `NUL` byte. The text readers reject a `NUL` in config and template content, `toml_datum_is_text` and `toml_require_known_keys` reject a `NUL` in TOML strings and keys, and the `os` boundary rejects a `NUL` in paths, so a message gets no `NUL` from text input. No message prints JPEG bytes. The `os` boundary's `EINVAL` message quotes a path that contains a `NUL` only up to that byte, and the contract test for this case shows the result.
 - An `off_t` has no conversion of its own. It prints with `%jd` and a cast to `intmax_t`.
 - `clang-format` breaks a string literal that is longer than the column limit, so some long messages are in two literals.
@@ -394,7 +393,7 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 ### Seeded random tests in the normal suite
 
-**Decision.** `tests/test_random.c` checks the parsers of untrusted file headers, the EXIF reader and the JPEG probe, on generated inputs. A well-formed EXIF segment reads back the orientation that the test built it with, and a mutated EXIF segment or JPEG header reads without a crash or a read past the input. The test draws its inputs from the generator in `tests/test_support`, a 64-bit linear congruential step. The seed comes from `FRAM_TEST_SEED`. When `FRAM_TEST_SEED` is not set, the seed is fixed (`TEST_RNG_SEED_DEFAULT`), so the test checks the same cases every time. A failing check prints its seed, and a run with `FRAM_TEST_SEED` set to that seed replays the case. A malformed seed makes the test fail, and does not run a different seed.
+**Decision.** `tests/test_random.c` checks the parsers of untrusted file headers, the EXIF reader and the JPEG probe, on generated inputs. A well-formed EXIF segment reads back the orientation that the test built it with, and a mutated EXIF segment or JPEG header reads without a crash or a read past the input. The test draws its inputs from the generator in the `testing` library, a 64-bit linear congruential step. The seed comes from `APPS_TEST_SEED`. When `APPS_TEST_SEED` is not set, the seed is fixed (`TEST_RNG_SEED_DEFAULT`), so the test checks the same cases every time. A failing check prints its seed, and a run with `APPS_TEST_SEED` set to that seed replays the case. A malformed seed makes the test fail, and does not run a different seed.
 
 **Reasons.**
 
@@ -405,6 +404,6 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 ### Where the shared code lives
 
-**Decision.** `shared`, the library in [libs/shared/](../../libs/shared/), holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. Each program defines `os_oom`, and has its own `os` interface and its own arena layout. The decoded-pixel exception stays out of `shared`.
+**Decision.** The libraries in [libs/](../../libs/) hold the code that `fram` shares with the other apps. `shared` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. `core` holds the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own `os` interface and its own arena layout. The decoded-pixel exception stays out of the libraries.
 
 **Reason.** These parts do not depend on what a program does.

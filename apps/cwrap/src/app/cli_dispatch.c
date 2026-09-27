@@ -4,7 +4,7 @@
 
 #include "app/cli.h"
 #include "app/cmd_wrap.h"
-#include "app/exit_code.h"
+#include "core/exit_code.h"
 #include "runtime/os.h"
 #include "shared/arena.h"
 #include "shared/str.h"

@@ -5,7 +5,7 @@
 
 #include "formats/exif.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 enum { EXIF_APP1_END = 38, EXIF_FIXTURE_SIZE = 40 };
 

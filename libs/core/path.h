@@ -1,5 +1,5 @@
-#ifndef SOSIG_PATH_H
-#define SOSIG_PATH_H
+#ifndef APPS_CORE_PATH_H
+#define APPS_CORE_PATH_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -11,8 +11,9 @@ struct Arena;
 /**
  * Upper bound on a single filename, excluding the terminator. 255 is the per-component limit on
  * every filesystem this targets. ext4, APFS and HFS+ all cap one name at 255 bytes, and POSIX
- * exposes it as `NAME_MAX`. Generated names are pure ASCII, because `text_slugify` folds each
- * non-ASCII byte to hex digits, so a byte count and a character count are the same limit here.
+ * exposes it as `NAME_MAX`. The limit counts bytes: a name that `text_slugify` generates is pure
+ * ASCII, because it folds each non-ASCII byte to hex digits, but a name that an app copies from a
+ * source file can use more than one byte for one character.
  */
 enum { FILENAME_LEN_MAX = 255 };
 
@@ -26,8 +27,7 @@ _Static_assert(FILENAME_LEN_MAX > (sizeof(".html") - 1),
  * the relative path only, because `output_dir` is joined on afterwards. An accepted path can
  * therefore still exceed the system limit. The check exists to fail with a diagnostic naming the
  * limit and the path rather than to guarantee the write will succeed. This bounds every generated
- * relative output path: a content entry's permalink-expanded `<section>/<slug>.html`, and an
- * aggregate or feed template's own name used as its output path.
+ * relative output path that an app writes, such as a generated page or a derived image.
  */
 enum { OUTPUT_PATH_RELATIVE_LEN_MAX = 1024 };
 

@@ -1,5 +1,5 @@
-#ifndef SOSIG_EXIT_CODE_H
-#define SOSIG_EXIT_CODE_H
+#ifndef APPS_CORE_EXIT_CODE_H
+#define APPS_CORE_EXIT_CODE_H
 
 /** Process exit codes returned by `main`, `cli_dispatch`, and the `cmd_*_run` entry points. */
 enum ExitCode {

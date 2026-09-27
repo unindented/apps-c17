@@ -21,7 +21,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /** Largest file a test here reads back, in bytes. Every fixture file is a few bytes. */
 enum { TEST_FILE_LEN_MAX = 1024 };
@@ -82,10 +82,12 @@ static struct Log* fixture_log(void) {
 // that length. It is resolved first so that no symlink in it, such as a `/tmp` that is one,
 // lengthens it on the way.
 static void test_read_accepts_path_below_path_max(void) {
-  char file_path[] = "/tmp/cwrap-fs-path-limit.XXXXXX";
-  if (init_fixture_file(file_path, S("a")) != 0) {
+  char root_dir[] = "/tmp/cwrap-fs-path-limit.XXXXXX";
+  if (init_fixture_dir(root_dir) != 0) {
     return;
   }
+  char file_path[PATH_MAX];
+  const int file_path_n = snprintf(file_path, sizeof(file_path), "%s/a.c", root_dir);
   char resolved_path[PATH_MAX];
   const char* basename = NULL;
   struct Str name = {0};
@@ -93,6 +95,10 @@ static void test_read_accepts_path_below_path_max(void) {
   static char long_path[PATH_MAX - 1];
   struct Arena arena = test_arena();
   struct Str file_data = {0};
+  if (!TEST_CHECK(file_path_n > 0 && (size_t)file_path_n < sizeof(file_path)) ||
+      write_fixture_file(root_dir, "a.c", "a") != 0) {
+    goto cleanup;
+  }
   if (!TEST_CHECK(realpath(file_path, resolved_path) != NULL)) {
     goto cleanup;
   }
@@ -118,23 +124,25 @@ static void test_read_accepts_path_below_path_max(void) {
   TEST_CHECK(str_eq(file_data, S("a")));
 
 cleanup:
-  (void)unlink(file_path);
+  remove_fixture_tree(root_dir);
 }
 
 // A FIFO is rejected as not a regular file instead of blocking the open until a writer opens it,
 // leaving the outputs untouched.
 static void test_read_rejects_fifo(void) {
-  char fifo_path[] = "/tmp/cwrap-fs-read-fifo.XXXXXX";
-  if (init_fixture_file(fifo_path, S("")) != 0) {
+  char root_dir[] = "/tmp/cwrap-fs-read-fifo.XXXXXX";
+  if (init_fixture_dir(root_dir) != 0) {
     return;
   }
-  (void)unlink(fifo_path);
+  char fifo_path[PATH_MAX];
+  const int fifo_path_n = snprintf(fifo_path, sizeof(fifo_path), "%s/fifo", root_dir);
 
   struct Arena arena = test_arena();
   const struct Str sentinel = S("unchanged");
   struct Str file_data = sentinel;
   struct Log log = test_log();
-  if (!TEST_CHECK(mkfifo(fifo_path, 0600) == 0)) {
+  if (!TEST_CHECK(fifo_path_n > 0 && (size_t)fifo_path_n < sizeof(fifo_path)) ||
+      !TEST_CHECK(mkfifo(fifo_path, 0600) == 0)) {
     goto cleanup;
   }
 
@@ -144,7 +152,7 @@ static void test_read_rejects_fifo(void) {
   TEST_CHECK(test_log_is(&log, "failed to read file: not a regular file ('%s')\n", fifo_path));
 
 cleanup:
-  (void)unlink(fifo_path);
+  remove_fixture_tree(root_dir);
 }
 
 // A file the process may not read fails the read with `EACCES`.
@@ -154,8 +162,15 @@ static void test_read_rejects_unreadable_file(void) {
   if (geteuid() == 0) {
     return;
   }
-  char file_path[] = "/tmp/cwrap-fs-unreadable.XXXXXX";
-  if (init_fixture_file(file_path, S("a")) != 0) {
+  char root_dir[] = "/tmp/cwrap-fs-unreadable.XXXXXX";
+  if (init_fixture_dir(root_dir) != 0) {
+    return;
+  }
+  char file_path[PATH_MAX];
+  const int file_path_n = snprintf(file_path, sizeof(file_path), "%s/a.c", root_dir);
+  if (!TEST_CHECK(file_path_n > 0 && (size_t)file_path_n < sizeof(file_path)) ||
+      write_fixture_file(root_dir, "a.c", "a") != 0) {
+    remove_fixture_tree(root_dir);
     return;
   }
   struct Arena arena = test_arena();
@@ -166,8 +181,8 @@ static void test_read_rejects_unreadable_file(void) {
     read_rc = os_read(os_posix(), str_from_cstr(file_path), TEST_FILE_LEN_MAX, &arena, &file_data,
                       S("failed to read file"), &log);
   }
-  // The file is removed before any assertion, so a failed one cannot leave it behind.
-  (void)unlink(file_path);
+  // The fixture is removed before any assertion, so a failed one cannot leave it behind.
+  remove_fixture_tree(root_dir);
 
   TEST_CHECK(read_rc == -1);
   TEST_CHECK(test_log_is(&log, "failed to read file: %s ('%s')\n", strerror(EACCES), file_path));
@@ -217,19 +232,22 @@ cleanup:
 
 // Atomic replacement follows a symbolic link and leaves the link itself in place.
 static void test_write_follows_symbolic_link(void) {
-  char target_path[] = "/tmp/cwrap-fs-link-target.XXXXXX";
-  if (init_fixture_file(target_path, S("before")) != 0) {
+  char root_dir[] = "/tmp/cwrap-fs-link.XXXXXX";
+  if (init_fixture_dir(root_dir) != 0) {
     return;
   }
-  char link_path[] = "/tmp/cwrap-fs-link.XXXXXX";
-  if (init_fixture_file(link_path, S("")) != 0) {
-    (void)unlink(target_path);
-    return;
-  }
-  (void)unlink(link_path);
+  char target_path[PATH_MAX];
+  const int target_path_n = snprintf(target_path, sizeof(target_path), "%s/target.c", root_dir);
+  char link_path[PATH_MAX];
+  const int link_path_n = snprintf(link_path, sizeof(link_path), "%s/link.c", root_dir);
   struct Arena arena = test_arena();
   struct stat link_st;
   struct Str file_data = {0};
+  if (!TEST_CHECK(target_path_n > 0 && (size_t)target_path_n < sizeof(target_path)) ||
+      !TEST_CHECK(link_path_n > 0 && (size_t)link_path_n < sizeof(link_path)) ||
+      write_fixture_file(root_dir, "target.c", "before") != 0) {
+    goto cleanup;
+  }
   if (!TEST_CHECK(symlink(target_path, link_path) == 0)) {
     goto cleanup;
   }
@@ -245,8 +263,7 @@ static void test_write_follows_symbolic_link(void) {
   TEST_CHECK(str_eq(file_data, S("after")));
 
 cleanup:
-  (void)unlink(link_path);
-  (void)unlink(target_path);
+  remove_fixture_tree(root_dir);
 }
 
 // `os_write` fails when the parent directory is missing, when a parent component is a regular file,

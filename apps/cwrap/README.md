@@ -132,7 +132,7 @@ The tool reserves its memory once, when it starts, in fixed sizes that come from
 - Optional quality tools: `cwrap`, `clang-format`, `clang-tidy`, `cppcheck`.
 - Zig 0.17 and `llvm-strip` for the Linux `musl` archives.
 
-The repository includes the dependencies in [vendor/](../../vendor/), and the `shared` library in [libs/shared/](../../libs/shared/).
+The repository includes the dependencies in [vendor/](../../vendor/), and the libraries in [libs/](../../libs/).
 
 ### Building
 
@@ -225,9 +225,9 @@ The version of every archive comes from `project(VERSION)` in [CMakeLists.txt](C
 
 ## Dependencies
 
-The root [vendor/](../../vendor/) directory contains these dependencies, except `shared`. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the licenses of the vendored dependencies.
+The root [vendor/](../../vendor/) directory contains these dependencies, except the libraries in `libs/`. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the licenses of the vendored dependencies.
 
-- [shared](../../libs/shared/): Arena allocation, counted strings, output buffers, and the diagnostic log.
+- [libs/](../../libs/): The libraries that `cwrap` shares with the other apps: `shared` and `core`, and for the unit tests `testing`. [libs/shared/](../../libs/shared/) holds arena allocation, counted strings, output buffers, and the diagnostic log, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
 - [copt](https://github.com/fardaniqbal/copt): Command-line option parsing.
 - [acutest](https://github.com/mity/acutest): Unit tests.
 

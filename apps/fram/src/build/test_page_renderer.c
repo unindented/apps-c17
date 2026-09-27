@@ -13,7 +13,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // Every test here runs against the in-memory host: the page phase reads templates only through
 // `runtime/os.h`.

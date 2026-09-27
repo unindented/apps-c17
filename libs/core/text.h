@@ -1,5 +1,5 @@
-#ifndef SOSIG_TEXT_H
-#define SOSIG_TEXT_H
+#ifndef APPS_CORE_TEXT_H
+#define APPS_CORE_TEXT_H
 
 #include <stdbool.h>
 
@@ -10,10 +10,9 @@ struct Arena;
 /**
  * @brief Reports whether a string contains no `NUL` byte.
  *
- * A `NUL` byte is ordinary to every first-party string. Inputs reject it anyway, at `os_read` for
- * file contents, `toml_datum_is_text` for a decoded TOML string and `toml_require_known_keys` for a
- * decoded TOML key, because it has no meaning in any format `sosig` reads or writes and an HTML
- * parser replaces or drops it.
+ * A `NUL` byte is ordinary to every first-party string. The apps reject it anyway in text input: in
+ * the contents of a text file, and in a decoded TOML string or key. It has no meaning in any text
+ * format that they read or write, and an HTML parser replaces or drops it.
  *
  * @param text Bytes to inspect.
  * @return `true` when none of the bytes is zero, or `false` otherwise.

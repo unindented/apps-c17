@@ -9,14 +9,14 @@
 - [src/domain/](src/domain/): Site configuration, content metadata, frontmatter, permalinks, the build cache, and the output manifest.
 - [src/formats/](src/formats/): The boundaries for HTML, Markdown, Org, and TOML data, and syntax highlighting.
 - [src/runtime/](src/runtime/): The host interface and its POSIX implementation, the directory walk, the out-of-memory report, and the thread pool.
-- [src/core/](src/core/): Small reusable primitives, containers, diagnostics, text, and path logic.
-- [tests/](tests/): The golden test suite, the shared unit-test support library [tests/test_support.h](tests/test_support.h), and the in-memory host [tests/os_memory.h](tests/os_memory.h). Each fixture site under [tests/fixtures/](tests/fixtures/) has a matching directory of expected output under [tests/expected/](tests/expected/):
+- [src/core/](src/core/): The tool name and version.
+- [tests/](tests/): The golden test suite, and the in-memory host [tests/os_memory.h](tests/os_memory.h). Each fixture site under [tests/fixtures/](tests/fixtures/) has a matching directory of expected output under [tests/expected/](tests/expected/):
   - [site_file_permalink](tests/fixtures/site_file_permalink/) covers Markdown, Org, links between denote notes, and templates with the default permalink.
   - [site_index_permalink](tests/fixtures/site_index_permalink/) covers a permalink that publishes a directory index for each entry.
   - [site_nested_sections](tests/fixtures/site_nested_sections/) covers nested and lopsided sections, source names with spaces, punctuation and non-ASCII characters, partials that include partials, and aggregate and feed outputs in subdirectories next to content outputs.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
 - [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](BUILD.md) documents their boundaries and policy.
-- [libs/shared/](../../libs/shared/): The `shared` library, which the `libs/` project builds and tests.
+- [libs/](../../libs/): The libraries that `sosig` links: `shared` and `core`, and for the unit tests `testing`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
 - [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `md4c`, `org4c`, `mustache4c`, `acutest`, and `tree-sitter` with these grammars:
   - `tree-sitter-c`
   - `tree-sitter-bash`
@@ -35,8 +35,9 @@ First-party dependencies point inward:
 - `domain` can depend on `formats`, `runtime`, and `core`.
 - `formats` and `runtime` can depend on `core`.
 - `core` depends on no other first-party directory.
+- Every directory can depend on the libraries in `libs/`, and no library depends on `sosig`.
 
-A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root, for example `#include "core/ascii.h"`, so every include names the directory that it depends on.
+A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root or at the include root of a library that the app links, for example `#include "build/template.h"` or `#include "core/ascii.h"`, so every include names the directory or the library that it depends on.
 
 ## Terms
 
@@ -63,7 +64,7 @@ These words have one meaning everywhere in this document:
 - [cli_dispatch](src/app/cli_dispatch.h): `cli_dispatch` calls `cli_parse`. For the run action, it calls the subcommand's function. For each other action, it prints one text through `os_print`: the diagnostic for the rejected command line, the `--help` text, or the `--version` text. It formats these texts in a reservation of its own, and releases that reservation when the command or the print returns. A command reserves its own memory.
 - [cmd_build](src/app/cmd_build.h): `cmd_build_run` generates the site, as [Build pipeline](#build-pipeline) describes.
 - [cmd_config](src/app/cmd_config.h): `cmd_config_run` loads `sosig.toml` and prints the resolved config.
-- [exit_code](src/app/exit_code.h): Every command returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
+- [exit_code](../../libs/core/exit_code.h), in the `core` library: Every command returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
 
 ## Build pipeline
 
@@ -168,13 +169,11 @@ Each item below links to the module's header, which documents its interface. The
 
 ### Core (`src/core`)
 
-- [ascii](src/core/ascii.h): Locale-independent ASCII byte classification.
-- [error](src/core/error.h): Turns an `errno` into text, and is thread-safe. Diagnostics themselves go to the vendored `shared/log.h`, as `printf` formats that the compiler checks.
-- [parse](src/core/parse.h): Parsing of text into scalar values.
-- [path](src/core/path.h): Path construction and validation. `path_is_below` finds the part of a path below a root by text comparison. `entry_renderer` uses it to get the `{section}` of each entry from the source path below `content_dir`. `manifest_builder` uses it to plan the output of each static file and asset, and `site_writer` copies the file to the same path below `output_dir`.
-- [path_list](src/core/path_list.h): A growable list of path strings.
 - [sosig_version](src/core/sosig_version.h): The tool name and version, which CMake sets when it configures `sosig`.
-- [text](src/core/text.h): Text normalization, matching and validation.
+
+`sosig` takes its small primitives from the `core` library, which [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#core) describes.
+
+- `path_is_below` gives the `{section}` of each entry from the source path below `content_dir` in `entry_renderer`. `manifest_builder` uses it to plan the output of each static file and asset, and `site_writer` copies the file to the same path below `output_dir`.
 
 ## Cross-cutting conventions
 
@@ -370,7 +369,7 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 - `STR_FMT` evaluates its argument two times. Give it a variable or another lvalue, and put a computed string in a variable first.
 - A string longer than `INT_MAX` bytes causes an assertion failure at run time, because the `%.*s` precision is an `int`.
 - The attribute is the only guard on the code that reads the arguments. Each formatting function measures the text with `vsnprintf`, allocates the text, and writes it with a second `vsnprintf`. These functions are `buf_printf` in `shared`, which grows the buffer in place through `buf_vprintf_measured`, and the first-party functions that format their own message. Only those functions change the measured `int` length to a `ptrdiff_t`.
-- A first-party variadic function does not pass its `va_list` on to a formatter that copies the list with `va_copy`. If it did, the Clang analyzer, version 22, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does, which hands its second pass to `buf_vprintf_measured`. `record_error` in `cli.c`, `build_verbose` in `cmd_build.c`, `render_fail` in `template.c`, and `test_log_is` in `tests/test_support.c` follow this rule.
+- A first-party variadic function does not pass its `va_list` on to a formatter that copies the list with `va_copy`. If it did, the Clang analyzer, version 22, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does, which hands its second pass to `buf_vprintf_measured`. `record_error` in `cli.c`, `build_verbose` in `cmd_build.c`, `render_fail` in `template.c`, and `test_log_is` in `testing/test_support.c` follow this rule.
 - `%.*s` stops at a `NUL` byte. The input checks reject a `NUL` in file content, in TOML strings and keys, and in paths at the `os` boundary, so a message gets no `NUL` from input. The `os` boundary's `EINVAL` message quotes a path that contains a `NUL` only up to that byte, and the contract test for this case shows the result.
 - An `off_t` has no conversion of its own. It prints with `%jd` and a cast to `intmax_t`.
 - `clang-format` breaks a string literal that is longer than the column limit, so some long messages are in two literals.
@@ -392,6 +391,6 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 ### Where the shared code lives
 
-**Decision.** `shared`, the library in [libs/shared/](../../libs/shared/), holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. Each program defines `os_oom`, and has its own `os` interface and its own arena layout.
+**Decision.** The libraries in [libs/](../../libs/) hold the code that `sosig` shares with the other apps. `shared` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. `core` holds the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own `os` interface and its own arena layout.
 
 **Reason.** These parts do not depend on what a program does.

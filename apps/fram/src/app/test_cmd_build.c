@@ -7,8 +7,8 @@
 #include <string.h>
 
 #include "app/cmd_build.h"
-#include "app/exit_code.h"
 #include "build/job.h"
+#include "core/exit_code.h"
 #include "core/path_list.h"
 #include "domain/build_cache.h"
 #include "formats/image.h"
@@ -21,7 +21,7 @@
 #include "shared/log.h"
 #include "shared/str.h"
 #include "test_jpeg_fixture.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // Every build here runs against the in-memory host, whose root is the working directory the build
 // resolves `fram.toml` from, and which keeps what the build prints. No fixture holds a video, so no

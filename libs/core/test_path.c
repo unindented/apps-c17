@@ -5,7 +5,7 @@
 #include "core/path.h"
 #include "shared/arena.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // `path_check_output_limits` is the single place both output-path limits are applied. Two producers
 // depend on it, so it is tested here rather than only through them. The function checks both limits
@@ -171,7 +171,7 @@ static void test_safe_relative_path_accepts_valid_rejects_escapes(void) {
   // cover. `.` and `..` are the only dot segments. A one-byte segment and a two-byte segment that
   // merely contains a `.` are ordinary names. Without these cases, `is_dot_segment` widened to
   // treat any one-byte segment or any segment touching a `.` as a traversal would still pass every
-  // case here, while refusing to publish `blog/a.html`.
+  // case here, while refusing the path `dir/a.html`.
   TEST_CHECK(path_is_safe_relative(S("a/b.html")));
   TEST_CHECK(path_is_safe_relative(S("a")));
   TEST_CHECK(path_is_safe_relative(S(".a")));

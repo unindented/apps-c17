@@ -15,7 +15,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // Every test here runs against the in-memory host: the writers read templates and static files and
 // write their outputs only through `runtime/os.h`.

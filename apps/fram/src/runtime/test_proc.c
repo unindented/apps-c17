@@ -17,7 +17,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /** Descriptors the close-on-exec test inspects, from 0 up to but not including this one. */
 enum { PROC_TEST_FD_COUNT = 256 };

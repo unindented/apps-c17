@@ -11,7 +11,7 @@
 
 #include "runtime/pool.h"
 #include "shared/arena.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /** Number of jobs `test_worker_index_is_stable_and_bounded` runs. */
 enum { WORKER_JOB_COUNT = 64 };

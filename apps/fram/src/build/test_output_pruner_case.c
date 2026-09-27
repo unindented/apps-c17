@@ -21,7 +21,7 @@
 #include "shared/arena.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * @brief Reports whether `/tmp` is on a case-insensitive filesystem.

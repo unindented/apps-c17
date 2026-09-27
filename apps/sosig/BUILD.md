@@ -12,7 +12,7 @@ The top-level [CMakeLists.txt](CMakeLists.txt) sets the project policy, finds th
 | `src/*/CMakeLists.txt` | Add the sources, the header file sets and the unit tests of their directory. [src/runtime/CMakeLists.txt](src/runtime/CMakeLists.txt) also defines the POSIX host `sosig_os_posix` |
 | [tests/CMakeLists.txt](tests/CMakeLists.txt) | Adds the golden tests, the unit-test support library and the in-memory host |
 | [vendor.cmake](vendor.cmake) | Defines a target for each vendored dependency that `sosig` uses, from the sources in the root [vendor/](../../vendor/) directory, and a target for each tree-sitter grammar that `SOSIG_GRAMMARS` selects, and generates the header that declares these grammars |
-| [../../libs/CMakeLists.txt](../../libs/CMakeLists.txt) | Defines the `shared` library, which `sosig_app` links |
+| [../../libs/CMakeLists.txt](../../libs/CMakeLists.txt) | Defines the libraries that `sosig` links: `shared` and `core`, and for the unit tests `testing` |
 | [../../cmake/apps_build_profiles.cmake](../../cmake/apps_build_profiles.cmake) | Sets warnings, optimization, fortification and sanitizers |
 | [../../cmake/apps_quality.cmake](../../cmake/apps_quality.cmake) | Configures formatting and static analysis |
 | [cmake/sosig_lint.cmake](cmake/sosig_lint.cmake) | Lists the first-party sources that the `format` and `lint` targets check |
@@ -34,11 +34,13 @@ The CMake build has one application library, two hosts, one target for each vend
 
 `sosig_app` is a private static library that holds every application source except [src/app/main.c](src/app/main.c) and `src/runtime/fs.c`. The `sosig` executable and every unit test link it. It is static because it supports one product and has no public ABI.
 
-Each source directory holds the code for one purpose. Except for the host in `src/runtime/`, the source directories add their files to `sosig_app` and do not define libraries of their own, because more libraries would add link boundaries without independent APIs. `src/build/` and `src/formats/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
+Each source directory holds the code for one purpose. The source directories add their files to `sosig_app` and do not define libraries of their own, because more libraries would add link boundaries without independent APIs. `src/build/` and `src/formats/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 
-`sosig_app` links `vendor_tomlc17` and `shared` as `PUBLIC` dependencies, because the application headers expose the types of these libraries. The other dependencies are `PRIVATE`. `Threads::Threads` is one of the `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+`sosig_app` links `vendor_tomlc17`, `core` and `shared` as `PUBLIC` dependencies, because the application headers expose the types of these libraries. The other dependencies are `PRIVATE`. `Threads::Threads` is one of the `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 
-`shared`, the library in [libs/shared/](../../libs/shared/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. `src/app/main.c` defines the `os_oom` of `sosig`, which [ARCHITECTURE.md](ARCHITECTURE.md#out-of-memory-exits-the-process) describes. `sosig_test_support` defines the `os_oom` of the unit tests.
+`shared`, the library in [libs/shared/](../../libs/shared/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. `src/app/main.c` defines the `os_oom` of `sosig`, which [ARCHITECTURE.md](ARCHITECTURE.md#out-of-memory-exits-the-process) describes. The `testing` library defines the `os_oom` of the unit tests.
+
+The other libraries of [libs/](../../libs/) that `sosig_app` links hold the modules that `sosig` shares with the other apps, as [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes. Each library compiles with the `apps_build_project` profile of `sosig`, and builds only because `sosig` links it.
 
 ### Hosts
 
@@ -107,7 +109,7 @@ Each selected grammar is a static library, `vendor_tree_sitter_<name>`. This lib
 
 ## Linting and formatting
 
-When `sosig` is the top-level CMake project, the `C_CLANG_TIDY` and `C_CPPCHECK` properties of the first-party targets make CMake run `clang-tidy` and `cppcheck` while it compiles these targets. Neither tool checks vendored code or the `shared` library, which the `libs/` project checks. The include path of `cppcheck` contains the headers of `shared` in `libs/shared/include`, because `cppcheck` needs these headers to expand `STR_FMT`. Thus `cppcheck` also analyzes the inline functions that these headers define.
+When `sosig` is the top-level CMake project, the `C_CLANG_TIDY` and `C_CPPCHECK` properties of the first-party targets make CMake run `clang-tidy` and `cppcheck` while it compiles these targets. Neither tool checks vendored code or the libraries, which the `libs/` project checks. The include path of `cppcheck` contains the headers of `shared` in `libs/shared/include` and the include roots of the other libraries that `APPS_LIBRARIES` in [CMakeLists.txt](CMakeLists.txt) lists, because `cppcheck` needs these headers to expand macros such as `STR_FMT`. Thus `cppcheck` also analyzes the inline functions that these headers define.
 
 Test targets run `cppcheck` but not `clang-tidy`, because their intentional failure cases cause analyzer errors. When CMake cross-compiles, neither tool runs. Zig supplies the headers for the target platform, and the analyzers on the host cannot find these headers when they repeat the compile command. When the compiler is not Clang, the CMake build turns off `clang-tidy`, because `clang-tidy` reads the compile command and rejects GCC-only warning options such as `-Wlogical-op`. `cppcheck` runs with any compiler.
 
@@ -123,11 +125,11 @@ Each source directory adds its own unit tests. `tests/` adds the golden tests, `
 
 ### Unit tests
 
-`apps_add_unit_test(<module>)` compiles `test_<module>.c` into the executable `sosig_unit_<module>`, and registers this executable as the CTest case `sosig.<module>`. The executable links `apps_build_tests`, acutest, `sosig_test_support`, `sosig_app` and one host.
+`apps_add_unit_test(<module>)` compiles `test_<module>.c` into the executable `sosig_unit_<module>`, and registers this executable as the CTest case `sosig.<module>`. The executable links `apps_build_tests`, acutest, the `testing` library, `sosig_app` and one host.
 
 With the `OS memory` option, `apps_add_unit_test` links the in-memory host and compiles the test with `SOSIG_TEST_OS_MEMORY` set to 1. New tests use this option. The tests registered without `OS memory` link the POSIX host. These tests are:
 
-- the tests that need a real filesystem: `fs` and `os_posix`, which test the POSIX layer; `test_support`, which tests the test-support library; and `output_pruner_case`, which tests the prune on a case-insensitive `/tmp` and skips on a case-sensitive `/tmp`
+- the tests that need a real filesystem: `fs` and `os_posix`, which test the POSIX layer; and `output_pruner_case`, which tests the prune on a case-insensitive `/tmp` and skips on a case-sensitive `/tmp`
 - the suites that are not yet converted to the in-memory host, which create their fixtures in a real temporary directory: `cli`, `cli_dispatch`, `cmd_config`, `entry_renderer`, `site_config` and `template`
 - the tests that use no host
 
@@ -139,17 +141,7 @@ No test target compiles an application source file a second time with different 
 
 ### Test-support library
 
-`sosig_test_support` holds the helpers that several `test_*.c` files need:
-
-- functions that create a fixture root, write a fixture file and remove a fixture tree recursively
-- functions that enter a working directory and go back to the previous one
-- functions that capture and restore the standard streams
-- functions that make an arena or a log over a fresh reservation, and checks that compare the text of a log exactly
-- an out-of-memory check, `test_is_oom`
-
-The library also defines the `os_oom` of the unit tests. This `os_oom` exits with its own exit status, so `test_is_oom` can run code in a child process and tell an out-of-memory exit apart from a crash. The library is an object library, so that this definition links into every test executable in any link order. The unit test of the library is [tests/test_test_support.c](tests/test_test_support.c).
-
-[tests/test_support.c](tests/test_support.c) defines `TEST_NO_MAIN`, so the `main` function and the run state of acutest stay in the translation unit of each test executable. The library uses acutest declarations such as `acutest_check_`, `acutest_message_` and `acutest_abort_`, and the linker resolves these declarations against that translation unit. When a check in the library fails, acutest reports the failure against `test_support.c`, and the test that called the library fails.
+The `testing` library, [testing/test_support.h](../../libs/testing/test_support.h), holds the helpers that several `test_*.c` files need: fixture files and trees, the working directory, the capture of the standard streams, an arena or a log over a fresh reservation, checks that compare the text of a log exactly, and the out-of-memory check `test_is_oom`. It also defines the `os_oom` of the unit tests. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#testing) describes it.
 
 ### Golden tests
 

@@ -34,7 +34,7 @@ This guide takes its ideas and conventions from these sources:
 ## Headers
 
 - Keep headers self-contained and minimal.
-- Name include guards `SOSIG_<FILE>_H`, such as `SOSIG_CMD_BUILD_H` in `cmd_build.h`.
+- Name include guards `SOSIG_<FILE>_H`, such as `SOSIG_CMD_BUILD_H` in `cmd_build.h`. A library header in `libs/` names its guard `APPS_<LIB>_<MODULE>_H`, such as `APPS_CORE_PARSE_H` in `core/parse.h`.
 - In a `.c` file, include the module's own header first.
 - Where practical, prefer a forward declaration for a dependency that the code uses only through a pointer.
 - Put implementation details in `.c` files. Keep file-local functions and data `static`.
@@ -79,9 +79,9 @@ This guide takes its ideas and conventions from these sources:
 - Avoid transparent `typedef struct` aliases. Prefer named structs directly.
 - Use typedefs only for callback signatures and for aliases that hide a representation on purpose.
 - Represent text and byte ranges as `struct Str` (`shared/str.h`), and pass and return a `struct Str` by value. A `NUL` inside a `struct Str` is an ordinary byte.
-  - Test code is the exception where its arguments are literals. The fixture APIs in `tests/os_memory.h` and `tests/test_support.h`, the `contract_*` helpers in `src/runtime/test_os.c`, and the helpers of a test file take and return paths, expected text, and messages as C strings, so that a test can write its tree and its expectations as literals.
+  - Test code is the exception where its arguments are literals. The fixture APIs in `tests/os_memory.h` and `testing/test_support.h` in `libs/`, the `contract_*` helpers in `src/runtime/test_os.c`, and the helpers of a test file take and return paths, expected text, and messages as C strings, so that a test can write its tree and its expectations as literals.
     - A fixture whose contents can hold any byte takes the contents as a `struct Str`: `contract_write` and `contract_is_file`.
-    - The capture helpers in `tests/test_support.h` fill a terminated `char` buffer that the caller supplies. That buffer's `ptrdiff_t` length converts to `size_t` one time, at `fread`.
+    - The capture helpers in `testing/test_support.h` fill a terminated `char` buffer that the caller supplies. That buffer's `ptrdiff_t` length converts to `size_t` one time, at `fread`.
 - Make every length, count, index, and offset `ptrdiff_t`. Convert a value to a C string or to `size_t` only at the call into libc, POSIX, or a vendored API, with one explicit conversion there, such as `copy_cstr` in `runtime/fs.c` or `(size_t)s.len`. Assert that the value is non-negative where its construction does not already guarantee that. `argc` stays the `int` that `main` receives and `copt` takes.
 - Order struct fields to make ownership and invariants obvious:
   - Put lifecycle-owned backing storage first.
@@ -165,7 +165,7 @@ This guide takes its ideas and conventions from these sources:
 - Print a `struct Str` with `%.*s` and `STR_FMT`. Give `STR_FMT` a plain variable or another lvalue, because it evaluates its argument twice. Put a computed string, such as a `str_head` result, into a variable before you pass it to `STR_FMT`.
 - Print a C string with `%s`. Print an integer with the conversion for its own type: `%td` for `ptrdiff_t`, `%d` for `int` and enum constants, `%u` for `unsigned`, `%zu` for `size_t`, and `PRId64` for `int64_t`. Do not cast an integer only to print it. The one exception is a type that has no conversion of its own, such as `off_t`. Print that type with `%jd` and `(intmax_t)`.
 - Give a function that formats a message the `format(printf, n, m)` attribute, so that the compiler checks its callers in the same way as it checks the callers of `log_error`. Never pass a format that is not a string literal.
-- A first-party variadic function formats its own message and does not pass its `va_list` to a formatter that copies the list with `va_copy`. It measures the text with `vsnprintf`, allocates space for the text, and writes the text with a second `vsnprintf`, or hands the second pass to `buf_vprintf_measured`, as `buf_printf` does. It starts the list again for each pass. `buf_printf`, `record_error` in `cli.c`, `build_verbose` in `cmd_build.c`, `render_fail` in `template.c`, and `test_log_is` in `tests/test_support.c` do this. The reason is that Clang's analyzer, version 22 on AArch64 Linux, reports a false `va_end` finding on a function that passes a copy of its list to another formatter.
+- A first-party variadic function formats its own message and does not pass its `va_list` to a formatter that copies the list with `va_copy`. It measures the text with `vsnprintf`, allocates space for the text, and writes the text with a second `vsnprintf`, or hands the second pass to `buf_vprintf_measured`, as `buf_printf` does. It starts the list again for each pass. `buf_printf`, `record_error` in `cli.c`, `build_verbose` in `cmd_build.c`, `render_fail` in `template.c`, and `test_log_is` in `testing/test_support.c` do this. The reason is that Clang's analyzer, version 22 on AArch64 Linux, reports a false `va_end` finding on a function that passes a copy of its list to another formatter.
 
 ### Wording
 
@@ -235,7 +235,7 @@ This guide takes its ideas and conventions from these sources:
 
 - Run a new test against the in-memory host (`apps_add_unit_test(<module> OS memory)`) unless it needs a fact that only a real filesystem has, such as the umask, a FIFO, permissions, or an interrupted write. A memory-host test builds its tree with the `os_memory_*` helpers, injects failures with `os_memory_fail`, and has no fixture to remove.
 - Every unit test that is registered without `OS memory` links the POSIX host. These tests are:
-  - The POSIX layer's own tests (`fs`, `os_posix`) and the test-support test, which need a real filesystem.
+  - The POSIX layer's own tests (`fs`, `os_posix`) which need a real filesystem.
   - The suites that are not yet converted to the in-memory host (`cli`, `cli_dispatch`, `cmd_config`, `entry_renderer`, `site_config`, `template`).
   - The tests that reach no host.
 - A test that is added to one of those suites runs on the host that its suite links.

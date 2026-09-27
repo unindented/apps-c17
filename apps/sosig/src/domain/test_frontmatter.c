@@ -11,7 +11,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * @brief Parses frontmatter into an entry with a fresh long-lived arena and a fresh scratch arena.

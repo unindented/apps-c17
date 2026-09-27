@@ -10,13 +10,12 @@ configure_file(
 add_library(cwrap_app STATIC "${CMAKE_CURRENT_BINARY_DIR}/app/cwrap_version.c")
 
 add_subdirectory(app)
-add_subdirectory(core)
 add_subdirectory(domain)
 add_subdirectory(runtime)
 
 target_link_libraries(
   cwrap_app
-  PUBLIC shared
+  PUBLIC core shared
   PRIVATE apps_build_project vendor_copt
 )
 

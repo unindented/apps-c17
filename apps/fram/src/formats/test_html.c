@@ -5,7 +5,7 @@
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // HTML escaping replaces the five special characters `&`, `<`, `>`, `"` and `'`.
 static void test_html_escape_replaces_special_chars(void) {

@@ -1,7 +1,7 @@
 #ifndef FRAM_CMD_CONFIG_H
 #define FRAM_CMD_CONFIG_H
 
-#include "app/exit_code.h"
+#include "core/exit_code.h"
 
 struct Os;
 

@@ -1,5 +1,5 @@
-#ifndef SOSIG_ERROR_H
-#define SOSIG_ERROR_H
+#ifndef APPS_CORE_ERROR_H
+#define APPS_CORE_ERROR_H
 
 #include <stddef.h>
 

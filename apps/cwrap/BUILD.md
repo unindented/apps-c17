@@ -10,9 +10,9 @@ The top-level [CMakeLists.txt](CMakeLists.txt) sets the project policy, includes
 | --- | --- |
 | [src/CMakeLists.txt](src/CMakeLists.txt) | Defines the application library `cwrap_app` and the `cwrap` executable |
 | `src/*/CMakeLists.txt` | Add the sources, the header file sets and the unit tests of their directory. [src/runtime/CMakeLists.txt](src/runtime/CMakeLists.txt) also defines the POSIX host `cwrap_os_posix` |
-| [tests/CMakeLists.txt](tests/CMakeLists.txt) | Adds the golden and idempotence tests, the unit-test support library, the in-memory host and the seeded random tests |
+| [tests/CMakeLists.txt](tests/CMakeLists.txt) | Adds the golden and idempotence tests, the in-memory host and the seeded random tests |
 | [vendor.cmake](vendor.cmake) | Defines a target for each vendored dependency that `cwrap` uses, from the sources in the root [vendor/](../../vendor/) directory |
-| [../../libs/CMakeLists.txt](../../libs/CMakeLists.txt) | Defines the `shared` library, which `cwrap_app` links |
+| [../../libs/CMakeLists.txt](../../libs/CMakeLists.txt) | Defines the libraries that `cwrap` links: `shared` and `core`, and for the unit tests `testing` |
 | [../../cmake/apps_build_profiles.cmake](../../cmake/apps_build_profiles.cmake) | Sets warnings, optimization, fortification and sanitizers |
 | [../../cmake/apps_quality.cmake](../../cmake/apps_quality.cmake) | Configures formatting and static analysis |
 | [cmake/cwrap_lint.cmake](cmake/cwrap_lint.cmake) | Lists the first-party sources that the `format` and `lint` targets check |
@@ -37,9 +37,9 @@ The CMake build has one application library, two hosts, one target for each vend
 
 Each source directory holds the code for one purpose. Except for the host in `src/runtime/`, the source directories add their files to `cwrap_app` and do not define libraries of their own, because more libraries would add link boundaries without independent APIs. `src/CMakeLists.txt` links the vendored dependencies.
 
-`cwrap_app` links `shared` as a `PUBLIC` dependency, because the application headers expose the types of this library. The other dependencies are `PRIVATE`.
+`cwrap_app` links `core` and `shared` as `PUBLIC` dependencies, because the application headers expose the types of these libraries. The other dependencies are `PRIVATE`.
 
-`shared`, the library in [libs/shared/](../../libs/shared/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. `src/app/main.c` defines the `os_oom` of `cwrap`, which [ARCHITECTURE.md](ARCHITECTURE.md#out-of-memory-exits-the-process) describes. `cwrap_test_support` defines the `os_oom` of the unit tests.
+`shared`, the library in [libs/shared/](../../libs/shared/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. `src/app/main.c` defines the `os_oom` of `cwrap`, which [ARCHITECTURE.md](ARCHITECTURE.md#out-of-memory-exits-the-process) describes. The `testing` library defines the `os_oom` of the unit tests. `core`, the library in [libs/core/](../../libs/core/), supplies the ASCII classification, the number parser and the exit codes, as [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#core) describes.
 
 ### Hosts
 
@@ -90,7 +90,7 @@ With `address`, the CMake build instruments first-party code and the `shared` li
 
 ## Linting and formatting
 
-When `cwrap` is the top-level CMake project, the `C_CLANG_TIDY` and `C_CPPCHECK` properties of the first-party targets make CMake run `clang-tidy` and `cppcheck` while it compiles these targets. Neither tool checks vendored code or the `shared` library, which the `libs/` project checks. The include path of `cppcheck` contains the headers of `shared` in `libs/shared/include`, because `cppcheck` needs these headers to expand `STR_FMT`. Thus `cppcheck` also analyzes the inline functions that these headers define.
+When `cwrap` is the top-level CMake project, the `C_CLANG_TIDY` and `C_CPPCHECK` properties of the first-party targets make CMake run `clang-tidy` and `cppcheck` while it compiles these targets. Neither tool checks vendored code or the libraries, which the `libs/` project checks. The include path of `cppcheck` contains the headers of `shared` in `libs/shared/include` and the include roots of the other libraries that `APPS_LIBRARIES` in [CMakeLists.txt](CMakeLists.txt) lists, because `cppcheck` needs these headers to expand macros such as `STR_FMT`. Thus `cppcheck` also analyzes the inline functions that these headers define.
 
 Test targets run `cppcheck` but not `clang-tidy`, because their intentional failure cases cause analyzer errors. When CMake cross-compiles, neither tool runs. Zig supplies the headers for the target platform, and the analyzers on the host cannot find these headers when they repeat the compile command. When the compiler is not Clang, the CMake build turns off `clang-tidy`, because `clang-tidy` reads the compile command and rejects GCC-only warning options such as `-Wlogical-op`. `cppcheck` runs with any compiler.
 
@@ -106,11 +106,11 @@ Each source directory adds its own unit tests. `tests/` adds the golden and idem
 
 ### Unit tests
 
-`apps_add_unit_test(<module>)` compiles `test_<module>.c` into the executable `cwrap_unit_<module>`, and registers this executable as the CTest case `cwrap.<module>`. The executable links `apps_build_tests`, acutest, `cwrap_test_support`, `cwrap_app` and one host.
+`apps_add_unit_test(<module>)` compiles `test_<module>.c` into the executable `cwrap_unit_<module>`, and registers this executable as the CTest case `cwrap.<module>`. The executable links `apps_build_tests`, acutest, the `testing` library, `cwrap_app` and one host.
 
 With the `OS memory` option, `apps_add_unit_test` links the in-memory host and compiles the test with `CWRAP_TEST_OS_MEMORY` set to 1. New tests use this option. The tests registered without `OS memory` link the POSIX host. These tests are:
 
-- the tests that need a real filesystem: `fs` and `os_posix`, which test the POSIX layer; and `test_support`, which tests the test-support library
+- the tests that need a real filesystem: `fs` and `os_posix`, which test the POSIX layer
 - the suites that are not yet converted to the in-memory host, which create their fixtures in a real temporary directory: `cli` and `cli_dispatch`
 - the tests that use no host
 
@@ -122,17 +122,7 @@ No test target compiles an application source file a second time with different 
 
 ### Test-support library
 
-`cwrap_test_support` holds the helpers that several `test_*.c` files need:
-
-- functions that create a fixture root, create a fixture file and remove a fixture tree recursively
-- functions that capture and restore the standard streams
-- functions that make an arena or a log over a fresh reservation, and checks that compare the text of a log exactly
-- an out-of-memory check, `test_is_oom`
-- for [tests/test_random.c](tests/test_random.c), a seeded random generator, and a function that makes a printable copy of any bytes for a failure message
-
-The library also defines the `os_oom` of the unit tests. This `os_oom` exits with its own exit status, so `test_is_oom` can run code in a child process and tell an out-of-memory exit apart from a crash. The library is an object library, so that this definition links into every test executable in any link order. The unit test of the library is [tests/test_test_support.c](tests/test_test_support.c).
-
-[tests/test_support.c](tests/test_support.c) defines `TEST_NO_MAIN`, so the `main` function and the run state of acutest stay in the translation unit of each test executable. The library uses acutest declarations such as `acutest_check_`, `acutest_message_` and `acutest_abort_`, and the linker resolves these declarations against that translation unit. When a check in the library fails, acutest reports the failure against `test_support.c`, and the test that called the library fails.
+The `testing` library, [testing/test_support.h](../../libs/testing/test_support.h), holds the helpers that several `test_*.c` files need: fixture directories and files (`init_fixture_dir`, `write_fixture_file`, `remove_fixture_tree`), the capture of the standard streams, an arena or a log over a fresh reservation, checks that compare the text of a log or a text exactly, the out-of-memory check `test_is_oom`, and, for [tests/test_random.c](tests/test_random.c), a seeded random generator and a function that makes a printable copy of any bytes for a failure message. It also defines the `os_oom` of the unit tests. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#testing) describes it.
 
 ### Golden test
 
@@ -140,7 +130,7 @@ The golden test `cwrap.golden` runs `cmake/cwrap_run_golden.cmake`. The script r
 
 ### Idempotence test
 
-The idempotence test `cwrap.idempotent` runs `cmake/cwrap_run_idempotent.cmake` in another scratch tree. The script rewraps the fixture files, the expected files and every first-party source file in `src/` and `tests/` at widths 20, 40, 60 and 100. A second rewrap of each result must make no change, and `--check` must agree that the first result is stable.
+The idempotence test `cwrap.idempotent` runs `cmake/cwrap_run_idempotent.cmake` in another scratch tree. The script rewraps the fixture files, the expected files and every first-party source file in `src/` and `tests/`, and the sources of the libraries that `cwrap` links, `libs/shared`, `libs/core` and `libs/testing`, at widths 20, 40, 60 and 100. A second rewrap of each result must make no change, and `--check` must agree that the first result is stable.
 
 Both scripts find their input files with globs. These globs run in the test and are not inputs of the CMake build, so a change to a fixture or a source file does not require CMake to configure the project again.
 

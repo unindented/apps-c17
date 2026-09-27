@@ -19,7 +19,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 #if CWRAP_TEST_OS_MEMORY
 #include "os_memory.h"

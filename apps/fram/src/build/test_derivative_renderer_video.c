@@ -24,7 +24,7 @@
 #include "shared/log.h"
 #include "shared/str.h"
 #include "test_jpeg_fixture.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // The video case of the derivative phase. A video's frame is a file `ffmpeg` wrote on the real
 // host, so this runs against the POSIX one. The image cases are in `test_derivative_renderer.c`, on

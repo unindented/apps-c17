@@ -20,6 +20,7 @@ set(GRAPHVIZ_IGNORE_TARGETS
     "sosig_os_memory"
     "sosig_test_support"
     "sosig_unit_.*"
+    "testing"
     "vendor_acutest"
 )
 

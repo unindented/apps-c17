@@ -26,7 +26,7 @@ struct Log;
 //
 // `os_oom`, the remaining member of the interface, is declared in `shared/arena.h`, because the
 // arena calls it. It is not defined here but by each program: `app/main.c` for the executable and
-// `tests/test_support.c` for every unit test, whichever implementation it links.
+// `testing/test_support.c` for every unit test, whichever implementation it links.
 //
 // Every path is a `struct Str`. A path the POSIX system could not take whole fails rather than
 // naming some other file: one of `PATH_MAX` bytes or more fails as `ENAMETOOLONG`, as the system

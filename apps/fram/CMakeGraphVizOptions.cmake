@@ -20,6 +20,7 @@ set(GRAPHVIZ_IGNORE_TARGETS
     "fram_os_memory"
     "fram_test_support"
     "fram_unit_.*"
+    "testing"
     "vendor_acutest"
 )
 

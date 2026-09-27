@@ -7,7 +7,7 @@
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /** Bytes of the arena `run_out_of_memory` highlights in, too few for any tree. */
 enum { TEST_TINY_ARENA_LEN = 4096 };

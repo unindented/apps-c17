@@ -4,7 +4,7 @@
 #include "domain/lex.h"
 #include "shared/arena.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * @brief Lexes source text into comment spans.

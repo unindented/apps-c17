@@ -8,7 +8,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // A path within both limits is accepted and records nothing.
 static void test_check_limits_accepts_bounded_path(void) {

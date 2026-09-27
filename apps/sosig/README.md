@@ -464,7 +464,7 @@ An Atom feed template can use `site.modified` for the `<updated>` element of the
 - Optional quality tools: `cwrap`, `clang-format`, `clang-tidy`, `cppcheck`.
 - Zig 0.17 and `llvm-strip` for the Linux `musl` archives.
 
-The repository includes the dependencies in [vendor/](../../vendor/), and the `shared` library in [libs/shared/](../../libs/shared/).
+The repository includes the dependencies in [vendor/](../../vendor/), and the libraries in [libs/](../../libs/).
 
 ### Building
 
@@ -559,9 +559,9 @@ The version of every archive comes from `project(VERSION)` in [CMakeLists.txt](C
 
 ## Dependencies
 
-The root [vendor/](../../vendor/) directory contains these dependencies, except `shared`. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the licenses of the vendored dependencies.
+The root [vendor/](../../vendor/) directory contains these dependencies, except the libraries in `libs/`. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the licenses of the vendored dependencies.
 
-- [shared](../../libs/shared/): Arena allocation, counted strings, output buffers, and the diagnostic log.
+- [libs/](../../libs/): The libraries that `sosig` shares with the other apps: `shared` and `core`, and for the unit tests `testing`. [libs/shared/](../../libs/shared/) holds arena allocation, counted strings, output buffers, and the diagnostic log, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
 - [copt](https://github.com/fardaniqbal/copt): Command-line option parsing.
 - [tomlc17](https://github.com/cktan/tomlc17): TOML configuration and frontmatter parsing.
 - [md4c](https://github.com/mity/md4c): Markdown parsing.

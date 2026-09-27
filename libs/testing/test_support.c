@@ -12,7 +12,7 @@
 #define _DARWIN_C_SOURCE
 #define _DEFAULT_SOURCE
 
-#include "test_support.h"
+#include "testing/test_support.h"
 
 #include <acutest.h>
 #include <errno.h>
@@ -47,6 +47,17 @@ enum { FIXTURE_PATH_MEMORY_SIZE = 4096 };
  * when `fn` returns.
  */
 static bool test_oom_is_expected;
+
+/**
+ * @brief Reports whether `text` is `expected`, printing both when it is not. `test_log_is` and
+ *        `test_text_is` share it once each has formatted its expected text.
+ *
+ * @param text     Text to compare.
+ * @param expected Text it must be.
+ * @param name     What `text` is, named in the failed check. Must not be `NULL`.
+ * @return `true` when `text` is `expected`.
+ */
+static bool is_expected_text(struct Str text, struct Str expected, const char* name);
 
 _Noreturn void os_oom(void) {
   if (test_oom_is_expected) {
@@ -89,12 +100,28 @@ bool test_log_is(const struct Log* log, const char* format, ...) {
   va_start(args, format);
   (void)vsnprintf(expected, (size_t)expected_len + 1, format, args);
   va_end(args);
-  const struct Str text = buf_str(&log->buf);
-  const struct Str expected_text = {expected, expected_len};
-  const bool is_equal = str_eq(text, expected_text);
-  TEST_CHECK_(is_equal, "log holds the expected text");
-  TEST_MSG("expected: '%.*s'", STR_FMT(expected_text));
-  TEST_MSG("actual:   '%.*s'", STR_FMT(text));
+  const bool is_equal =
+      is_expected_text(buf_str(&log->buf), (struct Str){expected, expected_len}, "log");
+  arena_release(region);
+  return is_equal;
+}
+
+bool test_text_is(struct Str text, const char* format, ...) {
+  // Formatted in two passes as in `test_log_is`, for the same reason.
+  va_list args;
+  va_start(args, format);
+  const int expected_len = vsnprintf(NULL, 0, format, args);
+  va_end(args);
+  if (!TEST_CHECK(expected_len >= 0)) {
+    return false;
+  }
+  const struct Arena region = test_arena();
+  struct Arena arena = region;
+  char* expected = arena_new(&arena, (ptrdiff_t)expected_len + 1, char);
+  va_start(args, format);
+  (void)vsnprintf(expected, (size_t)expected_len + 1, format, args);
+  va_end(args);
+  const bool is_equal = is_expected_text(text, (struct Str){expected, expected_len}, "text");
   arena_release(region);
   return is_equal;
 }
@@ -130,7 +157,7 @@ bool test_is_oom(void (*fn)(void* userdata), void* userdata) {
 }
 
 struct TestRng test_rng(void) {
-  const char* seed = getenv("FRAM_TEST_SEED");
+  const char* seed = getenv("APPS_TEST_SEED");
   struct Str seed_text = {0};
   if (seed != NULL) {
     seed_text = str_from_cstr(seed);
@@ -139,7 +166,7 @@ struct TestRng test_rng(void) {
   if (test_rng_seed_parse(seed_text, &rng.state) != 0) {
     // acutest counts only status `1` as a failed test, as for an unexpected `os_oom`.
     (void)fprintf(stderr,
-                  "environment variable 'FRAM_TEST_SEED' must be an unsigned 64-bit decimal "
+                  "environment variable 'APPS_TEST_SEED' must be an unsigned 64-bit decimal "
                   "integer: '%s'\n",
                   seed);
     _Exit(1);
@@ -175,6 +202,22 @@ uint32_t test_rng_next(struct TestRng* rng) {
 
 ptrdiff_t test_rng_below(struct TestRng* rng, ptrdiff_t bound) {
   return (ptrdiff_t)(((uint64_t)test_rng_next(rng) * (uint64_t)bound) >> 32);
+}
+
+struct Str test_printable(struct Str text, struct Arena* arena) {
+  static const char digits[] = "0123456789abcdef";
+  struct Buf printable = {.arena = arena};
+  for (ptrdiff_t i = 0; i < text.len; i++) {
+    const unsigned char c = (unsigned char)text.data[i];
+    if (c >= ' ' && c <= '~' && c != '\\') {
+      buf_append_char(&printable, (char)c);
+    } else {
+      buf_append(&printable, S("\\x"));
+      buf_append_char(&printable, digits[c >> 4]);
+      buf_append_char(&printable, digits[c & 0xF]);
+    }
+  }
+  return buf_str(&printable);
 }
 
 int init_fixture_dir(char root_dir[static 1]) {
@@ -441,4 +484,12 @@ int capture_end(struct StreamCapture* capture, char* text_out, ptrdiff_t text_ou
 
 struct Str str_from_bytes(const unsigned char* bytes, ptrdiff_t bytes_len) {
   return (struct Str){(const char*)bytes, bytes_len};
+}
+
+static bool is_expected_text(struct Str text, struct Str expected, const char* name) {
+  const bool is_equal = str_eq(text, expected);
+  TEST_CHECK_(is_equal, "%s holds the expected text", name);
+  TEST_MSG("expected: '%.*s'", STR_FMT(expected));
+  TEST_MSG("actual:   '%.*s'", STR_FMT(text));
+  return is_equal;
 }

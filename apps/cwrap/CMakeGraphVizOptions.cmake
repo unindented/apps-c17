@@ -18,8 +18,8 @@ set(GRAPHVIZ_CUSTOM_TARGETS FALSE)
 set(GRAPHVIZ_IGNORE_TARGETS
     "apps_build_tests"
     "cwrap_os_memory"
-    "cwrap_test_support"
     "cwrap_unit_.*"
+    "testing"
     "vendor_acutest"
 )
 

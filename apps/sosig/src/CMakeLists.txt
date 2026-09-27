@@ -19,6 +19,7 @@ add_subdirectory(runtime)
 target_link_libraries(
   sosig_app
   PUBLIC vendor_tomlc17
+         core
          shared
   PRIVATE apps_build_project
           vendor_copt

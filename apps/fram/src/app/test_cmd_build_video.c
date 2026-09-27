@@ -19,7 +19,7 @@
 #include "shared/log.h"
 #include "shared/str.h"
 #include "test_jpeg_fixture.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // The builds of galleries that hold videos. They run `ffprobe` and `ffmpeg` fakes on `PATH`, and a
 // video's frame is a file on the real host, so these run against the POSIX host in a real fixture

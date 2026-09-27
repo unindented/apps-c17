@@ -5,7 +5,7 @@
 #include "domain/fill.h"
 #include "shared/arena.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // A short pair of prose lines is joined when both fit on one line.
 static void test_joins_short_prose_lines(void) {

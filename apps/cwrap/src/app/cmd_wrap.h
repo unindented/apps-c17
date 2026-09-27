@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "app/exit_code.h"
+#include "core/exit_code.h"
 
 struct Os;
 

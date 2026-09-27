@@ -8,7 +8,7 @@
 #include "shared/arena.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /** Bytes of the buffer the discard tests give back, a whole number of pages on every system. */
 enum { TEST_DISCARD_LEN = 256 * 1024 };

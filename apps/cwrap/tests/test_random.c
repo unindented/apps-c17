@@ -13,7 +13,7 @@
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /** Generated cases each rewrap property runs. */
 enum { RANDOM_CASE_COUNT = 2000 };

@@ -28,7 +28,7 @@
 #include "shared/log.h"
 #include "shared/str.h"
 #include "test_jpeg_fixture.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /** A build cache with no rows, for a probe that reads every source. */
 static const struct BuildCache NO_BUILD_CACHE = {0};

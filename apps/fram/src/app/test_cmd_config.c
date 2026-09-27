@@ -9,10 +9,10 @@
 #include <string.h>
 
 #include "app/cmd_config.h"
-#include "app/exit_code.h"
 #include "core/error.h"
+#include "core/exit_code.h"
 #include "runtime/fs.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * @brief Runs the config command in a fixture while capturing both standard streams.

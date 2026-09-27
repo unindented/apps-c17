@@ -5,7 +5,7 @@
 #include "domain/doxygen.h"
 #include "shared/arena.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // A command's word, name, and description offset are sliced from the payload.
 static void test_parses_named_tag(void) {

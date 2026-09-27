@@ -6,7 +6,7 @@
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // A URL keeps its letters, digits and the punctuation a URL may hold as it is, so an ordinary link
 // target is copied through unchanged.

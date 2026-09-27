@@ -10,7 +10,7 @@
 #include "shared/arena.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // These tests run on the in-memory host, so each sets up its files and standard input in the host
 // and reads what the input printed back from it. `src/runtime/test_os.c` checks that the host

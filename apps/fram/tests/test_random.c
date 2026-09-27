@@ -1,7 +1,7 @@
 // Seeded random tests over the parsers of untrusted files: EXIF and JPEG headers. Each property
 // runs a fixed number of generated cases from `test_rng`, so the pass is deterministic, needs no
 // fuzzing engine, and runs everywhere the suite does, under the sanitizers of whichever preset
-// builds it. A failing check names the seed and the case, and setting `FRAM_TEST_SEED` to that seed
+// builds it. A failing check names the seed and the case, and setting `APPS_TEST_SEED` to that seed
 // replays the failure. It reaches only the input shapes its generators list.
 
 #include <acutest.h>
@@ -18,7 +18,7 @@
 #include "shared/log.h"
 #include "shared/str.h"
 #include "test_jpeg_fixture.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /** Generated cases each property runs. */
 enum { RANDOM_CASE_COUNT = 2000 };

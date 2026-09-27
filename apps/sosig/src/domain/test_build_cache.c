@@ -10,7 +10,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * @brief Formats a build cache of copies of `entries` for `site_config`, as a build writes one.

@@ -2,6 +2,7 @@
 #define _DEFAULT_SOURCE
 
 #include <acutest.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -12,13 +13,13 @@
 #include "app/cli.h"
 #include "app/cli_dispatch.h"
 #include "app/cwrap_version.h"
-#include "app/exit_code.h"
+#include "core/exit_code.h"
 #include "runtime/fs.h"
 #include "runtime/os.h"
 #include "shared/arena.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /** Largest file a test here reads back, in bytes. Every fixture file is a few bytes. */
 enum { TEST_FILE_LEN_MAX = 1024 };
@@ -128,8 +129,15 @@ static void test_help_action_prints_after_long_rejected_argument(void) {
 // the width, and the in-place flag reach the rewrap rather than being dropped on the way. The
 // rewritten file is the only externally visible evidence that all three fields were carried across.
 static void test_wrap_command_receives_parsed_options(void) {
-  char file_path[] = "/tmp/cwrap-dispatch-source.XXXXXX";
-  if (init_fixture_file(file_path, str_from_cstr(wrap_fixture_source)) != 0) {
+  char root_dir[] = "/tmp/cwrap-dispatch-source.XXXXXX";
+  if (init_fixture_dir(root_dir) != 0) {
+    return;
+  }
+  char file_path[PATH_MAX];
+  const int file_path_n = snprintf(file_path, sizeof(file_path), "%s/source.c", root_dir);
+  if (!TEST_CHECK(file_path_n > 0 && (size_t)file_path_n < sizeof(file_path)) ||
+      write_fixture_file(root_dir, "source.c", wrap_fixture_source) != 0) {
+    remove_fixture_tree(root_dir);
     return;
   }
 
@@ -144,8 +152,8 @@ static void test_wrap_command_receives_parsed_options(void) {
   struct Str file_data = {0};
   TEST_CHECK(os_read(os_posix(), str_from_cstr(file_path), TEST_FILE_LEN_MAX, &arena, &file_data,
                      S("failed to read file"), &log) == 0);
-  // The file is removed before any assertion, so a failed one cannot leave it behind.
-  (void)unlink(file_path);
+  // The fixture is removed before any assertion, so a failed one cannot leave it behind.
+  remove_fixture_tree(root_dir);
   TEST_CHECK(str_eq(file_data, S("// one two\n")));
 }
 
@@ -153,8 +161,15 @@ static void test_wrap_command_receives_parsed_options(void) {
 // rather than being dropped on the way. The would-rewrap diagnostic and the untouched source are
 // the only externally visible evidence that it was carried across.
 static void test_wrap_command_receives_check_option(void) {
-  char file_path[] = "/tmp/cwrap-dispatch-check.XXXXXX";
-  if (init_fixture_file(file_path, str_from_cstr(wrap_fixture_source)) != 0) {
+  char root_dir[] = "/tmp/cwrap-dispatch-check.XXXXXX";
+  if (init_fixture_dir(root_dir) != 0) {
+    return;
+  }
+  char file_path[PATH_MAX];
+  const int file_path_n = snprintf(file_path, sizeof(file_path), "%s/check.c", root_dir);
+  if (!TEST_CHECK(file_path_n > 0 && (size_t)file_path_n < sizeof(file_path)) ||
+      write_fixture_file(root_dir, "check.c", wrap_fixture_source) != 0) {
+    remove_fixture_tree(root_dir);
     return;
   }
 
@@ -172,8 +187,8 @@ static void test_wrap_command_receives_check_option(void) {
   struct Str file_data = {0};
   TEST_CHECK(os_read(os_posix(), str_from_cstr(file_path), TEST_FILE_LEN_MAX, &arena, &file_data,
                      S("failed to read file"), &log) == 0);
-  // The file is removed before any assertion, so a failed one cannot leave it behind.
-  (void)unlink(file_path);
+  // The fixture is removed before any assertion, so a failed one cannot leave it behind.
+  remove_fixture_tree(root_dir);
   TEST_CHECK(str_eq(file_data, str_from_cstr(wrap_fixture_source)));
 }
 

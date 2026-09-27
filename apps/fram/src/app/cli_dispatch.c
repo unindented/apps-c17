@@ -5,7 +5,7 @@
 #include "app/cli.h"
 #include "app/cmd_build.h"
 #include "app/cmd_config.h"
-#include "app/exit_code.h"
+#include "core/exit_code.h"
 #include "runtime/os.h"
 #include "shared/arena.h"
 #include "shared/str.h"

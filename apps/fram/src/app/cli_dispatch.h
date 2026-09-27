@@ -1,7 +1,7 @@
 #ifndef FRAM_CLI_DISPATCH_H
 #define FRAM_CLI_DISPATCH_H
 
-#include "app/exit_code.h"
+#include "core/exit_code.h"
 
 struct Os;
 

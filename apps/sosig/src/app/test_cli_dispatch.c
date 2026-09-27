@@ -10,14 +10,14 @@
 #include <unistd.h>
 
 #include "app/cli_dispatch.h"
-#include "app/exit_code.h"
+#include "core/exit_code.h"
 #include "core/sosig_version.h"
 #include "formats/highlight.h"
 #include "runtime/fs.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * Captured output of one `cli_dispatch` call. Both streams are sized for the whole usage text,

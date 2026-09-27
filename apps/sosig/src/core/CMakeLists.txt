@@ -1,13 +1,6 @@
 target_sources(
   sosig_app
-  PRIVATE error.c parse.c path.c path_list.c text.c
   PUBLIC FILE_SET HEADERS
          BASE_DIRS "${PROJECT_SOURCE_DIR}/src"
-         FILES ascii.h error.h parse.h path.h path_list.h sosig_version.h text.h
+         FILES sosig_version.h
 )
-
-if(APPS_BUILD_TESTING)
-  foreach(module IN ITEMS ascii error parse path path_list text)
-    apps_add_unit_test(${module})
-  endforeach()
-endif()

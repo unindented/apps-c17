@@ -5,13 +5,13 @@
 #include <string.h>
 
 #include "app/cmd_wrap.h"
-#include "app/exit_code.h"
 #include "app/wrap_input.h"
+#include "core/exit_code.h"
 #include "os_memory.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // These tests run on the in-memory host, so each sets up its files and standard input in the host
 // and reads back what the run printed and wrote. `src/runtime/test_os.c` checks that the host

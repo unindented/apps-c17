@@ -12,7 +12,7 @@ The top-level [CMakeLists.txt](CMakeLists.txt) sets the project policy, finds th
 | `src/*/CMakeLists.txt` | Add the sources, the header file sets and the unit tests of their directory. [src/runtime/CMakeLists.txt](src/runtime/CMakeLists.txt) also defines the POSIX host `fram_os_posix` |
 | [tests/CMakeLists.txt](tests/CMakeLists.txt) | Adds the golden test, the unit-test support library, the in-memory host and the seeded random tests |
 | [vendor.cmake](vendor.cmake) | Defines a target for each vendored dependency that `fram` uses, from the sources in the root [vendor/](../../vendor/) directory |
-| [../../libs/CMakeLists.txt](../../libs/CMakeLists.txt) | Defines the `shared` library, which `fram_app` links |
+| [../../libs/CMakeLists.txt](../../libs/CMakeLists.txt) | Defines the libraries that `fram` links: `shared` and `core`, and for the unit tests `testing` |
 | [../../cmake/apps_build_profiles.cmake](../../cmake/apps_build_profiles.cmake) | Sets warnings, optimization, fortification and sanitizers |
 | [../../cmake/apps_quality.cmake](../../cmake/apps_quality.cmake) | Configures formatting and static analysis |
 | [cmake/fram_lint.cmake](cmake/fram_lint.cmake) | Lists the first-party sources that the `format` and `lint` targets check |
@@ -34,11 +34,13 @@ The CMake build has one application library, two hosts, one target for each vend
 
 `fram_app` is a private static library that holds every application source except [src/app/main.c](src/app/main.c) and `src/runtime/fs.c`. The `fram` executable and every unit test link it. It is static because it supports one product and has no public ABI.
 
-Each source directory holds the code for one purpose. Except for the host in `src/runtime/`, the source directories add their files to `fram_app` and do not define libraries of their own, because more libraries would add link boundaries without independent APIs. `src/build/` and `src/formats/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
+Each source directory holds the code for one purpose. The source directories add their files to `fram_app` and do not define libraries of their own, because more libraries would add link boundaries without independent APIs. `src/build/` and `src/formats/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 
-`fram_app` links `vendor_tomlc17` and `shared` as `PUBLIC` dependencies, because the application headers expose the types of these libraries. The other dependencies are `PRIVATE`. `Threads::Threads` is one of the `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+`fram_app` links `vendor_tomlc17`, `core` and `shared` as `PUBLIC` dependencies, because the application headers expose the types of these libraries. The other dependencies are `PRIVATE`. `Threads::Threads` is one of the `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 
-`shared`, the library in [libs/shared/](../../libs/shared/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. `src/app/main.c` defines the `os_oom` of `fram`, which [ARCHITECTURE.md](ARCHITECTURE.md#out-of-memory-exits-the-process) describes. `fram_test_support` defines the `os_oom` of the unit tests.
+`shared`, the library in [libs/shared/](../../libs/shared/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. `src/app/main.c` defines the `os_oom` of `fram`, which [ARCHITECTURE.md](ARCHITECTURE.md#out-of-memory-exits-the-process) describes. The `testing` library defines the `os_oom` of the unit tests.
+
+The other libraries of [libs/](../../libs/) that `fram_app` links hold the modules that `fram` shares with the other apps, as [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes. Each library compiles with the `apps_build_project` profile of `fram`, and builds only because `fram` links it.
 
 ### Hosts
 
@@ -96,7 +98,7 @@ With `address`, the CMake build instruments first-party code, the `shared` libra
 
 ## Linting and formatting
 
-When `fram` is the top-level CMake project, the `C_CLANG_TIDY` and `C_CPPCHECK` properties of the first-party targets make CMake run `clang-tidy` and `cppcheck` while it compiles these targets. Neither tool checks vendored code or the `shared` library, which the `libs/` project checks. The include path of `cppcheck` contains the headers of `shared` in `libs/shared/include`, because `cppcheck` needs these headers to expand `STR_FMT`. Thus `cppcheck` also analyzes the inline functions that these headers define.
+When `fram` is the top-level CMake project, the `C_CLANG_TIDY` and `C_CPPCHECK` properties of the first-party targets make CMake run `clang-tidy` and `cppcheck` while it compiles these targets. Neither tool checks vendored code or the libraries, which the `libs/` project checks. The include path of `cppcheck` contains the headers of `shared` in `libs/shared/include` and the include roots of the other libraries that `APPS_LIBRARIES` in [CMakeLists.txt](CMakeLists.txt) lists, because `cppcheck` needs these headers to expand macros such as `STR_FMT`. Thus `cppcheck` also analyzes the inline functions that these headers define.
 
 Test targets run `cppcheck` but not `clang-tidy`, because their intentional failure cases cause analyzer errors. When CMake cross-compiles, neither tool runs. Zig supplies the headers for the target platform, and the analyzers on the host cannot find these headers when they repeat the compile command. When the compiler is not Clang, the CMake build turns off `clang-tidy`, because `clang-tidy` reads the compile command and rejects GCC-only warning options such as `-Wlogical-op`. `cppcheck` runs with any compiler.
 
@@ -112,11 +114,11 @@ Each source directory adds its own unit tests. `tests/` adds the golden test, `f
 
 ### Unit tests
 
-`apps_add_unit_test(<module>)` compiles `test_<module>.c` into the executable `fram_unit_<module>`, and registers this executable as the CTest case `fram.<module>`. The executable links `apps_build_tests`, acutest, `fram_test_support`, `fram_app` and one host.
+`apps_add_unit_test(<module>)` compiles `test_<module>.c` into the executable `fram_unit_<module>`, and registers this executable as the CTest case `fram.<module>`. The executable links `apps_build_tests`, acutest, the `testing` library, `fram_test_support`, `fram_app` and one host.
 
 With the `OS memory` option, `apps_add_unit_test` links the in-memory host and compiles the test with `FRAM_TEST_OS_MEMORY` set to 1. New tests use this option. The tests registered without `OS memory` link the POSIX host. These tests are:
 
-- the tests that need the real host: `fs` and `os_posix`, which test the POSIX layer; `test_support`, which tests the test-support library; `output_pruner_case`, which tests the prune on a case-insensitive `/tmp` and skips on a case-sensitive `/tmp`; and `proc`, `video`, `album_scanner_video`, `cmd_build_video` and `derivative_renderer_video`, which run processes or decode video
+- the tests that need the real host: `fs` and `os_posix`, which test the POSIX layer; `output_pruner_case`, which tests the prune on a case-insensitive `/tmp` and skips on a case-sensitive `/tmp`; and `proc`, `video`, `album_scanner_video`, `cmd_build_video` and `derivative_renderer_video`, which run processes or decode video
 - the suites that are not yet converted to the in-memory host, which create their fixtures in a real temporary directory: `cli`, `cli_dispatch`, `cmd_config`, `gallery_config` and `template`
 - the tests that use no host
 
@@ -128,20 +130,12 @@ No test target compiles an application source file a second time with different 
 
 ### Test-support library
 
-`fram_test_support` holds the helpers that several `test_*.c` files need:
+The `testing` library, [testing/test_support.h](../../libs/testing/test_support.h), holds the helpers that several `test_*.c` files need: fixture files and trees, the working directory, environment variables, the capture of the standard streams, an arena or a log over a fresh reservation, checks that compare the text of a log exactly, the out-of-memory check `test_is_oom`, and the seeded random generator for `tests/test_random.c`. It also defines the `os_oom` of the unit tests. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#testing) describes it.
 
-- functions that create a fixture root, write a fixture file and remove a fixture tree recursively
-- functions that enter a working directory and go back to the previous one
-- functions that capture and restore the standard streams
-- functions that make an arena or a log over a fresh reservation, and checks that compare the text of a log exactly
-- an out-of-memory check, `test_is_oom`
+`fram_test_support` holds the test helpers of `fram`, which every unit test of `fram` links:
+
 - a fixture JPEG encoder over libjpeg-turbo, in `tests/test_jpeg_fixture.h`, which writes baseline, progressive, CMYK and YCCK JPEGs, and a lossless JPEG that the probe rejects
 - a WebP decoder for derivative outputs, in `tests/test_webp_output.h`
-- a seeded random generator for `tests/test_random.c`
-
-The library also defines the `os_oom` of the unit tests. This `os_oom` exits with its own exit status, so `test_is_oom` can run code in a child process and tell an out-of-memory exit apart from a crash. The library is an object library, so that this definition links into every test executable in any link order. The unit test of the library is [tests/test_test_support.c](tests/test_test_support.c).
-
-[tests/test_support.c](tests/test_support.c) defines `TEST_NO_MAIN`, so the `main` function and the run state of acutest stay in the translation unit of each test executable. The library uses acutest declarations such as `acutest_check_`, `acutest_message_` and `acutest_abort_`, and the linker resolves these declarations against that translation unit. When a check in the library fails, acutest reports the failure against `test_support.c`, and the test that called the library fails.
 
 ### Golden test
 

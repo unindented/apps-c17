@@ -1,25 +1,22 @@
 # The golden test suite uses several modules. Keep it in the top-level `tests/` directory.
 
-# Unit-test plumbing shared by every unit-test executable. It is an object library rather than a
-# static one so that its `os_oom` is always linked in: a static archive member would be pulled only
-# by a reference that precedes it on the link line, and the reference comes from the arena in
-# `shared`, which follows it.
-add_library(fram_test_support OBJECT test_support.c)
+# fram's own test helpers, which every unit test links next to the `testing` library: the fixture
+# JPEG encoder and the WebP output decoder, which call their codecs themselves.
+add_library(fram_test_support OBJECT test_jpeg_fixture.c test_webp_output.c)
 target_include_directories(fram_test_support PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>")
-target_link_libraries(fram_test_support PRIVATE apps_build_tests vendor_acutest fram_app)
-# The fixture JPEG encoder and the WebP output decoder call their codecs themselves.
-target_sources(fram_test_support PRIVATE test_jpeg_fixture.c test_webp_output.c)
-target_link_libraries(fram_test_support PRIVATE vendor_libjpeg_turbo vendor_libwebp)
+target_link_libraries(
+  fram_test_support PRIVATE apps_build_tests vendor_acutest fram_app vendor_libjpeg_turbo
+                            vendor_libwebp
+)
 if(PROJECT_IS_TOP_LEVEL)
   apps_enable_test_analysis(fram_test_support)
 endif()
-apps_add_unit_test(test_support)
 
 # The in-memory implementation of `src/runtime/os.h`, which a unit test registered with `OS memory`
 # links in place of the POSIX one. It is an object library for the same reason as the POSIX one.
 add_library(fram_os_memory OBJECT os_memory.c)
 target_include_directories(fram_os_memory PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>")
-target_link_libraries(fram_os_memory PRIVATE apps_build_tests vendor_acutest fram_app)
+target_link_libraries(fram_os_memory PRIVATE apps_build_tests vendor_acutest testing fram_app)
 if(PROJECT_IS_TOP_LEVEL)
   apps_enable_test_analysis(fram_os_memory)
 endif()

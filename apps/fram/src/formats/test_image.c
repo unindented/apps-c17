@@ -12,8 +12,8 @@
 #include "shared/log.h"
 #include "shared/str.h"
 #include "test_jpeg_fixture.h"
-#include "test_support.h"
 #include "test_webp_output.h"
+#include "testing/test_support.h"
 
 // A sanitizer's allocator ends the process itself when an allocation fails, so the decode that runs
 // out of memory cannot reach libjpeg-turbo's out-of-memory error under one. GCC defines

@@ -1,5 +1,5 @@
-#ifndef SOSIG_PATH_LIST_H
-#define SOSIG_PATH_LIST_H
+#ifndef APPS_CORE_PATH_LIST_H
+#define APPS_CORE_PATH_LIST_H
 
 #include <stddef.h>
 

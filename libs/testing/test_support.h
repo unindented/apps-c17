@@ -1,5 +1,5 @@
-#ifndef CWRAP_TEST_SUPPORT_H
-#define CWRAP_TEST_SUPPORT_H
+#ifndef APPS_TESTING_TEST_SUPPORT_H
+#define APPS_TESTING_TEST_SUPPORT_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -19,10 +19,11 @@ enum { TEST_PLUMBING_FAILED = 255 };
 
 /**
  * Exit status of the unit-test build's `os_oom` when the test expects it, which `test_support.c`
- * defines in place of the one in `app/main.c`. It is none of the exit codes `cwrap` returns and no
- * signal status, so `test_is_oom` can tell running out of memory apart from a crash or an ordinary
- * exit. A process that runs out without `test_is_oom` expecting it exits with status `1` instead,
- * the only status acutest counts as a failed test, so the test fails rather than passing silently.
+ * defines in place of the one in an app's `app/main.c`. It is none of the exit codes an app returns
+ * and no signal status, so `test_is_oom` can tell running out of memory apart from a crash or an
+ * ordinary exit. A process that runs out without `test_is_oom` expecting it exits with status `1`
+ * instead, the only status acutest counts as a failed test, so the test fails rather than passing
+ * silently.
  */
 enum { TEST_OOM_EXIT_STATUS = 86 };
 
@@ -99,9 +100,9 @@ bool test_log_is_empty(const struct Log* log) __attribute__((nonnull(1)));
 /**
  * @brief Reports whether running `fn` ends in `os_oom`.
  *
- * Runs `fn` in a child process, because `os_oom` ends the process it runs in. Only in that child
- * does `os_oom` exit with `TEST_OOM_EXIT_STATUS`. A child that returns from `fn`, crashes, or exits
- * any other way does not count.
+ * Runs `fn` in a child process, because `os_oom` ends the process it runs in, possibly from a
+ * worker thread. Only in that child does `os_oom` exit with `TEST_OOM_EXIT_STATUS`. A child that
+ * returns from `fn`, crashes, or exits any other way does not count.
  *
  * @param fn       Function to run in the child. Must not be `NULL`.
  * @param userdata Opaque argument forwarded to `fn`.
@@ -109,7 +110,10 @@ bool test_log_is_empty(const struct Log* log) __attribute__((nonnull(1)));
  */
 bool test_is_oom(void (*fn)(void* userdata), void* userdata);
 
-/** Seed every seeded test starts its generator from. */
+/**
+ * Seed `test_rng` starts from unless the `APPS_TEST_SEED` environment variable names another, so a
+ * failure a different seed found can be replayed.
+ */
 #define TEST_RNG_SEED_DEFAULT UINT64_C(20261005)
 
 /**
@@ -121,6 +125,30 @@ struct TestRng {
   /** Current state. Every value is valid. */
   uint64_t state;
 };
+
+/**
+ * @brief Returns a generator seeded from `APPS_TEST_SEED`, or `TEST_RNG_SEED_DEFAULT`.
+ *
+ * A test names the seed in the message of a failing check, so the failure can be replayed. A value
+ * `test_rng_seed_parse` rejects prints one line naming the variable and the value to standard error
+ * and exits with status `1`, which fails the test, so a mistyped seed never replays another one.
+ *
+ * @return The seeded generator.
+ */
+struct TestRng test_rng(void);
+
+/**
+ * @brief Parses the value of `APPS_TEST_SEED`.
+ *
+ * Only a whole unsigned decimal number that fits in `uint64_t` is a seed: no sign, prefix,
+ * whitespace or trailing text.
+ *
+ * @param text     Value of the variable, empty when it is unset.
+ * @param seed_out Receives the seed on success: `TEST_RNG_SEED_DEFAULT` when `text` is empty. Must
+ *                 not be `NULL`.
+ * @return `0` on success, or `-1` when `text` is not a seed.
+ */
+int test_rng_seed_parse(struct Str text, uint64_t* seed_out) __attribute__((nonnull(2)));
 
 /**
  * @brief Advances the generator and returns 32 random bits.
@@ -173,16 +201,53 @@ int init_fixture_dir(char root_dir[static 1]);
 void remove_fixture_tree(const char* root_dir);
 
 /**
- * @brief Creates a temporary fixture file holding `contents`.
+ * @brief Writes one file relative to a fixture root, creating parent directories as needed.
  *
- * The caller unlinks the file.
- *
- * @param file_path Writable `mkstemp` template. Receives the created file path. Must not be `NULL`.
- * @param contents  Bytes to write.
- * @return `0` on success, or `-1` after recording a test-plumbing failure, with no file left
- *         behind.
+ * @param root_dir      Fixture root directory. Must not be `NULL`.
+ * @param relative_path Relative fixture path below `root_dir`. Must not be `NULL`.
+ * @param contents      Terminated text to write. Must not be `NULL`.
+ * @return `0` on success, or `-1` on test-plumbing failure.
  */
-int init_fixture_file(char file_path[static 1], struct Str contents);
+int write_fixture_file(const char* root_dir, const char* relative_path, const char* contents);
+
+/**
+ * @brief Changes into a directory, saving the working directory to return to.
+ *
+ * The saved directory is held open rather than recorded as a path, so no path length bounds it.
+ *
+ * @param dir              Directory to change into. Must not be `NULL`.
+ * @param saved_dir_fd_out Receives a descriptor of the previous working directory on success, for
+ *                         `working_dir_leave`. Must not be `NULL`.
+ * @return `0` on success, or `-1` after recording a test-plumbing failure, with the working
+ *         directory unchanged.
+ */
+int working_dir_enter(const char* dir, int* saved_dir_fd_out);
+
+/**
+ * @brief Returns to the working directory `working_dir_enter` saved, and closes its descriptor.
+ *
+ * @param saved_dir_fd Descriptor `working_dir_enter` wrote. Closed on return.
+ * @return `0` on success, or `-1` after recording a test-plumbing failure.
+ */
+int working_dir_leave(int saved_dir_fd);
+
+/**
+ * @brief Copies one environment variable's value into an arena, so a test that sets the variable
+ *        can put it back with `restore_env`.
+ *
+ * @param name  Environment variable to save. Must not be `NULL`.
+ * @param arena Arena that owns the copy. Must not be `NULL`.
+ * @return The copied value, or `NULL` when the variable is unset.
+ */
+char* save_env(const char* name, struct Arena* arena) __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Restores one environment variable from a value `save_env` returned.
+ *
+ * @param name  Environment variable to restore. Must not be `NULL`.
+ * @param saved Value `save_env` returned before the test, or `NULL` to unset the variable.
+ */
+void restore_env(const char* name, const char* saved) __attribute__((nonnull(1)));
 
 /** A standard stream redirected by `capture_begin` or `capture_begin_unwritable`. */
 struct StreamCapture {
@@ -238,5 +303,14 @@ int capture_begin_unwritable(FILE* stream, struct StreamCapture* capture_out);
  *         either way.
  */
 int capture_end(struct StreamCapture* capture, char* text_out, ptrdiff_t text_out_len);
+
+/**
+ * @brief Views a byte buffer as a string.
+ *
+ * @param bytes     Buffer bytes. May be `NULL` only when `bytes_len` is 0.
+ * @param bytes_len Number of bytes to view.
+ * @return View of the first `bytes_len` bytes of `bytes`.
+ */
+struct Str str_from_bytes(const unsigned char* bytes, ptrdiff_t bytes_len);
 
 #endif

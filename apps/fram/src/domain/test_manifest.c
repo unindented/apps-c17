@@ -5,7 +5,7 @@
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * @brief Builds the `index`-th of a family of numbered strings, such as `public/7.html`.

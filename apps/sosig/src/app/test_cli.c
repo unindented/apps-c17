@@ -10,7 +10,7 @@
 #include "formats/highlight.h"
 #include "runtime/fs.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * @brief Parses a terminated argument vector.

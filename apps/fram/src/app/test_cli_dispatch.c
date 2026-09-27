@@ -10,7 +10,7 @@
 #include <unistd.h>
 
 #include "app/cli_dispatch.h"
-#include "app/exit_code.h"
+#include "core/exit_code.h"
 #include "core/fram_version.h"
 #include "core/path.h"
 #include "runtime/fs.h"
@@ -20,7 +20,7 @@
 #include "shared/log.h"
 #include "shared/str.h"
 #include "test_jpeg_fixture.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * Captured output of one `cli_dispatch` call. Both streams are sized for the whole usage text,

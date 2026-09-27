@@ -1,5 +1,5 @@
-#ifndef CWRAP_PARSE_H
-#define CWRAP_PARSE_H
+#ifndef APPS_CORE_PARSE_H
+#define APPS_CORE_PARSE_H
 
 #include <stddef.h>
 

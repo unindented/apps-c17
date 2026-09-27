@@ -7,9 +7,9 @@
 #include <string.h>
 
 #include "app/cmd_build.h"
-#include "app/exit_code.h"
 #include "build/entry_renderer.h"
 #include "build/job.h"
+#include "core/exit_code.h"
 #include "core/path_list.h"
 #include "domain/build_cache.h"
 #include "formats/toml.h"
@@ -20,7 +20,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // Every build here runs against the in-memory host, whose root is the working directory the build
 // resolves `sosig.toml` from, and which keeps what the build prints. The golden sites build the

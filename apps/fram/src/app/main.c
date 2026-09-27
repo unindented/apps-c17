@@ -3,7 +3,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 
-#include "app/exit_code.h"
+#include "core/exit_code.h"
 #include "runtime/fs.h"
 #include "runtime/memory.h"
 #include "shared/arena.h"

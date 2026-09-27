@@ -18,7 +18,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * Size of a buffer for an expected diagnostic. The log never truncates, so this only has to hold

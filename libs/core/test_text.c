@@ -3,7 +3,7 @@
 
 #include "core/text.h"
 #include "shared/arena.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // `text_is_nul_free` accepts arbitrary nonzero bytes and the empty string, but rejects a zero at
 // every position, including the last.
@@ -82,9 +82,9 @@ static void test_slugify_folds_non_ascii_distinctly(void) {
 static void test_slugify_honors_length(void) {
   struct Arena arena = test_arena();
 
-  const struct Str path = S("Summer_Trip/Beach/sunset.jpg");
-  TEST_CHECK(str_eq(text_slugify(str_head(path, 11), &arena), S("summer-trip")));
-  TEST_CHECK(str_eq(text_slugify(str_head(str_tail(path, 12), 5), &arena), S("beach")));
+  const struct Str path = S("Top_Dir/Sub/file.txt");
+  TEST_CHECK(str_eq(text_slugify(str_head(path, 7), &arena), S("top-dir")));
+  TEST_CHECK(str_eq(text_slugify(str_head(str_tail(path, 8), 3), &arena), S("sub")));
   // A zero-length slice has no usable characters, so it takes the fallback.
   TEST_CHECK(str_eq(text_slugify(str_head(path, 0), &arena), S("untitled")));
 }

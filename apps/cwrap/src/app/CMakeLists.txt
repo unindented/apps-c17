@@ -3,7 +3,7 @@ target_sources(
   PRIVATE cli.c cli_dispatch.c cmd_wrap.c wrap_input.c
   PUBLIC FILE_SET HEADERS
          BASE_DIRS "${PROJECT_SOURCE_DIR}/src"
-         FILES cli.h cli_dispatch.h cmd_wrap.h cwrap_version.h exit_code.h wrap_input.h
+         FILES cli.h cli_dispatch.h cmd_wrap.h cwrap_version.h wrap_input.h
 )
 
 if(APPS_BUILD_TESTING)

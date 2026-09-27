@@ -23,7 +23,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /** One path the host holds. */
 struct OsMemoryFile {

@@ -16,7 +16,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // Every test here runs against the in-memory host. The identity checks see what they would see on
 // disk: two spellings of one directory, a symlink and its target, and two hard links to one file

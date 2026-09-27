@@ -27,7 +27,7 @@
 #include "shared/log.h"
 #include "shared/str.h"
 #include "test_jpeg_fixture.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // The video cases of the probe phase. `ffprobe` and `ffmpeg` are fake scripts on `PATH`, and the
 // frame they write is a file on the real host, so these run against the POSIX one. The other probe

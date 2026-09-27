@@ -1,7 +1,7 @@
 #ifndef CWRAP_CLI_DISPATCH_H
 #define CWRAP_CLI_DISPATCH_H
 
-#include "app/exit_code.h"
+#include "core/exit_code.h"
 
 struct Os;
 

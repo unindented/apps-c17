@@ -25,7 +25,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /** Largest file a test here reads back, in bytes. Every fixture file is a few bytes. */
 enum { TEST_FILE_LEN_MAX = 1024 };

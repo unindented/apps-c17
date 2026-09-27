@@ -1,13 +1,13 @@
 # apps-c17
 
-This repository holds three small programs written in C17, and the library that they share.
+This repository holds three small programs written in C17, and the libraries that they share.
 
 | Directory | Contents |
 | --- | --- |
 | [`apps/sosig`](apps/sosig) | `sosig`, a static site generator for Markdown and Org files. |
 | [`apps/fram`](apps/fram) | `fram`, a static photo and video gallery generator. |
 | [`apps/cwrap`](apps/cwrap) | `cwrap`, a formatter that refills the prose in C comments. |
-| [`libs`](libs) | The libraries that the apps share: [`shared`](libs/shared), an arena allocator, counted strings, buffers and an error log. |
+| [`libs`](libs) | The libraries that the apps share: `shared`, `core` and `testing`, which [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md) describes. |
 | [`vendor`](vendor) | The sources of the third-party libraries that the apps and `libs` use. |
 | [`cmake`](cmake) | The CMake modules, presets and toolchains that every project uses. |
 

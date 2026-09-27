@@ -71,16 +71,38 @@ function(libs_add_unit_test library module)
   )
 
   add_test(NAME "${library}.${module}" COMMAND ${target} WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+  # A unit test that hangs fails after this many seconds instead of stopping the whole run. The apps
+  # use the same limits, which `apps_add_unit_test` explains.
+  set(timeout 60)
+  if(APPS_SANITIZER STREQUAL "thread")
+    set(timeout 300)
+  endif()
   set_tests_properties(
     "${library}.${module}"
     PROPERTIES LABELS "${library};unit"
+               TIMEOUT ${timeout}
                ENVIRONMENT_MODIFICATION "UBSAN_OPTIONS=string_prepend:print_stacktrace=1:"
   )
   apps_enable_test_analysis(${target})
 endfunction()
 
+# Gives `target` the include root of `library`: a directory in the build tree that holds one link,
+# named for the library, to the library's source directory. `#include "<library>/<module>.h"` then
+# finds the library's headers through that root and no other file of `libs/`, so a library can
+# have the same layer name as a directory of an app.
+function(libs_add_include_root target library)
+  set(root "${PROJECT_BINARY_DIR}/include/${library}")
+  if(NOT EXISTS "${root}/${library}")
+    file(MAKE_DIRECTORY "${root}")
+    file(CREATE_LINK "${PROJECT_SOURCE_DIR}/${library}" "${root}/${library}" SYMBOLIC)
+  endif()
+  target_include_directories(${target} PUBLIC "$<BUILD_INTERFACE:${root}>")
+endfunction()
+
 # Each library appends its own sources to `apps_libs_lint_sources`.
 add_subdirectory(shared)
+add_subdirectory(core)
+add_subdirectory(testing)
 
 if(PROJECT_IS_TOP_LEVEL)
   get_property(libs_lint_sources GLOBAL PROPERTY apps_libs_lint_sources)

@@ -27,7 +27,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * @brief Allocates one `JobArenas` per worker, each region a fresh `test_arena` reservation.

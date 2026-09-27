@@ -23,8 +23,8 @@
 #include "shared/log.h"
 #include "shared/str.h"
 #include "test_jpeg_fixture.h"
-#include "test_support.h"
 #include "test_webp_output.h"
+#include "testing/test_support.h"
 
 // Every test here runs against the in-memory host: an image job reads its source and writes its
 // outputs only through `runtime/os.h`. The video case, whose frame is a file `ffmpeg` writes on the

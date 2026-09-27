@@ -30,7 +30,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 /**
  * Symlink expansions one lookup follows before it fails with `ELOOP`, as the kernel the tests run

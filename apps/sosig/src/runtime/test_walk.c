@@ -14,7 +14,7 @@
 #include "shared/buf.h"
 #include "shared/log.h"
 #include "shared/str.h"
-#include "test_support.h"
+#include "testing/test_support.h"
 
 // These tests walk the in-memory host, so each builds its tree in a few calls and nothing is left
 // on disk. `test_fs.c` walks a real tree once, for what only the POSIX listing can show.
