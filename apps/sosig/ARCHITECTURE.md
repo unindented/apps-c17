@@ -1,6 +1,6 @@
 # Architecture
 
-`sosig` is a small C17 static site generator. It reads a TOML config, Markdown and Org content, and Mustache templates, and it writes the generated files to a directory that the site owns. This document describes the code: the directories and their dependency rules, the build pipeline, the job of each module, the conventions that every module follows, and the design decisions behind them. [README.md](README.md) covers usage and template behavior, [BUILD.md](BUILD.md) covers the CMake build, and [STYLE.md](STYLE.md) covers the code style.
+`sosig` is a small C17 static site generator. It reads a TOML config, Markdown and Org content, and Mustache templates, and it writes the generated files to a directory that the site owns. This document describes the code: the directories and their dependency rules, the build pipeline, the job of each module, the conventions that every module follows, and the design decisions behind them. [README.md](README.md) covers usage and template behavior, [BUILD.md](../../BUILD.md) covers the CMake build, and [STYLE.md](../../STYLE.md) covers the code style.
 
 ## Layout
 
@@ -14,7 +14,7 @@
   - [site_index_permalink](tests/fixtures/site_index_permalink/) covers a permalink that publishes a directory index for each entry.
   - [site_nested_sections](tests/fixtures/site_nested_sections/) covers nested and lopsided sections, source names with spaces, punctuation and non-ASCII characters, partials that include partials, and aggregate and feed outputs in subdirectories next to content outputs.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
-- [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](BUILD.md) documents their boundaries and policy.
+- [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
 - [libs/](../../libs/): The libraries that `sosig` links: `shared`, `core`, `runtime`, `formats` and `site`, and for the unit tests `testing` and `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
 - [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `md4c`, `org4c`, `mustache4c`, `acutest`, and `tree-sitter` with these grammars:
   - `tree-sitter-c`
@@ -51,7 +51,7 @@ These words have one meaning everywhere in this document:
 - **Region.** A range of address space that one arena uses. Two arenas never use the same region at the same time.
 - **Reserve.** To get address space from the system without memory behind it.
 - **Commit.** To make reserved pages usable. The system charges committed pages against its memory limit.
-- **Build.** One run of `sosig build`. [BUILD.md](BUILD.md) documents the CMake build of `sosig` itself.
+- **Build.** One run of `sosig build`. [BUILD.md](../../BUILD.md) documents the CMake build of `sosig` itself.
 - **Entry.** One content source that a build parses, as a `ContentEntry`. A record in the manifest is a manifest entry, and a file, directory or symlink in a directory listing is a directory entry.
 - **Keep.** To leave an existing output in place without a new render, because the build cache shows that its inputs did not change. The output writer marks a kept output in the manifest, as it marks a written output.
 
@@ -189,8 +189,8 @@ No input format gives a meaning to a `NUL` byte, so the input checks stop a `NUL
 
 - A fallible action whose caller needs a message beyond success or failure takes a final `struct Log* log`. It records every error that it finds in that log, and never truncates one. A message is one `printf` format that the compiler checks. See [A growable log, and every error in one run](#a-growable-log-and-every-error-in-one-run) and [Log messages use checked format strings](#log-messages-use-checked-format-strings).
 - A filesystem action also takes the `operation` of the caller, such as `failed to read config`, and logs the whole message, because only the action knows which path failed. A failure inside a file names the file as `(in '<file>')` through `log_error_in`.
-- An action, and a producer that can fail, return `0` or `-1`, and the producer writes its result through an `_out` parameter. A producer that cannot fail returns its result directly, for example a `struct Str` by value. A predicate returns `bool`. Running out of memory is never a return value. [STYLE.md](STYLE.md#function-signatures) gives the full rules.
-- A first-party diagnostic is lowercase prose. It names the failed operation first, puts literal names and values in single quotes, and puts a value after the cause. Messages from the system or from a vendored library use their original capitalization and punctuation. [STYLE.md](STYLE.md#errors-and-diagnostics) gives the full rules.
+- An action, and a producer that can fail, return `0` or `-1`, and the producer writes its result through an `_out` parameter. A producer that cannot fail returns its result directly, for example a `struct Str` by value. A predicate returns `bool`. Running out of memory is never a return value. [STYLE.md](../../STYLE.md#function-signatures) gives the full rules.
+- A first-party diagnostic is lowercase prose. It names the failed operation first, puts literal names and values in single quotes, and puts a value after the cause. Messages from the system or from a vendored library use their original capitalization and punctuation. [STYLE.md](../../STYLE.md#errors-and-diagnostics) gives the full rules.
 
 ### Paths and limits
 
@@ -335,7 +335,7 @@ Each decision below states what the code does and why, and some decisions also s
 
 **Reason.** A `Buf` grows in place. If a callee gets a copy of the same arena by value, the callee allocates the same bytes that the log grows into. The two then write over each other, with no crash and no ASan report.
 
-[STYLE.md](STYLE.md#memory-and-resources) states the rule. Treat a break of the rule as a bug, not as a style problem.
+[STYLE.md](../../STYLE.md#memory-and-resources) states the rule. Treat a break of the rule as a bug, not as a style problem.
 
 ### Log messages use checked format strings
 
@@ -371,7 +371,7 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 - Tests of the walk, the manifest, the pages, the writes, and the prune need no temporary directories.
 - A link-time choice needs no table of function pointers, because no executable needs two hosts.
 
-**Linking.** `sosig` and every unit test registered without `OS memory` link `os_posix`, the object library of `runtime/fs.c`. The tests registered with `OS memory` link `os_memory`, as [BUILD.md](BUILD.md#unit-tests) lists.
+**Linking.** `sosig` and every unit test registered without `OS memory` link `os_posix`, the object library of `runtime/fs.c`. The tests registered with `OS memory` link `os_memory`, as [BUILD.md](../../BUILD.md#sosig-tests) lists.
 
 **Condition.** Each property that a test checks against the in-memory host must have a contract test. [runtime/test_os.c](../../libs/runtime/test_os.c), in the `libs/` project, compiles once against each host and runs the same cases, and both executables must pass, so every property that a test relies on in the in-memory host is also true on POSIX. Without the contract tests, the in-memory host can accept what POSIX rejects. For example, an in-memory host could accept `file/` as a file where POSIX returns `ENOTDIR`, and a contract test checks this case.
 

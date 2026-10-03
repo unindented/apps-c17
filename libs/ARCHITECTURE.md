@@ -1,6 +1,6 @@
 # Architecture
 
-The `libs/` project holds the libraries that the apps share. Each library is a CMake target with one directory below `libs/`. An app links the libraries that it uses, and the library code compiles with the build profiles of that app. This document describes the libraries, their modules, their dependencies, and how their tests run. Each app's ARCHITECTURE.md describes the modules that are the app's own, and each app's STYLE.md covers the code style.
+The `libs/` project holds the libraries that the apps share. Each library is a CMake target with one directory below `libs/`. An app links the libraries that it uses, and the library code compiles with the build profiles of that app. This document describes the libraries, their modules, their dependencies, and how their tests run. Each app's ARCHITECTURE.md describes the modules that are the app's own, [STYLE.md](../STYLE.md) covers the code style of every project, and [BUILD.md](../BUILD.md) covers the CMake builds.
 
 ## Layout
 

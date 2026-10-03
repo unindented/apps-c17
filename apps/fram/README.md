@@ -268,7 +268,7 @@ A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A p
 
 ## Development
 
-[ARCHITECTURE.md](ARCHITECTURE.md) describes the code. [BUILD.md](BUILD.md) describes the CMake targets and the reasons for the configurations below. [STYLE.md](STYLE.md) describes the code style.
+[ARCHITECTURE.md](ARCHITECTURE.md) describes the code. [BUILD.md](../../BUILD.md) describes the CMake targets and the reasons for the configurations below. [STYLE.md](../../STYLE.md) describes the code style.
 
 ### Prerequisites
 

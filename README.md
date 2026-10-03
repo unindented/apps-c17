@@ -11,7 +11,7 @@ This repository holds three small programs written in C17, and the libraries tha
 | [`vendor`](vendor) | The sources of the third-party libraries that the apps and `libs` use. |
 | [`cmake`](cmake) | The CMake modules, presets and toolchains that every project uses. |
 
-Each app and `libs` is its own CMake project, with its own presets. To build one, configure it from its directory, for example `cmake --preset debug` in `apps/sosig`. Each app has its own README and build instructions.
+Each app and `libs` is its own CMake project, with its own presets. To build one, configure it from its directory, for example `cmake --preset debug` in `apps/sosig`. Each app's README lists the commands of that app. [BUILD.md](BUILD.md) describes the CMake builds of every project, and [STYLE.md](STYLE.md) describes the code style of every project.
 
 The CI workflow, [ci.yml](.github/workflows/ci.yml), checks each project that a change can affect, and its `Summary` job reports the result of every check. The root [Containerfile](Containerfile) builds the Linux CI image for every project. Build it in the repository root, and select the project's directory with `--workdir`:
 

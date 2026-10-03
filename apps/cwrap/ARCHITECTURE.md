@@ -1,6 +1,6 @@
 # Architecture
 
-`cwrap` is a small C17 C comment formatter. It reads source files or standard input, refills the comment blocks that it can wrap, and writes the result to `stdout`, back to each input file, or as a `--check` report. This document describes the code: the directories and their dependency rules, the wrap pipeline, the job of each module, the conventions that every module follows, and the design decisions behind them. [README.md](README.md) covers usage and wrapping behavior, [BUILD.md](BUILD.md) covers the CMake build, and [STYLE.md](STYLE.md) covers the code style.
+`cwrap` is a small C17 C comment formatter. It reads source files or standard input, refills the comment blocks that it can wrap, and writes the result to `stdout`, back to each input file, or as a `--check` report. This document describes the code: the directories and their dependency rules, the wrap pipeline, the job of each module, the conventions that every module follows, and the design decisions behind them. [README.md](README.md) covers usage and wrapping behavior, [BUILD.md](../../BUILD.md) covers the CMake build, and [STYLE.md](../../STYLE.md) covers the code style.
 
 ## Layout
 
@@ -9,7 +9,7 @@
 - [src/runtime/](src/runtime/): The host interface and its POSIX implementation, and the out-of-memory report.
 - [tests/](tests/): The golden and idempotence test suites, the seeded random tests, and the in-memory host [tests/os_memory.h](tests/os_memory.h). Each C file under [tests/fixtures/](tests/fixtures/) has a matching file of expected output under [tests/expected/](tests/expected/). The idempotence test also rewraps these files, every first-party source file, and the sources of the libraries that `cwrap` links, at several widths.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
-- [cmake/](cmake/): The lint list and the golden and idempotence test drivers. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](BUILD.md) documents their boundaries and policy.
+- [cmake/](cmake/): The lint list and the golden and idempotence test drivers. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
 - [libs/](../../libs/): The libraries that `cwrap` links: `shared` and `core`, and for the unit tests `testing`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
 - [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt` and `acutest`.
 
@@ -102,7 +102,7 @@ Each item below links to the module's header, which documents its interface. The
 
 ### Runtime (`src/runtime`)
 
-- [fs](src/runtime/fs.h): The POSIX implementation of `os.h`, in an object library of its own, `cwrap_os_posix`. The `cwrap` executable and every unit test that is registered without `OS memory` link it, as [BUILD.md](BUILD.md#unit-tests) lists. Its `struct Os` has no state.
+- [fs](src/runtime/fs.h): The POSIX implementation of `os.h`, in an object library of its own, `cwrap_os_posix`. The `cwrap` executable and every unit test that is registered without `OS memory` link it, as [BUILD.md](../../BUILD.md#cwrap-tests) lists. Its `struct Os` has no state.
 - [memory](src/runtime/memory.h): Prints the out-of-memory report: the command's log, and then the phase and the input in which the run ran out of memory. `memory_oom_set_job` takes a phase, an input name, and whether the input is a stream, because the report names the phase and the run has no jobs.
 - [os](src/runtime/os.h): The host interface. Every read, write and print that the program does goes through `os_read`, `os_read_stdin`, `os_write` and `os_print`. Each function that accesses the host takes a `struct Os*`.
   - `os_read` opens a path without blocking, and inspects the open descriptor. It takes a size limit from each caller, and checks it before any read or allocation. It rejects a file that is not a regular file, a file that contains a `NUL`, and a file that changes size during the read. It returns the bytes in the caller's arena.
@@ -141,8 +141,8 @@ No input format gives a meaning to a `NUL` byte, so the input checks stop a `NUL
 
 - A fallible action whose caller needs a message beyond success or failure takes a final `struct Log* log`. It records every error that it finds in that log, and never truncates one. A message is one `printf` format that the compiler checks. See [A growable log, and every error in one run](#a-growable-log-and-every-error-in-one-run) and [Log messages use checked format strings](#log-messages-use-checked-format-strings).
 - A filesystem or stream action also takes the `operation` of the caller, such as `failed to read file`, and logs the whole message, because only the action knows the cause.
-- An action, and a producer that can fail, return `0` or `-1`, and the producer writes its result through an `_out` parameter. A producer that cannot fail returns its result directly, for example a `struct Str` by value. A predicate returns `bool`. Running out of memory is never a return value. An operation with a third result that is not an error returns an enum. For example, `wrap_input` returns a `WrapInputResult`, which keeps a check-mode change apart from an operational error. [STYLE.md](STYLE.md#function-signatures) gives the full rules.
-- A first-party diagnostic is lowercase prose. It names the failed operation first, puts literal names and values in single quotes, and puts a value after the cause. Messages from the system or from a vendored library use their original capitalization and punctuation. [STYLE.md](STYLE.md#errors-and-diagnostics) gives the full rules.
+- An action, and a producer that can fail, return `0` or `-1`, and the producer writes its result through an `_out` parameter. A producer that cannot fail returns its result directly, for example a `struct Str` by value. A predicate returns `bool`. Running out of memory is never a return value. An operation with a third result that is not an error returns an enum. For example, `wrap_input` returns a `WrapInputResult`, which keeps a check-mode change apart from an operational error. [STYLE.md](../../STYLE.md#function-signatures) gives the full rules.
+- A first-party diagnostic is lowercase prose. It names the failed operation first, puts literal names and values in single quotes, and puts a value after the cause. Messages from the system or from a vendored library use their original capitalization and punctuation. [STYLE.md](../../STYLE.md#errors-and-diagnostics) gives the full rules.
 
 ### Input limits
 
@@ -269,7 +269,7 @@ Then `os_oom` exits with `EXIT_CODE_FAILURE`.
 
 **Reason.** A `Buf` grows in place. If a callee gets a copy of the same arena by value, the callee allocates the same bytes that the log grows into. The two then write over each other, with no crash and no ASan report.
 
-[STYLE.md](STYLE.md#memory-and-resources) states the rule. Treat a break of the rule as a bug, not as a style problem.
+[STYLE.md](../../STYLE.md#memory-and-resources) states the rule. Treat a break of the rule as a bug, not as a style problem.
 
 ### Log messages use checked format strings
 
@@ -307,7 +307,7 @@ log_error(log, "failed to read file: %s ('%.*s')", reason, STR_FMT(path));
 - Host access is visible at one boundary, and is not spread over calls to `stdio` in the app layer.
 - A link-time choice needs no table of function pointers, because no executable needs two hosts.
 
-**Linking.** `cwrap` and every unit test registered without `OS memory` link `runtime/fs.c`. The tests registered with `OS memory` link `tests/os_memory.c`, as [BUILD.md](BUILD.md#unit-tests) lists.
+**Linking.** `cwrap` and every unit test registered without `OS memory` link `runtime/fs.c`. The tests registered with `OS memory` link `tests/os_memory.c`, as [BUILD.md](../../BUILD.md#cwrap-tests) lists.
 
 **Condition.** Each property that a test checks against the in-memory host must have a contract test. `src/runtime/test_os.c` compiles once against each host and runs the same cases, and both executables must pass, so every property that a test relies on in the in-memory host is also true on POSIX. Without the contract tests, the in-memory host can accept what POSIX rejects. For example, an in-memory host could accept `file/` as a file where POSIX returns `ENOTDIR`, and a contract test checks this case.
 
