@@ -1,0 +1,34 @@
+Lowercases the error messages of mustache.c and drops their trailing periods, as STYLE.md asks of
+every diagnostic.
+
+--- a/mustache.c
++++ b/mustache.c
+@@ -185,17 +185,17 @@
+ 
+ /* Keep in sync with MUSTACHE_ERR_xxx constants. */
+ static const char* mustache_err_messages[] = {
+-    "Success.",
+-    "Tag opener has no closer.",
+-    "Tag closer has no opener.",
+-    "Tag closer is incompatible with its opener.",
+-    "Tag has no name.",
+-    "Tag name is invalid.",
+-    "Section-opening tag has no closer.",
+-    "Section-closing tag has no opener.",
+-    "Name of section-closing tag does not match corresponding section-opening tag.",
+-    "The section-opening is located here.",
+-    "Invalid specification of delimiters."
++    "success",
++    "tag opener has no closer",
++    "tag closer has no opener",
++    "tag closer is incompatible with its opener",
++    "tag has no name",
++    "tag name is invalid",
++    "section-opening tag has no closer",
++    "section-closing tag has no opener",
++    "name of section-closing tag does not match corresponding section-opening tag",
++    "the section-opening is located here",
++    "invalid specification of delimiters"
+ };
+ 
+ /* For the given template, we construct list of MUSTACHE_TAGINFO structures.

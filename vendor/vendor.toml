@@ -1,0 +1,203 @@
+# The vendored projects, one table for each directory of `vendor/`, which `vendor/vendor.py` checks
+# and updates. Each pin is recorded here once. `vendor.py sync` copies it to the `Vendored at` line
+# of every `THIRD_PARTY_NOTICES.md` that lists the project, and Renovate updates `release`.
+#
+# - `url`, `release` and `commit`: the upstream repository, the release tag without its `v`, and the
+#   commit. A project without `release` is pinned by commit alone. Renovate reads `url` and
+#   `release`, so they come first, in this order.
+# - `notice`: the name of the project's heading in the notices, when it is not the directory's name.
+# - `files` and `exclude`: patterns of upstream paths. `*` matches within one path segment, and
+#   `**/` matches any number of directories.
+# - `strip`: a prefix that the copy removes from each upstream path.
+# - `patches`: patches under `vendor/patches/`, applied to the copy in order.
+# - `local`: patterns of files this repository writes, such as a license text that upstream does
+#   not ship as a file. The check skips them, and a sync keeps them.
+# - `queries`: upstream query files whose patterns `libs/markup/queries/` keeps, whose diff a sync
+#   prints to port.
+
+[acutest]
+url = "https://github.com/mity/acutest"
+commit = "31751b4089c93b46a9fd8a8183a695f772de66de"
+files = ["include/acutest.h"]
+strip = "include/"
+local = ["LICENSE.txt"]
+
+[copt]
+url = "https://github.com/fardaniqbal/copt"
+commit = "1b466222f51ac59cc6c972d68afa340b4e024d71"
+files = ["copt.h"]
+local = ["LICENSE.txt"]
+
+[libjpeg-turbo]
+url = "https://github.com/libjpeg-turbo/libjpeg-turbo"
+release = "3.2.0"
+commit = "c85e6b905bf237038faa936dab160ebfc5da0344"
+files = [
+  "LICENSE.md",
+  "README.ijg",
+  "simd/*.c",
+  "simd/*.h",
+  "simd/arm/*.c",
+  "simd/arm/*.h",
+  "simd/arm/aarch64/*",
+  "simd/nasm/*",
+  "simd/x86_64/*",
+  "src/*.c",
+  "src/*.h",
+  "src/wrapper/*.c",
+]
+# The programs, the TurboJPEG API, the tests and the templates of the generated headers.
+exclude = [
+  "simd/simdcoverage.c",
+  "src/bmpsizetest.c",
+  "src/cderror.h",
+  "src/cdjpeg.*",
+  "src/cjpeg.c",
+  "src/cmyk.h",
+  "src/djpeg.c",
+  "src/example.c",
+  "src/jcstest.c",
+  "src/jdatadst-tj.c",
+  "src/jdatasrc-tj.c",
+  "src/jpegtran.c",
+  "src/rd*.c",
+  "src/strtest.c",
+  "src/tj*",
+  "src/transupp.*",
+  "src/turbojpeg*",
+  "src/wr*.c",
+  "src/wrapper/rd*.c",
+  "src/wrapper/template.c",
+  "src/wrapper/wr*.c",
+]
+local = ["config/*"]
+
+[libwebp]
+url = "https://chromium.googlesource.com/webm/libwebp"
+release = "1.6.0"
+commit = "4fa21912338357f89e4fd51cf2368325b59e9bd9"
+files = [
+  "AUTHORS",
+  "COPYING",
+  "PATENTS",
+  "sharpyuv/*.c",
+  "sharpyuv/*.h",
+  "src/dec/*.c",
+  "src/dec/*.h",
+  "src/dsp/*.c",
+  "src/dsp/*.h",
+  "src/enc/*.c",
+  "src/enc/*.h",
+  "src/utils/*.c",
+  "src/utils/*.h",
+  "src/webp/*.h",
+]
+# The MIPS routines, the demuxer and the muxer.
+exclude = [
+  "src/dsp/*_mips*",
+  "src/dsp/*_msa.c",
+  "src/dsp/mips_macro.h",
+  "src/dsp/msa_macro.h",
+  "src/webp/demux.h",
+  "src/webp/mux.h",
+]
+
+[md4c]
+url = "https://github.com/mity/md4c"
+commit = "f9e5eb232b95b737373ae706648cb75bd259ed1a"
+files = ["src/md4c.c", "src/md4c.h"]
+strip = "src/"
+local = ["LICENSE.txt"]
+
+[mustache4c]
+url = "https://github.com/mity/mustache4c"
+commit = "0d068c1e0f8d59fda302ef49c26f42c7a6553b3e"
+files = ["src/mustache.c", "src/mustache.h"]
+strip = "src/"
+patches = ["mustache4c.patch"]
+local = ["LICENSE.txt"]
+
+[org4c]
+url = "https://github.com/unindented/org4c"
+release = "0.1.5"
+commit = "1992acc87935839083e243e28c99d52dac3e5ad8"
+files = ["LICENSE.txt", "src/entity.c", "src/entity.h", "src/org4c.c", "src/org4c.h"]
+strip = "src/"
+
+[stb]
+url = "https://github.com/nothings/stb_image_resize"
+commit = "2768987dbd7119eb840104b7a3f96ff09d21a7b4"
+notice = "stb_image_resize"
+files = ["stb_image_resize2.h"]
+local = ["LICENSE.txt"]
+
+[tomlc17]
+url = "https://github.com/cktan/tomlc17"
+commit = "85000d0836ce6089065b4241220e1e6f4aec2310"
+files = ["src/tomlc17.c", "src/tomlc17.h"]
+strip = "src/"
+local = ["LICENSE.txt"]
+
+[tree-sitter]
+url = "https://github.com/tree-sitter/tree-sitter"
+release = "0.27.1"
+commit = "10eb5ac119eec9cb4267a8e035066473983f5f3a"
+files = ["LICENSE", "lib/include/**/*", "lib/src/**/*"]
+exclude = ["lib/src/wasm-stdlib/**/*"]
+strip = "lib/"
+
+[tree-sitter-bash]
+url = "https://github.com/tree-sitter/tree-sitter-bash"
+release = "0.25.1"
+commit = "a06c2e4415e9bc0346c6b86d401879ffb44058f7"
+files = ["LICENSE", "src/**/*.c", "src/**/*.h"]
+queries = ["queries/highlights.scm"]
+
+[tree-sitter-c]
+url = "https://github.com/tree-sitter/tree-sitter-c"
+release = "0.24.2"
+commit = "b780e47fc780ddc8da13afa35a3f4ed5c157823d"
+files = ["LICENSE", "src/**/*.c", "src/**/*.h"]
+queries = ["queries/highlights.scm"]
+
+[tree-sitter-css]
+url = "https://github.com/tree-sitter/tree-sitter-css"
+release = "0.25.0"
+commit = "dda5cfc5722c429eaba1c910ca32c2c0c5bb1a3f"
+files = ["LICENSE", "src/**/*.c", "src/**/*.h"]
+queries = ["queries/highlights.scm"]
+
+[tree-sitter-html]
+url = "https://github.com/tree-sitter/tree-sitter-html"
+release = "0.23.2"
+commit = "5a5ca8551a179998360b4a4ca2c0f366a35acc03"
+files = ["LICENSE", "src/**/*.c", "src/**/*.h"]
+queries = ["queries/highlights.scm"]
+
+[tree-sitter-javascript]
+url = "https://github.com/tree-sitter/tree-sitter-javascript"
+release = "0.25.0"
+commit = "44c892e0be055ac465d5eeddae6d3e194424e7de"
+files = ["LICENSE", "src/**/*.c", "src/**/*.h"]
+queries = ["queries/highlights.scm", "queries/highlights-jsx.scm", "queries/highlights-params.scm"]
+
+[tree-sitter-json]
+url = "https://github.com/tree-sitter/tree-sitter-json"
+release = "0.24.8"
+commit = "ee35a6ebefcef0c5c416c0d1ccec7370cfca5a24"
+files = ["LICENSE", "src/**/*.c", "src/**/*.h"]
+queries = ["queries/highlights.scm"]
+
+[tree-sitter-typescript]
+url = "https://github.com/tree-sitter/tree-sitter-typescript"
+release = "0.23.2"
+commit = "f975a621f4e7f532fe322e13c4f79495e0a7b2e7"
+files = [
+  "LICENSE",
+  "common/*.h",
+  "typescript/src/**/*.c",
+  "typescript/src/**/*.h",
+  "tsx/src/**/*.c",
+  "tsx/src/**/*.h",
+]
+queries = ["queries/highlights.scm"]

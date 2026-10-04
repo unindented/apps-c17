@@ -12,10 +12,10 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Track vendored libraries that THIRD_PARTY_NOTICES.md records by release.",
-      "managerFilePatterns": ["/^apps/[^/]+/THIRD_PARTY_NOTICES\\.md$/"],
+      "description": "Track the vendored projects that vendor/vendor.toml pins by release.",
+      "managerFilePatterns": ["/^vendor/vendor\\.toml$/"],
       "matchStrings": [
-        "### (?<depName>\\S+) \\((?<packageName>https://[^)\\s]+)\\)\\n\\nVendored at release `(?<currentValue>[^`]+)`"
+        "\\[(?<depName>[^\\]]+)\\]\\nurl = \"(?<packageName>[^\"]+)\"\\nrelease = \"(?<currentValue>[^\"]+)\""
       ],
       "datasourceTemplate": "git-tags"
     },
@@ -32,23 +32,14 @@
   ],
   "packageRules": [
     {
-      "description": "A vendored release needs its sources replaced by hand, so its update is a reminder, never merged as is.",
+      "description": "A vendored release needs its sources replaced, so its update is a reminder, never merged as is.",
       "matchManagers": ["custom.regex"],
       "matchDatasources": ["git-tags"],
       "extractVersion": "^v?(?<version>\\d+\\.\\d+\\.\\d+)$",
       "allowedVersions": "!/\\.9\\d$/",
       "automerge": false,
       "prBodyNotes": [
-        "This updates only the release recorded in `THIRD_PARTY_NOTICES.md`. Before merging, replace the vendored sources under `vendor/` with that release, and update the commit recorded next to it."
-      ]
-    },
-    {
-      "description": "tree-sitter and its grammars have a script that replaces their sources.",
-      "matchManagers": ["custom.regex"],
-      "matchDatasources": ["git-tags"],
-      "matchDepNames": ["/^tree-sitter/"],
-      "prBodyNotes": [
-        "For tree-sitter and its grammars, `vendor/tree-sitter.py sync {{{depName}}}` replaces the sources and records the commit. It also prints the upstream changes to the query files, to port to `libs/markup/queries/`. The Vendored tree-sitter job fails until the sources match the release."
+        "This updates only the release in `vendor/vendor.toml`. Before merging, run `vendor/vendor.py sync {{{depName}}}`, which replaces the sources under `vendor/` with that release and records its commit in the manifest and the notices. For a tree-sitter grammar, it also prints the upstream changes to the query files, to port to `libs/markup/queries/`. The Vendored sources job fails until the sources match the release."
       ]
     }
   ]

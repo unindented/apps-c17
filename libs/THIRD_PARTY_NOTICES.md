@@ -62,7 +62,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### tree-sitter (https://github.com/tree-sitter/tree-sitter)
 
-Vendored at release `v0.27.1`, commit `10eb5ac119eec9cb4267a8e035066473983f5f3a`.
+Vendored at release `0.27.1`, commit `10eb5ac119eec9cb4267a8e035066473983f5f3a`.
 
 Only the C runtime is vendored: `lib/include` and `lib/src`, without `lib/src/wasm-stdlib`.
 
@@ -92,7 +92,7 @@ Placed in the public domain by Mathias Panzenböck, or, where that is not possib
 
 ### tree-sitter-c (https://github.com/tree-sitter/tree-sitter-c)
 
-Vendored at release `v0.24.2`, commit `b780e47fc780ddc8da13afa35a3f4ed5c157823d`.
+Vendored at release `0.24.2`, commit `b780e47fc780ddc8da13afa35a3f4ed5c157823d`.
 
 Only the generated parser is vendored. `markup/queries/c.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
 
@@ -106,7 +106,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### tree-sitter-bash (https://github.com/tree-sitter/tree-sitter-bash)
 
-Vendored at release `v0.25.1`, commit `a06c2e4415e9bc0346c6b86d401879ffb44058f7`.
+Vendored at release `0.25.1`, commit `a06c2e4415e9bc0346c6b86d401879ffb44058f7`.
 
 Only the generated parser and its scanner are vendored. `markup/queries/bash.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
 
@@ -120,7 +120,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### tree-sitter-html (https://github.com/tree-sitter/tree-sitter-html)
 
-Vendored at release `v0.23.2`, commit `5a5ca8551a179998360b4a4ca2c0f366a35acc03`.
+Vendored at release `0.23.2`, commit `5a5ca8551a179998360b4a4ca2c0f366a35acc03`.
 
 Only the generated parser, its scanner and the `tag.h` it includes are vendored. `markup/queries/html.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
 
@@ -134,7 +134,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### tree-sitter-css (https://github.com/tree-sitter/tree-sitter-css)
 
-Vendored at release `v0.25.0`, commit `dda5cfc5722c429eaba1c910ca32c2c0c5bb1a3f`.
+Vendored at release `0.25.0`, commit `dda5cfc5722c429eaba1c910ca32c2c0c5bb1a3f`.
 
 Only the generated parser and its scanner are vendored. `markup/queries/css.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
 
@@ -148,7 +148,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### tree-sitter-javascript (https://github.com/tree-sitter/tree-sitter-javascript)
 
-Vendored at release `v0.25.0`, commit `44c892e0be055ac465d5eeddae6d3e194424e7de`.
+Vendored at release `0.25.0`, commit `44c892e0be055ac465d5eeddae6d3e194424e7de`.
 
 Only the generated parser and its scanner are vendored. `markup/queries/javascript.scm`, `jsx.scm` and `javascript_params.scm` hold the patterns of `queries/highlights.scm`, `highlights-jsx.scm` and `highlights-params.scm`, so a bump diffs these files between the two releases and ports what applies. `markup/queries/typescript_params.scm` is derived from `queries/highlights-params.scm`, adapted to the TypeScript and TSX grammars.
 
@@ -162,7 +162,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### tree-sitter-typescript (https://github.com/tree-sitter/tree-sitter-typescript)
 
-Vendored at release `v0.23.2`, commit `f975a621f4e7f532fe322e13c4f79495e0a7b2e7`.
+Vendored at release `0.23.2`, commit `f975a621f4e7f532fe322e13c4f79495e0a7b2e7`.
 
 Only the generated TypeScript and TSX parsers, their scanners and the scanner header they share are vendored. `markup/queries/typescript.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
 
@@ -176,7 +176,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### tree-sitter-json (https://github.com/tree-sitter/tree-sitter-json)
 
-Vendored at release `v0.24.8`, commit `ee35a6ebefcef0c5c416c0d1ccec7370cfca5a24`.
+Vendored at release `0.24.8`, commit `ee35a6ebefcef0c5c416c0d1ccec7370cfca5a24`.
 
 Only the generated parser is vendored. `markup/queries/json.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
 

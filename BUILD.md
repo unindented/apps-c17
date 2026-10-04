@@ -31,7 +31,7 @@ Only one project is configured in each build tree, so the cache variables and th
 | [cmake/release-presets.json](cmake/release-presets.json) | Includes `presets.json`, and adds the `release-linux-*` presets and the package presets that every app has |
 | [.clang-format](.clang-format) and [.clang-tidy](.clang-tidy) | Configure `clang-format` and `clang-tidy` for every project |
 | [Containerfile](Containerfile) | Builds the Linux CI image for every project |
-| [vendor/](vendor/) | Holds the sources of every vendored project, as upstream ships them, and the script that checks and updates tree-sitter and its grammars (see [Vendored dependencies](#vendored-dependencies)) |
+| [vendor/](vendor/) | Holds the sources of every vendored project, as upstream ships them, with the manifest and the script that check and update them (see [Vendored dependencies](#vendored-dependencies)) |
 
 Each project adds the root `cmake/` directory to `CMAKE_MODULE_PATH`. Each module has `include_guard(GLOBAL)`, so a module that two projects of one build tree include runs one time.
 
@@ -74,12 +74,12 @@ Both hosts are object libraries, because `<app>_app` refers to them and a single
 
 The sources of each vendored project are in the root [vendor/](vendor/) directory, and each app's `vendor.cmake` compiles the sources that the app uses. An app that links `markup` includes [libs/markup/vendor.cmake](libs/markup/vendor.cmake) for the vendored projects of that library. Each vendored project has its own target, `vendor_<lib>`: the header-only projects, acutest and copt, are interface libraries, and the other vendored projects are static libraries. The targets have the same names in every app, because the libraries of `libs/` link the app's `vendor_acutest` and `vendor_tomlc17`.
 
-The `THIRD_PARTY_NOTICES.md` file of each app records the release and the commit of each vendored project. Renovate reads these records and opens a pull request for each new release. For tree-sitter and its grammars, [vendor/tree-sitter.toml](vendor/tree-sitter.toml) lists the upstream files that `vendor/` holds, and [vendor/tree-sitter.py](vendor/tree-sitter.py), which needs Python 3.11 or later, uses this list:
+[vendor/vendor.toml](vendor/vendor.toml) pins each vendored project: its upstream repository, its release when it has one, and its commit. It also lists the upstream files that the directory of the project holds, the patches that this repository applies to them, and the files that this repository writes, such as a license text that upstream does not ship as a file. The `THIRD_PARTY_NOTICES.md` of each app and of `libs/` records the pin of each project that it lists. Renovate reads the releases in the manifest and opens a pull request for each new release. [vendor/vendor.py](vendor/vendor.py), which needs Python 3.11 or later, uses the manifest:
 
-- `vendor/tree-sitter.py check` fetches each recorded commit. It fails when `vendor/` does not hold exactly the listed files of that commit, or when the release no longer names that commit. The Vendored tree-sitter job of CI runs this check.
-- `vendor/tree-sitter.py sync <project>` replaces the sources of the project with the commit that its recorded release names, and records that commit. It prints the upstream changes to the query files whose patterns `markup` keeps in `libs/markup/queries/`.
+- `vendor/vendor.py check` fetches each pinned commit and makes the copy that the manifest describes. It fails when a directory of `vendor/` differs from that copy, when a release no longer names its commit, or when a notices file records another pin. The Vendored sources job of CI runs this check.
+- `vendor/vendor.py sync <project>...` replaces the directory of each project with the copy of the commit that its release names, or of its pinned commit when it has no release, and records the pin in the manifest and in every notices file. For a tree-sitter grammar, it prints the upstream changes to the query files whose patterns `markup` keeps in `libs/markup/queries/`.
 
-The other vendored projects are updated by hand.
+To bump a project, change its `release`, or its `commit` when it has no release, and run `vendor/vendor.py sync` with its name.
 
 ### Regenerating a graph
 
