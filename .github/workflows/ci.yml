@@ -104,6 +104,22 @@ jobs:
       - name: Verify the lockfile
         run: gh actions-lock --verify
 
+  # Fails when a tree-sitter project in `vendor/` does not hold exactly the upstream files of the
+  # commit that `apps/sosig/THIRD_PARTY_NOTICES.md` records, or its release no longer names that
+  # commit. It runs with the sosig job, the one that builds these sources.
+  vendored-tree-sitter:
+    name: Vendored tree-sitter
+    needs: changes
+    if: needs.changes.outputs.sosig == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check the vendored sources
+        run: python3 vendor/tree-sitter.py check
+
   sosig:
     name: sosig
     needs: changes
@@ -149,6 +165,7 @@ jobs:
     needs:
       - changes
       - lockfile
+      - vendored-tree-sitter
       - sosig
       - fram
       - cwrap

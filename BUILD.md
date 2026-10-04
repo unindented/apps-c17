@@ -31,7 +31,7 @@ Only one project is configured in each build tree, so the cache variables and th
 | [cmake/release-presets.json](cmake/release-presets.json) | Includes `presets.json`, and adds the `release-linux-*` presets and the package presets that every app has |
 | [.clang-format](.clang-format) and [.clang-tidy](.clang-tidy) | Configure `clang-format` and `clang-tidy` for every project |
 | [Containerfile](Containerfile) | Builds the Linux CI image for every project |
-| [vendor/](vendor/) | Holds the sources of every vendored project, as upstream ships them |
+| [vendor/](vendor/) | Holds the sources of every vendored project, as upstream ships them, and the script that checks and updates tree-sitter and its grammars (see [Vendored dependencies](#vendored-dependencies)) |
 
 Each project adds the root `cmake/` directory to `CMAKE_MODULE_PATH`. Each module has `include_guard(GLOBAL)`, so a module that two projects of one build tree include runs one time.
 
@@ -73,6 +73,13 @@ Both hosts are object libraries, because `<app>_app` refers to them and a single
 ### Vendored dependencies
 
 The sources of each vendored project are in the root [vendor/](vendor/) directory, and each app's `vendor.cmake` compiles the sources that the app uses. Each vendored project has its own target, `vendor_<lib>`: the header-only projects, acutest and copt, are interface libraries, and the other vendored projects are static libraries. The targets have the same names in every app, because the libraries of `libs/` link the app's `vendor_acutest` and `vendor_tomlc17`.
+
+The `THIRD_PARTY_NOTICES.md` file of each app records the release and the commit of each vendored project. Renovate reads these records and opens a pull request for each new release. For tree-sitter and its grammars, [vendor/tree-sitter.toml](vendor/tree-sitter.toml) lists the upstream files that `vendor/` holds, and [vendor/tree-sitter.py](vendor/tree-sitter.py), which needs Python 3.11 or later, uses this list:
+
+- `vendor/tree-sitter.py check` fetches each recorded commit. It fails when `vendor/` does not hold exactly the listed files of that commit, or when the release no longer names that commit. The Vendored tree-sitter job of CI runs this check.
+- `vendor/tree-sitter.py sync <project>` replaces the sources of the project with the commit that its recorded release names, and records that commit. It prints the upstream changes to the query files that sosig ports to `apps/sosig/src/formats/queries/`.
+
+The other vendored projects are updated by hand.
 
 ### Regenerating a graph
 

@@ -41,6 +41,15 @@
       "prBodyNotes": [
         "This updates only the release recorded in `THIRD_PARTY_NOTICES.md`. Before merging, replace the vendored sources under `vendor/` with that release, and update the commit recorded next to it."
       ]
+    },
+    {
+      "description": "tree-sitter and its grammars have a script that replaces their sources.",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["git-tags"],
+      "matchDepNames": ["/^tree-sitter/"],
+      "prBodyNotes": [
+        "For tree-sitter and its grammars, `vendor/tree-sitter.py sync {{{depName}}}` replaces the sources and records the commit. It also prints the upstream changes to the query files, to port to `apps/sosig/src/formats/queries/`. The Vendored tree-sitter job fails until the sources match the release."
+      ]
     }
   ]
 }
