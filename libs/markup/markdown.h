@@ -1,5 +1,5 @@
-#ifndef SOSIG_MARKDOWN_H
-#define SOSIG_MARKDOWN_H
+#ifndef APPS_MARKUP_MARKDOWN_H
+#define APPS_MARKUP_MARKDOWN_H
 
 #include <stddef.h>
 

@@ -1,10 +1,10 @@
-#ifndef SOSIG_BODY_HTML_H
-#define SOSIG_BODY_HTML_H
+#ifndef APPS_MARKUP_BODY_HTML_H
+#define APPS_MARKUP_BODY_HTML_H
 
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "formats/highlight.h"
+#include "markup/highlight.h"
 #include "shared/arena.h"
 #include "shared/str.h"
 

@@ -3,8 +3,8 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "formats/body_html.h"
-#include "formats/markdown.h"
+#include "markup/body_html.h"
+#include "markup/markdown.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"

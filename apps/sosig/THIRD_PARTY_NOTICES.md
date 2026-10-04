@@ -34,7 +34,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 Vendored at commit `f9e5eb232b95b737373ae706648cb75bd259ed1a`.
 
-Only the parser is vendored: `md4c.c` and `md4c.h`. This project writes the HTML itself, in `src/formats/markdown.c`, so a bump diffs upstream's `md4c-html.c` between the two commits and ports what applies.
+Only the parser is vendored: `md4c.c` and `md4c.h`. The `markup` library writes the HTML itself, in `libs/markup/markdown.c`, so a bump diffs upstream's `md4c-html.c` between the two commits and ports what applies.
 
 Copyright (c) 2016-2026 Martin Mitáš
 
@@ -48,7 +48,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 Vendored at release `0.1.5`, commit `1992acc87935839083e243e28c99d52dac3e5ad8`.
 
-Only the parser is vendored: `org4c.c`, `org4c.h`, `entity.c` and `entity.h`. This project writes the HTML itself, in `src/formats/org.c`, so a bump diffs upstream's `org4c-html.c` between the two releases and ports what applies.
+Only the parser is vendored: `org4c.c`, `org4c.h`, `entity.c` and `entity.h`. The `markup` library writes the HTML itself, in `libs/markup/org.c`, so a bump diffs upstream's `org4c-html.c` between the two releases and ports what applies.
 
 Copyright (c) 2026 Daniel Perez Alvarez
 
@@ -106,7 +106,7 @@ Placed in the public domain by Mathias Panzenböck, or, where that is not possib
 
 Vendored at release `v0.24.2`, commit `b780e47fc780ddc8da13afa35a3f4ed5c157823d`.
 
-Only the generated parser is vendored. `src/formats/queries/c.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
+Only the generated parser is vendored. `libs/markup/queries/c.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
 
 Copyright (c) 2014 Max Brunsfeld
 
@@ -120,7 +120,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 Vendored at release `v0.25.1`, commit `a06c2e4415e9bc0346c6b86d401879ffb44058f7`.
 
-Only the generated parser and its scanner are vendored. `src/formats/queries/bash.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
+Only the generated parser and its scanner are vendored. `libs/markup/queries/bash.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
 
 Copyright (c) 2017 Max Brunsfeld
 
@@ -134,7 +134,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 Vendored at release `v0.23.2`, commit `5a5ca8551a179998360b4a4ca2c0f366a35acc03`.
 
-Only the generated parser, its scanner and the `tag.h` it includes are vendored. `src/formats/queries/html.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
+Only the generated parser, its scanner and the `tag.h` it includes are vendored. `libs/markup/queries/html.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
 
 Copyright (c) 2014 Max Brunsfeld
 
@@ -148,7 +148,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 Vendored at release `v0.25.0`, commit `dda5cfc5722c429eaba1c910ca32c2c0c5bb1a3f`.
 
-Only the generated parser and its scanner are vendored. `src/formats/queries/css.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
+Only the generated parser and its scanner are vendored. `libs/markup/queries/css.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
 
 Copyright (c) 2018 Max Brunsfeld
 
@@ -162,7 +162,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 Vendored at release `v0.25.0`, commit `44c892e0be055ac465d5eeddae6d3e194424e7de`.
 
-Only the generated parser and its scanner are vendored. `src/formats/queries/javascript.scm`, `jsx.scm` and `javascript_params.scm` hold the patterns of `queries/highlights.scm`, `highlights-jsx.scm` and `highlights-params.scm`, so a bump diffs these files between the two releases and ports what applies. `src/formats/queries/typescript_params.scm` is derived from `queries/highlights-params.scm`, adapted to the TypeScript and TSX grammars.
+Only the generated parser and its scanner are vendored. `libs/markup/queries/javascript.scm`, `jsx.scm` and `javascript_params.scm` hold the patterns of `queries/highlights.scm`, `highlights-jsx.scm` and `highlights-params.scm`, so a bump diffs these files between the two releases and ports what applies. `libs/markup/queries/typescript_params.scm` is derived from `queries/highlights-params.scm`, adapted to the TypeScript and TSX grammars.
 
 Copyright (c) 2014 Max Brunsfeld
 
@@ -176,7 +176,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 Vendored at release `v0.23.2`, commit `f975a621f4e7f532fe322e13c4f79495e0a7b2e7`.
 
-Only the generated TypeScript and TSX parsers, their scanners and the scanner header they share are vendored. `src/formats/queries/typescript.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
+Only the generated TypeScript and TSX parsers, their scanners and the scanner header they share are vendored. `libs/markup/queries/typescript.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
 
 Copyright (c) 2017 Max Brunsfeld
 
@@ -190,7 +190,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 Vendored at release `v0.24.8`, commit `ee35a6ebefcef0c5c416c0d1ccec7370cfca5a24`.
 
-Only the generated parser is vendored. `src/formats/queries/json.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
+Only the generated parser is vendored. `libs/markup/queries/json.scm` holds the patterns of `queries/highlights.scm`, so a bump diffs that file between the two releases and ports what applies.
 
 Copyright (c) 2014 Max Brunsfeld
 

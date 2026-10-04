@@ -7,7 +7,6 @@
 - [src/app/](src/app/): The process entry point, the command-line interface, and the command boundaries.
 - [src/build/](src/build/): Build orchestration, the parallel phases, templates, manifest population, and the prune.
 - [src/domain/](src/domain/): Site configuration, content metadata, frontmatter, permalinks, and the build cache.
-- [src/formats/](src/formats/): The boundaries for Markdown and Org data, and syntax highlighting.
 - [src/core/](src/core/): The tool name and version.
 - [tests/](tests/): The golden test suite. Each fixture site under [tests/fixtures/](tests/fixtures/) has a matching directory of expected output under [tests/expected/](tests/expected/):
   - [site_file_permalink](tests/fixtures/site_file_permalink/) covers Markdown, Org, links between denote notes, and templates with the default permalink.
@@ -15,24 +14,16 @@
   - [site_nested_sections](tests/fixtures/site_nested_sections/) covers nested and lopsided sections, source names with spaces, punctuation and non-ASCII characters, partials that include partials, and aggregate and feed outputs in subdirectories next to content outputs.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
 - [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
-- [libs/](../../libs/): The libraries that `sosig` links: `shared`, `core`, `runtime`, `formats` and `site`, and for the unit tests `testing` and `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
-- [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `md4c`, `org4c`, `mustache4c`, `acutest`, and `tree-sitter` with these grammars:
-  - `tree-sitter-c`
-  - `tree-sitter-bash`
-  - `tree-sitter-html`
-  - `tree-sitter-css`
-  - `tree-sitter-javascript`
-  - `tree-sitter-typescript`
-  - `tree-sitter-json`
+- [libs/](../../libs/): The libraries that `sosig` links: `shared`, `core`, `runtime`, `formats`, `markup` and `site`, and for the unit tests `testing` and `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
+- [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `mustache4c` and `acutest`. It includes [libs/markup/vendor.cmake](../../libs/markup/vendor.cmake), which builds `md4c`, `org4c`, and `tree-sitter` with its grammars, for the `markup` library.
 
 ### Dependency rules
 
 First-party dependencies point inward:
 
 - `app` can depend on every other directory.
-- `build` can depend on `domain`, `formats`, and `core`.
-- `domain` can depend on `formats` and `core`.
-- `formats` can depend on `core`.
+- `build` can depend on `domain` and `core`.
+- `domain` can depend on `core`.
 - `core` depends on no other first-party directory.
 - Every directory can depend on the libraries in `libs/`, and no library depends on `sosig`.
 
@@ -141,14 +132,9 @@ The build also uses the `site` library: [job](../../libs/site/job.h) runs the th
 - [permalink](src/domain/permalink.h): `permalink_expand` creates an entry's URL: it replaces the `{slug}` and `{section}` tokens. It removes redundant `/` characters, and appends `index.html` when the expanded path ends with `/`. The expanded path's last byte decides this, not the pattern's. The URL without its leading `/` is the relative output path, so the public URL names the output file. `site_config_load` expands sample values to check two things: that every expansion is a safe relative path, and that different entries get different paths, so a bad pattern causes one config error. The build checks each entry's output path against both output-path limits when it parses the entry, because only a real entry's slug and section give the path's length.
 - [site_config](src/domain/site_config.h): Defines `SiteConfig` and its load and print operations. The load validates and normalizes each value, and copies it into the arena that the caller gives. It rejects a key that is not in the schema, and applies the defaults of optional keys. Later phases use the resolved config and do not change it. `base_url` needs an `http://` or `https://` scheme, which the load compares without regard to case, and a host that is not empty. The load removes trailing `/` characters from `base_url` and from each configured directory, and validates template names and permalink expansion. `frontmatter_ignored_keys` can hold any strings.
 
-### Formats (`src/formats`)
+### Markup and formats libraries
 
-- [body_html](src/formats/body_html.h): The markup that the Markdown and Org renderers share, written in one place for both: headings, footnotes, task checkboxes, admonitions, math, code blocks that `highlight` highlights, and the escaping of link targets. It also defines `LinkTargets`, a callback that both renderers give the target of every link and image. The callback can write a URL of its own for a target, or decline, and then the renderer writes the target itself. The formats know nothing about content files.
-- [highlight](src/formats/highlight.h): Syntax highlighting of a code block with tree-sitter. `highlight_grammar_find` finds the grammar for a language name among the grammars that `SOSIG_GRAMMARS` compiles in. [vendor.cmake](vendor.cmake) declares these grammars in a header that it generates. `highlight_grammar_list` names those grammars. `highlight_write` writes the code with a `<span class="tok-…">` around each token that the grammar's highlight query captures. It writes the code plain, only escaped, when there is no grammar or when the code block goes past a memory limit.
-- [markdown](src/formats/markdown.h): `markdown_to_html` parses Markdown with md4c and the project's extension set, and writes the HTML through its own callbacks. It gives each link and image destination, as written, to the `LinkTargets` callback of its caller.
-- [org](src/formats/org.h): `org_to_html` parses Org with org4c, the project's flags, and the file's `#+OPTIONS:` lines, and writes the HTML through its own callbacks. It gives the org4c type and the path of each link and image to the `LinkTargets` callback of its caller. A `file` link without a description shows the URL that the callback wrote.
-
-The formats also use the `formats` library: [html](../../libs/formats/html.h) escapes untrusted text for generated markup, and [toml](../../libs/formats/toml.h) validates TOML text, checks for unknown keys, and converts and formats the dates of entries.
+`sosig` renders the bodies of Markdown and Org entries with the `markup` library, which also highlights their code blocks. `entry_renderer` gives each renderer a `LinkTargets` callback, which writes the URL of a link to another entry. `--version` and the build cache name the grammars that `highlight_grammar_list` returns. The `formats` library escapes HTML in `template`, and parses the TOML of the config and the frontmatter. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
 
 ### Runtime and core libraries
 
@@ -268,7 +254,7 @@ Each decision below states what the code does and why, and some decisions also s
 - No call site checks for allocation failure.
 - The report names the file that the thread was working on. A user needs that name to find the input that failed.
 
-**Vendored code.** md4c, org4c, mustache4c, and tomlc17 still use `malloc`. md4c and org4c only parse, and their callbacks write into arenas. `sosig` replaces tomlc17's allocator with one that calls `os_oom` when `realloc` fails. When md4c, org4c, or mustache4c fails and reports no reason, the wrapper treats the failure as out of memory and calls `os_oom`. `sosig` also replaces tree-sitter's allocator, as [Highlighting: shared queries, memory per code block](#highlighting-shared-queries-memory-per-code-block) describes, so its failures also end in `os_oom`. The one exception is the Bash scanner's own `calloc` of its fixed-size state.
+**Vendored code.** md4c, org4c, mustache4c, and tomlc17 still use `malloc`. md4c and org4c only parse, and their callbacks write into arenas. `sosig` replaces tomlc17's allocator with one that calls `os_oom` when `realloc` fails. When md4c, org4c, or mustache4c fails and reports no reason, the wrapper treats the failure as out of memory and calls `os_oom`. `sosig` also replaces tree-sitter's allocator, as [Highlighting: shared queries, memory per code block](../../libs/ARCHITECTURE.md#highlighting-shared-queries-memory-per-code-block) describes, so its failures also end in `os_oom`. The one exception is the Bash scanner's own `calloc` of its fixed-size state.
 
 ### Address sanitizer coverage in arenas
 
@@ -281,27 +267,6 @@ Each decision below states what the code does and why, and some decisions also s
 - The arena does not poison scratch memory again when a function returns, so ASan does not find a use of scratch memory after the function that owned it returned.
 - When a job's copy of its worker's arenas commits, it poisons the free space again, so a job that allocates past the usable part does not read what an earlier job allocated there.
 - `arena_release` leaves the shadow memory to the sanitizer's `munmap` interceptor, which clears it, so a later mapping at the same addresses gets no old poison. Unpoisoning the whole region instead would write an eighth of each reservation as resident shadow memory.
-
-### Highlighting: shared queries, memory per code block
-
-**Decision.**
-
-1. `highlight` compiles each grammar's highlight query at the grammar's first lookup, under a lock. The query lives until the process exits, and every worker reads it.
-2. For each code block, the writer makes a new tree-sitter parser and query cursor, and deletes them and the tree before it returns.
-3. While the writer highlights a code block, tree-sitter allocates from the scratch that the writer gets. A thread-local variable points the allocator at that scratch. The allocator puts a freed allocation on a free list for its exact size, and all of these allocations go away with the scratch. At other times, for example when `highlight` compiles a query, the allocator calls `malloc`, and calls `os_oom` when `malloc` fails.
-4. If the parse of a code block takes more than `HIGHLIGHT_MEMORY_LEN_MAX` (128 MiB), or its tree has an error node with more than 4096 children, the writer writes the code block plain, as for a language with no grammar. If a query would take more memory, or more work than the length of its code block allows, the writer writes the rest of the code block plain.
-
-**Reasons.**
-
-- Query compilation takes 2 to 15 ms, so it occurs once. A new parser and cursor take less than a microsecond to make, so each code block gets its own, and no job or pool carries state for each worker.
-- Tree-sitter recovers from tens of thousands of unclosed brackets with one error node that has that many children, and its query steps over the later siblings of a node at each of them. It also follows a match at every level of brackets nested 65,536 deep or more. Each of these cases takes seconds on a code block of a few hundred KB. A well-formed wide node, such as a long table of numbers, is as fast as other code, and real code takes at most three work reports per KiB, so the bounds catch only such code blocks.
-- The queries are immutable after compilation, and a site that names no language compiles none. If the code freed them at exit, the free could race a worker that still highlights when `os_oom` ends the process. They are the one tree-sitter allocation that no call frees.
-- With musl's `malloc`, a parse on eight threads is no faster than on one thread. Allocation from each worker's scratch makes it scale, and when the scratch runs out, the result is the arena's `os_oom`.
-- If `free` did nothing, text that a grammar cannot parse could commit memory up to the limit before the writer writes the code block plain. The free lists reuse each allocation for the next allocation of the same size.
-- The limit bounds the scratch that one code block can use. Each converter splits a region of twice the limit off its scratch for its code blocks, so that region, like every arena, gets its size from a limit, and `BUILD_SCRATCH_LEN` counts it, together with the code that a converter holds until a code block ends.
-- A plain code block is an exception to the rule to fail immediately at a limit, because a build that fails over a code block's colors helps no one, and `formats/` has no log.
-
-**Cost.** An Org code block that is almost all code references with a short `-l` label format is the one input that the limits accept and `BUILD_SCRATCH_LEN` does not hold, as the definition of `BUILD_SCRATCH_LEN` explains.
 
 ### Counted strings with signed lengths
 
@@ -379,6 +344,6 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 ### Where the shared code lives
 
-**Decision.** The libraries in [libs/](../../libs/) hold the code that `sosig` shares with the other apps. `shared` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. `core`, `runtime`, `formats` and `site` hold the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own arena layout.
+**Decision.** The libraries in [libs/](../../libs/) hold the code that `sosig` shares with the other apps. `shared` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. `core`, `runtime`, `formats`, `markup` and `site` hold the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own arena layout.
 
 **Reason.** These parts do not depend on what a program does.

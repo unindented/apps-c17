@@ -1,4 +1,4 @@
-#include "formats/org.h"
+#include "markup/org.h"
 
 #include <assert.h>
 #include <org4c.h>
@@ -9,8 +9,8 @@
 
 #include "core/ascii.h"
 #include "core/text.h"
-#include "formats/body_html.h"
 #include "formats/html.h"
+#include "markup/body_html.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"

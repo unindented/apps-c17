@@ -13,13 +13,13 @@ add_subdirectory(app)
 add_subdirectory(build)
 add_subdirectory(core)
 add_subdirectory(domain)
-add_subdirectory(formats)
 
 target_link_libraries(
   sosig_app
   PUBLIC vendor_tomlc17
          core
          formats
+         markup
          runtime
          shared
          site

@@ -11,8 +11,8 @@
 `sync` fetches the commit that each recorded tag names now, replaces `vendor/<project>/` with the
 listed files of that commit, and records the commit in the notices. To bump a project, change its
 release in the notices, as a Renovate pull request does, and run `sync` with the project's name. For
-a project whose commit changes, `sync` prints the upstream diff of the query files that sosig keeps
-in `apps/sosig/src/formats/queries/`, to port by hand.
+a project whose commit changes, `sync` prints the upstream diff of the query files that the `markup`
+library keeps in `libs/markup/queries/`, to port by hand.
 
 Usage:
   vendor/tree-sitter.py check
@@ -170,7 +170,7 @@ def sync(manifest, notices, repo, names):
             diff = git(repo, "diff", old, new, "--", *queries).decode()
             print(diff if diff else f"{name}: the query files did not change")
     if changed:
-        print("Port any query changes above to apps/sosig/src/formats/queries/, and bump "
+        print("Port any query changes above to libs/markup/queries/, and bump "
               "PAGE_RECIPE_VERSION in apps/sosig/src/domain/build_cache.h.")
     return notices
 

@@ -1,5 +1,5 @@
-#ifndef SOSIG_ORG_H
-#define SOSIG_ORG_H
+#ifndef APPS_MARKUP_ORG_H
+#define APPS_MARKUP_ORG_H
 
 #include <stddef.h>
 

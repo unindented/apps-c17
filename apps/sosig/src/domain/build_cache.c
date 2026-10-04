@@ -10,7 +10,7 @@
 #include "core/path.h"
 #include "core/sosig_version.h"
 #include "domain/site_config.h"
-#include "formats/highlight.h"
+#include "markup/highlight.h"
 #include "runtime/os.h"
 #include "shared/arena.h"
 #include "shared/buf.h"

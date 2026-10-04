@@ -1,4 +1,4 @@
-#include "formats/highlight.h"
+#include "markup/highlight.h"
 
 #include <assert.h>
 #include <pthread.h>
@@ -165,7 +165,7 @@ struct Writer {
 };
 
 /**
- * The grammars, by the names a code block gives its language: those `SOSIG_GRAMMARS` selects, which
+ * The grammars, by the names a code block gives its language: those `APPS_GRAMMARS` selects, which
  * `vendor.cmake` declares in `tree_sitter_grammars.h`, with their names.
  */
 static struct HighlightGrammar grammars[] = {TREE_SITTER_GRAMMARS};

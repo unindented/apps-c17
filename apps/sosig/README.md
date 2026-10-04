@@ -395,7 +395,7 @@ The release binaries highlight these languages:
 | TSX | `tsx` |
 | JSON | `json` |
 
-A language name matches in any letter case, so `sosig` highlights a `Bash` code block, but Emacs does not. If you compile `sosig` yourself, you can choose its grammars with `SOSIG_GRAMMARS`, as [BUILD.md](../../BUILD.md#grammars) describes. `sosig --version` lists the grammars that a binary includes.
+A language name matches in any letter case, so `sosig` highlights a `Bash` code block, but Emacs does not. If you compile `sosig` yourself, you can choose its grammars with `APPS_GRAMMARS`, as [BUILD.md](../../BUILD.md#grammars) describes. `sosig --version` lists the grammars that a binary includes.
 
 `sosig` highlights each code block in only one language, so in an HTML code block it only escapes the contents of the `<script>` and `<style>` elements. `sosig` does not highlight a code block, and only escapes its text, in these cases:
 

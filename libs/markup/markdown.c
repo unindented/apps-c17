@@ -1,4 +1,4 @@
-#include "formats/markdown.h"
+#include "markup/markdown.h"
 
 #include <assert.h>
 #include <md4c.h>
@@ -6,8 +6,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "formats/body_html.h"
 #include "formats/html.h"
+#include "markup/body_html.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"

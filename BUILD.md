@@ -72,12 +72,12 @@ Both hosts are object libraries, because `<app>_app` refers to them and a single
 
 ### Vendored dependencies
 
-The sources of each vendored project are in the root [vendor/](vendor/) directory, and each app's `vendor.cmake` compiles the sources that the app uses. Each vendored project has its own target, `vendor_<lib>`: the header-only projects, acutest and copt, are interface libraries, and the other vendored projects are static libraries. The targets have the same names in every app, because the libraries of `libs/` link the app's `vendor_acutest` and `vendor_tomlc17`.
+The sources of each vendored project are in the root [vendor/](vendor/) directory, and each app's `vendor.cmake` compiles the sources that the app uses. An app that links `markup` includes [libs/markup/vendor.cmake](libs/markup/vendor.cmake) for the vendored projects of that library. Each vendored project has its own target, `vendor_<lib>`: the header-only projects, acutest and copt, are interface libraries, and the other vendored projects are static libraries. The targets have the same names in every app, because the libraries of `libs/` link the app's `vendor_acutest` and `vendor_tomlc17`.
 
 The `THIRD_PARTY_NOTICES.md` file of each app records the release and the commit of each vendored project. Renovate reads these records and opens a pull request for each new release. For tree-sitter and its grammars, [vendor/tree-sitter.toml](vendor/tree-sitter.toml) lists the upstream files that `vendor/` holds, and [vendor/tree-sitter.py](vendor/tree-sitter.py), which needs Python 3.11 or later, uses this list:
 
 - `vendor/tree-sitter.py check` fetches each recorded commit. It fails when `vendor/` does not hold exactly the listed files of that commit, or when the release no longer names that commit. The Vendored tree-sitter job of CI runs this check.
-- `vendor/tree-sitter.py sync <project>` replaces the sources of the project with the commit that its recorded release names, and records that commit. It prints the upstream changes to the query files that sosig ports to `apps/sosig/src/formats/queries/`.
+- `vendor/tree-sitter.py sync <project>` replaces the sources of the project with the commit that its recorded release names, and records that commit. It prints the upstream changes to the query files whose patterns `markup` keeps in `libs/markup/queries/`.
 
 The other vendored projects are updated by hand.
 
@@ -106,10 +106,29 @@ The other vendored projects are updated by hand.
 - `EXCLUDE_FROM_ALL` builds a library only when a target of the app links it.
 - Each library links `apps_build_project` of the app, so it compiles with the app's warnings and sanitizer options.
 - `SYSTEM` makes the include directories of the libraries system directories for the app, so the analysis of the app checks only the app's own code.
-- The libraries use the vendored targets of the app. The project adds `formats` only when the target `vendor_tomlc17` exists, so cwrap, which vendors no tomlc17, builds without it.
+- The libraries use the vendored targets of the app. The project adds `formats` only when the target `vendor_tomlc17` exists, so cwrap, which vendors no tomlc17, builds without it. It adds `markup` only when `formats` and the targets of `libs/markup/vendor.cmake` exist, so fram and cwrap build without it.
 - An app never builds the tests of the libraries.
 
 Configured on its own, from `libs/`, the project defines the vendored targets that the libraries need in [libs/vendor.cmake](libs/vendor.cmake), and builds every library, its analysis, its lint and its tests. `libs_add_unit_test(<lib> <module>)` registers the test `<lib>.<module>`, which links the library, `apps_build_tests`, acutest and the libraries in `LIBRARIES`. With `OS posix` or `OS memory`, the test also links `os_posix` or `os_memory`, and with `OS memory` it compiles with `APPS_TEST_OS_MEMORY` set to 1. Each library test has the labels `<lib>` and `unit`, and the same timeouts as the tests of an app. Each library appends its sources to the global property `apps_libs_lint_sources`, and the project creates its `format` and `lint` targets from that list.
+
+### Grammars
+
+`markup` links the grammars that [libs/markup/vendor.cmake](libs/markup/vendor.cmake) builds. That file also builds md4c, org4c and the tree-sitter runtime. Each app that links `markup` includes it from its own `vendor.cmake`, and the `libs/` project includes it from `libs/vendor.cmake`.
+
+`APPS_GRAMMARS` selects the tree-sitter grammars that a binary links. The default is an empty value, which links every grammar, as in the release archives. A list links only the grammars that it names, and each name in the list must be the name of one `markup_add_tree_sitter_grammar` call in `libs/markup/vendor.cmake`. These names are `c`, `bash`, `html`, `css`, `javascript`, `typescript`, `tsx` and `json`. If the binary does not link the grammar for the language of a code block, `markup` only escapes the block, as it does for a language that has no grammar.
+
+```sh
+cmake --preset release -B build/release-small -DAPPS_GRAMMARS="c;bash"
+cmake --build build/release-small -j 8
+```
+
+TypeScript and TSX are separate grammars. You can select either of them without `javascript`. Their queries include the query files of the JavaScript grammar.
+
+The configure step stops with an error when a name matches no grammar. It also stops with an error when `APPS_GRAMMARS` is not empty and `APPS_BUILD_TESTING` is on, because the tests need every grammar.
+
+Each selected grammar is a static library, `vendor_tree_sitter_<name>`. This library holds the highlight queries of the grammar as an embedded byte array. The parsers come from the root `vendor/` directory. The queries come from [libs/markup/queries/](libs/markup/queries/), where `markup` keeps its own copy of the upstream patterns. A grammar bump changes a query only when you port the changes of the upstream query files, as [libs/THIRD_PARTY_NOTICES.md](libs/THIRD_PARTY_NOTICES.md) describes. `vendor_tree_sitter_grammars` is an interface library. It links the selected grammars and carries the generated header `tree_sitter_grammars.h`, which declares the language, the queries and the names of each selected grammar. [libs/markup/highlight.c](libs/markup/highlight.c) defines its table of grammars from this header.
+
+With `address`, the CMake build also turns off the `function` check for the tree-sitter runtime, because the runtime calls the `create` function of each grammar scanner, and this function has no prototype.
 
 ### Format checks in shared
 
@@ -209,34 +228,16 @@ The source archive, `<app>-<version>-source.tar.gz`, holds the whole repository 
 ### sosig files and targets
 
 - [apps/sosig/CMakeLists.txt](apps/sosig/CMakeLists.txt) also finds the thread library.
-- [apps/sosig/vendor.cmake](apps/sosig/vendor.cmake) also defines a target for each tree-sitter grammar that `SOSIG_GRAMMARS` selects, and generates the header that declares these grammars. `vendor_tree_sitter_grammars` is an interface library. It links the selected grammars and carries the header, so `sosig_app` links this one target and not each grammar.
-- [apps/sosig/CMakePresets.json](apps/sosig/CMakePresets.json) adds the `grammars` presets.
-- `sosig` links the libraries `shared`, `core`, `runtime` with the POSIX host `os_posix`, `formats` and `site`, and for the unit tests `testing` and the in-memory host `os_memory`.
-- `sosig_app` links `vendor_tomlc17`, `core`, `formats`, `runtime`, `shared` and `site` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
-- `src/build/` and `src/formats/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
-- With `address`, the CMake build also turns off the `function` check for the tree-sitter runtime, because the runtime calls the `create` function of each grammar scanner, and this function has no prototype.
+- [apps/sosig/vendor.cmake](apps/sosig/vendor.cmake) also includes [libs/markup/vendor.cmake](libs/markup/vendor.cmake), as [Grammars](#grammars) describes.
+- [apps/sosig/CMakePresets.json](apps/sosig/CMakePresets.json) adds the `grammars` presets, which build `sosig` with only the TypeScript grammar.
+- `sosig` links the libraries `shared`, `core`, `runtime` with the POSIX host `os_posix`, `formats`, `markup` and `site`, and for the unit tests `testing` and the in-memory host `os_memory`.
+- `sosig_app` links `vendor_tomlc17`, `core`, `formats`, `markup`, `runtime`, `shared` and `site` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+- `src/build/` links the vendored dependencies that only its own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 - The version template is [apps/sosig/src/core/sosig_version.c.in](apps/sosig/src/core/sosig_version.c.in). The file that CMake generates from it also defines `sosig_generator_string()`.
-
-### Grammars
-
-`SOSIG_GRAMMARS` selects the tree-sitter grammars that the `sosig` binary links. The default is an empty value, which links every grammar, as in the release archives. A list links only the grammars that it names, and each name in the list must be the name of one `sosig_add_tree_sitter_grammar` call in [apps/sosig/vendor.cmake](apps/sosig/vendor.cmake). These names are `c`, `bash`, `html`, `css`, `javascript`, `typescript`, `tsx` and `json`. If the binary does not link the grammar for the language of a code block, `sosig` only escapes the block, as it does for a language that has no grammar.
-
-```sh
-cmake --preset release -B build/release-small -DSOSIG_GRAMMARS="c;bash"
-cmake --build build/release-small -j 8
-```
-
-TypeScript and TSX are separate grammars. You can select either of them without `javascript`. Their queries include the query files of the JavaScript grammar.
-
-The configure step stops with an error when a name matches no grammar. It also stops with an error when `SOSIG_GRAMMARS` is not empty and `APPS_BUILD_TESTING` is on, because the tests need every grammar.
-
-Each selected grammar is a static library, `vendor_tree_sitter_<name>`. This library holds the highlight queries of the grammar as an embedded byte array. The parsers come from the root `vendor/` directory. The queries come from [apps/sosig/src/formats/queries/](apps/sosig/src/formats/queries/), where sosig keeps its own copy of the upstream patterns. A grammar bump changes a query only when you port the changes of the upstream query files, as [apps/sosig/THIRD_PARTY_NOTICES.md](apps/sosig/THIRD_PARTY_NOTICES.md) describes. `vendor.cmake` generates `tree_sitter_grammars.h`, which declares the language, the queries and the names of each selected grammar. [apps/sosig/src/formats/highlight.c](apps/sosig/src/formats/highlight.c) defines its table of grammars from this header.
-
-`sosig --version` lists the grammars that the binary links. The build cache also records these grammars. When a binary with a different set of grammars builds a site, the first build renders every page again.
 
 ### sosig tests
 
-The tests need every tree-sitter grammar, as [Grammars](#grammars) describes. The tests registered without `OS memory` link the POSIX host. These tests are:
+The golden tests highlight code blocks, so they need every tree-sitter grammar, as [Grammars](#grammars) describes. The tests registered without `OS memory` link the POSIX host. These tests are:
 
 - the test that needs a real filesystem: `output_pruner_case`, which tests the prune on a case-insensitive `/tmp` and skips on a case-sensitive `/tmp`
 - the suites that are not yet converted to the in-memory host, which create their fixtures in a real temporary directory: `cli`, `cli_dispatch`, `cmd_config`, `entry_renderer`, `site_config` and `template`

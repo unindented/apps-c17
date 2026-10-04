@@ -48,7 +48,7 @@
       "matchDatasources": ["git-tags"],
       "matchDepNames": ["/^tree-sitter/"],
       "prBodyNotes": [
-        "For tree-sitter and its grammars, `vendor/tree-sitter.py sync {{{depName}}}` replaces the sources and records the commit. It also prints the upstream changes to the query files, to port to `apps/sosig/src/formats/queries/`. The Vendored tree-sitter job fails until the sources match the release."
+        "For tree-sitter and its grammars, `vendor/tree-sitter.py sync {{{depName}}}` replaces the sources and records the commit. It also prints the upstream changes to the query files, to port to `libs/markup/queries/`. The Vendored tree-sitter job fails until the sources match the release."
       ]
     }
   ]

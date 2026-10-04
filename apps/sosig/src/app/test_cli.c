@@ -7,7 +7,7 @@
 
 #include "app/cli.h"
 #include "core/sosig_version.h"
-#include "formats/highlight.h"
+#include "markup/highlight.h"
 #include "runtime/fs.h"
 #include "shared/str.h"
 #include "testing/test_support.h"

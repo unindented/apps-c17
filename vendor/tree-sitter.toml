@@ -4,7 +4,8 @@
 #
 # `files` and `exclude` are patterns of upstream paths, in which `*` also matches `/`. `strip` is a
 # prefix that the copy removes from each path. `queries` names the upstream query files whose
-# patterns sosig keeps in `apps/sosig/src/formats/queries/`, so a bump prints their diff to port.
+# patterns the `markup` library keeps in `libs/markup/queries/`, so a bump prints their diff to
+# port.
 
 [tree-sitter]
 files = ["LICENSE", "lib/include/*", "lib/src/*"]

@@ -2,7 +2,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "formats/body_html.h"
+#include "markup/body_html.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"

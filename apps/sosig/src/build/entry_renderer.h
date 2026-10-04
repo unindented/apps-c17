@@ -6,8 +6,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "formats/markdown.h"
-#include "formats/org.h"
+#include "markup/markdown.h"
+#include "markup/org.h"
 #include "shared/arena.h"
 
 struct ContentEntry;

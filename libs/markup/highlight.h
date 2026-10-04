@@ -1,5 +1,5 @@
-#ifndef SOSIG_HIGHLIGHT_H
-#define SOSIG_HIGHLIGHT_H
+#ifndef APPS_MARKUP_HIGHLIGHT_H
+#define APPS_MARKUP_HIGHLIGHT_H
 
 #include <stddef.h>
 
@@ -43,7 +43,7 @@ struct HighlightLines {
 };
 
 /**
- * @brief Returns the grammars the build links, by the names `SOSIG_GRAMMARS` takes.
+ * @brief Returns the grammars the build links, by the names `APPS_GRAMMARS` takes.
  *
  * @return The names, such as `c, bash, json`, joined by `, ` in the order `vendor.cmake` gives the
  *         grammars. The text is static.

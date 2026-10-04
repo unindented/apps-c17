@@ -12,7 +12,7 @@
 
 #include "core/parse.h"
 #include "core/sosig_version.h"
-#include "formats/highlight.h"
+#include "markup/highlight.h"
 #include "runtime/os.h"
 #include "shared/arena.h"
 #include "shared/buf.h"

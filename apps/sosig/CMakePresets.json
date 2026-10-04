@@ -12,7 +12,7 @@
       "inherits": "release",
       "displayName": "Release with only the TypeScript grammar",
       "cacheVariables": {
-        "SOSIG_GRAMMARS": "typescript"
+        "APPS_GRAMMARS": "typescript"
       }
     }
   ],

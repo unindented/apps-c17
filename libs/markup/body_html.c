@@ -1,11 +1,11 @@
-#include "formats/body_html.h"
+#include "markup/body_html.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 
 #include "core/ascii.h"
-#include "formats/highlight.h"
 #include "formats/html.h"
+#include "markup/highlight.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"

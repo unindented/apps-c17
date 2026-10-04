@@ -125,6 +125,11 @@ add_subdirectory(os_memory)
 if(TARGET vendor_tomlc17)
   add_subdirectory(formats)
 endif()
+# `markup` needs `formats` and the targets of `markup/vendor.cmake`. An app that includes no
+# `markup/vendor.cmake` links no `markup`, so its build leaves the library out.
+if(TARGET formats AND TARGET vendor_tree_sitter_grammars)
+  add_subdirectory(markup)
+endif()
 add_subdirectory(site)
 
 if(PROJECT_IS_TOP_LEVEL)

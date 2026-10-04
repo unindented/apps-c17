@@ -21,7 +21,7 @@
 #include "domain/build_cache.h"
 #include "domain/content_entry.h"
 #include "domain/site_config.h"
-#include "formats/highlight.h"
+#include "markup/highlight.h"
 #include "runtime/memory.h"
 #include "runtime/os.h"
 #include "runtime/pool.h"

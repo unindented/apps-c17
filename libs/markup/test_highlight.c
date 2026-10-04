@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "formats/highlight.h"
+#include "markup/highlight.h"
 #include "shared/arena.h"
 #include "shared/buf.h"
 #include "shared/str.h"
@@ -320,8 +320,8 @@ static void test_write_snippets(void) {
 }
 
 // The list of grammars names every grammar the tests link, in the order `vendor.cmake` gives them,
-// as `sosig --version` prints it and the build cache records it. Adding a grammar must update the
-// literal.
+// as an app's `--version` prints it and sosig's build cache records it. Adding a grammar must
+// update the literal.
 static void test_grammar_list_names_every_grammar(void) {
   TEST_CHECK(
       str_eq(highlight_grammar_list(), S("c, bash, html, css, javascript, typescript, tsx, json")));

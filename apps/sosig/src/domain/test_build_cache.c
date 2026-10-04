@@ -4,7 +4,7 @@
 
 #include "domain/build_cache.h"
 #include "domain/site_config.h"
-#include "formats/highlight.h"
+#include "markup/highlight.h"
 #include "runtime/os.h"
 #include "shared/arena.h"
 #include "shared/buf.h"

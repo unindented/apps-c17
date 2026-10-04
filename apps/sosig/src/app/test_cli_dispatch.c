@@ -12,7 +12,7 @@
 #include "app/cli_dispatch.h"
 #include "core/exit_code.h"
 #include "core/sosig_version.h"
-#include "formats/highlight.h"
+#include "markup/highlight.h"
 #include "runtime/fs.h"
 #include "shared/arena.h"
 #include "shared/buf.h"

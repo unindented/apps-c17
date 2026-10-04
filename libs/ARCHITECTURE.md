@@ -5,8 +5,8 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 ## Layout
 
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and its presets. An app adds the project with `add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)`, so a library builds only when the app links it. Configured on its own, the project builds every library, its tests, its analysis and its lint.
-- [vendor.cmake](vendor.cmake): The vendored targets that the libraries and their tests use when the project is configured on its own: `acutest` and `tomlc17`, from the root [vendor/](../vendor/) directory. An app that adds the project gives these targets from its own `vendor.cmake`.
-- [shared/](shared/), [core/](core/), [testing/](testing/), [runtime/](runtime/), [os_memory/](os_memory/), [formats/](formats/) and [site/](site/): One directory for each library, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
+- [vendor.cmake](vendor.cmake): The vendored targets that the libraries and their tests use when the project is configured on its own: `acutest` and `tomlc17`, from the root [vendor/](../vendor/) directory, and the targets of [markup/vendor.cmake](markup/vendor.cmake). An app that adds the project gives these targets from its own `vendor.cmake`, which includes `markup/vendor.cmake` when the app links `markup`.
+- [shared/](shared/), [core/](core/), [testing/](testing/), [runtime/](runtime/), [os_memory/](os_memory/), [formats/](formats/), [markup/](markup/) and [site/](site/): One directory for each library, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
 
 ## Libraries
 
@@ -18,6 +18,7 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 | [`runtime`](#runtime) | The host interface, its POSIX implementation `os_posix`, the out-of-memory report, the worker pool and the directory walk. | sosig, fram |
 | [`os_memory`](#os_memory) | The in-memory implementation of the host interface. | the unit tests of sosig, fram and the libraries |
 | [`formats`](#formats) | HTML escaping and the TOML helpers. | sosig, fram |
+| [`markup`](#markup) | Markdown and Org to HTML, and the syntax highlighting of code blocks with tree-sitter. | sosig |
 | [`site`](#site) | The output manifest, the build job, output paths and the output writer. | sosig, fram |
 
 cwrap has a smaller host interface of its own in its `src/runtime/`, and links neither `runtime` nor `os_memory`.
@@ -28,6 +29,7 @@ cwrap has a smaller host interface of its own in its `src/runtime/`, and links n
 - `testing` and `runtime` depend on `core` and `shared`.
 - `os_memory` depends on `runtime` and `testing`.
 - `formats` depends on `core`, `shared` and the vendored `tomlc17`. The project adds `formats` only when the `vendor_tomlc17` target exists, so an app that vendors no tomlc17, such as cwrap, builds without it.
+- `markup` depends on `core`, `formats`, `shared` and the targets of `markup/vendor.cmake`: md4c, org4c, and tree-sitter with its grammars. The project adds `markup` only when these targets and `formats` exist.
 - `site` depends on `core`, `runtime` and `shared`.
 - No library depends on an app.
 
@@ -83,6 +85,36 @@ Each property that a test checks against the in-memory host must have a contract
 
 - [html](formats/html.h): HTML escaping of untrusted text for generated markup.
 - [toml](formats/toml.h): TOML parsing, text validation at the boundary where parsed bytes become owned text, and the conversion and formatting of dates and datetimes. `toml_require_known_keys` is the shared check for unknown keys. It reports each table key that is not in the list of known keys that a loader gives, and it reports a key that contains a `NUL` byte without its name, but with the name of its table.
+
+## markup
+
+- [body_html](markup/body_html.h): The markup that the Markdown and Org renderers share, written in one place for both: headings, footnotes, task checkboxes, admonitions, math, code blocks that `highlight` highlights, and the escaping of link targets. It also defines `LinkTargets`, a callback that both renderers give the target of every link and image. The callback can write a URL of its own for a target, or decline, and then the renderer writes the target itself. The modules know nothing about content files.
+- [highlight](markup/highlight.h): Syntax highlighting of a code block with tree-sitter. `highlight_grammar_find` finds the grammar for a language name among the grammars that `APPS_GRAMMARS` compiles in. [markup/vendor.cmake](markup/vendor.cmake) declares these grammars in a header that it generates, with the highlight queries from [markup/queries/](markup/queries/). `highlight_grammar_list` names those grammars. `highlight_write` writes the code with a `<span class="tok-…">` around each token that the grammar's highlight query captures. It writes the code plain, only escaped, when there is no grammar or when the code block goes past a memory limit.
+- [markdown](markup/markdown.h): `markdown_to_html` parses Markdown with md4c and its extension set, and writes the HTML through its own callbacks. It gives each link and image destination, as written, to the `LinkTargets` callback of its caller.
+- [org](markup/org.h): `org_to_html` parses Org with org4c, its flags, and the file's `#+OPTIONS:` lines, and writes the HTML through its own callbacks. It gives the org4c type and the path of each link and image to the `LinkTargets` callback of its caller. A `file` link without a description shows the URL that the callback wrote.
+
+The modules escape text with `formats/html.h`.
+
+### Highlighting: shared queries, memory per code block
+
+**Decision.**
+
+1. `highlight` compiles each grammar's highlight query at the grammar's first lookup, under a lock. The query lives until the process exits, and every worker reads it.
+2. For each code block, the writer makes a new tree-sitter parser and query cursor, and deletes them and the tree before it returns.
+3. While the writer highlights a code block, tree-sitter allocates from the scratch that the writer gets. A thread-local variable points the allocator at that scratch. The allocator puts a freed allocation on a free list for its exact size, and all of these allocations go away with the scratch. At other times, for example when `highlight` compiles a query, the allocator calls `malloc`, and calls `os_oom` when `malloc` fails.
+4. If the parse of a code block takes more than `HIGHLIGHT_MEMORY_LEN_MAX` (128 MiB), or its tree has an error node with more than 4096 children, the writer writes the code block plain, as for a language with no grammar. If a query would take more memory, or more work than the length of its code block allows, the writer writes the rest of the code block plain.
+
+**Reasons.**
+
+- Query compilation takes 2 to 15 ms, so it occurs once. A new parser and cursor take less than a microsecond to make, so each code block gets its own, and no job or pool carries state for each worker.
+- Tree-sitter recovers from tens of thousands of unclosed brackets with one error node that has that many children, and its query steps over the later siblings of a node at each of them. It also follows a match at every level of brackets nested 65,536 deep or more. Each of these cases takes seconds on a code block of a few hundred KB. A well-formed wide node, such as a long table of numbers, is as fast as other code, and real code takes at most three work reports per KiB, so the bounds catch only such code blocks.
+- The queries are immutable after compilation, and a site that names no language compiles none. If the code freed them at exit, the free could race a worker that still highlights when `os_oom` ends the process. They are the one tree-sitter allocation that no call frees.
+- With musl's `malloc`, a parse on eight threads is no faster than on one thread. Allocation from each worker's scratch makes it scale, and when the scratch runs out, the result is the arena's `os_oom`.
+- If `free` did nothing, text that a grammar cannot parse could commit memory up to the limit before the writer writes the code block plain. The free lists reuse each allocation for the next allocation of the same size.
+- The limit bounds the scratch that one code block can use. Each converter splits a region of twice the limit off its scratch for its code blocks, so that region, like every arena, gets its size from a limit, and sosig's `BUILD_SCRATCH_LEN` counts it, together with the code that a converter holds until a code block ends.
+- A plain code block is an exception to the rule to fail immediately at a limit, because a build that fails over a code block's colors helps no one, and `markup` has no log.
+
+**Cost.** An Org code block that is almost all code references with a short `-l` label format is the one input that the limits accept and `BUILD_SCRATCH_LEN` does not hold, as the definition of sosig's `BUILD_SCRATCH_LEN` explains.
 
 ## site
 
