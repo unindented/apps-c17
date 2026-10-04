@@ -375,7 +375,7 @@ target_include_directories(
 
 add_library(vendor_stb STATIC src/formats/stb.c)
 target_include_directories(
-  vendor_stb SYSTEM PUBLIC "$<BUILD_INTERFACE:${vendor_dir}/stb>"
+  vendor_stb SYSTEM PUBLIC "$<BUILD_INTERFACE:${vendor_dir}/stb_image_resize>"
 )
 # `src/formats/stb.c` compiles the resizer, and routes its allocator hooks to `image_alloc` in
 # `src/formats/image.c`, so it includes that module's header, which includes `shared/str.h`.

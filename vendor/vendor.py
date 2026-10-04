@@ -146,20 +146,19 @@ def report(message):
 
 def check_notices(manifest):
     """Reports each notices line whose pin differs from the manifest, and returns the count."""
-    names = {spec.get("notice", name): name for name, spec in manifest.items()}
     problems = 0
     for path in notice_paths():
         with open(os.path.join(ROOT, path), encoding="utf-8") as file:
             notices = file.read()
         for match in re.finditer(NOTICE_PATTERN, notices):
-            name = names.get(match["name"])
-            if name is None:
-                report(f"'{path}' lists '{match['name']}', which '{MANIFEST}' does not pin")
+            name = match["name"]
+            if name not in manifest:
+                report(f"'{path}' lists '{name}', which '{MANIFEST}' does not pin")
                 problems += 1
                 continue
             spec = manifest[name]
             if match["url"] != spec["url"] or match["pin"] != pin_text(spec):
-                report(f"'{path}' records another pin for '{match['name']}'; run "
+                report(f"'{path}' records another pin for '{name}'; run "
                        f"'vendor/vendor.py sync {name}'")
                 problems += 1
     return problems
@@ -224,15 +223,14 @@ def record_commit(manifest_text, name, commit):
 
 def record_notices(manifest):
     """Rewrites the `Vendored at` line of every project in every notices file."""
-    names = {spec.get("notice", name): name for name, spec in manifest.items()}
     for path in notice_paths():
         full = os.path.join(ROOT, path)
         with open(full, encoding="utf-8") as file:
             notices = file.read()
 
         def repin(match):
-            name = names.get(match["name"])
-            if name is None:
+            name = match["name"]
+            if name not in manifest:
                 return match[0]
             return match[0][:match.start("pin") - match.start()] + pin_text(manifest[name])
 

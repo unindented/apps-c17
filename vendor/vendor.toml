@@ -5,7 +5,6 @@
 # - `url`, `release` and `commit`: the upstream repository, the release tag without its `v`, and the
 #   commit. A project without `release` is pinned by commit alone. Renovate reads `url` and
 #   `release`, so they come first, in this order.
-# - `notice`: the name of the project's heading in the notices, when it is not the directory's name.
 # - `files` and `exclude`: patterns of upstream paths. `*` matches within one path segment, and
 #   `**/` matches any number of directories.
 # - `strip`: a prefix that the copy removes from each upstream path.
@@ -120,10 +119,9 @@ commit = "1992acc87935839083e243e28c99d52dac3e5ad8"
 files = ["LICENSE.txt", "src/entity.c", "src/entity.h", "src/org4c.c", "src/org4c.h"]
 strip = "src/"
 
-[stb]
+[stb_image_resize]
 url = "https://github.com/nothings/stb_image_resize"
 commit = "2768987dbd7119eb840104b7a3f96ff09d21a7b4"
-notice = "stb_image_resize"
 # The header ends with its license.
 files = ["stb_image_resize2.h"]
 
