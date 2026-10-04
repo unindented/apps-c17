@@ -12,7 +12,7 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 
 | Library | Contents | Linked by |
 | --- | --- | --- |
-| [`shared`](shared/README.md) | The arena allocator, counted strings, growable buffers and the error log. | sosig, fram, cwrap |
+| [`shared`](#shared) | The arena allocator, counted strings, growable buffers and the error log. | sosig, fram, cwrap |
 | [`core`](#core) | ASCII classification, error text, exit codes, number parsing, paths, path lists and text helpers. | sosig, fram, cwrap |
 | [`testing`](#testing) | The support that every unit test uses, and the `os_oom` of the unit tests. | the unit tests of every app and of the other libraries |
 | [`runtime`](#runtime) | The host interface, its POSIX implementation `os_posix`, the out-of-memory report, the worker pool and the directory walk. | sosig, fram |
@@ -33,7 +33,7 @@ cwrap has a smaller host interface of its own in its `src/runtime/`, and links n
 - `site` depends on `core`, `runtime` and `shared`.
 - No library depends on an app.
 
-A library include names the library and the module, for example `#include "core/parse.h"` or `#include "site/manifest.h"`. Each library has an include root of its own: `libs_add_include_root` makes a directory in the build tree that holds one link, named for the library, to the library's directory, and gives the target that directory as its include root. `shared` has its own include root in the source tree, `shared/include/`, as in `#include "shared/str.h"`. A target therefore reaches the headers of the libraries that it links and of no other library. A header guard is `APPS_<LIB>_<MODULE>_H`, for example `APPS_CORE_PARSE_H`. An app's own `src/<layer>/` holds only modules that no library it links has, so an app's include never resolves to a different file than the library's. An app's header can have the same path as a header of a library that the app does not link, as cwrap's `runtime/os.h` has.
+A library include names the library and the module, for example `#include "core/parse.h"` or `#include "site/manifest.h"`. Each library has an include root of its own: `libs_add_include_root` makes a directory in the build tree that holds one link, named for the library, to the library's directory, and gives the target that directory as its include root. A target therefore reaches the headers of the libraries that it links and of no other library. A header guard is `APPS_<LIB>_<MODULE>_H`, for example `APPS_CORE_PARSE_H`. An app's own `src/<layer>/` holds only modules that no library it links has, so an app's include never resolves to a different file than the library's. An app's header can have the same path as a header of a library that the app does not link, as cwrap's `runtime/os.h` has.
 
 ### Build profiles and analysis
 
@@ -42,6 +42,167 @@ Each library target links the `apps_build_project` profile of the project that b
 ### Tests
 
 Only the top-level `libs/` project builds the library tests, and only when `APPS_BUILD_TESTING` is on. An app that adds the project never registers them. `libs_add_unit_test(<library> <module>)` compiles `test_<module>.c` into the executable `<library>_unit_<module>` and registers it as the CTest case `<library>.<module>`. The test links the library, `apps_build_tests`, acutest and the libraries that the call names. With `OS posix`, the test links `os_posix`. With `OS memory`, it links `os_memory` and compiles with `APPS_TEST_OS_MEMORY` set to 1. `NAME` gives the executable and the case another name, so that one source can build more than one test, as the `os` contract tests do.
+
+## shared
+
+The library has four modules. Each module builds on the modules before it:
+
+1. An arena allocates memory.
+2. A string is a view of that memory.
+3. A buffer grows a string in an arena.
+4. A log is a buffer of error messages.
+
+### `os_oom`
+
+When an allocation does not fit in an arena, the arena calls `os_oom`. This function must not return. The library does not define `os_oom`, because only the application knows which message to print and which exit status to use when it runs out of memory. Each program that links the library must define `os_oom` once:
+
+```c
+_Noreturn void os_oom(void) {
+  fputs("myprogram: out of memory\n", stderr);
+  _Exit(EXIT_FAILURE);
+}
+```
+
+### Arenas
+
+[`shared/arena.h`](shared/arena.h) defines `struct Arena`, which allocates memory in sequence from one region. If a program frees each allocation separately, it must decide for each pointer who owns it and when to free it, and each allocation can fail. An arena does not free allocations one at a time, and its allocation functions never return `NULL`. If an allocation does not fit, the arena calls [`os_oom`](#os_oom). Data lives as long as its region, unless the program allocated the data through a copy of the arena and then dropped that copy.
+
+`arena_reserve` reserves only address space. The arena makes pages usable when allocations reach them, so a large reservation costs memory only for the pages that allocations reach, even on a system with strict overcommit. An arena can also use a static array as its region. In that case, leave `limit` as `NULL`:
+
+```c
+struct Arena arena;
+if (arena_reserve(1 << 30, &arena) != 0) {
+  // report the error and stop; nothing has been reserved
+}
+
+static char storage[1 << 16];
+struct Arena fixed = {.beg = storage, .end = storage + sizeof storage};
+```
+
+| Call | Effect |
+| --- | --- |
+| `arena_reserve(len, &arena)` | Reserves `len` bytes of address space. If the system refuses the reservation, it returns `-1` and sets `errno`. |
+| `arena_reserve_halving(len, &arena)` | Reserves `len` bytes. If the system refuses the full size, for example because of `ulimit -v`, it reserves a power-of-two fraction of `len`. Returns the number of times that it halved the size. |
+| `arena_split(&arena, len)` | Removes the first `len` bytes from the free space of `arena`, and returns a new arena over them, for example one arena for each thread. |
+| `arena_release(region)` | Gives a whole reserved region back to the system. |
+| `arena_new(&arena, count, Type)` | Returns zeroed, aligned storage for `count` objects of `Type`. |
+| `arena_alloc(&arena, count, size, align)` | Returns zeroed storage for `count` objects, with a size and an alignment in bytes. |
+| `arena_grow(&arena, data, &capacity, size, align)` | Doubles the capacity of a growable array. If the array is the last allocation, it grows in place. |
+| `arena_extend(&arena, count, size)` | Returns bytes directly after the last allocation, and does not zero them. |
+| `arena_discard(&arena, data, len)` | Gives the pages of a large buffer back to the system while the arena stays in use. The buffer loses its bytes, but the program can still use the buffer. |
+
+To simulate an address-space limit, a test can lower `arena_reserve_len_max`.
+
+Pass an arena by pointer for data that the caller keeps, and by value for scratch memory. A function that returns data takes `struct Arena* perm` and allocates its result in that arena. A function that needs only scratch memory takes `struct Arena scratch` by value. The function allocates through its own copy of the bounds, so all of its allocations are free again when it returns:
+
+```c
+struct Str render_title(struct Str name, struct Arena* perm, struct Arena scratch);
+```
+
+To use an arena correctly:
+
+- Never assume that two allocations are next to each other. In a build with the address sanitizer, the arena puts a gap between allocations. To grow an allocation in place, use `arena_grow` or `arena_extend`.
+- Never let two threads allocate from the same arena. Give each thread its own region with `arena_split`.
+- Never grow a buffer or a log in an arena that you also pass by value to another function. That function allocates the same bytes that the buffer grows into, so the two overwrite each other's data without a crash.
+- With the address sanitizer, an arena over a reserved region poisons all bytes that are not part of an allocation, so the sanitizer reports a read or write past the end of an allocation. When a function returns, the arena cannot poison the scratch memory of that function again, so the sanitizer does not report a later use of that memory.
+
+### Strings
+
+[`shared/str.h`](shared/str.h) defines `struct Str`, which holds a pointer and a signed `ptrdiff_t` length. A C string marks its end with a `NUL`, so a substring needs a copy. The lengths of C strings are unsigned, so `a - b` can wrap to a very large value. A substring of a `struct Str` is a view of the original bytes, a `NUL` is an ordinary byte, and arithmetic on lengths cannot wrap. The zero value, `(struct Str){0}`, is the empty string.
+
+| Call | Effect |
+| --- | --- |
+| `S("literal")` | Makes a string from a literal. |
+| `STR_INIT("literal")` | Initializes a string in a static table. |
+| `str_from_cstr(cstr)` | Wraps a C string that comes from outside the program. |
+| `str_head(s, n)`, `str_tail(s, n)` | Return a view of the first `n` bytes, or of the bytes after them. |
+| `str_cut(s, c)` | Splits `s` at the first `c` into a `head` view and a `tail` view. Sets `is_found` if `s` contains `c`. |
+| `str_eq`, `str_compare`, `str_startswith`, `str_endswith` | Compare two strings. |
+| `str_clone(s, arena)`, `str_concat(head, tail, arena)` | Copy the bytes into an arena. |
+| `str_cstr(s, arena)` | Copies the bytes into an arena and adds a terminator, for an interface that needs a C string. |
+| `STR_FMT(s)` | Expands to the two arguments that `%.*s` takes: the length as an `int`, and the data. |
+
+The view functions do not copy bytes. To walk a delimited list, call `str_cut` on each tail in turn:
+
+```c
+struct StrCut cut = {.tail = S("a,b,c")};
+while (cut.tail.len > 0) {
+  cut = str_cut(cut.tail, ',');
+  // cut.head is "a", then "b", then "c"
+}
+```
+
+To use a string correctly:
+
+- Pass a `struct Str` by value. Its size is two machine words.
+- A view is valid only while the bytes that it points to exist. Before those bytes go away, copy the view with `str_clone`.
+- Convert a length to `size_t` only where you call a libc, POSIX, or vendored function. At that point, check that the length is not negative.
+- Make a C string with `str_cstr` only where an interface needs one, such as a path for a system call. A `NUL` inside the string ends the C string early. If the input can contain a `NUL`, check for it first.
+- Print a string with `%.*s` and `STR_FMT(s)`. `STR_FMT` evaluates its argument twice, so pass a variable, not an expression with side effects. `%.*s` stops at the first `NUL`, and does not print the bytes after it.
+
+### Buffers
+
+[`shared/buf.h`](shared/buf.h) defines `struct Buf`, which grows a string in an arena. A program often builds output, such as a rendered page or a message, from many small appends, and does not know the total size in advance. While the buffer is the last allocation in its arena, the buffer grows in place, so a large output usually needs no copies. Start a buffer with the arena that it grows in, append to it, and then read it back as a string:
+
+```c
+struct Buf out = {.arena = perm};
+buf_append(&out, S("<h1>"));
+buf_printf(&out, "%.*s", STR_FMT(title));
+buf_append_char(&out, '\n');
+struct Str html = buf_str(&out);
+```
+
+| Call | Effect |
+| --- | --- |
+| `buf_append(&buffer, s)` | Appends a string. |
+| `buf_append_char(&buffer, c)` | Appends one byte. |
+| `buf_printf(&buffer, format, ...)` | Appends formatted text. It never truncates the text. |
+| `buf_vprintf_measured(&buffer, text_len, format, args)` | Appends the text of a `va_list`. The caller measures the text with `vsnprintf` and gives the length as `text_len`. A function that formats its own arguments, as `buf_printf` does, calls it in its second pass. |
+| `buf_str(&buffer)` | Returns all bytes in the buffer as a string. |
+| `buf_cstr(&buffer)` | Adds a terminator, which `len` does not count, and returns the buffer as a C string, for an interface that needs one. |
+
+To use a buffer correctly:
+
+- The buffer's arena must outlive the buffer. While the buffer grows, pass its arena by pointer, never by value.
+- If you take a pointer into the buffer and the buffer then grows, the pointer still reads the old bytes, but it does not see later appends. Call `buf_str` after the last append.
+- `buf_printf` and `buf_vprintf_measured` have the `format` attribute. Compile with `-Wformat`, so that the compiler checks each format against its arguments.
+
+### Logs
+
+[`shared/log.h`](shared/log.h) defines `struct Log`, which holds a buffer of error lines and a count of the errors. A fixed-size error buffer truncates long messages and holds only the first error. With a log, a program can do these things:
+
+- Continue after an error.
+- Report all of the errors together.
+- Check `log.errors` before it does an action that it cannot undo.
+
+Give the log its own arena, record errors with `printf` formats, and check the count before the first action that the program cannot undo:
+
+```c
+struct Log log = {.buf = {.arena = &log_arena}};
+
+if (load_config(path, &perm, scratch, &log) != 0) {
+  // load_config called log_error and returned its -1
+}
+if (log.errors > 0) {
+  fputs(buf_cstr(&log.buf), stderr);
+  return EXIT_FAILURE;
+}
+```
+
+| Call | Effect |
+| --- | --- |
+| `log_error(log, format, ...)` | Records one line and returns `-1`. This lets a function that can fail end with `return log_error(log, "failed to read '%.*s': %s", STR_FMT(path), cause);`. |
+| `log_error_in(log, file, format, ...)` | Records one line about an error inside `file`, adds ` (in '<file>')` to the end of the line, and returns `-1`. |
+| `log_append(log, source)` | Copies the lines of `source` into `log`, and adds the error count of `source` to the count of `log`. For example, after the workers finish, copy the log of each worker into the main log. |
+
+A wrapper that adds context formats its own message in scratch memory. Then it records the message with `log_error(log, "%.*s", ...)`.
+
+To use a log correctly:
+
+- Make the log the last parameter of a function that can fail. When the function records an error, return `-1`.
+- Put the log in an arena that you never pass by value. The simplest choice is a region that only the log uses.
+- Give each thread its own log. After the threads finish, merge the logs with `log_append` in a fixed order, so that the output does not depend on the order in which the threads run.
+- `log_error` and `log_error_in` have the `format` attribute. Give the same attribute to each wrapper that formats its own arguments.
 
 ## core
 

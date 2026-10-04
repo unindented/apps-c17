@@ -27,23 +27,21 @@ if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
   set(apps_clang_tidy_command "")
 endif()
 
-# Production and test targets run cppcheck with the same arguments. CMake hands cppcheck only the
-# `-I` include directories, not the `-isystem` ones, so the `shared` library headers are named
-# explicitly: without them cppcheck cannot expand `STR_FMT` and miscounts `printf` arguments.
+# Production and test targets run cppcheck with the same arguments.
 set(apps_cppcheck_property
-    "${apps_cppcheck_command};--enable=warning,performance,portability;--std=${apps_cppcheck_standard};--error-exitcode=1;--quiet;-I${apps_root_dir}/libs/shared/include"
+    "${apps_cppcheck_command};--enable=warning,performance,portability;--std=${apps_cppcheck_standard};--error-exitcode=1;--quiet"
 )
 
-# An app's build adds the libraries as `SYSTEM`, so cppcheck gets their include roots from
-# `APPS_LIBRARIES`, the libraries that the app and its tests link, which the app sets. A library
-# that the app does not link stays out, so a header of the app with the same path as one of that
-# library, such as cwrap's `runtime/os.h`, is the one cppcheck reads.
+# CMake hands cppcheck only the `-I` include directories, not the `-isystem` ones, and an app's
+# build adds the libraries as `SYSTEM`, so cppcheck gets their include roots from `APPS_LIBRARIES`,
+# the libraries that the app and its tests link, which the app sets. Without the root of `shared`,
+# cppcheck cannot expand `STR_FMT` and miscounts `printf` arguments. A library that the app does not
+# link stays out, so a header of the app with the same path as one of that library, such as cwrap's
+# `runtime/os.h`, is the one cppcheck reads.
 function(apps_cppcheck_arguments arguments_out)
   set(arguments "${apps_cppcheck_property}")
   foreach(library IN LISTS APPS_LIBRARIES)
-    if(NOT library STREQUAL "shared")
-      list(APPEND arguments "-I${CMAKE_BINARY_DIR}/libs/include/${library}")
-    endif()
+    list(APPEND arguments "-I${CMAKE_BINARY_DIR}/libs/include/${library}")
   endforeach()
   set(${arguments_out} "${arguments}" PARENT_SCOPE)
 endfunction()

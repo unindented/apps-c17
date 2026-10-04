@@ -1,4 +1,4 @@
-#include "test_oom.h"
+#include "shared/test_oom.h"
 
 #include <acutest.h>
 #include <stdarg.h>

@@ -1,4 +1,4 @@
-#include "test_oom.h"
+#include "shared/test_oom.h"
 
 #include <acutest.h>
 #include <fcntl.h>
@@ -7,8 +7,8 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "asan.h"
 #include "shared/arena.h"
+#include "shared/asan.h"
 #include "shared/buf.h"
 
 /** Bytes of backing memory each test's arena covers. */

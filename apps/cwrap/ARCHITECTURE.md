@@ -241,7 +241,7 @@ Then `os_oom` exits with `EXIT_CODE_FAILURE`.
 
 ### Counted strings with signed lengths
 
-**Decision.** Every first-party string is a `struct Str` from [str.h](../../libs/shared/include/shared/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. Every length, count and column is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`.
+**Decision.** Every first-party string is a `struct Str` from [str.h](../../libs/shared/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. Every length, count and column is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`.
 
 **Reasons.**
 

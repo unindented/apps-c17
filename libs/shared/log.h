@@ -1,5 +1,5 @@
-#ifndef SHARED_LOG_H
-#define SHARED_LOG_H
+#ifndef APPS_SHARED_LOG_H
+#define APPS_SHARED_LOG_H
 
 #include <stddef.h>
 

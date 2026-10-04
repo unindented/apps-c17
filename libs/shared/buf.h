@@ -1,5 +1,5 @@
-#ifndef SHARED_BUF_H
-#define SHARED_BUF_H
+#ifndef APPS_SHARED_BUF_H
+#define APPS_SHARED_BUF_H
 
 #include <stdarg.h>
 #include <stddef.h>

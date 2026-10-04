@@ -1,5 +1,5 @@
-#ifndef SHARED_ASAN_H
-#define SHARED_ASAN_H
+#ifndef APPS_SHARED_ASAN_H
+#define APPS_SHARED_ASAN_H
 
 // GCC and newer Clang define `__SANITIZE_ADDRESS__` under `-fsanitize=address`. Apple Clang does
 // not, but answers `__has_feature(address_sanitizer)`. cppcheck evaluates the second test even

@@ -14,7 +14,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include "asan.h"
+#include "shared/asan.h"
 
 /** Capacity `arena_grow` gives an array that has none yet. */
 enum { ARENA_GROW_CAPACITY_MIN = 8 };

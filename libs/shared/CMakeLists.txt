@@ -1,14 +1,8 @@
 # `shared`: the arena allocator, counted strings, growable buffers and the error log.
 
 add_library(shared STATIC)
-target_sources(
-  shared
-  PRIVATE src/arena.c src/buf.c src/log.c src/str.c
-  PUBLIC FILE_SET HEADERS
-         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/include"
-         FILES include/shared/arena.h include/shared/buf.h include/shared/log.h
-               include/shared/str.h
-)
+target_sources(shared PRIVATE arena.c buf.c log.c str.c arena.h asan.h buf.h log.h str.h)
+libs_add_include_root(shared shared)
 target_compile_features(shared PUBLIC c_std_17)
 # The library compiles with the build profile of the project that builds it, so an app's sanitizer
 # build also instruments the arena, and the arena's ASan poisoning runs in that build.
@@ -20,21 +14,21 @@ target_link_options(shared PUBLIC ${apps_sanitizer_flags})
 set_property(
   GLOBAL APPEND
   PROPERTY apps_libs_lint_sources
-           "${CMAKE_CURRENT_SOURCE_DIR}/include/shared/arena.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/include/shared/buf.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/include/shared/log.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/include/shared/str.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/src/arena.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/src/asan.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/src/buf.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/src/log.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/src/str.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/src/test_arena.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/src/test_buf.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/src/test_format_compile.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/src/test_log.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/src/test_oom.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/src/test_str.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/arena.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/arena.h"
+           "${CMAKE_CURRENT_SOURCE_DIR}/asan.h"
+           "${CMAKE_CURRENT_SOURCE_DIR}/buf.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/buf.h"
+           "${CMAKE_CURRENT_SOURCE_DIR}/log.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/log.h"
+           "${CMAKE_CURRENT_SOURCE_DIR}/str.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/str.h"
+           "${CMAKE_CURRENT_SOURCE_DIR}/test_arena.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/test_buf.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/test_format_compile.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/test_log.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/test_oom.h"
+           "${CMAKE_CURRENT_SOURCE_DIR}/test_str.c"
 )
 
 if(NOT PROJECT_IS_TOP_LEVEL)
@@ -48,11 +42,11 @@ if(NOT libs_build_testing)
 endif()
 
 foreach(module IN ITEMS arena buf log str)
-  libs_add_unit_test(shared ${module} SOURCE src/test_${module}.c)
+  libs_add_unit_test(shared ${module})
 endforeach()
 
 # The `format` attribute on `buf_printf` and `log_error` must make the compiler refuse a call
-# whose arguments disagree with its format. Each case compiles `src/test_format_compile.c` with
+# whose arguments disagree with its format. Each case compiles `test_format_compile.c` with
 # one macro defined and expects the compiler error in `expect`, in Clang's or GCC's wording. The
 # control case defines none and must compile. Fields are separated by `~`, because a regex holds
 # `|`.
@@ -77,10 +71,9 @@ foreach(compile_case IN LISTS shared_format_compile_cases)
     NAME "shared.format_compile.${name}"
     COMMAND
       "${CMAKE_COMMAND}" "-DCOMPILER=${CMAKE_C_COMPILER}"
-      "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/src/test_format_compile.c"
-      "-DINCLUDE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/include" "-DCASE=${define}" "-DEXPECT=${expect}"
-      "-DSYSROOT=${CMAKE_OSX_SYSROOT}" -P
-      "${CMAKE_CURRENT_SOURCE_DIR}/cmake/shared_compile_fail.cmake"
+      "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/test_format_compile.c"
+      "-DINCLUDE_DIR=${PROJECT_BINARY_DIR}/include/shared" "-DCASE=${define}" "-DEXPECT=${expect}"
+      "-DSYSROOT=${CMAKE_OSX_SYSROOT}" -P "${CMAKE_CURRENT_SOURCE_DIR}/compile_fail.cmake"
   )
   set_tests_properties("shared.format_compile.${name}" PROPERTIES LABELS "shared;unit")
 endforeach()

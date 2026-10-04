@@ -1,5 +1,5 @@
-#ifndef SHARED_TEST_OOM_H
-#define SHARED_TEST_OOM_H
+#ifndef APPS_SHARED_TEST_OOM_H
+#define APPS_SHARED_TEST_OOM_H
 
 // `fork` and `waitpid` are POSIX rather than C17, so a strict `-std=c17` compile hides them unless
 // a feature-test macro asks for them. macOS needs `_DARWIN_C_SOURCE` as well, because its

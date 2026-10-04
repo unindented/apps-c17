@@ -1,5 +1,5 @@
-#ifndef SHARED_ARENA_H
-#define SHARED_ARENA_H
+#ifndef APPS_SHARED_ARENA_H
+#define APPS_SHARED_ARENA_H
 
 #include <stddef.h>
 
