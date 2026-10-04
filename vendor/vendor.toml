@@ -10,23 +10,21 @@
 #   `**/` matches any number of directories.
 # - `strip`: a prefix that the copy removes from each upstream path.
 # - `patches`: patches under `vendor/patches/`, applied to the copy in order.
-# - `local`: patterns of files this repository writes, such as a license text that upstream does
-#   not ship as a file. The check skips them, and a sync keeps them.
+# - `local`: patterns of files this repository writes, such as configuration headers that upstream
+#   generates in its build. The check skips them, and a sync keeps them.
 # - `queries`: upstream query files whose patterns `libs/markup/queries/` keeps, whose diff a sync
 #   prints to port.
 
 [acutest]
 url = "https://github.com/mity/acutest"
 commit = "31751b4089c93b46a9fd8a8183a695f772de66de"
-files = ["include/acutest.h"]
+files = ["LICENSE.md", "include/acutest.h"]
 strip = "include/"
-local = ["LICENSE.txt"]
 
 [copt]
 url = "https://github.com/fardaniqbal/copt"
 commit = "1b466222f51ac59cc6c972d68afa340b4e024d71"
-files = ["copt.h"]
-local = ["LICENSE.txt"]
+files = ["LICENSE", "copt.h"]
 
 [libjpeg-turbo]
 url = "https://github.com/libjpeg-turbo/libjpeg-turbo"
@@ -105,17 +103,15 @@ exclude = [
 [md4c]
 url = "https://github.com/mity/md4c"
 commit = "f9e5eb232b95b737373ae706648cb75bd259ed1a"
-files = ["src/md4c.c", "src/md4c.h"]
+files = ["LICENSE.md", "src/md4c.c", "src/md4c.h"]
 strip = "src/"
-local = ["LICENSE.txt"]
 
 [mustache4c]
 url = "https://github.com/mity/mustache4c"
 commit = "0d068c1e0f8d59fda302ef49c26f42c7a6553b3e"
-files = ["src/mustache.c", "src/mustache.h"]
+files = ["LICENSE.md", "src/mustache.c", "src/mustache.h"]
 strip = "src/"
 patches = ["mustache4c.patch"]
-local = ["LICENSE.txt"]
 
 [org4c]
 url = "https://github.com/unindented/org4c"
@@ -128,15 +124,14 @@ strip = "src/"
 url = "https://github.com/nothings/stb_image_resize"
 commit = "2768987dbd7119eb840104b7a3f96ff09d21a7b4"
 notice = "stb_image_resize"
+# The header ends with its license.
 files = ["stb_image_resize2.h"]
-local = ["LICENSE.txt"]
 
 [tomlc17]
 url = "https://github.com/cktan/tomlc17"
 commit = "85000d0836ce6089065b4241220e1e6f4aec2310"
-files = ["src/tomlc17.c", "src/tomlc17.h"]
+files = ["LICENSE", "src/tomlc17.c", "src/tomlc17.h"]
 strip = "src/"
-local = ["LICENSE.txt"]
 
 [tree-sitter]
 url = "https://github.com/tree-sitter/tree-sitter"
