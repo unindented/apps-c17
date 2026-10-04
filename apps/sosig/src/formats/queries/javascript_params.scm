@@ -1,3 +1,5 @@
+; JavaScript parameter patterns, from tree-sitter-javascript's `queries/highlights-params.scm`.
+
 (formal_parameters
   [
     (identifier) @variable.parameter

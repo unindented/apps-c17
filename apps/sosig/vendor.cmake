@@ -15,8 +15,8 @@ target_include_directories(
 )
 
 # md4c, org4c, mustache4c, tomlc17, and tree-sitter and its grammars shape every page, so a change
-# to the pinned version of one of them bumps `PAGE_RECIPE_VERSION` in `src/domain/build_cache.h`,
-# which makes every page again.
+# to the pinned version of one of them, or to a query in `src/formats/queries/`, bumps
+# `PAGE_RECIPE_VERSION` in `src/domain/build_cache.h`, which makes every page again.
 add_library(vendor_md4c STATIC ${vendor_dir}/md4c/md4c.c)
 target_include_directories(
   vendor_md4c SYSTEM PUBLIC "$<BUILD_INTERFACE:${vendor_dir}/md4c>"
@@ -101,9 +101,9 @@ set(sosig_tree_sitter_grammar_declarations "")
 set(sosig_tree_sitter_grammar_rows "")
 
 # Registers one tree-sitter grammar, `name`, which a code block's language finds by any of `NAMES`,
-# all lowercase. A relative path in `SOURCES` or `QUERIES` names a file under the root `vendor/`
-# directory. When the build selects the grammar, adds a static library for it from `SOURCES`, with
-# the highlight query that `QUERIES` make, concatenated in order, and appends its declarations, its
+# all lowercase. A path in `SOURCES` names a file under the root `vendor/` directory, and a path in
+# `QUERIES` a file in `src/formats/queries/`. When the build selects the grammar, adds a static
+# library for it from `SOURCES`, with the highlight query that `QUERIES` make, concatenated in order, and appends its declarations, its
 # row of the highlighter's table and its name to the text of `tree_sitter_grammars.h`. The query is
 # embedded as the byte array `tree_sitter_<name>_highlights`, `tree_sitter_<name>_highlights_len`
 # bytes long, in a source generated at configure time. Reading each file as hexadecimal keeps every
@@ -121,14 +121,8 @@ function(sosig_add_tree_sitter_grammar name)
     return()
   endif()
 
-  foreach(list_name IN ITEMS arg_SOURCES arg_QUERIES)
-    set(paths "")
-    foreach(path IN LISTS ${list_name})
-      cmake_path(ABSOLUTE_PATH path BASE_DIRECTORY "${vendor_dir}")
-      list(APPEND paths "${path}")
-    endforeach()
-    set(${list_name} "${paths}")
-  endforeach()
+  list(TRANSFORM arg_SOURCES PREPEND "${vendor_dir}/")
+  list(TRANSFORM arg_QUERIES PREPEND "${PROJECT_SOURCE_DIR}/src/formats/queries/")
 
   set(bytes "")
   foreach(query IN LISTS arg_QUERIES)
@@ -190,66 +184,58 @@ function(sosig_add_tree_sitter_grammar name)
 endfunction()
 
 # Each query list is in last-wins order, the precedence tree-sitter's highlighter has used since
-# 2024: on one node, the later pattern wins. C, bash, HTML, CSS, JavaScript and JSON take their
-# queries in the order their `tree-sitter.json` lists. TypeScript's `tree-sitter.json` still lists
-# its own query before JavaScript's, for the first-wins precedence it was written for, so TypeScript
-# and TSX take the reverse, which lets TypeScript's patterns win over JavaScript's as upstream
-# meant. `highlights-params.scm` does not compile against either TypeScript grammar, so TypeScript
-# and TSX end with sosig's `src/formats/highlight_typescript_params.scm`, which captures the same
-# parameters in their grammars.
-sosig_add_tree_sitter_grammar(
-  c NAMES c SOURCES tree-sitter-c/src/parser.c QUERIES tree-sitter-c/queries/highlights.scm
-)
+# 2024: on one node, the later pattern wins. Each query file holds the patterns of one upstream
+# query file, as `THIRD_PARTY_NOTICES.md` records. JavaScript takes its files in the order its
+# `tree-sitter.json` lists. TypeScript's `tree-sitter.json` still lists its own query before
+# JavaScript's, for the first-wins precedence it was written for, so TypeScript and TSX take the
+# reverse, which lets TypeScript's patterns win over JavaScript's as upstream meant. JavaScript's
+# parameter patterns do not compile against either TypeScript grammar, so TypeScript and TSX end
+# with `typescript_params.scm`, which captures the same parameters in their grammars.
+sosig_add_tree_sitter_grammar(c NAMES c SOURCES tree-sitter-c/src/parser.c QUERIES c.scm)
 # The shell names are the Bourne-family names Emacs gives `sh-mode`; its csh, rc, `es` and `rpm`
 # names are left out, because their syntax is not Bourne's.
 sosig_add_tree_sitter_grammar(
   bash
   NAMES sh shell bash bash2 ash dash jsh ksh ksh88 pdksh mksh dtksh oash wksh wsh posix zsh
   SOURCES tree-sitter-bash/src/parser.c tree-sitter-bash/src/scanner.c
-  QUERIES tree-sitter-bash/queries/highlights.scm
+  QUERIES bash.scm
 )
 sosig_add_tree_sitter_grammar(
   html
   NAMES html
   SOURCES tree-sitter-html/src/parser.c tree-sitter-html/src/scanner.c
-  QUERIES tree-sitter-html/queries/highlights.scm
+  QUERIES html.scm
 )
 sosig_add_tree_sitter_grammar(
   css
   NAMES css
   SOURCES tree-sitter-css/src/parser.c tree-sitter-css/src/scanner.c
-  QUERIES tree-sitter-css/queries/highlights.scm
+  QUERIES css.scm
 )
 sosig_add_tree_sitter_grammar(
   javascript
   NAMES javascript js jsx
   SOURCES tree-sitter-javascript/src/parser.c tree-sitter-javascript/src/scanner.c
-  QUERIES tree-sitter-javascript/queries/highlights.scm
-          tree-sitter-javascript/queries/highlights-jsx.scm
-          tree-sitter-javascript/queries/highlights-params.scm
+  QUERIES javascript.scm jsx.scm javascript_params.scm
 )
 sosig_add_tree_sitter_grammar(
   typescript
   NAMES typescript ts
   SOURCES tree-sitter-typescript/typescript/src/parser.c
           tree-sitter-typescript/typescript/src/scanner.c
-  QUERIES tree-sitter-javascript/queries/highlights.scm tree-sitter-typescript/queries/highlights.scm
-          "${PROJECT_SOURCE_DIR}/src/formats/highlight_typescript_params.scm"
+  QUERIES javascript.scm typescript.scm typescript_params.scm
 )
 sosig_add_tree_sitter_grammar(
   tsx
   NAMES tsx
   SOURCES tree-sitter-typescript/tsx/src/parser.c tree-sitter-typescript/tsx/src/scanner.c
-  QUERIES tree-sitter-javascript/queries/highlights.scm
-          tree-sitter-javascript/queries/highlights-jsx.scm
-          tree-sitter-typescript/queries/highlights.scm
-          "${PROJECT_SOURCE_DIR}/src/formats/highlight_typescript_params.scm"
+  QUERIES javascript.scm jsx.scm typescript.scm typescript_params.scm
 )
 sosig_add_tree_sitter_grammar(
   json
   NAMES json
   SOURCES tree-sitter-json/src/parser.c
-  QUERIES tree-sitter-json/queries/highlights.scm
+  QUERIES json.scm
 )
 
 # A name no call registers, or a list of no names, such as `;`, stops the configure. The count,

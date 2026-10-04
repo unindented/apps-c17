@@ -1,3 +1,5 @@
+; Bash patterns, from tree-sitter-bash's `queries/highlights.scm`.
+
 [
   (string)
   (raw_string)

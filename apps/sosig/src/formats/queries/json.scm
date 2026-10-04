@@ -1,3 +1,5 @@
+; JSON patterns, from tree-sitter-json's `queries/highlights.scm`.
+
 (pair
   key: (_) @string.special.key)
 

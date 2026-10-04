@@ -1,3 +1,5 @@
+; TypeScript patterns, from tree-sitter-typescript's `queries/highlights.scm`. TSX also takes them.
+
 ; Types
 
 (type_identifier) @type

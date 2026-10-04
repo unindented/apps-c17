@@ -1,3 +1,5 @@
+; C patterns, from tree-sitter-c's `queries/highlights.scm`.
+
 (identifier) @variable
 
 ((identifier) @constant

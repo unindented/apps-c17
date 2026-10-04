@@ -249,10 +249,10 @@ static bool is_javascript_builtin(struct Str text);
 static bool is_lowercase_tag(struct Str text);
 
 /**
- * The `#match?` patterns of the vendored queries. A query with any other pattern does not load, so
- * a grammar bump that brings one fails the lookup test, and its pattern needs a row here. The tests
- * read `\d` as an ASCII digit, where Rust's also takes the digits of other scripts, which no
- * identifier these patterns test is likely to hold.
+ * The `#match?` patterns of the queries in `queries/`. A query with any other pattern does not
+ * load, so a ported pattern that brings one fails the lookup test, and its pattern needs a row
+ * here. The tests read `\d` as an ASCII digit, where Rust's also takes the digits of other scripts,
+ * which no identifier these patterns test is likely to hold.
  */
 static const struct Pattern patterns[] = {
     {STR_INIT("^[A-Z][A-Z\\d_]*$"), is_upper_identifier},

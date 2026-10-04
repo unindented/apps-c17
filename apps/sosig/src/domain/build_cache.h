@@ -22,11 +22,11 @@ struct SiteConfig;
 
 /**
  * Version of how a page is made from its inputs, in the page recipe. Bump it whenever a change to
- * the code, including the libraries in `libs/` that sosig links, or to a vendored renderer (md4c,
- * org4c, mustache4c, tomlc17, tree-sitter and its grammars), means that an output its inputs still
- * match must be made again. A release changes the generator string, which the page recipe also
- * holds, so a missed bump only reuses outputs between releases, but that is the one way this cache
- * produces wrong output silently.
+ * the code, including the libraries in `libs/` that sosig links and the highlight queries in
+ * `src/formats/queries/`, or to a vendored renderer (md4c, org4c, mustache4c, tomlc17, tree-sitter
+ * and its grammars), means that an output its inputs still match must be made again. A release
+ * changes the generator string, which the page recipe also holds, so a missed bump only reuses
+ * outputs between releases, but that is the one way this cache produces wrong output silently.
  */
 #define PAGE_RECIPE_VERSION 1
 

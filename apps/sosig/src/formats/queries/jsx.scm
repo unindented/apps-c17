@@ -1,3 +1,5 @@
+; JSX patterns, from tree-sitter-javascript's `queries/highlights-jsx.scm`. TSX also takes them.
+
 (jsx_opening_element (identifier) @tag (#match? @tag "^[a-z][^.]*$"))
 (jsx_closing_element (identifier) @tag (#match? @tag "^[a-z][^.]*$"))
 (jsx_self_closing_element (identifier) @tag (#match? @tag "^[a-z][^.]*$"))

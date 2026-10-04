@@ -1,3 +1,5 @@
+; CSS patterns, from tree-sitter-css's `queries/highlights.scm`.
+
 (comment) @comment
 
 (tag_name) @tag

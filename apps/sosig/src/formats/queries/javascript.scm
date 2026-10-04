@@ -1,3 +1,6 @@
+; JavaScript patterns, from tree-sitter-javascript's `queries/highlights.scm`. TypeScript and TSX
+; also take them.
+
 ; Variables
 ;----------
 

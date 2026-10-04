@@ -1,3 +1,5 @@
+; HTML patterns, from tree-sitter-html's `queries/highlights.scm`.
+
 (tag_name) @tag
 (erroneous_end_tag_name) @tag.error
 (doctype) @constant

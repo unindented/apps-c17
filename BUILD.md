@@ -219,11 +219,11 @@ cmake --preset release -B build/release-small -DSOSIG_GRAMMARS="c;bash"
 cmake --build build/release-small -j 8
 ```
 
-TypeScript and TSX are separate grammars. You can select either of them without `javascript`. Their queries include query files of the JavaScript grammar, and the CMake build reads these files from the root `vendor/` directory for every value of `SOSIG_GRAMMARS`.
+TypeScript and TSX are separate grammars. You can select either of them without `javascript`. Their queries include the query files of the JavaScript grammar.
 
 The configure step stops with an error when a name matches no grammar. It also stops with an error when `SOSIG_GRAMMARS` is not empty and `APPS_BUILD_TESTING` is on, because the tests need every grammar.
 
-Each selected grammar is a static library, `vendor_tree_sitter_<name>`. This library holds the highlight queries of the grammar as an embedded byte array. `vendor.cmake` generates `tree_sitter_grammars.h`, which declares the language, the queries and the names of each selected grammar. [apps/sosig/src/formats/highlight.c](apps/sosig/src/formats/highlight.c) defines its table of grammars from this header.
+Each selected grammar is a static library, `vendor_tree_sitter_<name>`. This library holds the highlight queries of the grammar as an embedded byte array. The parsers come from the root `vendor/` directory. The queries come from [apps/sosig/src/formats/queries/](apps/sosig/src/formats/queries/), where sosig keeps its own copy of the upstream patterns. A grammar bump changes a query only when you port the changes of the upstream query files, as [apps/sosig/THIRD_PARTY_NOTICES.md](apps/sosig/THIRD_PARTY_NOTICES.md) describes. `vendor.cmake` generates `tree_sitter_grammars.h`, which declares the language, the queries and the names of each selected grammar. [apps/sosig/src/formats/highlight.c](apps/sosig/src/formats/highlight.c) defines its table of grammars from this header.
 
 `sosig --version` lists the grammars that the binary links. The build cache also records these grammars. When a binary with a different set of grammars builds a site, the first build renders every page again.
 
