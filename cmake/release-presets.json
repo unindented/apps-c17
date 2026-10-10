@@ -39,18 +39,15 @@
   "packagePresets": [
     {
       "name": "release",
-      "configurePreset": "release",
-      "generators": ["TGZ"]
+      "configurePreset": "release"
     },
     {
       "name": "release-linux-x86_64",
-      "configurePreset": "release-linux-x86_64",
-      "generators": ["TGZ"]
+      "configurePreset": "release-linux-x86_64"
     },
     {
       "name": "release-linux-aarch64",
-      "configurePreset": "release-linux-aarch64",
-      "generators": ["TGZ"]
+      "configurePreset": "release-linux-aarch64"
     }
   ]
 }

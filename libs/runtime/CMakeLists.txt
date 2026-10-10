@@ -13,7 +13,6 @@ target_link_libraries(runtime PUBLIC core PRIVATE apps_build_project Threads::Th
 # skipped by a single-pass linker.
 add_library(os_posix OBJECT)
 target_sources(os_posix PRIVATE fs.c fs.h)
-libs_add_include_root(os_posix runtime)
 target_link_libraries(os_posix PUBLIC runtime PRIVATE apps_build_project)
 
 set_property(

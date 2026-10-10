@@ -2,7 +2,6 @@
 # isolates them from first-party warnings and analyzers.
 
 cmake_path(SET vendor_dir NORMALIZE "${PROJECT_SOURCE_DIR}/../../vendor")
-set(vendor_binary_dir "${PROJECT_BINARY_DIR}/vendor")
 
 add_library(vendor_acutest INTERFACE)
 target_include_directories(
@@ -265,11 +264,6 @@ if(APPLE AND CMAKE_OSX_ARCHITECTURES)
   set(vendor_processor "${CMAKE_OSX_ARCHITECTURES}")
 endif()
 if(vendor_processor STREQUAL "x86_64")
-  if(APPLE)
-    set(CMAKE_ASM_NASM_OBJECT_FORMAT macho64)
-  else()
-    set(CMAKE_ASM_NASM_OBJECT_FORMAT elf64)
-  endif()
   include(CheckLanguage)
   check_language(ASM_NASM)
   if(NOT CMAKE_ASM_NASM_COMPILER)

@@ -52,8 +52,7 @@ if(APPS_SANITIZER STREQUAL "address")
   check_c_compiler_flag(-fno-sanitize=function apps_have_no_sanitize_function)
   if(apps_have_no_sanitize_function)
     set_source_files_properties(
-      ${markup_vendor_dir}/tree-sitter/src/lib.c TARGET_DIRECTORY vendor_tree_sitter
-      PROPERTIES COMPILE_OPTIONS -fno-sanitize=function
+      ${markup_vendor_dir}/tree-sitter/src/lib.c PROPERTIES COMPILE_OPTIONS -fno-sanitize=function
     )
   endif()
 endif()
