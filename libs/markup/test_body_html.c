@@ -2,10 +2,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/str.h"
 #include "markup/body_html.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 // A URL keeps its letters, digits and the punctuation a URL may hold as it is, so an ordinary link

@@ -3,11 +3,11 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/str.h"
 #include "markup/body_html.h"
 #include "markup/markdown.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 /** What `write_test_link_target` does with each target. */

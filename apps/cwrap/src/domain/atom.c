@@ -4,9 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/arena.h"
 #include "core/ascii.h"
-#include "shared/arena.h"
-#include "shared/str.h"
+#include "core/str.h"
 
 #include "domain/unicode_width_data.h"
 

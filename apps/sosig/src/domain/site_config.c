@@ -7,16 +7,16 @@
 #include <stdint.h>
 #include <tomlc17.h>
 
+#include "core/arena.h"
 #include "core/ascii.h"
+#include "core/buf.h"
+#include "core/log.h"
 #include "core/path.h"
+#include "core/str.h"
 #include "domain/content_entry.h"
 #include "domain/permalink.h"
 #include "formats/toml.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /** String-valued site config key policy. */
 struct SiteConfigStringKey {

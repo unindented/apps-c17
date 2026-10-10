@@ -17,10 +17,10 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "core/arena.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /**
  * Bytes the standard input buffer grows by before each `read`. Each step makes that much more of

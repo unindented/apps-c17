@@ -1,7 +1,7 @@
 #include <acutest.h>
 
+#include "core/str.h"
 #include "domain/album.h"
-#include "shared/str.h"
 
 // Only the album with an empty `source_dir` is the root, including a sub-album whose directory is
 // named `root album`, which a diagnostic must not confuse with the root.

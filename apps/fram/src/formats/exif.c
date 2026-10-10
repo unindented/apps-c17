@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "shared/str.h"
+#include "core/str.h"
 
 enum {
   /** Byte introducing every JPEG marker. A run of these before the code is legal padding. */

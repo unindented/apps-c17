@@ -1,9 +1,9 @@
 #include <acutest.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/str.h"
 #include "domain/atom.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 // Display width counts East Asian wide code points as two columns.

@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "shared/str.h"
+#include "core/str.h"
 
 struct Arena;
 struct Buf;

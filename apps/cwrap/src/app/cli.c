@@ -12,11 +12,11 @@
 #include <copt.h>
 
 #include "app/cwrap_version.h"
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/parse.h"
+#include "core/str.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 
 /**
  * Largest wrapping column `--width` accepts.

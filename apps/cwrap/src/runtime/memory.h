@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 
-#include "shared/str.h"
+#include "core/str.h"
 
 struct Log;
 struct Os;

@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <tomlc17.h>
 
-#include "shared/str.h"
+#include "core/str.h"
 
 struct Arena;
 struct Log;

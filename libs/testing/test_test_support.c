@@ -16,9 +16,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "shared/arena.h"
-#include "shared/log.h"
-#include "shared/str.h"
+#include "core/arena.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "testing/test_support.h"
 
 /**

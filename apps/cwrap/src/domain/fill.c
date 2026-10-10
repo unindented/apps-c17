@@ -4,11 +4,11 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "core/arena.h"
+#include "core/str.h"
 #include "domain/atom.h"
 #include "domain/comment.h"
 #include "domain/doxygen.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 
 /** One prose paragraph of a body, joined and split into atoms before any line is filled. */
 struct FillParagraph {

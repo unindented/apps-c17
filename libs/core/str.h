@@ -1,5 +1,5 @@
-#ifndef APPS_SHARED_STR_H
-#define APPS_SHARED_STR_H
+#ifndef APPS_CORE_STR_H
+#define APPS_CORE_STR_H
 
 #include <assert.h>
 #include <limits.h>

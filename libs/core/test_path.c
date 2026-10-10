@@ -2,9 +2,9 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "core/arena.h"
 #include "core/path.h"
-#include "shared/arena.h"
-#include "shared/str.h"
+#include "core/str.h"
 #include "testing/test_support.h"
 
 // `path_check_output_limits` is the single place both output-path limits are applied. Two producers

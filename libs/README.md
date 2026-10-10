@@ -1,6 +1,6 @@
 # libs
 
-`libs/` holds the libraries that the C17 apps in this repository share: `shared`, `core`, `testing`, `runtime`, `os_memory`, `formats`, `markup` and `site`. [ARCHITECTURE.md](ARCHITECTURE.md) describes each library, its modules and its dependencies.
+`libs/` holds the libraries that the C17 apps in this repository share: `core`, `testing`, `runtime`, `os_memory`, `formats`, `markup` and `site`. [ARCHITECTURE.md](ARCHITECTURE.md) describes each library, its modules and its dependencies.
 
 ## LLM disclosure
 
@@ -16,7 +16,7 @@ add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)
 target_link_libraries(myapp_app PUBLIC core shared)
 ```
 
-A library builds only when a target of the app links it, and it compiles with the build profile of the app. Each program that links `shared` defines `os_oom`, as [ARCHITECTURE.md](ARCHITECTURE.md#os_oom) describes. [BUILD.md](../BUILD.md#the-libs-project) describes the build of the project.
+A library builds only when a target of the app links it, and it compiles with the build profile of the app. Each program that links `core` defines `os_oom`, as [ARCHITECTURE.md](ARCHITECTURE.md#os_oom) describes. [BUILD.md](../BUILD.md#the-libs-project) describes the build of the project.
 
 ## Development
 
@@ -54,7 +54,7 @@ cmake --build --preset lint
 
 ### Testing
 
-CTest registers the unit tests of every library, and the compile tests of `shared`, which check that the compiler rejects a bad call to `buf_printf`, `log_error`, or a wrapper with the same `format` attribute. Build a preset, and then run its tests:
+CTest registers the unit tests of every library, and the compile tests of `core`, which check that the compiler rejects a bad call to `buf_printf`, `log_error`, or a wrapper with the same `format` attribute. Build a preset, and then run its tests:
 
 ```sh
 ctest --preset debug -j 8

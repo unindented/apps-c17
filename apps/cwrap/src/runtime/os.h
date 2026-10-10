@@ -3,8 +3,8 @@
 
 #include <stddef.h>
 
-#include "shared/arena.h"
-#include "shared/str.h"
+#include "core/arena.h"
+#include "core/str.h"
 
 struct Log;
 
@@ -24,8 +24,8 @@ struct Log;
 // implementations in one process. `struct Os` is defined by the implementation, so each carries its
 // own state: none for POSIX, the files and streams for the in-memory one.
 //
-// `os_oom`, the remaining member of the interface, is declared in `shared/arena.h`, because the
-// arena calls it. It is not defined here but by each program: `app/main.c` for the executable and
+// `os_oom`, the remaining member of the interface, is declared in `core/arena.h`, because the arena
+// calls it. It is not defined here but by each program: `app/main.c` for the executable and
 // `testing/test_support.c` for every unit test, whichever implementation it links.
 //
 // Every path is a `struct Str`. A path the POSIX system could not take whole fails rather than

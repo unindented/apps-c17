@@ -7,9 +7,9 @@
 #include <stddef.h>
 #include <stdio.h>
 
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
+#include "core/buf.h"
+#include "core/log.h"
+#include "core/str.h"
 
 /**
  * @brief Makes each call under test with arguments its format matches, then the rejected call that

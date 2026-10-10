@@ -8,16 +8,16 @@
 #include <stdio.h>
 #include <tomlc17.h>
 
+#include "core/arena.h"
 #include "core/ascii.h"
+#include "core/buf.h"
+#include "core/log.h"
 #include "core/path.h"
+#include "core/str.h"
 #include "core/text.h"
 #include "formats/image.h"
 #include "formats/toml.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /** String-valued gallery config key policy. */
 struct GalleryConfigStringKey {

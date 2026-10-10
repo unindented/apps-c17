@@ -3,8 +3,8 @@
 
 #include <stddef.h>
 
-#include "shared/arena.h"
-#include "shared/str.h"
+#include "core/arena.h"
+#include "core/str.h"
 
 struct Album;
 struct GalleryConfig;

@@ -3,8 +3,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "shared/arena.h"
-#include "shared/str.h"
+#include "core/arena.h"
+#include "core/str.h"
 
 /** Lexer states. A slash may start a comment; a quote or backslash in code must not. */
 enum LexState {

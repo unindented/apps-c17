@@ -13,12 +13,12 @@
 #include "app/cli.h"
 #include "app/cli_dispatch.h"
 #include "app/cwrap_version.h"
+#include "core/arena.h"
 #include "core/exit_code.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "runtime/fs.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 /** Largest file a test here reads back, in bytes. Every fixture file is a few bytes. */

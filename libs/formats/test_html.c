@@ -1,10 +1,10 @@
 #include <acutest.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/str.h"
 #include "formats/html.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 // HTML escaping replaces the five special characters `&`, `<`, `>`, `"` and `'`.

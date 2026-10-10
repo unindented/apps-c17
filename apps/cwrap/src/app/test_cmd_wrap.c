@@ -6,11 +6,11 @@
 
 #include "app/cmd_wrap.h"
 #include "app/wrap_input.h"
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/exit_code.h"
+#include "core/str.h"
 #include "os_memory.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 // These tests run on the in-memory host, so each sets up its files and standard input in the host

@@ -3,12 +3,12 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
 #include "core/ascii.h"
+#include "core/buf.h"
+#include "core/str.h"
 #include "domain/doxygen.h"
 #include "domain/lex.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 
 /** Fenced region open while body lines are classified. */
 enum PayloadFence {

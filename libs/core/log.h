@@ -1,10 +1,10 @@
-#ifndef APPS_SHARED_LOG_H
-#define APPS_SHARED_LOG_H
+#ifndef APPS_CORE_LOG_H
+#define APPS_CORE_LOG_H
 
 #include <stddef.h>
 
-#include "shared/buf.h"
-#include "shared/str.h"
+#include "core/buf.h"
+#include "core/str.h"
 
 /**
  * Growable diagnostic log: every error a run finds, one line each, in the order they were found.

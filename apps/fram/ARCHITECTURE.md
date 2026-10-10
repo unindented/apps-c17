@@ -13,7 +13,7 @@
 - [tests/](tests/): The golden test suite, the seeded random tests, and the test helpers of `fram`: the fixture JPEG encoder and the WebP output decoder. The fixture gallery [tests/fixtures/gallery](tests/fixtures/gallery/), which mixes JPEG and MP4 sources, has its expected output in [tests/expected/gallery](tests/expected/gallery/).
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
 - [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
-- [libs/](../../libs/): The libraries that `fram` links: `shared`, `core`, `runtime`, `formats` and `site`, and for the unit tests `testing` and `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
+- [libs/](../../libs/): The libraries that `fram` links: `core`, `runtime`, `formats` and `site`, and for the unit tests `testing` and `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
 - [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `libjpeg-turbo`, `libwebp`, `stb_image_resize`, `mustache4c`, and `acutest`.
 
 ### Dependency rules
@@ -33,7 +33,7 @@ A module can skip layers, and modules in the same directory can depend on each o
 
 These words have one meaning everywhere in this document:
 
-- **Arena.** A `struct Arena` from `shared`. It has two pointers, `beg` and `end`, into one region. When the region is reserved and the arena commits pages on demand, it has a third pointer, `limit`. An arena never frees an individual allocation.
+- **Arena.** A `struct Arena` from `core`. It has two pointers, `beg` and `end`, into one region. When the region is reserved and the arena commits pages on demand, it has a third pointer, `limit`. An arena never frees an individual allocation.
 - **Perm.** A thread's arena for data that lives longer than the function that makes it. A function takes it by pointer, as `struct Arena* perm`.
 - **Scratch.** A thread's arena for temporary data. A function takes it by value, as `struct Arena scratch`, so its allocations are free again when the function returns.
 - **Log.** A `struct Log`: a growable buffer with one line for each error, and an error count. A command prints its log once. A log grows in an arena of its own, or in an arena that all users of the log get by pointer, so no callee gets the log's arena by value.
@@ -310,7 +310,7 @@ Instead, the scaled decode makes the budget count bytes, so a decode reserves wh
 
 ### Counted strings with signed lengths
 
-**Decision.** Every first-party string is a `struct Str` from [str.h](../../libs/shared/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. JPEG bytes also travel as a `struct Str`. Every length, count, and pixel dimension is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. A pixel dimension changes to `int` only at a call into stb or libwebp, and to the unsigned `JDIMENSION` of libjpeg-turbo only at a call into libjpeg-turbo. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`, `error_system_message` fills a caller's buffer through `strerror_r`, and `video` builds each `ffprobe` and `ffmpeg` argument with `str_cstr`.
+**Decision.** Every first-party string is a `struct Str` from [str.h](../../libs/core/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. JPEG bytes also travel as a `struct Str`. Every length, count, and pixel dimension is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. A pixel dimension changes to `int` only at a call into stb or libwebp, and to the unsigned `JDIMENSION` of libjpeg-turbo only at a call into libjpeg-turbo. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`, `error_system_message` fills a caller's buffer through `strerror_r`, and `video` builds each `ffprobe` and `ffmpeg` argument with `str_cstr`.
 
 **Reasons.**
 
@@ -353,7 +353,7 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 **Reasons.**
 
 - Each message is one sentence in the source, so a reader reads its wording on one line, and `grep` finds it.
-- The compiler checks the number and the types of the arguments against the format. `-Wformat=2` is on for first-party code and for `shared`.
+- The compiler checks the number and the types of the arguments against the format. `-Wformat=2` is on for first-party code and for the libraries.
 - `%td` prints a `ptrdiff_t` with no cast. Only a string needs a helper, `STR_FMT`.
 - Each first-party function that formats a message has the attribute, so its callers get the same check.
 
@@ -361,7 +361,7 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 - `STR_FMT` evaluates its argument two times. Give it a variable or another lvalue, and put a computed string in a variable first.
 - A string longer than `INT_MAX` bytes causes an assertion failure at run time, because the `%.*s` precision is an `int`.
-- The attribute is the only guard on the code that reads the arguments. Each formatting function measures the text with `vsnprintf`, allocates the text, and writes it with a second `vsnprintf`. These functions are `buf_printf` in `shared`, which grows the buffer in place through `buf_vprintf_measured`, and the first-party functions that format their own message. Only those functions change the measured `int` length to a `ptrdiff_t`.
+- The attribute is the only guard on the code that reads the arguments. Each formatting function measures the text with `vsnprintf`, allocates the text, and writes it with a second `vsnprintf`. These functions are `buf_printf` in `core`, which grows the buffer in place through `buf_vprintf_measured`, and the first-party functions that format their own message. Only those functions change the measured `int` length to a `ptrdiff_t`.
 - A first-party variadic function does not pass its `va_list` on to a formatter that copies the list with `va_copy`. If it did, the Clang analyzer, version 22, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does, which hands its second pass to `buf_vprintf_measured`. `record_error` in `cli.c`, `build_verbose` in `cmd_build.c`, `render_fail` in `template.c`, and `test_log_is` in `testing/test_support.c` follow this rule.
 - `%.*s` stops at a `NUL` byte. The text readers reject a `NUL` in config and template content, `toml_datum_is_text` and `toml_require_known_keys` reject a `NUL` in TOML strings and keys, and the `os` boundary rejects a `NUL` in paths, so a message gets no `NUL` from text input. No message prints JPEG bytes. The `os` boundary's `EINVAL` message quotes a path that contains a `NUL` only up to that byte, and the contract test for this case shows the result.
 - An `off_t` has no conversion of its own. It prints with `%jd` and a cast to `intmax_t`.
@@ -395,6 +395,6 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 ### Where the shared code lives
 
-**Decision.** The libraries in [libs/](../../libs/) hold the code that `fram` shares with the other apps. `shared` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`. `core`, `runtime`, `formats` and `site` hold the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own arena layout. The decoded-pixel exception stays out of the libraries.
+**Decision.** The libraries in [libs/](../../libs/) hold the code that `fram` shares with the other apps. `core` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, `Log`, and the small primitives. `runtime`, `formats` and `site` hold the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own arena layout. The decoded-pixel exception stays out of the libraries.
 
 **Reason.** These parts do not depend on what a program does.

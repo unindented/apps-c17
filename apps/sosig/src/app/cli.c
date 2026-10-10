@@ -10,13 +10,13 @@
 #define COPT_IMPL
 #include <copt.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/parse.h"
 #include "core/sosig_version.h"
+#include "core/str.h"
 #include "markup/highlight.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 
 /**
  * Command-scoped optional flags, tracked as a bitmask so each command can declare which it accepts.

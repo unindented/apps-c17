@@ -6,14 +6,13 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and its presets. An app adds the project with `add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)`, so a library builds only when the app links it. Configured on its own, the project builds every library, its tests, its analysis and its lint.
 - [vendor.cmake](vendor.cmake): The vendored targets that the libraries and their tests use when the project is configured on its own: `acutest` and `tomlc17`, from the root [vendor/](../vendor/) directory, and the targets of [markup/vendor.cmake](markup/vendor.cmake). An app that adds the project gives these targets from its own `vendor.cmake`, which includes `markup/vendor.cmake` when the app links `markup`.
-- [shared/](shared/), [core/](core/), [testing/](testing/), [runtime/](runtime/), [os_memory/](os_memory/), [formats/](formats/), [markup/](markup/) and [site/](site/): One directory for each library, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
+- [core/](core/), [testing/](testing/), [runtime/](runtime/), [os_memory/](os_memory/), [formats/](formats/), [markup/](markup/) and [site/](site/): One directory for each library, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
 
 ## Libraries
 
 | Library | Contents | Linked by |
 | --- | --- | --- |
-| [`shared`](#shared) | The arena allocator, counted strings, growable buffers and the error log. | sosig, fram, cwrap |
-| [`core`](#core) | ASCII classification, error text, exit codes, number parsing, paths, path lists and text helpers. | sosig, fram, cwrap |
+| [`core`](#core) | The arena allocator, counted strings, growable buffers and the error log, and ASCII classification, error text, exit codes, number parsing, paths, path lists and text helpers. | sosig, fram, cwrap |
 | [`testing`](#testing) | The support that every unit test uses, and the `os_oom` of the unit tests. | the unit tests of every app and of the other libraries |
 | [`runtime`](#runtime) | The host interface, its POSIX implementation `os_posix`, the out-of-memory report, the worker pool and the directory walk. | sosig, fram |
 | [`os_memory`](#os_memory) | The in-memory implementation of the host interface. | the unit tests of sosig, fram and the libraries |
@@ -25,32 +24,41 @@ cwrap has a smaller host interface of its own in its `src/runtime/`, and links n
 
 ### Dependency rules
 
-- `core` depends on `shared`.
-- `testing` and `runtime` depend on `core` and `shared`.
+- `testing` and `runtime` depend on `core`.
 - `os_memory` depends on `runtime` and `testing`.
-- `formats` depends on `core`, `shared` and the vendored `tomlc17`. The project adds `formats` only when the `vendor_tomlc17` target exists, so an app that vendors no tomlc17, such as cwrap, builds without it.
-- `markup` depends on `core`, `formats`, `shared` and the targets of `markup/vendor.cmake`: md4c, org4c, and tree-sitter with its grammars. The project adds `markup` only when these targets and `formats` exist.
-- `site` depends on `core`, `runtime` and `shared`.
+- `formats` depends on `core` and the vendored `tomlc17`. The project adds `formats` only when the `vendor_tomlc17` target exists, so an app that vendors no tomlc17, such as cwrap, builds without it.
+- `markup` depends on `core`, `formats` and the targets of `markup/vendor.cmake`: md4c, org4c, and tree-sitter with its grammars. The project adds `markup` only when these targets and `formats` exist.
+- `site` depends on `core` and `runtime`.
 - No library depends on an app.
 
 A library include names the library and the module, for example `#include "core/parse.h"` or `#include "site/manifest.h"`. Each library has an include root of its own: `libs_add_include_root` makes a directory in the build tree that holds one link, named for the library, to the library's directory, and gives the target that directory as its include root. A target therefore reaches the headers of the libraries that it links and of no other library. A header guard is `APPS_<LIB>_<MODULE>_H`, for example `APPS_CORE_PARSE_H`. An app's own `src/<layer>/` holds only modules that no library it links has, so an app's include never resolves to a different file than the library's. An app's header can have the same path as a header of a library that the app does not link, as cwrap's `runtime/os.h` has.
 
 ### Build profiles and analysis
 
-Each library target links the `apps_build_project` profile of the project that builds it, and the test-only targets link `apps_build_tests`. An app's sanitizer build therefore instruments the library code, and `shared`'s arena poisoning runs in the app's ASan build. `SYSTEM` on `add_subdirectory` keeps the app's clang-tidy to the app's own code. The app's cppcheck reads the headers of the libraries that the app lists in `APPS_LIBRARIES`, so that it can expand their macros, and it also checks the inline functions of these headers. Only the top-level `libs/` project runs clang-tidy and cppcheck on the library code, and only it has the `lint` and `format` targets for the library sources. Each library appends its sources to the lint list.
+Each library target links the `apps_build_project` profile of the project that builds it, and the test-only targets link `apps_build_tests`. An app's sanitizer build therefore instruments the library code, and `core`'s arena poisoning runs in the app's ASan build. `SYSTEM` on `add_subdirectory` keeps the app's clang-tidy to the app's own code. The app's cppcheck reads the headers of the libraries that the app lists in `APPS_LIBRARIES`, so that it can expand their macros, and it also checks the inline functions of these headers. Only the top-level `libs/` project runs clang-tidy and cppcheck on the library code, and only it has the `lint` and `format` targets for the library sources. Each library appends its sources to the lint list.
 
 ### Tests
 
 Only the top-level `libs/` project builds the library tests, and only when `APPS_BUILD_TESTING` is on. An app that adds the project never registers them. `libs_add_unit_test(<library> <module>)` compiles `test_<module>.c` into the executable `<library>_unit_<module>` and registers it as the CTest case `<library>.<module>`. The test links the library, `apps_build_tests`, acutest and the libraries that the call names. With `OS posix`, the test links `os_posix`. With `OS memory`, it links `os_memory` and compiles with `APPS_TEST_OS_MEMORY` set to 1. `NAME` gives the executable and the case another name, so that one source can build more than one test, as the `os` contract tests do.
 
-## shared
+## core
 
-The library has four modules. Each module builds on the modules before it:
+The library has two kinds of modules. The memory modules build on each other in this order:
 
 1. An arena allocates memory.
 2. A string is a view of that memory.
 3. A buffer grows a string in an arena.
 4. A log is a buffer of error messages.
+
+The other modules are small primitives:
+
+- [ascii](core/ascii.h): Locale-independent ASCII byte classification and case folding.
+- [error](core/error.h): Turns an `errno` into text, and is thread-safe. Diagnostics themselves go to `core/log.h`, as `printf` formats that the compiler checks.
+- [exit_code](core/exit_code.h): Every command of an app returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
+- [parse](core/parse.h): Parsing of text into scalar values.
+- [path](core/path.h): Path construction and validation, the filename and output-path limits, and `path_basename_without_extension`. `path_is_below` finds the part of a path below a root by text comparison.
+- [path_list](core/path_list.h): A growable list of path strings.
+- [text](core/text.h): Text normalization, matching and validation, including the slug that `text_slugify` makes and the `NUL` check `text_is_nul_free`.
 
 ### `os_oom`
 
@@ -65,7 +73,7 @@ _Noreturn void os_oom(void) {
 
 ### Arenas
 
-[`shared/arena.h`](shared/arena.h) defines `struct Arena`, which allocates memory in sequence from one region. If a program frees each allocation separately, it must decide for each pointer who owns it and when to free it, and each allocation can fail. An arena does not free allocations one at a time, and its allocation functions never return `NULL`. If an allocation does not fit, the arena calls [`os_oom`](#os_oom). Data lives as long as its region, unless the program allocated the data through a copy of the arena and then dropped that copy.
+[`core/arena.h`](core/arena.h) defines `struct Arena`, which allocates memory in sequence from one region. If a program frees each allocation separately, it must decide for each pointer who owns it and when to free it, and each allocation can fail. An arena does not free allocations one at a time, and its allocation functions never return `NULL`. If an allocation does not fit, the arena calls [`os_oom`](#os_oom). Data lives as long as its region, unless the program allocated the data through a copy of the arena and then dropped that copy.
 
 `arena_reserve` reserves only address space. The arena makes pages usable when allocations reach them, so a large reservation costs memory only for the pages that allocations reach, even on a system with strict overcommit. An arena can also use a static array as its region. In that case, leave `limit` as `NULL`:
 
@@ -108,7 +116,7 @@ To use an arena correctly:
 
 ### Strings
 
-[`shared/str.h`](shared/str.h) defines `struct Str`, which holds a pointer and a signed `ptrdiff_t` length. A C string marks its end with a `NUL`, so a substring needs a copy. The lengths of C strings are unsigned, so `a - b` can wrap to a very large value. A substring of a `struct Str` is a view of the original bytes, a `NUL` is an ordinary byte, and arithmetic on lengths cannot wrap. The zero value, `(struct Str){0}`, is the empty string.
+[`core/str.h`](core/str.h) defines `struct Str`, which holds a pointer and a signed `ptrdiff_t` length. A C string marks its end with a `NUL`, so a substring needs a copy. The lengths of C strings are unsigned, so `a - b` can wrap to a very large value. A substring of a `struct Str` is a view of the original bytes, a `NUL` is an ordinary byte, and arithmetic on lengths cannot wrap. The zero value, `(struct Str){0}`, is the empty string.
 
 | Call | Effect |
 | --- | --- |
@@ -142,7 +150,7 @@ To use a string correctly:
 
 ### Buffers
 
-[`shared/buf.h`](shared/buf.h) defines `struct Buf`, which grows a string in an arena. A program often builds output, such as a rendered page or a message, from many small appends, and does not know the total size in advance. While the buffer is the last allocation in its arena, the buffer grows in place, so a large output usually needs no copies. Start a buffer with the arena that it grows in, append to it, and then read it back as a string:
+[`core/buf.h`](core/buf.h) defines `struct Buf`, which grows a string in an arena. A program often builds output, such as a rendered page or a message, from many small appends, and does not know the total size in advance. While the buffer is the last allocation in its arena, the buffer grows in place, so a large output usually needs no copies. Start a buffer with the arena that it grows in, append to it, and then read it back as a string:
 
 ```c
 struct Buf out = {.arena = perm};
@@ -169,7 +177,7 @@ To use a buffer correctly:
 
 ### Logs
 
-[`shared/log.h`](shared/log.h) defines `struct Log`, which holds a buffer of error lines and a count of the errors. A fixed-size error buffer truncates long messages and holds only the first error. With a log, a program can do these things:
+[`core/log.h`](core/log.h) defines `struct Log`, which holds a buffer of error lines and a count of the errors. A fixed-size error buffer truncates long messages and holds only the first error. With a log, a program can do these things:
 
 - Continue after an error.
 - Report all of the errors together.
@@ -204,21 +212,11 @@ To use a log correctly:
 - Give each thread its own log. After the threads finish, merge the logs with `log_append` in a fixed order, so that the output does not depend on the order in which the threads run.
 - `log_error` and `log_error_in` have the `format` attribute. Give the same attribute to each wrapper that formats its own arguments.
 
-## core
-
-- [ascii](core/ascii.h): Locale-independent ASCII byte classification and case folding.
-- [error](core/error.h): Turns an `errno` into text, and is thread-safe. Diagnostics themselves go to `shared/log.h`, as `printf` formats that the compiler checks.
-- [exit_code](core/exit_code.h): Every command of an app returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
-- [parse](core/parse.h): Parsing of text into scalar values.
-- [path](core/path.h): Path construction and validation, the filename and output-path limits, and `path_basename_without_extension`. `path_is_below` finds the part of a path below a root by text comparison.
-- [path_list](core/path_list.h): A growable list of path strings.
-- [text](core/text.h): Text normalization, matching and validation, including the slug that `text_slugify` makes and the `NUL` check `text_is_nul_free`.
-
 ## testing
 
 - [test_support](testing/test_support.h): The helpers that several `test_*.c` files need: an arena and a log for each test, checks of a log's text and of formatted text (`test_log_is`, `test_text_is`), the out-of-memory check `test_is_oom`, a seeded random generator (`struct TestRng`), a printable copy of any bytes (`test_printable`), fixture files and directories (`init_fixture_dir`, `write_fixture_file`, `remove_fixture_tree`), the working directory, environment variables, and the capture of a standard stream.
 
-`testing` is an object library, so its `os_oom` is always linked in: a static archive member would be pulled only by a reference that comes before it on the link line, and the reference comes from the arena in `shared`, which comes after it. Its `os_oom` exits with its own status, so `test_is_oom` can tell an out-of-memory exit apart from a crash or an ordinary exit. The seed of `test_rng` is `TEST_RNG_SEED_DEFAULT`, or the value of the `APPS_TEST_SEED` environment variable, so a failure that one seed finds can be replayed. `test_support.c` defines `TEST_NO_MAIN`, so the `main` function and the run state of acutest stay in the translation unit of each test executable.
+`testing` is an object library, so its `os_oom` is always linked in: a static archive member would be pulled only by a reference that comes before it on the link line, and the reference comes from the arena in `core`, which comes after it. Its `os_oom` exits with its own status, so `test_is_oom` can tell an out-of-memory exit apart from a crash or an ordinary exit. The seed of `test_rng` is `TEST_RNG_SEED_DEFAULT`, or the value of the `APPS_TEST_SEED` environment variable, so a failure that one seed finds can be replayed. `test_support.c` defines `TEST_NO_MAIN`, so the `main` function and the run state of acutest stay in the translation unit of each test executable.
 
 ## runtime
 
@@ -228,7 +226,7 @@ To use a log correctly:
   - `os_stat` reports identity, type, size, and modification time.
   - `os_list` closes a directory before it returns. It classifies each directory entry, and for a symlink it classifies the target. It skips dangling links, and directory entries that were removed after it read them.
   - `os_print` carries every byte that an app prints, so a test on the in-memory host sees all of it. One call writes its text as a whole. A caller that prints from more than one thread holds its own lock around the call.
-  - `os_oom` is the one other member. `shared` declares it, and each program defines it: an app in its `app/main.c`, and `testing` for the unit tests.
+  - `os_oom` is the one other member. `core` declares it, and each program defines it: an app in its `app/main.c`, and `testing` for the unit tests.
 - [fs](runtime/fs.h): The POSIX implementation of `os.h`, in the object library `os_posix`. An app's executable and every unit test registered with `OS posix` link it. Its `struct Os` has no state.
 - [memory](runtime/memory.h): Holds what the out-of-memory report prints: the command's log, which `memory_oom_set_log` names, and, for each thread, the file that the thread works on and its job's log, which `memory_oom_set_job` names. `memory_oom_report` takes the name of the program, which leads its last line, as in `sosig: out of memory`.
 - [pool](runtime/pool.h): Runs indexed jobs through a pthread pool of bounded size. It completes every job, even when one job fails, and joins every worker before it returns. Each job gets the index of the worker that runs it, so the job can use that worker's arenas. The module also gets the default worker count from the number of online CPUs.

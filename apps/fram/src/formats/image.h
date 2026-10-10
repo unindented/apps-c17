@@ -4,7 +4,7 @@
 #include <limits.h>
 #include <stddef.h>
 
-#include "shared/str.h"
+#include "core/str.h"
 
 struct Arena;
 struct Log;

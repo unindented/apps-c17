@@ -16,15 +16,15 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/log.h"
 #include "core/path.h"
 #include "core/path_list.h"
+#include "core/str.h"
 #include "runtime/fs.h"
 #include "runtime/os.h"
 #include "runtime/walk.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 /** Largest file a test here reads back, in bytes. Every fixture file is a few bytes. */

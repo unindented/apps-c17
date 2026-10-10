@@ -1,9 +1,9 @@
 #include <acutest.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/str.h"
 #include "domain/lex.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 /**

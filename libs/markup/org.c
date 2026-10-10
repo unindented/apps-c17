@@ -7,13 +7,13 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "core/arena.h"
 #include "core/ascii.h"
+#include "core/buf.h"
+#include "core/str.h"
 #include "core/text.h"
 #include "formats/html.h"
 #include "markup/body_html.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 
 _Static_assert((uintmax_t)ORG_INPUT_LEN_MAX <= UINT32_MAX,
                "a code block must fit tree-sitter's 32-bit lengths");

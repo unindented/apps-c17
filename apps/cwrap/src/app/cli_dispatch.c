@@ -4,10 +4,10 @@
 
 #include "app/cli.h"
 #include "app/cmd_wrap.h"
+#include "core/arena.h"
 #include "core/exit_code.h"
+#include "core/str.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 
 /**
  * @brief Runs the command an accepted command line selected. A step of `cli_dispatch`.

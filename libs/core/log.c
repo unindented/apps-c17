@@ -1,11 +1,11 @@
-#include "shared/log.h"
+#include "core/log.h"
 
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 
-#include "shared/buf.h"
-#include "shared/str.h"
+#include "core/buf.h"
+#include "core/str.h"
 
 /**
  * @brief Ends the error whose message was just appended to `log->buf`: appends the attribution to

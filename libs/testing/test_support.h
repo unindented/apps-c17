@@ -6,9 +6,9 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "shared/arena.h"
-#include "shared/log.h"
-#include "shared/str.h"
+#include "core/arena.h"
+#include "core/log.h"
+#include "core/str.h"
 
 /**
  * Result a test wrapper returns when its own setup or teardown fails rather than the call it wraps.

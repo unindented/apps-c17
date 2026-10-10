@@ -8,11 +8,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/str.h"
 #include "domain/lex.h"
 #include "domain/rewrite.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 /** Generated cases each rewrap property runs. */

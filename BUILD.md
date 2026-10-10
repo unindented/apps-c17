@@ -62,7 +62,7 @@ Each source directory holds the code for one purpose. Except for cwrap's host in
 
 `<app>_app` links as `PUBLIC` dependencies the libraries whose types the application headers expose, and every other dependency as `PRIVATE`.
 
-`shared`, the library in [libs/shared/](libs/shared/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. Each app's `src/app/main.c` defines the `os_oom` of that app, which the app's ARCHITECTURE.md describes. The `testing` library defines the `os_oom` of the unit tests.
+`core`, the library in [libs/core/](libs/core/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. Each app's `src/app/main.c` defines the `os_oom` of that app, which the app's ARCHITECTURE.md describes. The `testing` library defines the `os_oom` of the unit tests.
 
 ### Hosts
 
@@ -130,9 +130,9 @@ Each selected grammar is a static library, `vendor_tree_sitter_<name>`. This lib
 
 With `address`, the CMake build also turns off the `function` check for the tree-sitter runtime, because the runtime calls the `create` function of each grammar scanner, and this function has no prototype.
 
-### Format checks in shared
+### Format checks in core
 
-`shared` has its own compile-fail tests for `buf_printf` and `log_error`. These tests check that a call does not compile when its arguments do not match its format. The test cases are:
+`core` has its own compile-fail tests for `buf_printf` and `log_error`. These tests check that a call does not compile when its arguments do not match its format. The test cases are:
 
 - a raw `struct Str` for `%.*s`
 - a missing argument
@@ -141,7 +141,7 @@ With `address`, the CMake build also turns off the `function` check for the tree
 - a value that is not a string, given to `STR_FMT`
 - a mismatch through a forwarding wrapper
 
-These tests run in the `libs/` project, as `shared.format_compile.*`, and no app registers them.
+These tests run in the `libs/` project, as `core.format_compile.*`, and no app registers them.
 
 ## Build profiles
 
@@ -161,11 +161,11 @@ The presets set `CMAKE_COMPILE_WARNING_AS_ERROR`, so the compiler treats warning
 
 `APPS_SANITIZER` accepts `none`, `address` or `thread`. `address` enables AddressSanitizer and UndefinedBehaviorSanitizer, and `thread` enables ThreadSanitizer. The option adds flags to the standard CMake configurations and does not create custom build types.
 
-With `address`, the CMake build instruments first-party code, the libraries and vendored code. The libraries build with the first-party profile, so they keep every check, and the arena poisoning of `shared` runs in an app's ASan build. CI checks that the objects of `shared` in each project's ASan build carry AddressSanitizer symbols. For vendored code, the build turns off the `null` and `object-size` checks, because vendored code does not support these checks. First-party code keeps every check.
+With `address`, the CMake build instruments first-party code, the libraries and vendored code. The libraries build with the first-party profile, so they keep every check, and the arena poisoning of `core` runs in an app's ASan build. CI checks that the objects of `core` in each project's ASan build carry AddressSanitizer symbols. For vendored code, the build turns off the `null` and `object-size` checks, because vendored code does not support these checks. First-party code keeps every check.
 
 ## Linting and formatting
 
-When a project is the top-level CMake project, the `C_CLANG_TIDY` and `C_CPPCHECK` properties of its first-party targets make CMake run `clang-tidy` and `cppcheck` while it compiles these targets. Neither tool checks vendored code, and an app's analysis does not check the libraries, which the `libs/` project checks. The `HeaderFilterRegex` of the root `.clang-tidy` covers the headers under `src/` and `libs/`. In an app, the include path of `cppcheck` contains the include roots of the libraries that `APPS_LIBRARIES` in the app's `CMakeLists.txt` lists, because `cppcheck` needs these headers to expand macros such as `STR_FMT` of `shared`. Thus `cppcheck` also analyzes the inline functions that these headers define.
+When a project is the top-level CMake project, the `C_CLANG_TIDY` and `C_CPPCHECK` properties of its first-party targets make CMake run `clang-tidy` and `cppcheck` while it compiles these targets. Neither tool checks vendored code, and an app's analysis does not check the libraries, which the `libs/` project checks. The `HeaderFilterRegex` of the root `.clang-tidy` covers the headers under `src/` and `libs/`. In an app, the include path of `cppcheck` contains the include roots of the libraries that `APPS_LIBRARIES` in the app's `CMakeLists.txt` lists, because `cppcheck` needs these headers to expand macros such as `STR_FMT` of `core`. Thus `cppcheck` also analyzes the inline functions that these headers define.
 
 Test targets run `cppcheck` but not `clang-tidy`, because their intentional failure cases cause analyzer errors. When CMake cross-compiles, neither tool runs. Zig supplies the headers for the target platform, and the analyzers on the host cannot find these headers when they repeat the compile command. When the compiler is not Clang, the CMake build turns off `clang-tidy`, because `clang-tidy` reads the compile command and rejects GCC-only warning options such as `-Wlogical-op`. `cppcheck` runs with any compiler.
 
@@ -230,8 +230,8 @@ The source archive, `<app>-<version>-source.tar.gz`, holds the whole repository 
 - [apps/sosig/CMakeLists.txt](apps/sosig/CMakeLists.txt) also finds the thread library.
 - [apps/sosig/vendor.cmake](apps/sosig/vendor.cmake) also includes [libs/markup/vendor.cmake](libs/markup/vendor.cmake), as [Grammars](#grammars) describes.
 - [apps/sosig/CMakePresets.json](apps/sosig/CMakePresets.json) adds the `grammars` presets, which build `sosig` with only the TypeScript grammar.
-- `sosig` links the libraries `shared`, `core`, `runtime` with the POSIX host `os_posix`, `formats`, `markup` and `site`, and for the unit tests `testing` and the in-memory host `os_memory`.
-- `sosig_app` links `vendor_tomlc17`, `core`, `formats`, `markup`, `runtime`, `shared` and `site` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+- `sosig` links the libraries `core`, `runtime` with the POSIX host `os_posix`, `formats`, `markup` and `site`, and for the unit tests `testing` and the in-memory host `os_memory`.
+- `sosig_app` links `vendor_tomlc17`, `core`, `formats`, `markup`, `runtime` and `site` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 - `src/build/` links the vendored dependencies that only its own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 - The version template is [apps/sosig/src/core/sosig_version.c.in](apps/sosig/src/core/sosig_version.c.in). The file that CMake generates from it also defines `sosig_generator_string()`.
 
@@ -263,8 +263,8 @@ The script finds the expected files and the actual files with globs after `sosig
 ### fram files and targets
 
 - [apps/fram/CMakeLists.txt](apps/fram/CMakeLists.txt) also finds the thread library.
-- `fram` links the libraries `shared`, `core`, `runtime` with the POSIX host `os_posix`, `formats` and `site`, and for the unit tests `testing` and the in-memory host `os_memory`.
-- `fram_app` links `vendor_tomlc17`, `core`, `formats`, `runtime`, `shared` and `site` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+- `fram` links the libraries `core`, `runtime` with the POSIX host `os_posix`, `formats` and `site`, and for the unit tests `testing` and the in-memory host `os_memory`.
+- `fram_app` links `vendor_tomlc17`, `core`, `formats`, `runtime` and `site` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 - `src/build/` and `src/formats/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 - The version template is [apps/fram/src/core/fram_version.c.in](apps/fram/src/core/fram_version.c.in). The file that CMake generates from it also defines `fram_generator_string()`.
 
@@ -312,9 +312,9 @@ The script finds the expected files and the actual files with globs after `fram`
 
 - [apps/cwrap/src/runtime/CMakeLists.txt](apps/cwrap/src/runtime/CMakeLists.txt) also defines the POSIX host `cwrap_os_posix`.
 - [apps/cwrap/tests/CMakeLists.txt](apps/cwrap/tests/CMakeLists.txt) adds the golden and idempotence tests, the in-memory host `cwrap_os_memory` and the seeded random tests. [apps/cwrap/cmake/cwrap_run_idempotent.cmake](apps/cwrap/cmake/cwrap_run_idempotent.cmake) runs the idempotence test.
-- `cwrap` links the libraries `shared` and `core`, and for the unit tests `testing`.
-- `cwrap_app` holds every application source except `src/app/main.c` and `src/runtime/fs.c`, and links `core` and `shared` as `PUBLIC` dependencies. `src/CMakeLists.txt` links the vendored dependencies.
-- The two vendored projects of `cwrap`, acutest and copt, are header-only, so their targets are interface libraries. `cwrap` has no compiled vendored code, so it uses two of the three build profiles: `apps_build_project` and `apps_build_tests`. With `address`, the CMake build instruments first-party code and the `shared` and `core` libraries.
+- `cwrap` links the library `core`, and for the unit tests `testing`.
+- `cwrap_app` holds every application source except `src/app/main.c` and `src/runtime/fs.c`, and links `core` as a `PUBLIC` dependency. `src/CMakeLists.txt` links the vendored dependencies.
+- The two vendored projects of `cwrap`, acutest and copt, are header-only, so their targets are interface libraries. `cwrap` has no compiled vendored code, so it uses two of the three build profiles: `apps_build_project` and `apps_build_tests`. With `address`, the CMake build instruments first-party code and the `core` library.
 - The common presets give `cwrap` the `tsan` and `ci-tsan` presets too. CI does not run a ThreadSanitizer build of `cwrap`, because `cwrap` starts no threads.
 - The version template is [apps/cwrap/src/app/cwrap_version.c.in](apps/cwrap/src/app/cwrap_version.c.in).
 
@@ -334,6 +334,6 @@ The tests registered without `OS memory` link the POSIX host. These tests are:
 
 The golden test `cwrap.golden` runs [apps/cwrap/cmake/cwrap_run_golden.cmake](apps/cwrap/cmake/cwrap_run_golden.cmake). The script rewraps every fixture in `tests/fixtures/` at width 40, in a scratch tree of its own. It then compares the list of fixture files with the list of files in `tests/expected/`, and it compares each result with its expected file byte for byte.
 
-The idempotence test `cwrap.idempotent` runs `cmake/cwrap_run_idempotent.cmake` in another scratch tree. The script rewraps the fixture files, the expected files and every first-party source file in `src/` and `tests/`, and the sources of the libraries that `APPS_LIBRARIES` in [apps/cwrap/CMakeLists.txt](apps/cwrap/CMakeLists.txt) lists, `libs/shared`, `libs/core` and `libs/testing`, at widths 20, 40, 60 and 100. A second rewrap of each result must make no change, and `--check` must agree that the first result is stable.
+The idempotence test `cwrap.idempotent` runs `cmake/cwrap_run_idempotent.cmake` in another scratch tree. The script rewraps the fixture files, the expected files and every first-party source file in `src/` and `tests/`, and the sources of the libraries that `APPS_LIBRARIES` in [apps/cwrap/CMakeLists.txt](apps/cwrap/CMakeLists.txt) lists, `libs/core` and `libs/testing`, at widths 20, 40, 60 and 100. A second rewrap of each result must make no change, and `--check` must agree that the first result is stable.
 
 Both scripts find their input files with globs. These globs run in the test and are not inputs of the CMake build, so a change to a fixture or a source file does not require CMake to configure the project again.

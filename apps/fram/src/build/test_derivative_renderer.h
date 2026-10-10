@@ -4,10 +4,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/str.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 #include "site/manifest.h"
 
 // This is header-only and `static inline` so that the image and the video tests of the derivative

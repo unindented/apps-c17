@@ -4,12 +4,12 @@
 #include <stddef.h>
 
 #include "build/template.h"
+#include "core/arena.h"
 #include "core/path.h"
+#include "core/str.h"
 #include "domain/album.h"
 #include "domain/gallery_config.h"
 #include "runtime/memory.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 #include "site/job.h"
 
 /**

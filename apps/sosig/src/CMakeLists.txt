@@ -21,7 +21,6 @@ target_link_libraries(
          formats
          markup
          runtime
-         shared
          site
   PRIVATE apps_build_project
           vendor_copt

@@ -1,7 +1,7 @@
 #ifndef SOSIG_PERMALINK_H
 #define SOSIG_PERMALINK_H
 
-#include "shared/str.h"
+#include "core/str.h"
 
 struct Arena;
 

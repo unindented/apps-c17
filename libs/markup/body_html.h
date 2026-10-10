@@ -4,9 +4,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/str.h"
 #include "markup/highlight.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 
 struct Buf;
 

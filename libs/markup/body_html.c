@@ -3,12 +3,12 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
 #include "core/ascii.h"
+#include "core/buf.h"
+#include "core/str.h"
 #include "formats/html.h"
 #include "markup/highlight.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 
 /** Uppercase hex digits of a percent-encoded URL byte. */
 static const char HEX_DIGITS[] = "0123456789ABCDEF";

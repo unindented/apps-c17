@@ -2,11 +2,11 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/str.h"
 #include "domain/comment.h"
 #include "domain/lex.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 /**

@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#include "shared/arena.h"
+#include "core/arena.h"
 
 struct GalleryConfig;
 struct Log;

@@ -10,18 +10,18 @@
 #include <unistd.h>
 
 #include "build/template.h"
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/error.h"
 #include "core/fram_version.h"
+#include "core/log.h"
 #include "core/path.h"
+#include "core/str.h"
 #include "domain/album.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
 #include "runtime/fs.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 /**

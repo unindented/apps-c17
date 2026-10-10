@@ -1,10 +1,10 @@
 #include <acutest.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/str.h"
 #include "domain/comment.h"
 #include "domain/doxygen.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 // A command's word, name, and description offset are sliced from the payload.

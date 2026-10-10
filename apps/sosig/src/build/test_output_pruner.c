@@ -5,12 +5,12 @@
 #include <string.h>
 
 #include "build/output_pruner.h"
+#include "core/arena.h"
+#include "core/log.h"
 #include "core/path_list.h"
+#include "core/str.h"
 #include "domain/site_config.h"
 #include "os_memory/os_memory.h"
-#include "shared/arena.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "site/manifest.h"
 #include "site/output_writer.h"
 #include "testing/test_support.h"

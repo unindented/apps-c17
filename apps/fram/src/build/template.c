@@ -8,8 +8,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/fram_version.h"
+#include "core/log.h"
 #include "core/path.h"
+#include "core/str.h"
 #include "core/text.h"
 #include "domain/album.h"
 #include "domain/gallery_config.h"
@@ -17,10 +21,6 @@
 #include "formats/html.h"
 #include "mustache.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 // Bounds on one template render. There are three independent failure modes, so three limits, each
 // enforced at the one place that can observe it. Each limit names what it bounds: the expansion

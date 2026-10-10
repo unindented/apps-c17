@@ -8,10 +8,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "core/arena.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "core/text.h"
-#include "shared/arena.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /**
  * Size in bytes of the longest timestamp `toml_datum_format_rfc3339` writes,

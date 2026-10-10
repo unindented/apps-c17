@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/str.h"
 #include "formats/image.h"
-#include "shared/str.h"
 
 /** Kind of source represented by a media item. */
 enum MediaKind {

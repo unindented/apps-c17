@@ -5,7 +5,11 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/error.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
 #include "formats/exif.h"
@@ -13,10 +17,6 @@
 #include "runtime/memory.h"
 #include "runtime/os.h"
 #include "runtime/video.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "site/job.h"
 #include "site/output_writer.h"
 

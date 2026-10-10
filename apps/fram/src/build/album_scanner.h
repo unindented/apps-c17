@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "shared/arena.h"
+#include "core/arena.h"
 
 struct Album;
 struct BuildCache;

@@ -1,7 +1,7 @@
 #include <acutest.h>
 
+#include "core/str.h"
 #include "domain/media_item.h"
-#include "shared/str.h"
 
 // A video path is recognized by its `.mp4` extension in any letter case, and nothing else is.
 static void test_is_video_path_matches_mp4_only(void) {

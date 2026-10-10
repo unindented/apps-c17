@@ -7,16 +7,16 @@
 #include <string.h>
 #include <tomlc17.h>
 
+#include "core/arena.h"
 #include "core/ascii.h"
+#include "core/buf.h"
+#include "core/log.h"
 #include "core/parse.h"
 #include "core/path.h"
+#include "core/str.h"
 #include "core/text.h"
 #include "domain/content_entry.h"
 #include "formats/toml.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /** UTF-8 byte order mark, tolerated as an optional prefix of a Markdown or Org source. */
 #define UTF8_BOM S("\xEF\xBB\xBF")

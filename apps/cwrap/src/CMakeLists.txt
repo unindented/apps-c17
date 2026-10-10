@@ -15,7 +15,7 @@ add_subdirectory(runtime)
 
 target_link_libraries(
   cwrap_app
-  PUBLIC core shared
+  PUBLIC core
   PRIVATE apps_build_project vendor_copt
 )
 

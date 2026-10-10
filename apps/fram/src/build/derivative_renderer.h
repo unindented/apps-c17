@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
 #include "formats/image.h"
-#include "shared/arena.h"
 
 struct GalleryConfig;
 struct JobArenas;

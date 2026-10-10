@@ -4,7 +4,7 @@
 add_library(runtime STATIC)
 target_sources(runtime PRIVATE memory.c pool.c walk.c memory.h os.h pool.h walk.h)
 libs_add_include_root(runtime runtime)
-target_link_libraries(runtime PUBLIC core shared PRIVATE apps_build_project Threads::Threads)
+target_link_libraries(runtime PUBLIC core PRIVATE apps_build_project Threads::Threads)
 
 # The POSIX implementation of `os.h` stays out of `runtime`, so each executable chooses its host when
 # it is linked: an app's executable and every unit test registered with `OS posix` link this one,

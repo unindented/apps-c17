@@ -4,10 +4,10 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "core/arena.h"
+#include "core/str.h"
 #include "domain/atom.h"
 #include "domain/comment.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 
 /** Commands that document a name, whose descriptions align with their siblings'. */
 static const struct Str named_commands[] = {STR_INIT("param"), STR_INIT("retval")};

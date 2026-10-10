@@ -8,7 +8,7 @@
 #include <stddef.h>
 #include <unistd.h>
 
-#include "shared/arena.h"
+#include "core/arena.h"
 
 /** Shared worker-pool state for one `pool_run` call. */
 struct PoolState {

@@ -1,10 +1,10 @@
 #include <acutest.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/str.h"
 #include "domain/comment.h"
 #include "domain/fill.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 // A short pair of prose lines is joined when both fit on one line.

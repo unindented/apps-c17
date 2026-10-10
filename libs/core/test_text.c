@@ -1,8 +1,8 @@
 #include <acutest.h>
 #include <stddef.h>
 
+#include "core/arena.h"
 #include "core/text.h"
-#include "shared/arena.h"
 #include "testing/test_support.h"
 
 // `text_is_nul_free` accepts arbitrary nonzero bytes and the empty string, but rejects a zero at

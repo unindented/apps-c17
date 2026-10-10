@@ -1,7 +1,7 @@
 #ifndef FRAM_VERSION_H
 #define FRAM_VERSION_H
 
-#include "shared/str.h"
+#include "core/str.h"
 
 /**
  * @brief Returns the version string fixed when the build tree was configured.

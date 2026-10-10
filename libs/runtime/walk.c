@@ -5,14 +5,14 @@
 #include <stddef.h>
 #include <stdlib.h>
 
+#include "core/arena.h"
 #include "core/error.h"
+#include "core/log.h"
 #include "core/path.h"
 #include "core/path_list.h"
+#include "core/str.h"
 #include "core/text.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /** State that one directory walk carries from its root through every directory it reaches. */
 struct Walk {

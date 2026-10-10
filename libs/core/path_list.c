@@ -2,8 +2,8 @@
 
 #include <stddef.h>
 
-#include "shared/arena.h"
-#include "shared/str.h"
+#include "core/arena.h"
+#include "core/str.h"
 
 void path_list_push(struct PathList* paths, struct Str file_path, struct Arena* arena) {
   if (paths->count == paths->capacity) {

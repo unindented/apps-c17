@@ -18,14 +18,14 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "core/arena.h"
 #include "core/ascii.h"
 #include "core/error.h"
+#include "core/log.h"
 #include "core/path.h"
+#include "core/str.h"
 #include "core/text.h"
 #include "runtime/proc.h"
-#include "shared/arena.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /** Size of the buffer `video_extract_frame` formats a seek position into, terminator included. */
 enum { VIDEO_POSITION_SIZE = 64 };

@@ -7,10 +7,10 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include "core/buf.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "formats/image.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "test_jpeg_fixture.h"
 #include "test_webp_output.h"
 #include "testing/test_support.h"

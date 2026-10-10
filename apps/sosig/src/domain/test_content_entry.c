@@ -1,8 +1,8 @@
 #include <acutest.h>
 #include <stddef.h>
 
+#include "core/str.h"
 #include "domain/content_entry.h"
-#include "shared/str.h"
 
 // Only `date_epoch` and output path drive ordering, so the sort fixtures below are built as bare
 // structs.

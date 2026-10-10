@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "shared/arena.h"
-#include "shared/str.h"
+#include "core/arena.h"
+#include "core/str.h"
 
 struct ContentEntry;
 struct Log;

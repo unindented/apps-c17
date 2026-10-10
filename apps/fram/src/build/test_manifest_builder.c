@@ -6,16 +6,16 @@
 #include <string.h>
 
 #include "build/manifest_builder.h"
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/log.h"
 #include "core/path.h"
 #include "core/path_list.h"
+#include "core/str.h"
 #include "domain/album.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
 #include "os_memory/os_memory.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "site/manifest.h"
 #include "testing/test_support.h"
 

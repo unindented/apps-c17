@@ -6,9 +6,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/arena.h"
 #include "markup/markdown.h"
 #include "markup/org.h"
-#include "shared/arena.h"
 
 struct ContentEntry;
 struct JobArenas;

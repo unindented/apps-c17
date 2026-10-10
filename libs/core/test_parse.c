@@ -4,7 +4,7 @@
 #include <stdio.h>
 
 #include "core/parse.h"
-#include "shared/str.h"
+#include "core/str.h"
 
 // A bare run of digits parses to its numeric value, including zero. `parse_size` documents that it
 // accepts a bare run of ASCII digits, and `007` is one, so leading zeros are valid rather than an

@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-#include "shared/str.h"
+#include "core/str.h"
 
 /**
  * `content_entry_modified_latest` returns the Unix epoch when there are no entries. This gives

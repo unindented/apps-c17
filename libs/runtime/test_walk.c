@@ -7,13 +7,13 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/log.h"
 #include "core/path_list.h"
+#include "core/str.h"
 #include "os_memory/os_memory.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 // These tests walk the in-memory host, so each builds its tree in a few calls and nothing is left

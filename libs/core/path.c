@@ -3,9 +3,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
 #include "core/ascii.h"
-#include "shared/arena.h"
-#include "shared/str.h"
+#include "core/str.h"
 
 /**
  * @brief Returns the longest `/`-delimited segment in a path.

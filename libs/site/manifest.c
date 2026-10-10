@@ -4,9 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/arena.h"
 #include "core/ascii.h"
-#include "shared/arena.h"
-#include "shared/str.h"
+#include "core/str.h"
 
 /** Canonical 64-bit FNV-1a params (offset basis `0xcbf29ce484222325`, prime `0x100000001b3`). */
 static const uint64_t FNV_OFFSET_BASIS = 14695981039346656037ULL;

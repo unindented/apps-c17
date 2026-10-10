@@ -3,10 +3,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/str.h"
 #include "markup/highlight.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 /** Bytes of the arena `run_out_of_memory` highlights in, too few for any tree. */

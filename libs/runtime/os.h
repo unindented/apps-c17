@@ -5,8 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "shared/arena.h"
-#include "shared/str.h"
+#include "core/arena.h"
+#include "core/str.h"
 
 struct Log;
 
@@ -26,9 +26,9 @@ struct Log;
 // implementations in one process. `struct Os` is defined by the implementation, so each carries its
 // own state: none for POSIX, the whole tree for the in-memory one.
 //
-// `os_oom`, the remaining member of the interface, is declared in `shared/arena.h`, because the
-// arena calls it. It is not defined here but by each program: an app's `app/main.c` for the
-// executable and `testing/test_support.c` for every unit test, whichever implementation it links.
+// `os_oom`, the remaining member of the interface, is declared in `core/arena.h`, because the arena
+// calls it. It is not defined here but by each program: an app's `app/main.c` for the executable
+// and `testing/test_support.c` for every unit test, whichever implementation it links.
 //
 // Running other programs is not part of the interface. An app that spawns a program runs it on the
 // real host whichever implementation an executable links, and a file that the program writes is a

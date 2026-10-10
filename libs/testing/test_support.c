@@ -29,11 +29,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/log.h"
 #include "core/path.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
+#include "core/str.h"
 
 /**
  * Bytes of stack memory `write_fixture_file` builds its path in, twice over: once counted and once

@@ -4,8 +4,12 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/log.h"
 #include "core/path.h"
 #include "core/path_list.h"
+#include "core/str.h"
 #include "core/text.h"
 #include "domain/album.h"
 #include "domain/build_cache.h"
@@ -16,10 +20,6 @@
 #include "runtime/memory.h"
 #include "runtime/os.h"
 #include "runtime/video.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "site/job.h"
 #include "site/output_path.h"
 

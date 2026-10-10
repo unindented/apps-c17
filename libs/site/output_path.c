@@ -4,10 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "core/arena.h"
+#include "core/log.h"
 #include "core/path.h"
-#include "shared/arena.h"
-#include "shared/log.h"
-#include "shared/str.h"
+#include "core/str.h"
 
 int output_path_check_limits(struct Str relative_path, struct Str source_label, struct Log* log) {
   struct Str segment;

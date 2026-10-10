@@ -115,7 +115,6 @@ function(libs_add_include_root target library)
 endfunction()
 
 # Each library appends its own sources to `apps_libs_lint_sources`.
-add_subdirectory(shared)
 add_subdirectory(core)
 add_subdirectory(testing)
 add_subdirectory(runtime)

@@ -1,4 +1,4 @@
-#include "shared/test_oom.h"
+#include "core/test_oom.h"
 
 #include <acutest.h>
 #include <fcntl.h>
@@ -7,9 +7,9 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "shared/arena.h"
-#include "shared/asan.h"
-#include "shared/buf.h"
+#include "core/arena.h"
+#include "core/asan.h"
+#include "core/buf.h"
 
 /** Bytes of backing memory each test's arena covers. */
 enum { MEMORY_SIZE = 4096 };

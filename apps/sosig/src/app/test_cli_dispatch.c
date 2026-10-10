@@ -10,13 +10,13 @@
 #include <unistd.h>
 
 #include "app/cli_dispatch.h"
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/exit_code.h"
 #include "core/sosig_version.h"
+#include "core/str.h"
 #include "markup/highlight.h"
 #include "runtime/fs.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 /**

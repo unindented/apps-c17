@@ -5,7 +5,7 @@
 #include <stddef.h>
 
 #include "core/path_list.h"
-#include "shared/str.h"
+#include "core/str.h"
 
 struct Os;
 

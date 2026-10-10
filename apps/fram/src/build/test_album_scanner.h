@@ -1,8 +1,8 @@
 #ifndef FRAM_TEST_ALBUM_SCANNER_H
 #define FRAM_TEST_ALBUM_SCANNER_H
 
+#include "core/str.h"
 #include "domain/gallery_config.h"
-#include "shared/str.h"
 
 // This is header-only and `static inline` so that the in-memory and the video tests of the probe
 // phase, two executables, share one configuration without a separate test library to link.

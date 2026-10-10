@@ -1,10 +1,10 @@
-#ifndef APPS_SHARED_BUF_H
-#define APPS_SHARED_BUF_H
+#ifndef APPS_CORE_BUF_H
+#define APPS_CORE_BUF_H
 
 #include <stdarg.h>
 #include <stddef.h>
 
-#include "shared/str.h"
+#include "core/str.h"
 
 struct Arena;
 

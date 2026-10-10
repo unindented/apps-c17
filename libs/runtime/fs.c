@@ -17,14 +17,14 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "core/arena.h"
 #include "core/error.h"
+#include "core/log.h"
 #include "core/path.h"
 #include "core/path_list.h"
+#include "core/str.h"
 #include "core/text.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /**
  * The POSIX host. It has no state of its own: the process's working directory, umask and file

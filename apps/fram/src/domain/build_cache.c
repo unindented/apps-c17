@@ -6,15 +6,15 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/fram_version.h"
+#include "core/log.h"
 #include "core/parse.h"
 #include "core/path.h"
+#include "core/str.h"
 #include "formats/image.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /** First field of a build cache's first line, which names the file kind. */
 #define BUILD_CACHE_KIND "fram-build-cache"

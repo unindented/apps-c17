@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#include "shared/arena.h"
+#include "core/arena.h"
 #include "site/job.h"
 #include "testing/test_support.h"
 

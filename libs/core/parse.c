@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #include "core/ascii.h"
-#include "shared/str.h"
+#include "core/str.h"
 
 int parse_size(struct Str text, ptrdiff_t* value_out) {
   if (text.len == 0) {

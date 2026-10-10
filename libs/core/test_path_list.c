@@ -2,14 +2,14 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#include "core/arena.h"
 #include "core/path_list.h"
-#include "shared/arena.h"
-#include "shared/str.h"
+#include "core/str.h"
 #include "testing/test_support.h"
 
 // Pushing well past the first capacity grows the backing array while preserving every path. Each
 // stored path is an independent copy of the caller's buffer. `arena_grow` seeds an empty array with
-// 8 slots, file-local to `libs/shared/arena.c`, so it is spelled out here. Raising it there must
+// 8 slots, file-local to `libs/core/arena.c`, so it is spelled out here. Raising it there must
 // raise `PUSH_COUNT`, or this stops forcing a second growth. The exact final capacity is asserted
 // rather than a lower bound, so a change to either the seed or the doubling fails here.
 static void test_push_grows_and_copies(void) {

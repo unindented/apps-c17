@@ -11,15 +11,15 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/error.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "domain/gallery_config.h"
 #include "formats/image.h"
 #include "runtime/fs.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 /**

@@ -7,13 +7,13 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/error.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "runtime/os.h"
 #include "runtime/pool.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /** One running parallel phase: its jobs' logs and the adapter state around the caller's job. */
 struct JobSet {

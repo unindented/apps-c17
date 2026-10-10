@@ -2,14 +2,14 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "domain/build_cache.h"
 #include "domain/site_config.h"
 #include "markup/highlight.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 /**

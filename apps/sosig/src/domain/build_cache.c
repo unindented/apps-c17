@@ -6,16 +6,16 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/log.h"
 #include "core/parse.h"
 #include "core/path.h"
 #include "core/sosig_version.h"
+#include "core/str.h"
 #include "domain/site_config.h"
 #include "markup/highlight.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /** Nanoseconds in a second, the bound of a row's `mtime_ns`. */
 enum { BUILD_CACHE_NS_PER_S = 1000000000 };

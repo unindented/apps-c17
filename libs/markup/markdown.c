@@ -6,11 +6,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/str.h"
 #include "formats/html.h"
 #include "markup/body_html.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 
 _Static_assert((uintmax_t)MARKDOWN_INPUT_LEN_MAX <= (uintmax_t)(MD_SIZE)-1,
                "the product cap must stay inside md4c's addressable input range");

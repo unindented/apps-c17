@@ -1,8 +1,8 @@
 #ifndef FRAM_EXIF_H
 #define FRAM_EXIF_H
 
+#include "core/str.h"
 #include "formats/image.h"
-#include "shared/str.h"
 
 /**
  * @brief Reads the IFD0 orientation from JPEG EXIF metadata.

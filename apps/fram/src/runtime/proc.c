@@ -17,11 +17,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/error.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
+#include "core/log.h"
+#include "core/str.h"
 
 extern char** environ;
 

@@ -5,8 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/str.h"
 #include "formats/image.h"
-#include "shared/str.h"
 
 struct Arena;
 struct Buf;

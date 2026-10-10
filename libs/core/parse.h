@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#include "shared/str.h"
+#include "core/str.h"
 
 /**
  * @brief Parses a non-negative decimal integer that fits in `size_t`, saturated at `PTRDIFF_MAX`.

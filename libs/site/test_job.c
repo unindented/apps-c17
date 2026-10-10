@@ -7,12 +7,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/error.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "os_memory/os_memory.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "site/job.h"
 #include "testing/test_support.h"
 

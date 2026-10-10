@@ -9,12 +9,12 @@
 #include <string.h>
 
 // `jpeglib.h` uses `size_t` and `FILE` without including their headers.
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "jerror.h"
 #include "jpeglib.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "stb_image_resize2.h"
 #include "webp/encode.h"
 

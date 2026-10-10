@@ -2,16 +2,16 @@
 
 #include <stdlib.h>
 
+#include "core/arena.h"
 #include "core/exit_code.h"
 #include "runtime/fs.h"
 #include "runtime/memory.h"
-#include "shared/arena.h"
 
 /**
  * @brief Reports that the program ran out of memory and ends the process with `EXIT_CODE_FAILURE`.
  *
- * This is the executable's member of the `runtime/os.h` interface that `shared/arena.h` declares.
- * It is defined here rather than in `runtime/fs.c`, because what running out of memory does is a
+ * This is the executable's member of the `runtime/os.h` interface that `core/arena.h` declares. It
+ * is defined here rather than in `runtime/fs.c`, because what running out of memory does is a
  * decision about the program, not about the host: the unit tests define their own, whichever host
  * they link.
  *

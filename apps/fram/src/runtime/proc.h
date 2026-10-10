@@ -1,7 +1,7 @@
 #ifndef FRAM_PROC_H
 #define FRAM_PROC_H
 
-#include "shared/str.h"
+#include "core/str.h"
 
 struct Arena;
 struct Log;

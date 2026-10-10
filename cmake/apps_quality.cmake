@@ -34,7 +34,7 @@ set(apps_cppcheck_property
 
 # CMake hands cppcheck only the `-I` include directories, not the `-isystem` ones, and an app's
 # build adds the libraries as `SYSTEM`, so cppcheck gets their include roots from `APPS_LIBRARIES`,
-# the libraries that the app and its tests link, which the app sets. Without the root of `shared`,
+# the libraries that the app and its tests link, which the app sets. Without the root of `core`,
 # cppcheck cannot expand `STR_FMT` and miscounts `printf` arguments. A library that the app does not
 # link stays out, so a header of the app with the same path as one of that library, such as cwrap's
 # `runtime/os.h`, is the one cppcheck reads.

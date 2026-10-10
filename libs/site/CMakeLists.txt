@@ -7,7 +7,7 @@ target_sources(
                output_writer.h
 )
 libs_add_include_root(site site)
-target_link_libraries(site PUBLIC core runtime shared PRIVATE apps_build_project)
+target_link_libraries(site PUBLIC core runtime PRIVATE apps_build_project)
 
 set_property(
   GLOBAL APPEND

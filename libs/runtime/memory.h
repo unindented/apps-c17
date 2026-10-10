@@ -1,7 +1,7 @@
 #ifndef APPS_RUNTIME_MEMORY_H
 #define APPS_RUNTIME_MEMORY_H
 
-#include "shared/str.h"
+#include "core/str.h"
 
 struct Log;
 struct Os;

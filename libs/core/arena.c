@@ -4,7 +4,7 @@
 #define _DARWIN_C_SOURCE
 #define _DEFAULT_SOURCE
 
-#include "shared/arena.h"
+#include "core/arena.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -14,7 +14,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include "shared/asan.h"
+#include "core/asan.h"
 
 /** Capacity `arena_grow` gives an array that has none yet. */
 enum { ARENA_GROW_CAPACITY_MIN = 8 };

@@ -4,13 +4,13 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "domain/rewrite.h"
 #include "runtime/memory.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /**
  * @brief Rewrites and emits source bytes that have already been read.

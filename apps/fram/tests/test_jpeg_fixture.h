@@ -3,9 +3,9 @@
 
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/str.h"
 #include "formats/image.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 
 /** Color space and scan structure of a fixture JPEG. */
 enum TestJpegKind {

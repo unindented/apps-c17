@@ -3,8 +3,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "shared/buf.h"
-#include "shared/str.h"
+#include "core/buf.h"
+#include "core/str.h"
 
 /**
  * @brief Appends a token's replacement, tracking whether the URL now ends on a separator.

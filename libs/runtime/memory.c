@@ -2,10 +2,10 @@
 
 #include <stddef.h>
 
+#include "core/buf.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "runtime/os.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 
 /** What one thread works on, for the out-of-memory report. */
 struct MemoryOomJob {

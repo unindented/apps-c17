@@ -2,11 +2,11 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "os_memory/os_memory.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "site/manifest.h"
 #include "site/output_writer.h"
 #include "testing/test_support.h"

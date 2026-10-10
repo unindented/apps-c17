@@ -16,9 +16,8 @@ target_sources(
 libs_add_include_root(markup markup)
 target_link_libraries(
   markup
-  PUBLIC shared
+  PUBLIC core
   PRIVATE apps_build_project
-          core
           formats
           vendor_md4c
           vendor_org4c

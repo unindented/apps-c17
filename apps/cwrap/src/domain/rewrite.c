@@ -3,14 +3,14 @@
 #include <assert.h>
 #include <stdbool.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/str.h"
 #include "domain/atom.h"
 #include "domain/comment.h"
 #include "domain/doxygen.h"
 #include "domain/fill.h"
 #include "domain/lex.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 
 /**
  * @brief Reports whether `block` is a slash-star comment on one line, with no tab inside it, that

@@ -2,8 +2,8 @@
 
 #include <stddef.h>
 
-#include "shared/buf.h"
-#include "shared/str.h"
+#include "core/buf.h"
+#include "core/str.h"
 
 /**
  * @brief Returns the character reference that escapes `c`, or an empty string when `c` needs no

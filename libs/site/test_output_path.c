@@ -2,11 +2,11 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/log.h"
 #include "core/path.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
+#include "core/str.h"
 #include "site/output_path.h"
 #include "testing/test_support.h"
 

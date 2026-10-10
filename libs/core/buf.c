@@ -1,4 +1,4 @@
-#include "shared/buf.h"
+#include "core/buf.h"
 
 #include <assert.h>
 #include <stdarg.h>
@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "shared/arena.h"
+#include "core/arena.h"
 
 /**
  * @brief Ensures the buffer has room for `need` more bytes.

@@ -10,11 +10,11 @@
 #include <tree_sitter/api.h>
 #include <tree_sitter_grammars.h>
 
+#include "core/arena.h"
 #include "core/ascii.h"
+#include "core/buf.h"
+#include "core/str.h"
 #include "formats/html.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/str.h"
 
 /** Prefix a Markdown fence's language may carry, which names the same language without it. */
 #define LANGUAGE_PREFIX S("language-")

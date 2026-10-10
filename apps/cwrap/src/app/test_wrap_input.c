@@ -5,11 +5,11 @@
 #include <string.h>
 
 #include "app/wrap_input.h"
+#include "core/arena.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "os_memory.h"
 #include "runtime/memory.h"
-#include "shared/arena.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "testing/test_support.h"
 
 // These tests run on the in-memory host, so each sets up its files and standard input in the host

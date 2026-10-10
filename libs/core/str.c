@@ -1,11 +1,11 @@
-#include "shared/str.h"
+#include "core/str.h"
 
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
 
-#include "shared/arena.h"
+#include "core/arena.h"
 
 struct Str str_from_cstr(const char* cstr) {
   return (struct Str){cstr, (ptrdiff_t)strlen(cstr)};

@@ -22,7 +22,6 @@ target_link_libraries(
          core
          formats
          runtime
-         shared
          site
   PRIVATE apps_build_project
           vendor_copt

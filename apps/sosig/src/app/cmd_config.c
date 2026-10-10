@@ -2,12 +2,12 @@
 
 #include <stddef.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/log.h"
 #include "domain/site_config.h"
 #include "runtime/memory.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
 
 /**
  * Bytes `cmd_config_run` reserves. One third of the block holds the loaded values, one the file

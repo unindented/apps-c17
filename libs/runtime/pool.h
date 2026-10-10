@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#include "shared/arena.h"
+#include "core/arena.h"
 
 /**
  * @brief Callback run once per job index by `pool_run`.

@@ -1,7 +1,7 @@
 #ifndef APPS_FORMATS_HTML_H
 #define APPS_FORMATS_HTML_H
 
-#include "shared/str.h"
+#include "core/str.h"
 
 struct Buf;
 

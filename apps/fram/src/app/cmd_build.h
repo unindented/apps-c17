@@ -4,8 +4,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/arena.h"
 #include "core/exit_code.h"
-#include "shared/arena.h"
 
 struct JobArenas;
 struct Log;

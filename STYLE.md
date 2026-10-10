@@ -79,7 +79,7 @@ This guide takes its ideas and conventions from these sources:
 - Use `bool` for real boolean state and predicates.
 - Avoid transparent `typedef struct` aliases. Prefer named structs directly.
 - Use typedefs only for callback signatures and for aliases that hide a representation on purpose.
-- Represent text and byte ranges as `struct Str` (`shared/str.h`), and pass and return a `struct Str` by value. A `NUL` inside a `struct Str` is an ordinary byte.
+- Represent text and byte ranges as `struct Str` (`core/str.h`), and pass and return a `struct Str` by value. A `NUL` inside a `struct Str` is an ordinary byte.
   - Test code is the exception where its arguments are literals. The fixture APIs in `os_memory/os_memory.h` and `testing/test_support.h`, the `contract_*` helpers in `runtime/test_os.c`, and the helpers of a test file take and return paths, expected text, and messages as C strings, so that a test can write its tree and its expectations as literals.
     - A fixture whose contents can hold any byte takes the contents as a `struct Str`: `os_memory_write_bytes`, whose path is also a `struct Str`, `contract_write` and `contract_is_file`.
     - The capture helpers in `testing/test_support.h` fill a terminated `char` buffer that the caller supplies. That buffer's `ptrdiff_t` length converts to `size_t` one time, at `fread`.

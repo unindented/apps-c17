@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#include "shared/arena.h"
+#include "core/arena.h"
 
 struct SiteConfig;
 struct Log;

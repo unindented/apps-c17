@@ -3,14 +3,14 @@
 #include <stddef.h>
 
 #include "build/template.h"
+#include "core/arena.h"
 #include "core/path.h"
 #include "core/path_list.h"
+#include "core/str.h"
 #include "domain/content_entry.h"
 #include "domain/site_config.h"
 #include "runtime/memory.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 #include "site/output_writer.h"
 
 // This module's two writers are unit-tested in `src/build/test_site_writer.c`, and CTest's golden

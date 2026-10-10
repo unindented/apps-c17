@@ -4,12 +4,12 @@
 #
 # It is an object library rather than a static one so that its `os_oom` is always linked in: a
 # static archive member would be pulled only by a reference that precedes it on the link line, and
-# the reference comes from the arena in `shared`, which follows it.
+# the reference comes from the arena in `core`, which follows it.
 
 add_library(testing OBJECT)
 target_sources(testing PRIVATE test_support.c test_support.h)
 libs_add_include_root(testing testing)
-target_link_libraries(testing PUBLIC core shared PRIVATE apps_build_tests vendor_acutest)
+target_link_libraries(testing PUBLIC core PRIVATE apps_build_tests vendor_acutest)
 
 set_property(
   GLOBAL APPEND

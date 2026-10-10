@@ -9,8 +9,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "core/arena.h"
 #include "runtime/pool.h"
-#include "shared/arena.h"
 #include "testing/test_support.h"
 
 /** Number of jobs `test_worker_index_is_stable_and_bounded` runs. */

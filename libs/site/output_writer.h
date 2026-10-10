@@ -3,10 +3,10 @@
 
 #include <stdbool.h>
 
+#include "core/arena.h"
 #include "core/path_list.h"
+#include "core/str.h"
 #include "runtime/os.h"
-#include "shared/arena.h"
-#include "shared/str.h"
 
 struct Log;
 struct Manifest;

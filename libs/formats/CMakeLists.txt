@@ -3,7 +3,7 @@
 add_library(formats STATIC)
 target_sources(formats PRIVATE html.c toml.c html.h toml.h)
 libs_add_include_root(formats formats)
-target_link_libraries(formats PUBLIC core shared vendor_tomlc17 PRIVATE apps_build_project)
+target_link_libraries(formats PUBLIC core vendor_tomlc17 PRIVATE apps_build_project)
 
 set_property(
   GLOBAL APPEND

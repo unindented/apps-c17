@@ -11,12 +11,12 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "core/arena.h"
+#include "core/buf.h"
+#include "core/log.h"
+#include "core/str.h"
 #include "formats/exif.h"
 #include "formats/image.h"
-#include "shared/arena.h"
-#include "shared/buf.h"
-#include "shared/log.h"
-#include "shared/str.h"
 #include "test_jpeg_fixture.h"
 #include "testing/test_support.h"
 
