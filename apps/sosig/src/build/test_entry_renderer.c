@@ -24,9 +24,9 @@
 #include "domain/site_config.h"
 #include "os/os.h"
 #include "os/os_posix.h"
-#include "site/job.h"
-#include "site/manifest.h"
-#include "site/output_writer.h"
+#include "output/manifest.h"
+#include "output/output_writer.h"
+#include "runtime/job.h"
 #include "testing/test_support.h"
 
 /**

@@ -12,7 +12,7 @@
 #include "domain/album.h"
 #include "domain/gallery_config.h"
 #include "os/os_memory.h"
-#include "site/job.h"
+#include "runtime/job.h"
 #include "testing/test_support.h"
 
 // Every test here runs against the in-memory host: the page phase reads templates only through

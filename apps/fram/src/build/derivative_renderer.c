@@ -16,9 +16,9 @@
 #include "formats/image.h"
 #include "os/oom.h"
 #include "os/os.h"
+#include "output/output_writer.h"
+#include "runtime/job.h"
 #include "runtime/video.h"
-#include "site/job.h"
-#include "site/output_writer.h"
 
 /**
  * Bytes the largest decode can hold, as `image_decode_len` counts it: `IMAGE_PIXEL_COUNT_MAX`

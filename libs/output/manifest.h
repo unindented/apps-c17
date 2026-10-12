@@ -1,5 +1,5 @@
-#ifndef APPS_SITE_MANIFEST_H
-#define APPS_SITE_MANIFEST_H
+#ifndef APPS_OUTPUT_MANIFEST_H
+#define APPS_OUTPUT_MANIFEST_H
 
 #include <stdbool.h>
 #include <stddef.h>

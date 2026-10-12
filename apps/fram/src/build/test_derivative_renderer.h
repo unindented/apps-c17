@@ -8,7 +8,7 @@
 #include "core/str.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
-#include "site/manifest.h"
+#include "output/manifest.h"
 
 // This is header-only and `static inline` so that the image and the video tests of the derivative
 // phase, two executables, share one configuration and one manifest without a separate test library

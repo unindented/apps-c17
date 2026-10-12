@@ -29,13 +29,13 @@
 #include "formats/image.h"
 #include "os/oom.h"
 #include "os/os.h"
+#include "output/manifest.h"
+#include "output/output_writer.h"
+#include "runtime/job.h"
 #include "runtime/pool.h"
 #include "runtime/proc.h"
 #include "runtime/video.h"
 #include "runtime/walk.h"
-#include "site/job.h"
-#include "site/manifest.h"
-#include "site/output_writer.h"
 
 /** Bytes in a mebibyte, the unit of the sizes below. */
 #define BUILD_MIB ((ptrdiff_t)1024 * 1024)

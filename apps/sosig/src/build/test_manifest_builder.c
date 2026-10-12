@@ -15,7 +15,7 @@
 #include "domain/content_entry.h"
 #include "domain/site_config.h"
 #include "os/os_memory.h"
-#include "site/manifest.h"
+#include "output/manifest.h"
 #include "testing/test_support.h"
 
 // Every test here runs against the in-memory host. The identity checks see what they would see on

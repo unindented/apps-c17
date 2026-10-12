@@ -1,5 +1,5 @@
-#ifndef APPS_SITE_JOB_H
-#define APPS_SITE_JOB_H
+#ifndef APPS_RUNTIME_JOB_H
+#define APPS_RUNTIME_JOB_H
 
 #include <stdbool.h>
 #include <stddef.h>

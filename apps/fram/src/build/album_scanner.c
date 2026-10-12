@@ -19,9 +19,9 @@
 #include "formats/image.h"
 #include "os/oom.h"
 #include "os/os.h"
+#include "output/output_path.h"
+#include "runtime/job.h"
 #include "runtime/video.h"
-#include "site/job.h"
-#include "site/output_path.h"
 
 /** Temporary indexing state while a skeleton is assembled. */
 struct SkeletonState {

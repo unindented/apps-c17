@@ -7,7 +7,7 @@
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
-#include "site/output_path.h"
+#include "output/output_path.h"
 #include "testing/test_support.h"
 
 // A path within both limits is accepted and records nothing.

@@ -22,8 +22,8 @@ target_link_libraries(
          core
          formats
          os
+         output
          runtime
-         site
   PRIVATE apps_build_project
           vendor_copt
           Threads::Threads

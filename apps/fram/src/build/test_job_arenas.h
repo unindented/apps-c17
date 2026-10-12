@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 #include "core/arena.h"
-#include "site/job.h"
+#include "runtime/job.h"
 #include "testing/test_support.h"
 
 // This is header-only and `static inline` so that every unit test running a parallel phase can

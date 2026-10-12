@@ -10,7 +10,7 @@
 #include "domain/album.h"
 #include "domain/gallery_config.h"
 #include "os/oom.h"
-#include "site/job.h"
+#include "runtime/job.h"
 
 /**
  * Worker context shared by all album page render jobs. Every field is read-only to a job, except

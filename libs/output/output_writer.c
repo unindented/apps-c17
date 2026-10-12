@@ -1,4 +1,4 @@
-#include "site/output_writer.h"
+#include "output/output_writer.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -12,7 +12,7 @@
 #include "core/path_list.h"
 #include "core/str.h"
 #include "os/os.h"
-#include "site/manifest.h"
+#include "output/manifest.h"
 
 /**
  * @brief Marks `file_path` in the writer's manifest, rejecting a path the manifest does not name.

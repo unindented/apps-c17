@@ -1,5 +1,5 @@
-#ifndef APPS_SITE_OUTPUT_WRITER_H
-#define APPS_SITE_OUTPUT_WRITER_H
+#ifndef APPS_OUTPUT_OUTPUT_WRITER_H
+#define APPS_OUTPUT_OUTPUT_WRITER_H
 
 #include <stdbool.h>
 

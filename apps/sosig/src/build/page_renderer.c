@@ -12,8 +12,8 @@
 #include "domain/site_config.h"
 #include "os/oom.h"
 #include "os/os.h"
-#include "site/job.h"
-#include "site/output_writer.h"
+#include "output/output_writer.h"
+#include "runtime/job.h"
 
 /**
  * Worker context shared by all content entry page render jobs. Every field is read-only to a job,

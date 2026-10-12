@@ -12,8 +12,8 @@
 #include "core/str.h"
 #include "domain/gallery_config.h"
 #include "os/os.h"
-#include "site/manifest.h"
-#include "site/output_writer.h"
+#include "output/manifest.h"
+#include "output/output_writer.h"
 
 /** Number of input roots the prune never enters: `input_dir`, `templates_dir`, `static_dir`. */
 enum { PRUNE_ROOT_COUNT = 3 };

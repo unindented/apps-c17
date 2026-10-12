@@ -129,7 +129,7 @@ endif()
 if(TARGET formats AND TARGET vendor_tree_sitter_grammars)
   add_subdirectory(markup)
 endif()
-add_subdirectory(site)
+add_subdirectory(output)
 
 if(PROJECT_IS_TOP_LEVEL)
   get_property(libs_lint_sources GLOBAL PROPERTY apps_libs_lint_sources)

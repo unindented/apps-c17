@@ -230,8 +230,8 @@ The source archive, `<app>-<version>-source.tar.gz`, holds the whole repository 
 - [apps/sosig/CMakeLists.txt](apps/sosig/CMakeLists.txt) also finds the thread library.
 - [apps/sosig/vendor.cmake](apps/sosig/vendor.cmake) also includes [libs/markup/vendor.cmake](libs/markup/vendor.cmake), as [Grammars](#grammars) describes.
 - [apps/sosig/CMakePresets.json](apps/sosig/CMakePresets.json) adds the `grammars` presets, which build `sosig` with only the TypeScript grammar.
-- `sosig` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `markup` and `site`, and for the unit tests `testing` and the in-memory host `os_memory`.
-- `sosig_app` links `vendor_tomlc17`, `core`, `formats`, `markup`, `os`, `runtime` and `site` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+- `sosig` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `markup` and `output`, and for the unit tests `testing` and the in-memory host `os_memory`.
+- `sosig_app` links `vendor_tomlc17`, `core`, `formats`, `markup`, `os`, `output` and `runtime` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 - `src/build/` links the vendored dependencies that only its own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 - The version template is [apps/sosig/src/core/sosig_version.c.in](apps/sosig/src/core/sosig_version.c.in). The file that CMake generates from it also defines `sosig_generator_string()`.
 
@@ -263,8 +263,8 @@ The script finds the expected files and the actual files with globs after `sosig
 ### fram files and targets
 
 - [apps/fram/CMakeLists.txt](apps/fram/CMakeLists.txt) also finds the thread library.
-- `fram` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats` and `site`, and for the unit tests `testing` and the in-memory host `os_memory`.
-- `fram_app` links `vendor_tomlc17`, `core`, `formats`, `os`, `runtime` and `site` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+- `fram` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats` and `output`, and for the unit tests `testing` and the in-memory host `os_memory`.
+- `fram_app` links `vendor_tomlc17`, `core`, `formats`, `os`, `output` and `runtime` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 - `src/build/` and `src/formats/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 - The version template is [apps/fram/src/core/fram_version.c.in](apps/fram/src/core/fram_version.c.in). The file that CMake generates from it also defines `fram_generator_string()`.
 

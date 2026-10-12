@@ -16,8 +16,8 @@
 #include "core/str.h"
 #include "os/os.h"
 #include "os/os_posix.h"
+#include "runtime/job.h"
 #include "runtime/pool.h"
-#include "site/job.h"
 #include "test_jpeg_fixture.h"
 #include "testing/test_support.h"
 

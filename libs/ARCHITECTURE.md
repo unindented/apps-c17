@@ -6,7 +6,7 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and its presets. An app adds the project with `add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)`, so a library builds only when the app links it. Configured on its own, the project builds every library, its tests, its analysis and its lint.
 - [vendor.cmake](vendor.cmake): The vendored targets that the libraries and their tests use when the project is configured on its own: `acutest` and `tomlc17`, from the root [vendor/](../vendor/) directory, and the targets of [markup/vendor.cmake](markup/vendor.cmake). An app that adds the project gives these targets from its own `vendor.cmake`, which includes `markup/vendor.cmake` when the app links `markup`.
-- [core/](core/), [testing/](testing/), [os/](os/), [runtime/](runtime/), [formats/](formats/), [markup/](markup/) and [site/](site/): One directory for each library, except `os/`, which also holds the two implementations of its interface as libraries of their own, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
+- [core/](core/), [testing/](testing/), [os/](os/), [runtime/](runtime/), [formats/](formats/), [markup/](markup/) and [output/](output/): One directory for each library, except `os/`, which also holds the two implementations of its interface as libraries of their own, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
 
 ## Libraries
 
@@ -15,10 +15,10 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 | [`core`](#core) | The arena allocator, counted strings, growable buffers and the error log, and ASCII classification, error text, exit codes, number parsing, paths, path lists and text helpers. | sosig, fram, cwrap |
 | [`testing`](#testing) | The support that every unit test uses, and the `os_oom` of the unit tests. | the unit tests of every app and of the other libraries |
 | [`os`](#os) | The host interface and the out-of-memory report, with the POSIX host `os_posix` and the in-memory host `os_memory`. | sosig, fram and cwrap, and `os_memory` for their unit tests and those of the libraries |
-| [`runtime`](#runtime) | The worker pool and the directory walk. | sosig, fram |
+| [`runtime`](#runtime) | The worker pool, the jobs of a build phase that run on it, and the directory walk. | sosig, fram |
 | [`formats`](#formats) | HTML escaping and the TOML helpers. | sosig, fram |
 | [`markup`](#markup) | Markdown and Org to HTML, and the syntax highlighting of code blocks with tree-sitter. | sosig |
-| [`site`](#site) | The output manifest, the build job, output paths and the output writer. | sosig, fram |
+| [`output`](#output) | The output manifest, the output-path checks and the output writer. | sosig, fram |
 
 ### Dependency rules
 
@@ -26,10 +26,10 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 - `runtime` depends on `core` and `os`.
 - `formats` depends on `core` and the vendored `tomlc17`. The project adds `formats` only when the `vendor_tomlc17` target exists, so an app that vendors no tomlc17, such as cwrap, builds without it.
 - `markup` depends on `core`, `formats` and the targets of `markup/vendor.cmake`: md4c, org4c, and tree-sitter with its grammars. The project adds `markup` only when these targets and `formats` exist.
-- `site` depends on `core`, `os` and `runtime`.
+- `output` depends on `core` and `os`.
 - No library depends on an app.
 
-A library include names the library and the module, for example `#include "core/parse.h"` or `#include "site/manifest.h"`. Each library has an include root of its own: `libs_add_include_root` makes a directory in the build tree that holds one link, named for the library, to the library's directory, and gives the target that directory as its include root. A target therefore reaches the headers of the libraries that it links and of no other library. A header guard is `APPS_<LIB>_<MODULE>_H`, for example `APPS_CORE_PARSE_H`. An app's own `src/<layer>/` holds only modules that no library it links has, so an app's include never resolves to a different file than the library's.
+A library include names the library and the module, for example `#include "core/parse.h"` or `#include "output/manifest.h"`. Each library has an include root of its own: `libs_add_include_root` makes a directory in the build tree that holds one link, named for the library, to the library's directory, and gives the target that directory as its include root. A target therefore reaches the headers of the libraries that it links and of no other library. A header guard is `APPS_<LIB>_<MODULE>_H`, for example `APPS_CORE_PARSE_H`. An app's own `src/<layer>/` holds only modules that no library it links has, so an app's include never resolves to a different file than the library's.
 
 ### Build profiles and analysis
 
@@ -235,6 +235,7 @@ Each property that a test checks against the in-memory host must have a contract
 
 ## runtime
 
+- [job](runtime/job.h): `job_run` connects the parallel phases of a build to the worker pool. It gives each job a log of its own, in the share of the phase's scratch that the job's worker owns. It reports progress under a lock, and merges the logs of the failed jobs. When the lines of two jobs differ only after the text that the caller names, the two jobs count as one failure. Each job writes its results into its own slot, which the caller owns.
 - [pool](runtime/pool.h): Runs indexed jobs through a pthread pool of bounded size. It completes every job, even when one job fails, and joins every worker before it returns. Each job gets the index of the worker that runs it, so the job can use that worker's arenas. The module also gets the default worker count from the number of online CPUs.
 - [walk](runtime/walk.h): Finds and sorts the matching regular files in a directory tree. It uses only `os_list` and `os_stat`, so it behaves the same on every host. It follows symlinked directories, but walks each directory once, by device and inode. It skips a cycle or a second alias of a directory. A caller can name one directory to exclude. The walk visits directory entries in byte order, and visits each symlinked directory only after every real directory, so it lists the path without a symlink when such a path exists. Only one directory is open at a time.
 
@@ -275,9 +276,8 @@ The modules escape text with `formats/html.h`.
 
 **Cost.** An Org code block that is almost all code references with a short `-l` label format is the one input that the limits accept and `BUILD_SCRATCH_LEN` does not hold, as the definition of sosig's `BUILD_SCRATCH_LEN` explains.
 
-## site
+## output
 
-- [job](site/job.h): `job_run` connects the parallel phases of a build to the worker pool. It gives each job a log of its own, in the share of the phase's scratch that the job's worker owns. It reports progress under a lock, and merges the logs of the failed jobs. When the lines of two jobs differ only after the text that the caller names, the two jobs count as one failure. Each job writes its results into its own slot, which the caller owns.
-- [manifest](site/manifest.h): An insertion-ordered map from `output_path` to `source_label`. A build makes it before it writes an output file. A 4-ary hash trie, with the ASCII-folded path as its key, lets `manifest_add` reject a duplicate. Each trie level uses the next two bits of the path's 64-bit FNV-1a hash, so a lookup goes down O(log n) levels in expectation, and the trie never moves a manifest entry that it placed. Two paths that differ only in ASCII case are duplicates. `manifest_find_prefix_collision` finds a path that is a `/`-delimited prefix of another path. Each manifest entry also holds a mark, which is pending until the output writer marks the path as written or kept. A mark changes no trie link, so parallel jobs mark their own paths at the same time.
-- [output_path](site/output_path.h): Reports a generated output path that exceeds either output-path limit, with the same wording for every producer, and builds the `../` prefix from an output file back to the output root (`output_path_to_root`).
-- [output_writer](site/output_writer.h): Makes every change that a build makes under the output directory: the writes, the creation of the output directory, and the prune's removals. Each write or keep marks its path in the manifest. The writer fails on a path that the manifest does not name, because the same build's prune would remove that path. In a dry run, the writer makes no change and records the removals, and `output_writer_report` lists its marks and removals.
+- [manifest](output/manifest.h): An insertion-ordered map from `output_path` to `source_label`. A build makes it before it writes an output file. A 4-ary hash trie, with the ASCII-folded path as its key, lets `manifest_add` reject a duplicate. Each trie level uses the next two bits of the path's 64-bit FNV-1a hash, so a lookup goes down O(log n) levels in expectation, and the trie never moves a manifest entry that it placed. Two paths that differ only in ASCII case are duplicates. `manifest_find_prefix_collision` finds a path that is a `/`-delimited prefix of another path. Each manifest entry also holds a mark, which is pending until the output writer marks the path as written or kept. A mark changes no trie link, so parallel jobs mark their own paths at the same time.
+- [output_path](output/output_path.h): Reports a generated output path that exceeds either output-path limit, with the same wording for every producer, and builds the `../` prefix from an output file back to the output root (`output_path_to_root`).
+- [output_writer](output/output_writer.h): Makes every change that a build makes under the output directory: the writes, the creation of the output directory, and the prune's removals. Each write or keep marks its path in the manifest. The writer fails on a path that the manifest does not name, because the same build's prune would remove that path. In a dry run, the writer makes no change and records the removals, and `output_writer_report` lists its marks and removals.

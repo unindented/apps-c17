@@ -15,9 +15,9 @@
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
 #include "os/os.h"
+#include "output/manifest.h"
+#include "output/output_path.h"
 #include "runtime/walk.h"
-#include "site/manifest.h"
-#include "site/output_path.h"
 
 /**
  * Identities of the files this build reads, gathered before any output path is registered so an

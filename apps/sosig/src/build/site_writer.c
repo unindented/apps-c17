@@ -11,7 +11,7 @@
 #include "domain/site_config.h"
 #include "os/oom.h"
 #include "os/os.h"
-#include "site/output_writer.h"
+#include "output/output_writer.h"
 
 // This module's two writers are unit-tested in `src/build/test_site_writer.c`, and CTest's golden
 // test suite exercises them end to end by building every fixture site and comparing each result

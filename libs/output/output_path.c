@@ -1,4 +1,4 @@
-#include "site/output_path.h"
+#include "output/output_path.h"
 
 #include <stddef.h>
 #include <stdlib.h>

@@ -4,7 +4,7 @@
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/str.h"
-#include "site/manifest.h"
+#include "output/manifest.h"
 #include "testing/test_support.h"
 
 /**

@@ -1,5 +1,5 @@
-#ifndef APPS_SITE_OUTPUT_PATH_H
-#define APPS_SITE_OUTPUT_PATH_H
+#ifndef APPS_OUTPUT_OUTPUT_PATH_H
+#define APPS_OUTPUT_OUTPUT_PATH_H
 
 #include <stddef.h>
 

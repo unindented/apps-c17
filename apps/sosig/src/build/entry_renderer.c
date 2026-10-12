@@ -22,8 +22,8 @@
 #include "markup/org.h"
 #include "os/oom.h"
 #include "os/os.h"
-#include "site/job.h"
-#include "site/output_path.h"
+#include "output/output_path.h"
+#include "runtime/job.h"
 
 /**
  * Worker context shared by all content entry parse jobs. Every field is read-only to a job, except

@@ -18,8 +18,8 @@
 #include "formats/toml.h"
 #include "os/os.h"
 #include "os/os_memory.h"
+#include "runtime/job.h"
 #include "runtime/pool.h"
-#include "site/job.h"
 #include "testing/test_support.h"
 
 // Every build here runs against the in-memory host, whose root is the working directory the build
