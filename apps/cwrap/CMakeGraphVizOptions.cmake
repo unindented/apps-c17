@@ -17,10 +17,8 @@ set(GRAPHVIZ_CUSTOM_TARGETS FALSE)
 
 set(GRAPHVIZ_IGNORE_TARGETS
     "apps_build_tests"
-    "cwrap_os_memory"
     "cwrap_unit_.*"
     "os_memory"
-    "os_posix"
     "runtime"
     "site"
     "testing"

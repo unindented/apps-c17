@@ -17,8 +17,8 @@
 #include "core/exit_code.h"
 #include "core/log.h"
 #include "core/str.h"
-#include "runtime/fs.h"
-#include "runtime/os.h"
+#include "os/os.h"
+#include "os/os_posix.h"
 #include "testing/test_support.h"
 
 /** Largest file a test here reads back, in bytes. Every fixture file is a few bytes. */
@@ -150,8 +150,8 @@ static void test_wrap_command_receives_parsed_options(void) {
   struct Arena arena = test_arena();
   struct Log log = test_log();
   struct Str file_data = {0};
-  TEST_CHECK(os_read(os_posix(), str_from_cstr(file_path), TEST_FILE_LEN_MAX, &arena, &file_data,
-                     S("failed to read file"), &log) == 0);
+  TEST_CHECK(os_read(os_posix(), str_from_cstr(file_path), TEST_FILE_LEN_MAX, OS_READ_TEXT, &arena,
+                     &file_data, S("failed to read file"), &log) == 0);
   // The fixture is removed before any assertion, so a failed one cannot leave it behind.
   remove_fixture_tree(root_dir);
   TEST_CHECK(str_eq(file_data, S("// one two\n")));
@@ -185,8 +185,8 @@ static void test_wrap_command_receives_check_option(void) {
   struct Arena arena = test_arena();
   struct Log log = test_log();
   struct Str file_data = {0};
-  TEST_CHECK(os_read(os_posix(), str_from_cstr(file_path), TEST_FILE_LEN_MAX, &arena, &file_data,
-                     S("failed to read file"), &log) == 0);
+  TEST_CHECK(os_read(os_posix(), str_from_cstr(file_path), TEST_FILE_LEN_MAX, OS_READ_TEXT, &arena,
+                     &file_data, S("failed to read file"), &log) == 0);
   // The fixture is removed before any assertion, so a failed one cannot leave it behind.
   remove_fixture_tree(root_dir);
   TEST_CHECK(str_eq(file_data, str_from_cstr(wrap_fixture_source)));

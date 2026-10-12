@@ -4,16 +4,16 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "app/memory.h"
 #include "app/wrap_input.h"
 #include "core/arena.h"
 #include "core/log.h"
 #include "core/str.h"
-#include "os_memory.h"
-#include "runtime/memory.h"
+#include "os/os_memory.h"
 #include "testing/test_support.h"
 
 // These tests run on the in-memory host, so each sets up its files and standard input in the host
-// and reads what the input printed back from it. `src/runtime/test_os.c` checks that the host
+// and reads what the input printed back from it. `os/test_os.c` in `libs/` checks that the host
 // behaves as the POSIX one does for every property relied on here.
 
 /** Bytes of the caller-owned input region `test_inputs_reuse_input_region` gives each input. */

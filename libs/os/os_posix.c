@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -25,6 +26,13 @@
 #include "core/str.h"
 #include "core/text.h"
 #include "os/os.h"
+
+/**
+ * Bytes the standard input buffer grows by before each `read`. Each step makes that much more of
+ * the arena usable, so a larger step makes fewer calls into the arena, and a smaller one leaves
+ * fewer unused bytes past the end of a short input.
+ */
+enum { OS_READ_STDIN_STEP_LEN = 64 * 1024 };
 
 /**
  * The POSIX host. It has no state of its own: the process's working directory, umask and file
@@ -121,6 +129,17 @@ static int os_read_bytes_exact(char* data,
                                const struct FsReport* report) __attribute__((nonnull(1, 3, 5)));
 
 /**
+ * @brief Reports `error_number` as the cause of a failed standard input read. A step of
+ *        `os_read_stdin`.
+ *
+ * @param report       Where the failure is reported. Must not be `NULL`.
+ * @param error_number `errno` value to describe.
+ * @return `-1` always, so a caller can write `return os_read_stdin_report_errno(...);`.
+ */
+static int os_read_stdin_report_errno(const struct FsReport* report, int error_number)
+    __attribute__((nonnull(1)));
+
+/**
  * @brief Opens the destination of an `os_write` call, creating or truncating it. A step of
  *        `os_write`.
  *
@@ -179,6 +198,48 @@ static int os_write_close(const struct FsWriteTarget* target,
                           struct Str source_path,
                           int rc,
                           const struct FsReport* report) __attribute__((nonnull(1, 5)));
+
+/**
+ * @brief Resolves a destination that is a symbolic link to the file the link names, in place. A
+ *        step of `os_replace`.
+ *
+ * The replacement goes to the file a link names rather than the link, so the link stays a link. A
+ * path that is not a link, or does not exist, is left as it is.
+ *
+ * @param path Terminated destination path, replaced by the resolved path when it names a symbolic
+ *             link. Must not be `NULL`.
+ * @return `0` on success, or `-1` with `errno` set when the link cannot be resolved: a dangling
+ *         link fails with the `ENOENT` that `realpath` reports, and a resolved path of `PATH_MAX`
+ *         bytes or more with `ENAMETOOLONG`.
+ */
+static int os_replace_resolve(char path[static PATH_MAX]);
+
+/**
+ * @brief Builds the path of the sibling temporary file a replacement goes to. A step of
+ *        `os_replace`.
+ *
+ * @param destination_path Terminated path the replacement replaces. Must not be `NULL`.
+ * @param temporary_out    Buffer of `PATH_MAX` bytes that receives the terminated `mkstemp`
+ *                         template, in the destination's directory. Must not be `NULL`.
+ * @return `0` on success, or `-1` with `errno` set to `ENAMETOOLONG` when the template would not
+ *         fit in `PATH_MAX` bytes, as the system would fail it.
+ */
+static int os_replace_temporary_path(const char destination_path[static 1],
+                                     char temporary_out[static PATH_MAX]);
+
+/**
+ * @brief Returns the permission bits a newly created file gets from the process umask. A step of
+ *        `os_replace`.
+ *
+ * `mkstemp` creates its file `0600` regardless of the umask, so a destination that did not exist
+ * before needs the mode `fopen(path, "wb")` would have given it applied explicitly. There is no
+ * portable call that only reads the umask, so this sets it and restores it. That flip is
+ * process-wide and races with any other thread that creates a file, which `os.h` asks the caller of
+ * `os_replace` to rule out.
+ *
+ * @return `0666` reduced by the process umask.
+ */
+static mode_t os_replace_created_mode(void);
 
 /**
  * @brief Creates `dir_path` and any missing parent directories. The body of `os_mkdirs`, which
@@ -376,6 +437,58 @@ int os_read(struct Os* os,
   return 0;
 }
 
+int os_read_stdin(struct Os* os,
+                  ptrdiff_t data_len_max,
+                  struct Arena* perm,
+                  struct Str* data_out,
+                  struct Str operation,
+                  struct Log* log) {
+  (void)os;
+  assert(data_len_max >= 0);
+  const struct FsReport report = {operation, log};
+  // Read into a copy of `perm` and publish it only on success, so a failed read leaves `perm` as it
+  // found it. Each step extends the buffer in place, because it is the copy's last allocation.
+  struct Arena arena = *perm;
+  char* data = arena_new(&arena, 0, char);
+  ptrdiff_t data_cap = 0;
+  ptrdiff_t data_len = 0;
+  for (;;) {
+    // Ask for at most one byte past the limit, which is enough to tell that the input exceeds it.
+    // The loop stops there, so `data_len` never passes the limit and `want` is always positive.
+    const ptrdiff_t want = data_len_max - data_len < OS_READ_STDIN_STEP_LEN
+                               ? data_len_max - data_len + 1
+                               : OS_READ_STDIN_STEP_LEN;
+    // A pipe returns what its writer has written so far, often less than `want`, so the buffer
+    // grows only when the room left is short of the next read.
+    if (data_cap - data_len < want) {
+      (void)arena_extend(&arena, OS_READ_STDIN_STEP_LEN, 1);
+      data_cap += OS_READ_STDIN_STEP_LEN;
+    }
+    const ssize_t chunk_len = read(STDIN_FILENO, data + data_len, (size_t)want);
+    if (chunk_len < 0 && errno == EINTR) {
+      continue;
+    }
+    if (chunk_len < 0) {
+      return os_read_stdin_report_errno(&report, errno);
+    }
+    if (chunk_len == 0) {
+      break;
+    }
+    if (memchr(data + data_len, '\0', (size_t)chunk_len) != NULL) {
+      return log_error(log, "%.*s: contains an embedded NUL byte (from 'stdin')",
+                       STR_FMT(operation));
+    }
+    data_len += chunk_len;
+    if (data_len > data_len_max) {
+      return log_error(log, "%.*s: exceeds max input size (%td bytes) (from 'stdin')",
+                       STR_FMT(operation), data_len_max);
+    }
+  }
+  *perm = arena;
+  *data_out = (struct Str){data, data_len};
+  return 0;
+}
+
 int os_write(struct Os* os,
              struct Str file_path,
              struct OsSource source,
@@ -402,6 +515,89 @@ int os_write(struct Os* os,
     rc = os_write_source(target.fd, source, source_fd, file_path, &report);
   }
   return os_write_close(&target, source_fd, source.file_path, rc, &report);
+}
+
+int os_replace(struct Os* os,
+               struct Str file_path,
+               struct Str data,
+               struct Str operation,
+               struct Log* log) {
+  (void)os;
+  const struct FsReport report = {operation, log};
+  char destination_path[PATH_MAX];
+  if (copy_cstr(file_path, destination_path) != 0 || os_replace_resolve(destination_path) != 0) {
+    return report_errno(&report, file_path, errno);
+  }
+  char temporary_path[PATH_MAX];
+  if (os_replace_temporary_path(destination_path, temporary_path) != 0) {
+    return report_errno(&report, file_path, errno);
+  }
+
+  struct stat st;
+  const bool has_existing_file = stat(destination_path, &st) == 0;
+  if (!has_existing_file && errno != ENOENT) {
+    return report_errno(&report, file_path, errno);
+  }
+  // `destination_path` may have resolved a symlink, and dropped its `/` with it, so the check takes
+  // the path the caller gave.
+  if (has_existing_file && is_slash_on_non_dir(file_path, st.st_mode)) {
+    return report_errno(&report, file_path, ENOTDIR);
+  }
+  // A directory is refused before the temporary file is made, so it fails as `EISDIR` on every
+  // system. Left to `rename`, one followed by `/` fails as `ENOTDIR` or `ENOTEMPTY` on Linux, and
+  // the temporary file would go inside it.
+  if (has_existing_file && S_ISDIR(st.st_mode)) {
+    return report_errno(&report, file_path, EISDIR);
+  }
+
+  const mode_t mode = has_existing_file ? st.st_mode & 07777 : os_replace_created_mode();
+
+  int rc = -1;
+  bool is_renamed = false;
+
+  int fd = mkstemp(temporary_path);
+  if (fd < 0) {
+    (void)report_errno(&report, file_path, errno);
+    goto cleanup;
+  }
+
+  rc = 0;
+  if (write_all(fd, data) != 0) {
+    rc = report_errno(&report, file_path, errno);
+  }
+  if (rc == 0 && fchmod(fd, mode) != 0) {
+    rc = report_errno(&report, file_path, errno);
+  }
+  // `fsync` before the `rename`, not after. Otherwise the new directory entry can reach the disk
+  // while the bytes behind it are still in the page cache, and a power loss leaves the user's file
+  // empty or truncated in place of the previous complete one.
+  if (rc == 0 && fsync(fd) != 0) {
+    rc = report_errno(&report, file_path, errno);
+  }
+  if (close(fd) != 0) {
+    if (rc == 0) {
+      (void)report_errno(&report, file_path, errno);
+    }
+    rc = -1;
+  }
+  fd = -1;
+  if (rc != 0) {
+    goto cleanup;
+  }
+  if (rename(temporary_path, destination_path) != 0) {
+    rc = report_errno(&report, file_path, errno);
+    goto cleanup;
+  }
+  is_renamed = true;
+
+cleanup:
+  if (fd >= 0) {
+    (void)close(fd);
+  }
+  if (!is_renamed) {
+    (void)unlink(temporary_path);
+  }
+  return rc;
 }
 
 int os_mkdirs(struct Os* os, struct Str dir_path, struct Str operation, struct Log* log) {
@@ -579,6 +775,12 @@ static int os_read_bytes_exact(char* data,
   return rc;
 }
 
+static int os_read_stdin_report_errno(const struct FsReport* report, int error_number) {
+  char message[ERROR_SYSTEM_MESSAGE_SIZE];
+  return log_error(report->log, "%.*s: %s (from 'stdin')", STR_FMT(report->operation),
+                   error_system_message(message, sizeof(message), error_number));
+}
+
 static int os_write_open(struct FsWriteTarget* target, const struct FsReport* report) {
   if (copy_cstr(target->file_path, target->path) != 0) {
     return report_errno(report, target->file_path, errno);
@@ -643,6 +845,40 @@ static int os_write_close(const struct FsWriteTarget* target,
     rc = -1;
   }
   return rc;
+}
+
+static int os_replace_resolve(char path[static PATH_MAX]) {
+  struct stat link_st;
+  if (lstat(path, &link_st) != 0 || !S_ISLNK(link_st.st_mode)) {
+    return 0;
+  }
+  // `realpath` fails with `ENAMETOOLONG` rather than write past `PATH_MAX` bytes.
+  char resolved_path[PATH_MAX];
+  if (realpath(path, resolved_path) == NULL) {
+    return -1;
+  }
+  memcpy(path, resolved_path, strlen(resolved_path) + 1);
+  return 0;
+}
+
+static int os_replace_temporary_path(const char destination_path[static 1],
+                                     char temporary_out[static PATH_MAX]) {
+  static const char suffix[] = ".replace.XXXXXX";
+  const char* basename = strrchr(destination_path, '/');
+  const ptrdiff_t directory_len = basename == NULL ? 0 : basename - destination_path + 1;
+  if (directory_len > PATH_MAX - (ptrdiff_t)sizeof(suffix)) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+  memcpy(temporary_out, destination_path, (size_t)directory_len);
+  memcpy(temporary_out + directory_len, suffix, sizeof(suffix));
+  return 0;
+}
+
+static mode_t os_replace_created_mode(void) {
+  const mode_t mask = umask(0);
+  (void)umask(mask);
+  return (mode_t)(0666 & ~mask);
 }
 
 static int mkdirs_report(struct Str dir_path, const struct FsReport* report) {

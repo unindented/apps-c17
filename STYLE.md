@@ -58,7 +58,7 @@ This guide takes its ideas and conventions from these sources:
 ### Functions and files
 
 - Name functions so that call sites read as clear statements. Avoid names that hide whether the return value indicates success, failure, or truth.
-- Name every exported function `<module>_<verb>`, where the module is the source file's base name: `walk.c` defines `walk_files_with_suffixes`, and sosig's `site_config.c` defines `site_config_load`. A host implementation is the exception. `os/os_posix.c` and `os/os_memory.c` in `libs/` define the `os_` functions that `os/os.h` declares, and cwrap's `src/runtime/fs.c` and `tests/os_memory.c` define the functions of cwrap's own `runtime/os.h`. Each of these files names the function that returns its host after that host: `os_posix` and `os_memory`.
+- Name every exported function `<module>_<verb>`, where the module is the source file's base name: `walk.c` defines `walk_files_with_suffixes`, and sosig's `site_config.c` defines `site_config_load`. A host implementation is the exception. `os/os_posix.c` and `os/os_memory.c` in `libs/` define the `os_` functions that `os/os.h` declares. Each of these files names the function that returns its host after that host: `os_posix` and `os_memory`.
 - Give a file-local (`static`) helper a short name that reads well at its call site, without the module prefix, because the `<module>_<verb>` scheme names only exported functions. A host implementation names a step helper of an `os_` function after that function, as the step-helper rule below asks, although `os_` is the exported prefix: `os/os_posix.c` has `os_read_bytes` and `os_list_classify`, and `os/os_memory.c` has `os_write_locked`.
 - When a function breaks an operation into steps and delegates each step to a lower-level helper that only it calls, prefix each such helper with the name of the higher-level function, so that the delegation chain is visible (`os_read` calls `os_read_bytes`). This rule applies only to step helpers that exist for a single caller. Give a generic helper reused by several callers, or a self-contained routine that merely happens to have one caller today, a plain readable name instead.
 - Name a source file after its module or primary type (`manifest.c`). Put the file in the directory for its responsibility, as the ARCHITECTURE.md of its app or [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md) documents.
@@ -237,7 +237,7 @@ This guide takes its ideas and conventions from these sources:
 
 - Run a new test against the in-memory host unless it needs a fact that only a real filesystem has, such as the umask, a FIFO, permissions, or an interrupted write. An app registers such a test with `apps_add_unit_test(<module> OS memory)`, and a library with `libs_add_unit_test(<lib> <module> OS memory)`. A memory-host test builds its tree with the `os_memory_*` helpers, injects failures with `os_memory_fail`, and has no fixture to remove.
 - Every unit test that is registered with the POSIX host, or in an app without `OS memory`, links the POSIX host. These tests are:
-  - The POSIX layer's own tests (`os.os_posix`, `os.contract_posix`, `runtime.walk_posix`, and cwrap's `fs` and `os_posix`), and sosig's and fram's `output_pruner_case`, which need a real filesystem.
+  - The POSIX layer's own tests (`os.os_posix`, `os.contract_posix` and `runtime.walk_posix`), and sosig's and fram's `output_pruner_case`, which need a real filesystem.
   - The suites of each app that are not yet converted to the in-memory host, which [App-specific rules](#app-specific-rules) lists.
   - The tests that reach no host.
 - A test that is added to one of those suites runs on the host that its suite links.
@@ -276,9 +276,9 @@ This guide takes its ideas and conventions from these sources:
 
 ### cwrap
 
-- **Own runtime.** cwrap has its own smaller host interface in `apps/cwrap/src/runtime/os.h`, with standard input and atomic writes. Its POSIX host is `apps/cwrap/src/runtime/fs.c`, its in-memory host is `apps/cwrap/tests/os_memory.c`, and its contract tests are in `apps/cwrap/src/runtime/test_os.c`. The rules in [Hosts](#hosts) apply to these files in the same way. cwrap's in-memory host also has `os_memory_stdin`, and its contract tests have `contract_stdin`, which take their contents as a `struct Str`.
+- **Host.** cwrap reads its inputs and standard input with `os_read` and `os_read_stdin`, with `OS_READ_TEXT`, and rewrites a file with `os_replace`, never with `os_write`.
 - **System errors.** cwrap runs on one thread, so it translates an `errno` with `strerror`.
 - **Argument count.** The argument count that comes from `argc` becomes a `ptrdiff_t` one time, where the code counts the paths.
-- **Out of memory.** `os_oom` prints the current contents of the command's log, then a line that names the phase and the input that the run was in, such as `failed to rewrap file: out of memory ('<path>')`, and exits. Before each phase, an input names the phase and itself with `oom_set_job`.
+- **Out of memory.** `os_oom` prints the current contents of the command's log, then a line that names the phase and the input that the run was in, such as `failed to rewrap file: out of memory ('<path>')`, and exits. Before each phase, an input names the phase and itself with `memory_oom_set_job`.
 - **Random tests.** cwrap's random tests start their generator from `TEST_RNG_SEED_DEFAULT` directly, and a failed check names the case that the generator made.
 - The suites that are not yet converted to the in-memory host are `cli` and `cli_dispatch`.

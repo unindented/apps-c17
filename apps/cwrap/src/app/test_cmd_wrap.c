@@ -10,11 +10,11 @@
 #include "core/buf.h"
 #include "core/exit_code.h"
 #include "core/str.h"
-#include "os_memory.h"
+#include "os/os_memory.h"
 #include "testing/test_support.h"
 
 // These tests run on the in-memory host, so each sets up its files and standard input in the host
-// and reads back what the run printed and wrote. `src/runtime/test_os.c` checks that the host
+// and reads back what the run printed and wrote. `os/test_os.c` in `libs/` checks that the host
 // behaves as the POSIX one does for every property relied on here.
 
 /** Bytes of the source `test_wraps_large_file` wraps, at least a mebibyte. */
@@ -254,7 +254,7 @@ static void test_reports_unreadable_file(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "a.c", wrap_fixture_source);
   os_memory_write(os, "locked.c", wrap_fixture_source);
-  os_memory_fail(os, OS_MEMORY_OP_OPEN, "locked.c", EACCES);
+  os_memory_fail(os, OS_MEMORY_OP_READ, "locked.c", EACCES);
   char* paths[] = {"a.c", "locked.c"};
   const struct WrapOptions options = file_options(paths, 2);
 

@@ -4,13 +4,12 @@
 
 ## Layout
 
-- [src/app/](src/app/): The process entry point, the command-line interface, the command boundary, and the rewrap of one input.
+- [src/app/](src/app/): The process entry point, the command-line interface, the command boundary, the rewrap of one input, and the out-of-memory report.
 - [src/domain/](src/domain/): Comment lexing, grouping, filling, Doxygen alignment, and source rewriting.
-- [src/runtime/](src/runtime/): The host interface and its POSIX implementation, and the out-of-memory report.
-- [tests/](tests/): The golden and idempotence test suites, the seeded random tests, and the in-memory host [tests/os_memory.h](tests/os_memory.h). Each C file under [tests/fixtures/](tests/fixtures/) has a matching file of expected output under [tests/expected/](tests/expected/). The idempotence test also rewraps these files, every first-party source file, and the sources of the libraries that `cwrap` links, at several widths.
+- [tests/](tests/): The golden and idempotence test suites, and the seeded random tests. Each C file under [tests/fixtures/](tests/fixtures/) has a matching file of expected output under [tests/expected/](tests/expected/). The idempotence test also rewraps these files, every first-party source file, and the sources of the libraries that `cwrap` links, at several widths.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
 - [cmake/](cmake/): The lint list and the golden and idempotence test drivers. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
-- [libs/](../../libs/): The libraries that `cwrap` links: `core`, and for the unit tests `testing`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
+- [libs/](../../libs/): The libraries that `cwrap` links: `core` and `os`, with the POSIX host `os_posix`, and for the unit tests `testing` and the in-memory host `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
 - [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt` and `acutest`.
 
 ### Dependency rules
@@ -18,10 +17,10 @@
 First-party dependencies point inward:
 
 - `app` can depend on every other directory.
-- `domain` and `runtime` depend on no other directory in `src/`.
+- `domain` depends on no other directory in `src/`.
 - Every directory can depend on the libraries in `libs/`, and no library depends on `cwrap`.
 
-A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root or at the include root of a library that the app links, for example `#include "domain/fill.h"` or `#include "core/ascii.h"`, so every include names the directory or the library that it depends on. `cwrap` has its own `runtime/os.h` in `src/` and links no `runtime` library, so no include root of `cwrap` holds another `runtime/os.h`, and `#include "runtime/os.h"` always names the file in `src/`.
+A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root or at the include root of a library that the app links, for example `#include "domain/fill.h"` or `#include "core/ascii.h"`, so every include names the directory or the library that it depends on.
 
 ## Terms
 
@@ -85,7 +84,7 @@ The constraint is on the emitter. Every closer, prefix, and indent that the emit
 
 ### Errors
 
-No domain or runtime module writes a failure diagnostic to `stderr` itself. The one exception is the out-of-memory report, which `os_oom` prints through `memory_oom_report` before the process exits. Every fallible function records its errors in the log that its caller gives, and the command boundary prints the log once. The domain cannot fail, so every error is about an input, never about a comment.
+No domain module or host writes a failure diagnostic to `stderr` itself. The one exception is the out-of-memory report, which `os_oom` prints through `memory_oom_report` before the process exits. Every fallible function records its errors in the log that its caller gives, and the command boundary prints the log once. The domain cannot fail, so every error is about an input, never about a comment.
 
 ## Modules
 
@@ -100,57 +99,13 @@ Each item below links to the module's header, which documents its interface. The
 - [lex](src/domain/lex.h): Finds comments, and does not treat string literals or character literals as comments. It records source spans, line positions, indentation, and whether a comment follows code.
 - [rewrite](src/domain/rewrite.h): Runs the domain pipeline over one source buffer, and splices the rewritten comments between the unchanged source ranges.
 
-### Runtime (`src/runtime`)
+### Out-of-memory report (`src/app/memory`)
 
-- [fs](src/runtime/fs.h): The POSIX implementation of `os.h`, in an object library of its own, `cwrap_os_posix`. The `cwrap` executable and every unit test that is registered without `OS memory` link it, as [BUILD.md](../../BUILD.md#cwrap-tests) lists. Its `struct Os` has no state.
-- [memory](src/runtime/memory.h): Prints the out-of-memory report: the command's log, and then the phase and the input in which the run ran out of memory. `memory_oom_set_job` takes a phase, an input name, and whether the input is a stream, because the report names the phase and the run has no jobs.
-- [os](src/runtime/os.h): The host interface. Every read, write and print that the program does goes through `os_read`, `os_read_stdin`, `os_write` and `os_print`. Each function that accesses the host takes a `struct Os*`.
-  - `os_read` opens a path without blocking, and inspects the open descriptor. It takes a size limit from each caller, and checks it before any read or allocation. It rejects a file that is not a regular file, a file that contains a `NUL`, and a file that changes size during the read. It returns the bytes in the caller's arena.
-  - `os_read_stdin` reads standard input to its end, up to a size limit, and does not close it. It rejects input that contains a `NUL`.
-  - `os_write` rewrites a user's source, so the write is atomic. It `fsync`s and closes a temporary file next to the destination, and then renames the temporary file over the destination, so a failure leaves an existing file as it was. An existing destination keeps its permission bits, and a new file gets mode `0666` reduced by the process umask.
-  - `os_print` carries every byte that the program prints: the rewritten source in the default mode, the log at the end of a run, a rejected command line, `--help` and `--version`, so a test on the in-memory host sees all of it. One call writes its text as a whole. It retries a short write, in writes of at most 1 GiB, because macOS refuses a count above `INT_MAX`.
-  - `os_oom` is the one other member. `core` declares it, and each program defines it.
-
-### Core library
-
-`cwrap` uses [ascii](../../libs/core/ascii.h) and [parse](../../libs/core/parse.h) from the `core` library, which [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#core) describes.
-
-## Cross-cutting conventions
-
-Every module follows these rules. When a design decision is behind a rule, the link goes to its reasons and costs.
-
-### Memory
-
-- Every first-party allocation comes from an arena. `cwrap` has three arenas: the log, which holds the errors of the run; the input arena, which holds the source and the rewritten output of one input; and the scratch, which holds the temporary data of one input. `os_read` and `os_read_stdin` return their result in the caller's arena. See [Memory: arenas only](#memory-arenas-only) and [Memory: a log, an input arena and a scratch, and no pool](#memory-a-log-an-input-arena-and-a-scratch-and-no-pool).
-- A command reserves its memory once, when it starts: the log at its full size, and the input arena and the scratch as one block, through `arena_reserve_halving`. Each arena has a fixed size, which the input limit and the measured shapes bound, as its definition in `cmd_wrap.c` states. Each input gets the input arena and the scratch by value, so the next input reuses their memory. An arena commits pages only when its allocations get to them, and then commits one mebibyte more than the allocation needs. Only committed pages count against the system's memory. See [Memory: reserve, then commit on demand](#memory-reserve-then-commit-on-demand).
-- An allocation that does not fit calls `os_oom`, which reports and exits, so no call site checks for allocation failure, and the domain cannot fail. See [Out of memory exits the process](#out-of-memory-exits-the-process).
-- Under the address sanitizer, two arena allocations are never adjacent, so code that extends the last allocation in place uses `arena_extend`. See [Address sanitizer coverage in arenas](#address-sanitizer-coverage-in-arenas).
-- A log's arena is never an arena that a callee gets by value, so the log never grows into bytes that a callee uses. See [A log must not grow in a borrowed arena](#a-log-must-not-grow-in-a-borrowed-arena).
-
-### One thread
-
-`cwrap` runs on one thread and rewraps one input at a time, so two inputs never use an arena or a log at the same time. See [Memory: a log, an input arena and a scratch, and no pool](#memory-a-log-an-input-arena-and-a-scratch-and-no-pool).
-
-### Strings and text input
-
-Every first-party string is a counted `struct Str` with a signed `ptrdiff_t` length, and every length, count and column is a `ptrdiff_t`. Each command-line argument becomes a view where the code parses it or gives it to `wrap_input`. The lexer and the wrapping pipeline use views into the source, and a refilled line is new text in the scratch. See [Counted strings with signed lengths](#counted-strings-with-signed-lengths).
-
-No input format gives a meaning to a `NUL` byte, so the input checks stop a `NUL` before it gets into the rewritten output. `os_read` and `os_read_stdin` reject input that contains a `NUL`, and `os_read` reports this policy failure separately from system errors. A path that contains a `NUL` fails at the `os` boundary with `EINVAL`, because a system call would read the path only up to that byte.
-
-### Errors and diagnostics
-
-- A fallible action whose caller needs a message beyond success or failure takes a final `struct Log* log`. It records every error that it finds in that log, and never truncates one. A message is one `printf` format that the compiler checks. See [A growable log, and every error in one run](#a-growable-log-and-every-error-in-one-run) and [Log messages use checked format strings](#log-messages-use-checked-format-strings).
-- A filesystem or stream action also takes the `operation` of the caller, such as `failed to read file`, and logs the whole message, because only the action knows the cause.
-- An action, and a producer that can fail, return `0` or `-1`, and the producer writes its result through an `_out` parameter. A producer that cannot fail returns its result directly, for example a `struct Str` by value. A predicate returns `bool`. Running out of memory is never a return value. An operation with a third result that is not an error returns an enum. For example, `wrap_input` returns a `WrapInputResult`, which keeps a check-mode change apart from an operational error. [STYLE.md](../../STYLE.md#function-signatures) gives the full rules.
-- A first-party diagnostic is lowercase prose. It names the failed operation first, puts literal names and values in single quotes, and puts a value after the cause. Messages from the system or from a vendored library use their original capitalization and punctuation. [STYLE.md](../../STYLE.md#errors-and-diagnostics) gives the full rules.
-
-### Input limits
-
-Each caller of `os_read` gives a limit for the kind of file that it reads. The read checks the limit before it allocates, so it never loads a file that is too large. `SOURCE_LEN_MAX` in `wrap_input` is 64 MiB for each source file and for standard input. `os_read_stdin` has no size to check before it reads, so it stops one byte past the limit and rejects the input.
+- [memory](src/app/memory.h): Prints the out-of-memory report: the command's log, and then the phase and the input in which the run ran out of memory. `memory_oom_set_job` takes a phase, an input name, and whether the input is a stream, because the report names the phase and the run has no jobs. It is `cwrap`'s own, because its last line takes the shape of `cwrap`'s other diagnostics, where the `oom` module of the `os` library, which sosig and fram use, ends with `<program>: out of memory (in '<file>')`.
 
 ### Host access
 
-No code in `src/` outside `runtime/fs.c` makes a system call on a path or a standard stream, or prints through `stdio`. All host access goes through `os.h`, and the link step selects the host for each executable. A new unit test links the in-memory host, unless it needs a fact that only a real filesystem has. See [The `os` interface](#the-os-interface).
+No code in `src/` makes a system call on a path or a standard stream, or prints through `stdio`: only the POSIX host, `os/os_posix.c` in `libs/`, does. All host access goes through `os/os.h`, and the link step selects the host for each executable. A new unit test links the in-memory host, unless it needs a fact that only a real filesystem has. See [The `os` interface](#the-os-interface).
 
 ### Line endings
 
@@ -188,7 +143,7 @@ Each decision below states what the code does and why, and some decisions also s
 - The log grows while each input copies the input arena and the scratch by value, so the log needs an arena that no input gets.
 - A diagnostic quotes an argument as a whole, and only the system's limit on argument size bounds an argument, so the diagnostic for the command line goes in a reservation that is several times that limit.
 - The reservation for the command line has a fixed size, and does not take its size from `sysconf(_SC_ARG_MAX)`. glibc derives that value from `RLIMIT_STACK`, so the value is very large when the stack is unlimited, and musl gives a different value.
-- `cwrap` runs on one thread, because there is no reason to rewrap inputs in parallel. Also, `os_write` reads the umask by setting it and restoring it, and a diagnostic calls `strerror`. Both are safe only with one thread.
+- `cwrap` runs on one thread, because there is no reason to rewrap inputs in parallel. Also, `os_replace` reads the umask by setting it and restoring it, and a diagnostic calls `strerror`. Both are safe only with one thread.
 
 ### Memory: reserve, then commit on demand
 
@@ -298,7 +253,7 @@ log_error(log, "failed to read file: %s ('%.*s')", reason, STR_FMT(path));
 
 ### The `os` interface
 
-**Decision.** All host access goes through `src/runtime/os.h`: `os_read`, `os_read_stdin`, `os_write`, `os_print`, and `os_oom`. `fs.c` is the POSIX implementation. [tests/os_memory.c](tests/os_memory.c) is an in-memory implementation for unit tests: a set of files by path with a standard input, injected failures, and captured output. The link step selects one implementation for each executable. A function that accesses the host takes `struct Os*` just before its arenas, and an `os_*` function takes it first.
+**Decision.** All host access goes through [os/os.h](../../libs/os/os.h) in the `os` library: `os_read`, `os_read_stdin`, `os_replace`, `os_print`, and `os_oom`. `os/os_posix.c` is the POSIX implementation. [os/os_memory.c](../../libs/os/os_memory.c) is an in-memory implementation for unit tests: a tree with a standard input, injected failures, and captured output. The link step selects one implementation for each executable. A function that accesses the host takes `struct Os*` just before its arenas, and an `os_*` function takes it first.
 
 **Reasons.**
 
@@ -307,11 +262,11 @@ log_error(log, "failed to read file: %s ('%.*s')", reason, STR_FMT(path));
 - Host access is visible at one boundary, and is not spread over calls to `stdio` in the app layer.
 - A link-time choice needs no table of function pointers, because no executable needs two hosts.
 
-**Linking.** `cwrap` and every unit test registered without `OS memory` link `runtime/fs.c`. The tests registered with `OS memory` link `tests/os_memory.c`, as [BUILD.md](../../BUILD.md#cwrap-tests) lists.
+**Linking.** `cwrap` and every unit test registered without `OS memory` link `os_posix`, the object library of `os/os_posix.c`. The tests registered with `OS memory` link `os_memory`, as [BUILD.md](../../BUILD.md#cwrap-tests) lists. `cwrap` does not link the `runtime` library, so it gets no worker pool and no `Threads::Threads`.
 
-**Condition.** Each property that a test checks against the in-memory host must have a contract test. `src/runtime/test_os.c` compiles once against each host and runs the same cases, and both executables must pass, so every property that a test relies on in the in-memory host is also true on POSIX. Without the contract tests, the in-memory host can accept what POSIX rejects. For example, an in-memory host could accept `file/` as a file where POSIX returns `ENOTDIR`, and a contract test checks this case.
+**Condition.** Each property that a test checks against the in-memory host must have a contract test. [os/test_os.c](../../libs/os/test_os.c) compiles once against each host and runs the same cases, and both executables must pass, so every property that a test relies on in the in-memory host is also true on POSIX. Without the contract tests, the in-memory host can accept what POSIX rejects. For example, an in-memory host could accept `file/` as a file where POSIX returns `ENOTDIR`, and a contract test checks this case.
 
-**The contract is `cwrap`'s own.** `os_read` opens a path and does not call `stat`, because `stat` does not see that the process may not read a file. `os_write` rewrites a user's source, so the write is atomic and synced. It writes, `fsync`s and closes a temporary file next to the destination, and then renames the temporary file over the destination. The in-memory host has no directory tree, no symlinks and no path resolution, because `cwrap` takes paths and never lists a directory. The POSIX-only tests in `test_fs.c` cover these cases.
+**What `cwrap` uses.** `os_read` reads each file with `OS_READ_TEXT`, so a file that contains a `NUL` fails the read. `os_replace` rewrites a user's source, so the write is atomic and synced. It writes, `fsync`s and closes a temporary file next to the destination, and then renames the temporary file over the destination. `os_replace` reads the umask by setting it and restoring it, which is safe because `cwrap` runs on one thread. `cwrap` never writes with `os_write`, which overwrites in place and is meant for outputs that a build can make again.
 
 ### In-place mode checks every input before the first write
 
@@ -347,6 +302,6 @@ If the log has an error after that pass, the run writes no file. The default mod
 
 ### Where the shared code lives
 
-**Decision.** The libraries in [libs/](../../libs/) hold the code that `cwrap` shares with the other apps. `core` holds the generic parts, the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`, and the small primitives, and `testing` the unit-test support. Each program defines `os_oom`, and `cwrap` has its own `os` interface in `src/runtime/` and its own arena layout.
+**Decision.** The libraries in [libs/](../../libs/) hold the code that `cwrap` shares with the other apps. `core` holds the generic parts, the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`, and the small primitives, `os` the host interface and its two hosts, and `testing` the unit-test support. Each program defines `os_oom`, and `cwrap` has its own out-of-memory report and its own arena layout.
 
 **Reason.** These parts do not depend on what a program does.

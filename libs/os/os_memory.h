@@ -19,7 +19,8 @@ struct Os;
 // targets, followed on every path component and reported as `ELOOP` past as many expansions as the
 // kernel follows, 32 on macOS and 40 on Linux. A relative path and an absolute one name the same
 // tree, whose root is also the working directory. Failures the tree cannot produce by its shape,
-// such as `EACCES`, are injected with `os_memory_fail`.
+// such as `EACCES`, are injected with `os_memory_fail`. Standard input holds what `os_memory_stdin`
+// gives it, and a stream fails where `os_memory_fail_print` says.
 //
 // A path ending in `/` must name a directory, and a listing comes newest entry first, an order
 // unlike the one a test builds its tree in. Each operation the code under test calls produces the
@@ -40,7 +41,10 @@ enum OsMemoryOp {
   /** `os_read` of the path, and its open as the source of an `os_write`. */
   OS_MEMORY_OP_READ,
 
-  /** `os_write` of the path, as the open of the file itself fails. */
+  /**
+   * `os_write` of the path, as the open of the file itself fails, and `os_replace` of the path,
+   * which leaves the file as it was, as an atomic replacement does.
+   */
   OS_MEMORY_OP_WRITE,
 
   /**
@@ -160,6 +164,33 @@ void os_memory_link(struct Os* os, const char* file_path, const char* link_path)
  */
 void os_memory_fail(struct Os* os, enum OsMemoryOp op, const char* path, int error_number)
     __attribute__((nonnull(1, 3)));
+
+/**
+ * @brief Makes `os_print` on `fd` fail with `error_number` once `len` bytes have been printed
+ *        there.
+ *
+ * The call that crosses `len` prints the bytes up to it and then fails, as a short write followed
+ * by a failing one does on a descriptor, and every later call on `fd` fails without printing.
+ *
+ * @param os           Host to inject into. Must not be `NULL`.
+ * @param fd           `1` for standard output or `2` for standard error.
+ * @param len          Bytes the stream accepts before it fails. Must not be negative.
+ * @param error_number `errno` value the print fails with, such as `EPIPE` or `EIO`.
+ */
+void os_memory_fail_print(struct Os* os, int fd, ptrdiff_t len, int error_number)
+    __attribute__((nonnull(1)));
+
+/**
+ * @brief Sets what `os_read_stdin` reads: `contents`, and then either the end of the input or a
+ *        read failure.
+ *
+ * @param os           Host to set up. Must not be `NULL`.
+ * @param contents     Bytes standard input holds, copied into the host.
+ * @param error_number `0` for an end of input after `contents`, or the `errno` value a read past
+ *                     them fails with, such as `EIO`.
+ */
+void os_memory_stdin(struct Os* os, struct Str contents, int error_number)
+    __attribute__((nonnull(1)));
 
 /**
  * @brief Reports whether `file_path` names a regular file holding exactly `contents`.

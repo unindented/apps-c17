@@ -4,11 +4,11 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "app/memory.h"
 #include "core/arena.h"
 #include "core/log.h"
 #include "core/str.h"
-#include "os_memory.h"
-#include "runtime/memory.h"
+#include "os/os_memory.h"
 #include "testing/test_support.h"
 
 /** Bytes of the buffer the discard tests give back, a whole number of pages on every system. */

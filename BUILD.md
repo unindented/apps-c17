@@ -58,7 +58,7 @@ Each app has one application library, two hosts, one target for each vendored de
 
 `<app>_app` is a private static library that holds every application source except `src/app/main.c`. The executable and every unit test link it. It is static because it supports one product and has no public ABI.
 
-Each source directory holds the code for one purpose. Except for cwrap's host in `src/runtime/`, the source directories add their files to `<app>_app` and do not define libraries of their own, because more libraries would add link boundaries without independent APIs.
+Each source directory holds the code for one purpose. The source directories add their files to `<app>_app` and do not define libraries of their own, because more libraries would add link boundaries without independent APIs.
 
 `<app>_app` links as `PUBLIC` dependencies the libraries whose types the application headers expose, and every other dependency as `PRIVATE`.
 
@@ -310,27 +310,21 @@ The script finds the expected files and the actual files with globs after `fram`
 
 ### cwrap files and targets
 
-- [apps/cwrap/src/runtime/CMakeLists.txt](apps/cwrap/src/runtime/CMakeLists.txt) also defines the POSIX host `cwrap_os_posix`.
-- [apps/cwrap/tests/CMakeLists.txt](apps/cwrap/tests/CMakeLists.txt) adds the golden and idempotence tests, the in-memory host `cwrap_os_memory` and the seeded random tests. [apps/cwrap/cmake/cwrap_run_idempotent.cmake](apps/cwrap/cmake/cwrap_run_idempotent.cmake) runs the idempotence test.
-- `cwrap` links the library `core`, and for the unit tests `testing`.
-- `cwrap_app` holds every application source except `src/app/main.c` and `src/runtime/fs.c`, and links `core` as a `PUBLIC` dependency. `src/CMakeLists.txt` links the vendored dependencies.
+- [apps/cwrap/tests/CMakeLists.txt](apps/cwrap/tests/CMakeLists.txt) adds the golden and idempotence tests and the seeded random tests. [apps/cwrap/cmake/cwrap_run_idempotent.cmake](apps/cwrap/cmake/cwrap_run_idempotent.cmake) runs the idempotence test.
+- `cwrap` links the libraries `core` and `os` with the POSIX host `os_posix`, and for the unit tests `testing` and the in-memory host `os_memory`. It links no `runtime`, so its binary carries no worker pool and no thread library.
+- `cwrap_app` holds every application source except `src/app/main.c`, and links `core` and `os` as `PUBLIC` dependencies. `src/CMakeLists.txt` links the vendored dependencies.
 - The two vendored projects of `cwrap`, acutest and copt, are header-only, so their targets are interface libraries. `cwrap` has no compiled vendored code, so it uses two of the three build profiles: `apps_build_project` and `apps_build_tests`. With `address`, the CMake build instruments first-party code and the `core` library.
 - The common presets give `cwrap` the `tsan` and `ci-tsan` presets too. CI does not run a ThreadSanitizer build of `cwrap`, because `cwrap` starts no threads.
 - The version template is [apps/cwrap/src/app/cwrap_version.c.in](apps/cwrap/src/app/cwrap_version.c.in).
-
-### cwrap hosts
-
-`cwrap` has a smaller host interface of its own, [apps/cwrap/src/runtime/os.h](apps/cwrap/src/runtime/os.h), and links neither `runtime` nor `os_memory`. `src/runtime/fs.c` is its POSIX implementation. CMake compiles this file into the object library `cwrap_os_posix`, outside `cwrap_app`, and the `cwrap` executable links it. The tests registered with `OS memory` link `cwrap_os_memory`, the in-memory host in [apps/cwrap/tests/os_memory.c](apps/cwrap/tests/os_memory.c), instead. `apps_add_unit_test` selects these two hosts, because `cwrap` defines `cwrap_os_posix` and `cwrap_os_memory`. The `#include "runtime/os.h"` of the `cwrap` sources finds `src/runtime/os.h`, because each library has an include root of its own, and `cwrap` links no library whose root holds a `runtime/` directory.
 
 ### cwrap tests
 
 The tests registered without `OS memory` link the POSIX host. These tests are:
 
-- the tests that need a real filesystem: `fs` and `os_posix`, which test the POSIX layer
 - the suites that are not yet converted to the in-memory host, which create their fixtures in a real temporary directory: `cli` and `cli_dispatch`
 - the tests that use no host
 
-[apps/cwrap/src/runtime/test_os.c](apps/cwrap/src/runtime/test_os.c) uses the `NAME` and `OS` options. It compiles into two tests: `cwrap.os_posix`, which works in a real temporary directory, and `cwrap.os_memory`. These tests are the contract tests of `src/runtime/os.h`, and both tests must pass.
+The contract tests of the hosts that `cwrap` links are `os.contract_posix` and `os.contract_memory`, in the `libs/` project.
 
 The golden test `cwrap.golden` runs [apps/cwrap/cmake/cwrap_run_golden.cmake](apps/cwrap/cmake/cwrap_run_golden.cmake). The script rewraps every fixture in `tests/fixtures/` at width 40, in a scratch tree of its own. It then compares the list of fixture files with the list of files in `tests/expected/`, and it compares each result with its expected file byte for byte.
 

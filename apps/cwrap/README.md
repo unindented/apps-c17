@@ -227,7 +227,7 @@ The version of every archive comes from `project(VERSION)` in [CMakeLists.txt](C
 
 The root [vendor/](../../vendor/) directory contains these dependencies, except the libraries in `libs/`. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the licenses of the vendored dependencies.
 
-- [libs/](../../libs/): The libraries that `cwrap` shares with the other apps: `core`, and for the unit tests `testing`. [libs/core/](../../libs/core/) holds arena allocation, counted strings, output buffers, the diagnostic log and the small primitives, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
+- [libs/](../../libs/): The libraries that `cwrap` shares with the other apps: `core` and `os`, and for the unit tests `testing`. [libs/core/](../../libs/core/) holds arena allocation, counted strings, output buffers, the diagnostic log and the small primitives, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
 - [copt](https://github.com/fardaniqbal/copt): Command-line option parsing.
 - [acutest](https://github.com/mity/acutest): Unit tests.
 

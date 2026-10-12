@@ -16,7 +16,7 @@
 #include "core/buf.h"
 #include "core/parse.h"
 #include "core/str.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 /**
  * Largest wrapping column `--width` accepts.

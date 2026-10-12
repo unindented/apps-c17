@@ -198,6 +198,38 @@ int os_read(struct Os* os,
             struct Str operation,
             struct Log* log) __attribute__((nonnull(1, 5, 6, 8)));
 
+/**
+ * @brief Reads standard input to its end into `perm`.
+ *
+ * Standard input need not be seekable and is not closed. The function writes the output parameter
+ * only on success, and a failed read leaves `perm` as it found it. It rejects input longer than
+ * `data_len_max`, and stops reading once it has seen one byte past that limit, so the limit also
+ * bounds the memory the read takes. It rejects embedded `NUL` bytes, as `os_read` does with
+ * `OS_READ_TEXT`.
+ *
+ * The bytes grow in place at the end of `perm`, which nothing else may allocate from during the
+ * read, so they are never copied. The buffer may keep up to one read step of unused bytes past the
+ * end.
+ *
+ * A failure is recorded in `log` as one message: the caller's `operation`, the cause, and the
+ * stream's name, as in `failed to read input: contains an embedded NUL byte (from 'stdin')`.
+ *
+ * @param os           Host to read from. Must not be `NULL`.
+ * @param data_len_max Largest input accepted, in bytes. Must not be negative.
+ * @param perm         Arena that receives the bytes. Must not be `NULL`.
+ * @param data_out     Receives the bytes on success. Written only on success. Must not be `NULL`.
+ * @param operation    Operation leading the failure message.
+ * @param log          Log that receives the failure. Must not be `NULL`.
+ * @return `0` on success, or `-1` on a read failure, input longer than `data_len_max`, or an
+ *         embedded `NUL`.
+ */
+int os_read_stdin(struct Os* os,
+                  ptrdiff_t data_len_max,
+                  struct Arena* perm,
+                  struct Str* data_out,
+                  struct Str operation,
+                  struct Log* log) __attribute__((nonnull(1, 3, 4, 6)));
+
 /** Where the bytes `os_write` writes come from. */
 enum OsSourceKind {
   /**
@@ -239,11 +271,12 @@ struct OsSource {
  * a symlink is followed, and a hard link sees the new bytes. The destination's directory needs no
  * write permission when the file already exists.
  *
- * This, `os_mkdirs`, `os_remove` and `os_remove_dir` are the only operations that change the host,
- * and should stay the only ones. A second writer covering a subset of the outputs gives a caller a
- * choice to get wrong, which is why both sources share this one function, its open, its parents and
- * its messages. Parallel jobs call it at once, for distinct files that may share parent
- * directories.
+ * This, `os_replace`, `os_mkdirs`, `os_remove` and `os_remove_dir` are the only operations that
+ * change the host, and should stay the only ones. `os_write` writes the outputs that a build can
+ * make again, and `os_replace` replaces a file that only the user has. Among the outputs, a second
+ * writer covering a subset of them gives a caller a choice to get wrong, which is why both sources
+ * share this one function, its open, its parents and its messages. Parallel jobs call it at once,
+ * for distinct files that may share parent directories.
  *
  * @param os        Host to write to. Must not be `NULL`.
  * @param file_path Destination path.
@@ -260,6 +293,47 @@ int os_write(struct Os* os,
              struct OsSource source,
              struct Str operation,
              struct Log* log) __attribute__((nonnull(1, 5)));
+
+/**
+ * @brief Atomically replaces the contents of `file_path` with `data`.
+ *
+ * This is the write for a file that only the user has, such as a source file that a formatter
+ * rewrites in place, so a failed or interrupted write must leave the previous file whole. The write
+ * goes to a sibling temporary file, which is written, synced and closed before it is renamed over
+ * the destination, so a failed write leaves an existing file untouched. It follows a symbolic link
+ * rather than replacing it. A dangling symbolic link fails, with the `ENOENT` that `realpath`
+ * reports, rather than creating the file the link names. It does not create missing parent
+ * directories.
+ *
+ * A reader sees either the previous complete file or the new complete file. The temporary is
+ * `fsync`ed before the `rename`, so its bytes reach the device before the name that publishes them
+ * does. Reversed, a power loss could leave the destination empty or truncated. Two limits remain.
+ * This uses `fsync` and not `F_FULLFSYNC`, so a drive that acknowledges a flush while the data sits
+ * in its own volatile cache can still lose it. The containing directory is not synced either, so a
+ * crash can undo the `rename` and leave the previous complete file in place, which is the safe
+ * direction to fail in: running the program again redoes the replacement.
+ *
+ * An existing destination keeps its permission bits. A newly created file gets mode `0666` reduced
+ * by the process umask, the mode `fopen(path, "wb")` would give it. No portable call only reads the
+ * umask, so the POSIX host sets it and restores it, which races with a file that another thread
+ * creates at the same moment: a program calls this only while no other thread creates files.
+ * Because `rename` installs a new inode rather than writing through the old one, replacement breaks
+ * any hard link to the destination, which keeps the previous contents, and does not preserve the
+ * destination's owner, group, ACLs or extended attributes.
+ *
+ * @param os        Host to write to. Must not be `NULL`.
+ * @param file_path Destination path.
+ * @param data      Bytes the file holds afterwards.
+ * @param operation Operation leading the failure message, which names `file_path`.
+ * @param log       Log that receives the failure. Must not be `NULL`.
+ * @return `0` on success, or `-1` on a metadata, temporary-file, write, sync, close, or rename
+ *         failure.
+ */
+int os_replace(struct Os* os,
+               struct Str file_path,
+               struct Str data,
+               struct Str operation,
+               struct Log* log) __attribute__((nonnull(1, 5)));
 
 /**
  * @brief Creates `dir_path` and any missing parent directories.

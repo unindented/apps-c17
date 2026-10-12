@@ -150,6 +150,18 @@ struct Os {
 
   /** Text `os_print` wrote to standard output and standard error. */
   struct Buf printed[2];
+
+  /** Bytes standard output, then standard error, accept before they fail, or `-1` for never. */
+  ptrdiff_t print_fail_len[2];
+
+  /** `errno` value a print past `print_fail_len` fails with, for each stream. */
+  int print_fail_errno[2];
+
+  /** Bytes standard input holds. */
+  struct Str stdin_data;
+
+  /** `0` for an end of input after `stdin_data`, or the `errno` value a read past it fails with. */
+  int stdin_errno;
 };
 
 /** Where a lookup ended. */
@@ -436,6 +448,25 @@ static void os_write_locked_store(struct Os* os,
                                   ptrdiff_t zero_len) __attribute__((nonnull(1, 2)));
 
 /**
+ * @brief Replaces a file's contents as one step, as the POSIX `rename` of a temporary does. The
+ *        body of `os_replace`. The caller holds the lock.
+ *
+ * It follows a symlink at the path and fails on a dangling one, creates no parent, and gives the
+ * destination a new node, so a hard link to it keeps the previous contents.
+ *
+ * @param os        Host to change. Must not be `NULL`.
+ * @param file_path Destination path, which an injected `OS_MEMORY_OP_WRITE` failure matches. Such a
+ *                  failure leaves the file as it was.
+ * @param data      Bytes the file holds afterwards, copied into the host.
+ * @param report    Where a failure is reported. Must not be `NULL`.
+ * @return `0` on success, or `-1` on failure.
+ */
+static int os_replace_locked(struct Os* os,
+                             struct Str file_path,
+                             struct Str data,
+                             const struct OsMemoryReport* report) __attribute__((nonnull(1, 4)));
+
+/**
  * @brief Creates `dir_path` and any missing parents. The body of `os_mkdirs`, which `os_write`
  *        shares for a file's parent directories. The caller holds the lock.
  *
@@ -515,6 +546,7 @@ struct Os* os_memory(void) {
   }
   for (ptrdiff_t i = 0; i < 2; i++) {
     os->printed[i].arena = &os->arena;
+    os->print_fail_len[i] = -1;
   }
   os->nodes = arena_grow(&os->arena, os->nodes, &os->node_capacity, sizeof(*os->nodes),
                          _Alignof(struct OsMemoryNode));
@@ -617,6 +649,22 @@ void os_memory_fail(struct Os* os, enum OsMemoryOp op, const char* path, int err
   }
   os->faults[os->fault_count++] =
       (struct OsMemoryFault){op, str_clone(str_from_cstr(path), &os->arena), error_number};
+  host_unlock(os);
+}
+
+void os_memory_fail_print(struct Os* os, int fd, ptrdiff_t len, int error_number) {
+  assert(fd == 1 || fd == 2);
+  assert(len >= 0);
+  host_lock(os);
+  os->print_fail_len[fd == 1 ? 0 : 1] = len;
+  os->print_fail_errno[fd == 1 ? 0 : 1] = error_number;
+  host_unlock(os);
+}
+
+void os_memory_stdin(struct Os* os, struct Str contents, int error_number) {
+  host_lock(os);
+  os->stdin_data = str_clone(contents, &os->arena);
+  os->stdin_errno = error_number;
   host_unlock(os);
 }
 
@@ -737,6 +785,35 @@ int os_read(struct Os* os,
   return rc;
 }
 
+int os_read_stdin(struct Os* os,
+                  ptrdiff_t data_len_max,
+                  struct Arena* perm,
+                  struct Str* data_out,
+                  struct Str operation,
+                  struct Log* log) {
+  assert(data_len_max >= 0);
+  host_lock(os);
+  // The POSIX host reads at most one byte past the limit and checks each piece for a `NUL` before
+  // it counts the piece against the limit, so a `NUL` among those bytes wins over the limit.
+  const struct Str data = os->stdin_data;
+  const struct Str seen = str_head(data, data.len <= data_len_max ? data.len : data_len_max + 1);
+  int rc = 0;
+  if (!text_is_nul_free(seen)) {
+    rc = log_error(log, "%.*s: contains an embedded NUL byte (from 'stdin')", STR_FMT(operation));
+  } else if (data.len > data_len_max) {
+    rc = log_error(log, "%.*s: exceeds max input size (%td bytes) (from 'stdin')",
+                   STR_FMT(operation), data_len_max);
+  } else if (os->stdin_errno != 0) {
+    char message[ERROR_SYSTEM_MESSAGE_SIZE];
+    rc = log_error(log, "%.*s: %s (from 'stdin')", STR_FMT(operation),
+                   error_system_message(message, sizeof(message), os->stdin_errno));
+  } else {
+    *data_out = str_clone(data, perm);
+  }
+  host_unlock(os);
+  return rc;
+}
+
 int os_write(struct Os* os,
              struct Str file_path,
              struct OsSource source,
@@ -745,6 +822,18 @@ int os_write(struct Os* os,
   const struct OsMemoryReport report = {operation, log};
   host_lock(os);
   const int rc = os_write_locked(os, file_path, source, &report);
+  host_unlock(os);
+  return rc;
+}
+
+int os_replace(struct Os* os,
+               struct Str file_path,
+               struct Str data,
+               struct Str operation,
+               struct Log* log) {
+  const struct OsMemoryReport report = {operation, log};
+  host_lock(os);
+  const int rc = os_replace_locked(os, file_path, data, &report);
   host_unlock(os);
   return rc;
 }
@@ -905,10 +994,22 @@ int os_stat(struct Os* os, struct Str file_path, struct OsStat* stat_out) {
 
 int os_print(struct Os* os, int fd, struct Str text) {
   assert(fd == 1 || fd == 2);
+  const ptrdiff_t stream = fd == 1 ? 0 : 1;
   host_lock(os);
-  buf_append(&os->printed[fd == 1 ? 0 : 1], text);
+  struct Buf* printed = &os->printed[stream];
+  const ptrdiff_t fail_len = os->print_fail_len[stream];
+  int rc = 0;
+  if (fail_len >= 0 && printed->len + text.len > fail_len) {
+    // The call that crosses the limit prints the bytes up to it and then fails, as a short write
+    // followed by a failing one does on a descriptor.
+    buf_append(printed, str_head(text, printed->len < fail_len ? fail_len - printed->len : 0));
+    errno = os->print_fail_errno[stream];
+    rc = -1;
+  } else {
+    buf_append(printed, text);
+  }
   host_unlock(os);
-  return 0;
+  return rc;
 }
 
 static void fixture_mkdirs(struct Os* os, struct Str dir_path) {
@@ -1233,6 +1334,44 @@ static void os_write_locked_store(struct Os* os,
   const ptrdiff_t node = node_new(os, OS_MEMORY_NODE_FILE, data, lookup->dir);
   os->nodes[node].zero_len = zero_len;
   entry_add(os, lookup->dir, lookup->name, node);
+}
+
+static int os_replace_locked(struct Os* os,
+                             struct Str file_path,
+                             struct Str data,
+                             const struct OsMemoryReport* report) {
+  const int fault = fault_find(os, OS_MEMORY_OP_WRITE, file_path);
+  if (fault != 0) {
+    return report_errno(report, file_path, fault);
+  }
+  struct Arena scratch = os->scratch;
+  struct OsMemoryLookup lookup;
+  const bool is_found = tree_lookup(os, file_path, true, &scratch, &lookup) == 0;
+  const int lookup_errno = errno;
+  if (!is_found && (lookup_errno != ENOENT || lookup.dir < 0)) {
+    return report_errno(report, file_path, lookup_errno);
+  }
+  if (!is_found) {
+    // A missing path that names a symlink is a dangling one, which `realpath` fails with `ENOENT`
+    // in the POSIX host, rather than the file the link names being created.
+    struct OsMemoryLookup unfollowed;
+    if (tree_lookup(os, file_path, false, &scratch, &unfollowed) == 0 &&
+        os->nodes[unfollowed.node].kind == OS_MEMORY_NODE_LINK) {
+      return report_errno(report, file_path, ENOENT);
+    }
+  }
+  if (is_found && os->nodes[lookup.node].kind == OS_MEMORY_NODE_DIR) {
+    return report_errno(report, file_path, EISDIR);
+  }
+  const ptrdiff_t node = node_new(os, OS_MEMORY_NODE_FILE, str_clone(data, &os->arena), lookup.dir);
+  if (is_found) {
+    // The new node takes the place of the old one under this name only, as `rename` installs a new
+    // inode, so another hard link to the old file keeps the previous contents.
+    entry_find(os, lookup.dir, lookup.name)->node = node;
+  } else {
+    entry_add(os, lookup.dir, lookup.name, node);
+  }
+  return 0;
 }
 
 static int mkdirs_report(struct Os* os, struct Str dir_path, const struct OsMemoryReport* report) {

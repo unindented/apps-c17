@@ -4,6 +4,7 @@
 
 #include <acutest.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -23,6 +24,10 @@
 #if APPS_TEST_OS_MEMORY
 #include "os/os_memory.h"
 #else
+#include <signal.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+
 #include "os/os_posix.h"
 #endif
 
@@ -30,11 +35,12 @@
 // POSIX host in `os_posix.c` and runs against a real temporary directory, and one links the
 // in-memory host in `os_memory.c`. Both must pass. Every property that a test of another module
 // checks against the in-memory host is checked here against both, so the in-memory host cannot
-// accept what POSIX rejects. Facts only a real filesystem has, such as FIFOs, modes and interrupted
-// writes, are in `test_os_posix.c`, which also produces, from permission bits, two failures the
-// in-memory host can only inject: an entry that cannot be inspected and a directory that cannot be
-// created. The in-memory build ends with tests of that injection, which the POSIX build has no
-// counterpart to.
+// accept what POSIX rejects. On the POSIX host, standard input and output are the process's own,
+// redirected for the tests that need them. Facts only a real filesystem has, such as FIFOs, modes
+// and interrupted writes, are in `test_os_posix.c`, which also produces, from permission bits, two
+// failures the in-memory host can only inject: an entry that cannot be inspected and a directory
+// that cannot be created. The in-memory build ends with tests of that injection, which the POSIX
+// build has no counterpart to.
 //
 // Every call under test here runs with the operation `op`, so an expected failure reads
 // `op: <cause>`. A system cause is spelled with `strerror` from the running libc, as both hosts
@@ -45,6 +51,9 @@ enum { TEST_FILE_LEN_MAX = 1024 };
 
 /** Bytes of each standard stream `test_print_writes_each_stream_in_order` reads back. */
 enum { TEST_PRINTED_SIZE = 64 };
+
+/** Bytes standard output accepts in `test_print_keeps_bytes_before_failure` before it fails. */
+enum { TEST_PRINT_LEN_MAX = 4 };
 
 /**
  * Symlink expansions one lookup follows before it fails with `ELOOP`, as the kernel the tests run
@@ -69,6 +78,12 @@ struct Contract {
 
   /** Arena for paths and read data. */
   struct Arena arena;
+
+  /** Duplicate of the process's standard input while `contract_stdin` replaced it, or `-1`. */
+  int stdin_fd_saved;
+
+  /** Write end of the pipe `contract_stdin` made standard input, held open, or `-1`. */
+  int stdin_writer_fd;
 };
 
 /**
@@ -81,7 +96,10 @@ struct Contract {
  *         not be created.
  */
 static int contract_begin(char root_template[static 1], struct Contract* contract_out) {
-  *contract_out = (struct Contract){.root_dir = root_template, .arena = test_arena()};
+  *contract_out = (struct Contract){.root_dir = root_template,
+                                    .arena = test_arena(),
+                                    .stdin_fd_saved = -1,
+                                    .stdin_writer_fd = -1};
 #if APPS_TEST_OS_MEMORY
   contract_out->os = os_memory();
   os_memory_mkdir(contract_out->os, root_template);
@@ -93,7 +111,7 @@ static int contract_begin(char root_template[static 1], struct Contract* contrac
 }
 
 /**
- * @brief Ends a test: removes the POSIX host's directory.
+ * @brief Ends a test: restores the POSIX host's standard input and removes its directory.
  *
  * @param contract Contract that `contract_begin` set up. Must not be `NULL`.
  */
@@ -101,6 +119,13 @@ static void contract_end(const struct Contract* contract) {
 #if APPS_TEST_OS_MEMORY
   (void)contract;
 #else
+  if (contract->stdin_fd_saved >= 0) {
+    TEST_CHECK(dup2(contract->stdin_fd_saved, STDIN_FILENO) == STDIN_FILENO);
+    TEST_CHECK(close(contract->stdin_fd_saved) == 0);
+  }
+  if (contract->stdin_writer_fd >= 0) {
+    TEST_CHECK(close(contract->stdin_writer_fd) == 0);
+  }
   remove_fixture_tree(contract->root_dir);
 #endif
 }
@@ -188,6 +213,52 @@ static void contract_link(struct Contract* contract,
 }
 
 /**
+ * @brief Gives the host's standard input `contents`, and how a read past them ends.
+ *
+ * Until `contract_end` restores it, the POSIX host's standard input becomes a file holding
+ * `contents` below the test's directory for an end of input, a descriptor open only for writing for
+ * `EBADF`, or a non-blocking pipe holding `contents`, whose writer stays open, for `EAGAIN`.
+ *
+ * @param contract     Contract of the test. Must not be `NULL`.
+ * @param contents     Bytes standard input holds. Empty for `EBADF`, and no more than a pipe holds
+ *                     for `EAGAIN`.
+ * @param error_number `0` for an end of input after `contents`, `EBADF` for a read that fails
+ *                     before any byte, or `EAGAIN` for a read past `contents` that fails.
+ * @return `0` on success, or `-1` after recording a test-plumbing failure.
+ */
+static int contract_stdin(struct Contract* contract, struct Str contents, int error_number) {
+#if APPS_TEST_OS_MEMORY
+  os_memory_stdin(contract->os, contents, error_number);
+  return 0;
+#else
+  int fd = -1;
+  if (error_number == EBADF) {
+    fd = open("/dev/null", O_WRONLY);
+  } else if (error_number == EAGAIN) {
+    int pipe_fds[2];
+    if (!TEST_CHECK(pipe(pipe_fds) == 0)) {
+      return -1;
+    }
+    fd = pipe_fds[0];
+    contract->stdin_writer_fd = pipe_fds[1];
+    TEST_CHECK(fcntl(fd, F_SETFL, O_NONBLOCK) == 0);
+    TEST_CHECK(write(pipe_fds[1], contents.data, (size_t)contents.len) == contents.len);
+  } else {
+    contract_write(contract, "stdin", contents);
+    fd = open(contract_path(contract, "stdin").data, O_RDONLY);
+  }
+  if (!TEST_CHECK(fd >= 0)) {
+    return -1;
+  }
+  contract->stdin_fd_saved = dup(STDIN_FILENO);
+  const bool is_redirected = TEST_CHECK(contract->stdin_fd_saved >= 0) &&
+                             TEST_CHECK(dup2(fd, STDIN_FILENO) == STDIN_FILENO);
+  TEST_CHECK(close(fd) == 0);
+  return is_redirected ? 0 : -1;
+#endif
+}
+
+/**
  * @brief Reads a file below the test's directory, and reports whether it holds `expected`.
  *
  * @param contract      Contract of the test. Must not be `NULL`.
@@ -269,6 +340,64 @@ static const struct OsEntry* entry_named(const struct OsEntry* entries,
   }
   return NULL;
 }
+
+/**
+ * @brief Prints `ab`, `cdef` and then `g` on standard output, which accepts `TEST_PRINT_LEN_MAX`
+ *        bytes, and reports whether the first print succeeds and the other two fail with `EFBIG`.
+ *
+ * The second print crosses the limit and the third starts past it.
+ *
+ * @param os Host to print on. Must not be `NULL`.
+ * @return `true` when the three prints end as described.
+ */
+static bool is_print_cut_at_limit(struct Os* os) {
+  const int print_ab_rc = os_print(os, 1, S("ab"));
+  errno = 0;
+  const int print_cdef_rc = os_print(os, 1, S("cdef"));
+  const int cdef_errno = errno;
+  errno = 0;
+  const int print_g_rc = os_print(os, 1, S("g"));
+  return print_ab_rc == 0 && print_cdef_rc == -1 && cdef_errno == EFBIG && print_g_rc == -1 &&
+         errno == EFBIG;
+}
+
+#if !APPS_TEST_OS_MEMORY
+/**
+ * @brief Overwrites the file at `file_path` under a file size limit below its new size, and exits
+ *        with `0` when the write failed. Run in a child process, which the limit would otherwise
+ *        outlive.
+ *
+ * @param file_path Path of the file.
+ * @param data      Bytes to write, more than the limit allows.
+ */
+static _Noreturn void write_past_size_limit(struct Str file_path, struct Str data) {
+  const struct rlimit limit = {.rlim_cur = 1024, .rlim_max = 1024};
+  (void)signal(SIGXFSZ, SIG_IGN);
+  if (setrlimit(RLIMIT_FSIZE, &limit) != 0) {
+    _exit(2);
+  }
+  struct Log log = test_log();
+  _exit(os_replace(os_posix(), file_path, data, S("op"), &log) == -1 ? 0 : 3);
+}
+
+/**
+ * @brief Points standard output at a new file at `file_path` under a file size limit of
+ *        `TEST_PRINT_LEN_MAX` bytes, and exits with `0` when `is_print_cut_at_limit` reports what
+ *        it should. Run in a child process, which the limit and the redirection would otherwise
+ *        outlive.
+ *
+ * @param file_path Terminated path of the file. Must not be `NULL`.
+ */
+static _Noreturn void print_past_size_limit(const char* file_path) {
+  const struct rlimit limit = {.rlim_cur = TEST_PRINT_LEN_MAX, .rlim_max = TEST_PRINT_LEN_MAX};
+  (void)signal(SIGXFSZ, SIG_IGN);
+  const int fd = open(file_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  if (fd < 0 || dup2(fd, STDOUT_FILENO) != STDOUT_FILENO || setrlimit(RLIMIT_FSIZE, &limit) != 0) {
+    _exit(2);
+  }
+  _exit(is_print_cut_at_limit(os_posix()) ? 0 : 3);
+}
+#endif
 
 // An empty file reads back as zero bytes, and a file exactly at `data_len_max` bytes reads in full,
 // so the limit is inclusive.
@@ -646,6 +775,145 @@ static void test_trailing_slash_requires_directory(void) {
   contract_end(&c);
 }
 
+// Standard input reads to its end without being closed, records nothing, and accumulates input
+// larger than one read step whole. The bytes start where the next allocation from `perm` would, and
+// its free space then begins past them.
+static void test_read_stdin_returns_every_byte(void) {
+  enum { SOURCE_LEN = 200000 };
+  char root[] = "/tmp/apps-os-stdin.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  char* source = arena_new(&c.arena, SOURCE_LEN, char);
+  memset(source, 'x', SOURCE_LEN);
+  struct Arena probe = {0};
+  char* perm_beg = NULL;
+  struct Str data = {0};
+  struct Log log = test_log();
+  if (contract_stdin(&c, (struct Str){source, SOURCE_LEN}, 0) != 0) {
+    goto cleanup;
+  }
+
+  probe = c.arena;
+  perm_beg = arena_new(&probe, 0, char);
+  TEST_CHECK(os_read_stdin(c.os, TEST_FILE_LEN_MAX * TEST_FILE_LEN_MAX, &c.arena, &data, S("op"),
+                           &log) == 0);
+  TEST_CHECK(data.data == perm_beg);
+  TEST_CHECK(c.arena.beg >= data.data + data.len);
+  TEST_CHECK(str_eq(data, (struct Str){source, SOURCE_LEN}));
+  TEST_CHECK(test_log_is_empty(&log));
+
+cleanup:
+  contract_end(&c);
+}
+
+// Empty standard input reads as zero bytes, and input exactly at the limit reads in full, so the
+// limit is inclusive.
+static void test_read_stdin_accepts_empty_and_input_at_limit(void) {
+  char empty_root[] = "/tmp/apps-os-stdin-empty.XXXXXX";
+  struct Contract c;
+  if (contract_begin(empty_root, &c) != 0) {
+    return;
+  }
+  struct Str data = S("unchanged");
+  struct Log log = test_log();
+  if (contract_stdin(&c, S(""), 0) == 0) {
+    TEST_CHECK(os_read_stdin(c.os, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == 0);
+    TEST_CHECK(data.len == 0);
+  }
+  contract_end(&c);
+
+  char limit_root[] = "/tmp/apps-os-stdin-limit.XXXXXX";
+  if (contract_begin(limit_root, &c) != 0) {
+    return;
+  }
+  if (contract_stdin(&c, S("four"), 0) == 0) {
+    TEST_CHECK(os_read_stdin(c.os, S("four").len, &c.arena, &data, S("op"), &log) == 0);
+    TEST_CHECK(str_eq(data, S("four")));
+  }
+  TEST_CHECK(test_log_is_empty(&log));
+  contract_end(&c);
+}
+
+// Standard input holding a `NUL` byte, and input one byte over the limit, are rejected naming the
+// stream, and leave the output and `perm` untouched.
+static void test_read_stdin_rejects_embedded_nul_and_input_over_limit(void) {
+  char nul_root[] = "/tmp/apps-os-stdin-nul.XXXXXX";
+  struct Contract c;
+  if (contract_begin(nul_root, &c) != 0) {
+    return;
+  }
+  const struct Str sentinel = S("unchanged");
+  struct Str data = sentinel;
+  struct Log log = test_log();
+  char* perm_beg = c.arena.beg;
+  if (contract_stdin(&c, S("a\0b"), 0) == 0) {
+    perm_beg = c.arena.beg;
+    TEST_CHECK(os_read_stdin(c.os, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
+    TEST_CHECK(c.arena.beg == perm_beg);
+    TEST_CHECK(test_log_is(&log, "op: contains an embedded NUL byte (from 'stdin')\n"));
+  }
+  contract_end(&c);
+
+  char limit_root[] = "/tmp/apps-os-stdin-over.XXXXXX";
+  if (contract_begin(limit_root, &c) != 0) {
+    return;
+  }
+  log = test_log();
+  if (contract_stdin(&c, S("five!"), 0) == 0) {
+    perm_beg = c.arena.beg;
+    TEST_CHECK(os_read_stdin(c.os, 4, &c.arena, &data, S("op"), &log) == -1);
+    TEST_CHECK(c.arena.beg == perm_beg);
+    TEST_CHECK(test_log_is(&log, "op: exceeds max input size (4 bytes) (from 'stdin')\n"));
+  }
+  TEST_CHECK(data.data == sentinel.data && data.len == sentinel.len);
+  contract_end(&c);
+}
+
+// A read error reports the system's message, naming the stream, and leaves the output untouched. A
+// standard input open only for writing is the deterministic way there: every read fails with
+// `EBADF`.
+static void test_read_stdin_reports_read_error(void) {
+  char root[] = "/tmp/apps-os-stdin-error.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  const struct Str sentinel = S("unchanged");
+  struct Str data = sentinel;
+  struct Log log = test_log();
+  if (contract_stdin(&c, S(""), EBADF) == 0) {
+    TEST_CHECK(os_read_stdin(c.os, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
+    TEST_CHECK(data.data == sentinel.data && data.len == sentinel.len);
+    TEST_CHECK(test_log_is(&log, "op: %s (from 'stdin')\n", strerror(EBADF)));
+  }
+  contract_end(&c);
+}
+
+// A read error after some input fails the whole read: the bytes before it are not handed back, and
+// `perm` ends where it started. On the POSIX host standard input is a non-blocking pipe holding the
+// bytes, whose writer stays open, so the read past them fails with `EAGAIN`, and the in-memory host
+// is told to fail it the same way.
+static void test_read_stdin_reports_error_after_data(void) {
+  char root[] = "/tmp/apps-os-stdin-error-after.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  const struct Str sentinel = S("unchanged");
+  struct Str data = sentinel;
+  struct Log log = test_log();
+  if (contract_stdin(&c, S("// one\n"), EAGAIN) == 0) {
+    char* const perm_beg = c.arena.beg;
+    TEST_CHECK(os_read_stdin(c.os, TEST_FILE_LEN_MAX, &c.arena, &data, S("op"), &log) == -1);
+    TEST_CHECK(c.arena.beg == perm_beg);
+    TEST_CHECK(data.data == sentinel.data && data.len == sentinel.len);
+    TEST_CHECK(test_log_is(&log, "op: %s (from 'stdin')\n", strerror(EAGAIN)));
+  }
+  contract_end(&c);
+}
+
 // A write creates the missing parent directories and reads back byte for byte. The bytes are the
 // first allocation in `perm`'s free space, which then begins right past them.
 static void test_write_creates_parents_and_round_trips(void) {
@@ -869,6 +1137,126 @@ static void test_write_rejects_dir_target_for_every_source(void) {
   TEST_CHECK(os_stat(c.os, dir, &st) == 0 && st.is_dir);
   ptrdiff_t entry_count = 0;
   TEST_CHECK(contract_entry_count(&c, &entry_count) == 0 && entry_count == 2);
+  contract_end(&c);
+}
+
+// A replacement creates a file that reads back byte for byte. The bytes are the first allocation in
+// `perm`'s free space, which then begins right past them. A second replacement replaces the
+// contents, including bytes past the new end.
+static void test_replace_round_trips_and_replaces(void) {
+  char root[] = "/tmp/apps-os-replace.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  const struct Str path = contract_path(&c, "a.c");
+  struct Log log = test_log();
+  TEST_CHECK(os_replace(c.os, path, S("root"), S("op"), &log) == 0);
+
+  struct Arena probe = c.arena;
+  char* const perm_beg = arena_new(&probe, 0, char);
+  struct Str data = {0};
+  TEST_CHECK(os_read(c.os, path, TEST_FILE_LEN_MAX, OS_READ_TEXT, &c.arena, &data, S("op"), &log) ==
+             0);
+  TEST_CHECK(data.data == perm_beg);
+  TEST_CHECK(c.arena.beg == perm_beg + S("root").len);
+  TEST_CHECK(str_eq(data, S("root")));
+
+  TEST_CHECK(os_replace(c.os, path, S("ab"), S("op"), &log) == 0);
+  TEST_CHECK(contract_is_file(&c, "a.c", S("ab")));
+  TEST_CHECK(test_log_is_empty(&log));
+  contract_end(&c);
+}
+
+// A replacement fails on a directory with the system's message, and on a path holding a `NUL` byte
+// as `EINVAL`, quoting the path up to that byte and leaving the file the bytes before it name
+// alone.
+static void test_replace_rejects_directory_and_path_with_nul(void) {
+  char root[] = "/tmp/apps-os-replace-reject.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  struct Log log = test_log();
+  TEST_CHECK(os_replace(c.os, str_from_cstr(c.root_dir), S("x"), S("op"), &log) == -1);
+  TEST_CHECK(test_log_is(&log, "op: %s ('%s')\n", strerror(EISDIR), c.root_dir));
+
+  contract_write(&c, "a.c", S("a"));
+  const struct Str nul_path = str_concat(contract_path(&c, "a.c"), S("\0b"), &c.arena);
+  log = test_log();
+  TEST_CHECK(os_replace(c.os, nul_path, S("b"), S("op"), &log) == -1);
+  const struct Str nul_path_head = contract_path(&c, "a.c");
+  TEST_CHECK(test_log_is(&log, "op: %s ('%.*s')\n", strerror(EINVAL), STR_FMT(nul_path_head)));
+  TEST_CHECK(contract_is_file(&c, "a.c", S("a")));
+  contract_end(&c);
+}
+
+// A replacement that fails partway leaves the file it would replace byte for byte as it was. On the
+// POSIX host a file size limit stops the write. The in-memory host is told to fail it with
+// `ENOSPC`.
+static void test_replace_failure_leaves_old_file(void) {
+  enum { CONTENTS_LEN = 2048 };
+  char root[] = "/tmp/apps-os-replace-fail.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  char* original = arena_new(&c.arena, CONTENTS_LEN, char);
+  char* replacement = arena_new(&c.arena, CONTENTS_LEN, char);
+  memset(original, 'a', CONTENTS_LEN);
+  memset(replacement, 'b', CONTENTS_LEN);
+  contract_write(&c, "a.c", (struct Str){original, CONTENTS_LEN});
+  const struct Str path = contract_path(&c, "a.c");
+
+#if APPS_TEST_OS_MEMORY
+  os_memory_fail(c.os, OS_MEMORY_OP_WRITE, path.data, ENOSPC);
+  struct Log log = test_log();
+  TEST_CHECK(os_replace(c.os, path, (struct Str){replacement, CONTENTS_LEN}, S("op"), &log) == -1);
+  TEST_CHECK(test_log_is(&log, "op: %s ('%.*s')\n", strerror(ENOSPC), STR_FMT(path)));
+#else
+  const pid_t child = fork();
+  if (child == 0) {
+    write_past_size_limit(path, (struct Str){replacement, CONTENTS_LEN});
+  }
+  int status = 0;
+  TEST_CHECK(child > 0 && waitpid(child, &status, 0) == child);
+  TEST_CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+#endif
+
+  struct Str data = {0};
+  struct Log read_log = test_log();
+  TEST_CHECK(os_read(c.os, path, CONTENTS_LEN, OS_READ_TEXT, &c.arena, &data, S("op"), &read_log) ==
+             0);
+  TEST_CHECK(str_eq(data, (struct Str){original, CONTENTS_LEN}));
+  contract_end(&c);
+}
+
+// A replacement through a symlink replaces the file the link names and leaves the link in place,
+// one through a dangling symlink fails with `ENOENT` instead of creating the file the link names,
+// and a hard link to the replaced file keeps the previous contents, because the replacement is a
+// new file under the old name.
+static void test_replace_follows_symlink_and_breaks_hard_link(void) {
+  char root[] = "/tmp/apps-os-replace-link.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  contract_write(&c, "target.c", S("before"));
+  contract_link(&c, "target.c", "hard.c");
+  contract_symlink(&c, "target.c", "link.c");
+  contract_symlink(&c, "missing.c", "dangling.c");
+  struct Log log = test_log();
+  TEST_CHECK(os_replace(c.os, contract_path(&c, "link.c"), S("after"), S("op"), &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(contract_is_file(&c, "target.c", S("after")));
+  TEST_CHECK(contract_is_file(&c, "link.c", S("after")));
+  TEST_CHECK(contract_is_file(&c, "hard.c", S("before")));
+
+  const struct Str dangling = contract_path(&c, "dangling.c");
+  TEST_CHECK(os_replace(c.os, dangling, S("x"), S("op"), &log) == -1);
+  TEST_CHECK(test_log_is(&log, "op: %s ('%.*s')\n", strerror(ENOENT), STR_FMT(dangling)));
+  struct OsStat st;
+  TEST_CHECK(os_stat(c.os, contract_path(&c, "missing.c"), &st) == -1);
   contract_end(&c);
 }
 
@@ -1276,6 +1664,68 @@ cleanup:
   contract_end(&c);
 }
 
+// A stream that refuses the write makes `os_print` fail with the write's own `errno`. On the POSIX
+// host standard output is a read-only descriptor, which fails every write with `EBADF`, and the
+// in-memory host is told to fail it the same way.
+static void test_print_reports_write_failure(void) {
+  char root[] = "/tmp/apps-os-print-fail.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  int print_rc = 0;
+  int print_errno = 0;
+#if APPS_TEST_OS_MEMORY
+  os_memory_fail_print(c.os, 1, 0, EBADF);
+#else
+  struct StreamCapture out;
+  if (capture_begin_unwritable(stdout, &out) != 0) {
+    goto cleanup;
+  }
+#endif
+  errno = 0;
+  print_rc = os_print(c.os, 1, S("a\n"));
+  print_errno = errno;
+#if !APPS_TEST_OS_MEMORY
+  TEST_CHECK(capture_end(&out, NULL, 0) == 0);
+#endif
+  TEST_CHECK(print_rc == -1);
+  TEST_CHECK(print_errno == EBADF);
+
+#if !APPS_TEST_OS_MEMORY
+cleanup:
+#endif
+  contract_end(&c);
+}
+
+// A stream that fails partway keeps the bytes it accepted: the print that crosses the point where
+// it fails writes the bytes up to it and then fails with the write's own `errno`, and a later print
+// fails without writing. On the POSIX host standard output is a file under a file size limit, and
+// the in-memory host is told to fail it at the same length.
+static void test_print_keeps_bytes_before_failure(void) {
+  char root[] = "/tmp/apps-os-print-partial.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+#if APPS_TEST_OS_MEMORY
+  os_memory_fail_print(c.os, 1, TEST_PRINT_LEN_MAX, EFBIG);
+  TEST_CHECK(is_print_cut_at_limit(c.os));
+  TEST_CHECK(os_memory_is_printed(c.os, 1, "abcd"));
+#else
+  const struct Str stdout_path = contract_path(&c, "stdout");
+  const pid_t child = fork();
+  if (child == 0) {
+    print_past_size_limit(stdout_path.data);
+  }
+  int status = 0;
+  TEST_CHECK(child > 0 && waitpid(child, &status, 0) == child);
+  TEST_CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+  TEST_CHECK(contract_is_file(&c, "stdout", S("abcd")));
+#endif
+  contract_end(&c);
+}
+
 TEST_LIST = {
     {"read accepts empty and file at limit", test_read_accepts_empty_and_file_at_limit},
     {"read accepts embedded nul", test_read_accepts_embedded_nul},
@@ -1290,6 +1740,13 @@ TEST_LIST = {
     {"read rejects path with nul and path at path max",
      test_read_rejects_path_with_nul_and_path_at_path_max},
     {"trailing slash requires directory", test_trailing_slash_requires_directory},
+    {"read stdin returns every byte", test_read_stdin_returns_every_byte},
+    {"read stdin accepts empty and input at limit",
+     test_read_stdin_accepts_empty_and_input_at_limit},
+    {"read stdin rejects embedded nul and input over limit",
+     test_read_stdin_rejects_embedded_nul_and_input_over_limit},
+    {"read stdin reports read error", test_read_stdin_reports_read_error},
+    {"read stdin reports error after data", test_read_stdin_reports_error_after_data},
     {"write creates parents and round trips", test_write_creates_parents_and_round_trips},
     {"write overwrites in place", test_write_overwrites_in_place},
     {"write copies file source", test_write_copies_file_source},
@@ -1299,6 +1756,12 @@ TEST_LIST = {
     {"write and mkdirs reject path with nul", test_write_and_mkdirs_reject_path_with_nul},
     {"write rejects missing and directory source", test_write_rejects_missing_and_directory_source},
     {"write rejects dir target for every source", test_write_rejects_dir_target_for_every_source},
+    {"replace round trips and replaces", test_replace_round_trips_and_replaces},
+    {"replace rejects directory and path with nul",
+     test_replace_rejects_directory_and_path_with_nul},
+    {"replace failure leaves old file", test_replace_failure_leaves_old_file},
+    {"replace follows symlink and breaks hard link",
+     test_replace_follows_symlink_and_breaks_hard_link},
     {"mkdirs creates nested and is idempotent", test_mkdirs_creates_nested_and_is_idempotent},
     {"mkdirs rejects file and dangling components",
      test_mkdirs_rejects_file_and_dangling_components},
@@ -1313,5 +1776,7 @@ TEST_LIST = {
     {"stat identifies files", test_stat_identifies_files},
     {"stat rejects what names nothing", test_stat_rejects_what_names_nothing},
     {"print writes each stream in order", test_print_writes_each_stream_in_order},
+    {"print reports write failure", test_print_reports_write_failure},
+    {"print keeps bytes before failure", test_print_keeps_bytes_before_failure},
     {NULL, NULL},
 };

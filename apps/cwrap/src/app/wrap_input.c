@@ -4,13 +4,13 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "app/memory.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/log.h"
 #include "core/str.h"
 #include "domain/rewrite.h"
-#include "runtime/memory.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 /**
  * @brief Rewrites and emits source bytes that have already been read.
@@ -69,8 +69,8 @@ int wrap_input_read_file(struct Str file_path,
                          struct Str* source_out,
                          struct Log* log) {
   memory_oom_set_job(S("read"), file_path, false);
-  return os_read(os, file_path, SOURCE_LEN_MAX, perm, source_out, S(WRAP_INPUT_READ_FILE_OPERATION),
-                 log);
+  return os_read(os, file_path, SOURCE_LEN_MAX, OS_READ_TEXT, perm, source_out,
+                 S(WRAP_INPUT_READ_FILE_OPERATION), log);
 }
 
 enum WrapInputResult wrap_input_process_file(struct Str file_path,
@@ -151,7 +151,7 @@ static enum WrapInputResult process_source_emit(struct Str source,
 
   if (output_path.len > 0) {
     if (is_changed &&
-        os_write(os, output_path, rewritten_source, S("failed to write file"), log) != 0) {
+        os_replace(os, output_path, rewritten_source, S("failed to write file"), log) != 0) {
       return WRAP_INPUT_RESULT_ERROR;
     }
     return WRAP_INPUT_RESULT_OK;

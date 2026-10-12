@@ -4,13 +4,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "app/memory.h"
 #include "app/wrap_input.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/log.h"
 #include "core/str.h"
-#include "runtime/memory.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 /** Bytes in a mebibyte, the unit of the sizes below. */
 #define CMD_WRAP_MIB ((ptrdiff_t)1024 * 1024)

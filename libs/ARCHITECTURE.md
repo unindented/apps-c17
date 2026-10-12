@@ -14,13 +14,11 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 | --- | --- | --- |
 | [`core`](#core) | The arena allocator, counted strings, growable buffers and the error log, and ASCII classification, error text, exit codes, number parsing, paths, path lists and text helpers. | sosig, fram, cwrap |
 | [`testing`](#testing) | The support that every unit test uses, and the `os_oom` of the unit tests. | the unit tests of every app and of the other libraries |
-| [`os`](#os) | The host interface and the out-of-memory report, with the POSIX host `os_posix` and the in-memory host `os_memory`. | sosig and fram, and `os_memory` for the unit tests of sosig, fram and the libraries |
+| [`os`](#os) | The host interface and the out-of-memory report, with the POSIX host `os_posix` and the in-memory host `os_memory`. | sosig, fram and cwrap, and `os_memory` for their unit tests and those of the libraries |
 | [`runtime`](#runtime) | The worker pool and the directory walk. | sosig, fram |
 | [`formats`](#formats) | HTML escaping and the TOML helpers. | sosig, fram |
 | [`markup`](#markup) | Markdown and Org to HTML, and the syntax highlighting of code blocks with tree-sitter. | sosig |
 | [`site`](#site) | The output manifest, the build job, output paths and the output writer. | sosig, fram |
-
-cwrap has a smaller host interface of its own in its `src/runtime/`, and links neither `os` nor `runtime`.
 
 ### Dependency rules
 

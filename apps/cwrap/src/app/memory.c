@@ -1,4 +1,4 @@
-#include "runtime/memory.h"
+#include "app/memory.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -6,7 +6,7 @@
 #include "core/buf.h"
 #include "core/log.h"
 #include "core/str.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 /** The command's log, which the out-of-memory report prints first, or `NULL`. */
 static const struct Log* memory_oom_log;
