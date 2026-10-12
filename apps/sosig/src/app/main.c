@@ -6,14 +6,14 @@
 #include "core/arena.h"
 #include "core/exit_code.h"
 #include "core/str.h"
-#include "runtime/fs.h"
-#include "runtime/memory.h"
+#include "os/oom.h"
+#include "os/os_posix.h"
 
 /**
  * @brief Reports that the program ran out of memory and ends the process with `EXIT_CODE_FAILURE`.
  *
- * This is the executable's member of the `runtime/os.h` interface that `core/arena.h` declares. It
- * is defined here rather than in `runtime/fs.c`, because what running out of memory does is a
+ * This is the executable's member of the `os/os.h` interface that `core/arena.h` declares. It is
+ * defined here rather than in `os/os_posix.c`, because what running out of memory does is a
  * decision about the program, not about the host: the unit tests define their own, whichever host
  * they link.
  *
@@ -21,9 +21,9 @@
  * reservation the program cannot work without, and, where a vendored library allocates with
  * `malloc`, when the wrapper around that library sees `malloc` fail. None of these has a recovery
  * the program could attempt, so the policy is to stop: this is the one place that decides it, and
- * no allocation site checks for failure. `memory_oom_report` prints the log the running command
- * named and names the input in progress, so the user still learns what failed. The reasons the
- * program can stop there are in the "Out of memory exits the process" decision in ARCHITECTURE.md.
+ * no allocation site checks for failure. `oom_report` prints the log the running command named and
+ * names the input in progress, so the user still learns what failed. The reasons the program can
+ * stop there are in the "Out of memory exits the process" decision in ARCHITECTURE.md.
  *
  * In a program that runs worker threads it may run on one, so it uses `_Exit`, which runs no
  * `atexit` handlers that another thread could be using. Nothing is buffered to lose, because every
@@ -34,7 +34,7 @@
 _Noreturn void os_oom(void) {
   static pthread_mutex_t report_lock = PTHREAD_MUTEX_INITIALIZER;
   (void)pthread_mutex_lock(&report_lock);
-  memory_oom_report(os_posix(), S("sosig"));
+  oom_report(os_posix(), S("sosig"));
   _Exit(EXIT_CODE_FAILURE);
 }
 

@@ -11,7 +11,7 @@
 #include "core/str.h"
 #include "domain/album.h"
 #include "domain/gallery_config.h"
-#include "os_memory/os_memory.h"
+#include "os/os_memory.h"
 #include "site/job.h"
 #include "testing/test_support.h"
 

@@ -17,24 +17,24 @@
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
-#include "runtime/os.h"
+#include "os/os.h"
 #include "testing/test_support.h"
 
 #if APPS_TEST_OS_MEMORY
-#include "os_memory/os_memory.h"
+#include "os/os_memory.h"
 #else
-#include "runtime/fs.h"
+#include "os/os_posix.h"
 #endif
 
-// These are the contract tests of `runtime/os.h`. This one file builds two executables: one links
-// the POSIX host in `fs.c` and runs against a real temporary directory, and one links the in-memory
-// host in `os_memory/os_memory.c`. Both must pass. Every property that a test of another module
+// These are the contract tests of `os/os.h`. This one file builds two executables: one links the
+// POSIX host in `os_posix.c` and runs against a real temporary directory, and one links the
+// in-memory host in `os_memory.c`. Both must pass. Every property that a test of another module
 // checks against the in-memory host is checked here against both, so the in-memory host cannot
 // accept what POSIX rejects. Facts only a real filesystem has, such as FIFOs, modes and interrupted
-// writes, are in `test_fs.c`, which also produces, from permission bits, two failures the in-memory
-// host can only inject: an entry that cannot be inspected and a directory that cannot be created.
-// The in-memory build ends with tests of that injection, which the POSIX build has no counterpart
-// to.
+// writes, are in `test_os_posix.c`, which also produces, from permission bits, two failures the
+// in-memory host can only inject: an entry that cannot be inspected and a directory that cannot be
+// created. The in-memory build ends with tests of that injection, which the POSIX build has no
+// counterpart to.
 //
 // Every call under test here runs with the operation `op`, so an expected failure reads
 // `op: <cause>`. A system cause is spelled with `strerror` from the running libc, as both hosts

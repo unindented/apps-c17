@@ -11,8 +11,8 @@
 #include "core/str.h"
 #include "domain/album.h"
 #include "domain/gallery_config.h"
-#include "runtime/memory.h"
-#include "runtime/os.h"
+#include "os/oom.h"
+#include "os/os.h"
 #include "site/output_path.h"
 #include "site/output_writer.h"
 
@@ -57,7 +57,7 @@ int site_writer_write_album_pages(const struct OutputWriter* writer,
                                   struct Arena scratch,
                                   struct Log* log) {
   for (ptrdiff_t i = 0; i < album_count; i++) {
-    memory_oom_set_job(albums[i]->output_path, NULL);
+    oom_set_job(albums[i]->output_path, NULL);
     // The operation names the album, and the write names the output path or the directory it could
     // not create, so a failure reads `failed to write output for '<album>': <cause> ('<path>')`.
     // Each page's operation lives in a copy of `scratch`, which the next page reuses.
@@ -101,7 +101,7 @@ int site_writer_copy_static_files(const struct OutputWriter* writer,
                                   struct Arena scratch,
                                   struct Log* log) {
   for (ptrdiff_t i = 0; i < static_paths->count; i++) {
-    memory_oom_set_job(static_paths->items[i], NULL);
+    oom_set_job(static_paths->items[i], NULL);
     // Each copy works in its own copy of `scratch`, so one file's path is dead before the next.
     struct Arena copy_scratch = scratch;
     struct Str relative = {0};
@@ -125,7 +125,7 @@ static int write_rendered_template(const struct OutputWriter* writer,
                                    struct Arena output,
                                    struct Arena scratch,
                                    struct Log* log) {
-  memory_oom_set_job(template_name, NULL);
+  oom_set_job(template_name, NULL);
   // An aggregate renders against the root album, whose own `path_to_root` is empty, so a nested
   // aggregate such as `feeds/map.xml` needs its own prefix for page-relative URLs to resolve.
   struct Album aggregate_album = *root_album;

@@ -14,8 +14,8 @@
 #include "domain/media_item.h"
 #include "formats/exif.h"
 #include "formats/image.h"
-#include "runtime/memory.h"
-#include "runtime/os.h"
+#include "os/oom.h"
+#include "os/os.h"
 #include "runtime/video.h"
 #include "site/job.h"
 #include "site/output_writer.h"
@@ -415,7 +415,7 @@ static int render_derivatives_job(ptrdiff_t index,
                                   struct Log* log,
                                   void* userdata) {
   const struct DerivativeContext* context = userdata;
-  memory_oom_set_job(context->media[index]->source_path, log);
+  oom_set_job(context->media[index]->source_path, log);
   const int rc = render_derivatives_outputs(context, index, arenas->scratch, log);
   // Best effort is deliberate. A frame whose unlink fails stays marked, so the final cleanup tries
   // again, and a transient unlink failure cannot replace the job's useful first diagnostic.

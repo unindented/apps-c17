@@ -13,7 +13,7 @@
 - [tests/](tests/): The golden test suite, the seeded random tests, and the test helpers of `fram`: the fixture JPEG encoder and the WebP output decoder. The fixture gallery [tests/fixtures/gallery](tests/fixtures/gallery/), which mixes JPEG and MP4 sources, has its expected output in [tests/expected/gallery](tests/expected/gallery/).
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
 - [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
-- [libs/](../../libs/): The libraries that `fram` links: `core`, `runtime`, `formats` and `site`, and for the unit tests `testing` and `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
+- [libs/](../../libs/): The libraries that `fram` links: `core`, `os`, `runtime`, `formats` and `site`, and for the unit tests `testing` and `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
 - [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `libjpeg-turbo`, `libwebp`, `stb_image_resize`, `mustache4c`, and `acutest`.
 
 ### Dependency rules
@@ -105,7 +105,7 @@ The phase order follows the data dependencies. A template can read media dimensi
 
 ### Errors and status output
 
-No phase writes a failure diagnostic to `stderr` itself. The one exception is the out-of-memory report, which `os_oom` prints through `memory_oom_report` before the process exits. Every fallible function records its errors in the log that its caller gives, and `cmd_build_run` prints the build's log once.
+No phase writes a failure diagnostic to `stderr` itself. The one exception is the out-of-memory report, which `os_oom` prints through `oom_report` before the process exits. Every fallible function records its errors in the log that its caller gives, and `cmd_build_run` prints the build's log once.
 
 Until the first write, the build continues after an error wherever the next phase still has something to check. One run reports every bad config key, and every album and source in the album skeleton that is past a path limit. The exception is the sub-albums and sources of an album that the build already reported, because they fail with that album. When the skeleton is complete, the run also reports every source that the build cannot probe, and every output collision. If the build recorded an error, it then stops before it creates `output_dir`. A config that the build cannot read, a rejected directory key, a root that the build cannot read or walk, a missing video tool, or a skeleton error stops the build before the next phase, because it leaves the build nothing to check.
 
@@ -150,7 +150,7 @@ The formats also use the `formats` library: [html](../../libs/formats/html.h) es
 - [proc](src/runtime/proc.h): Runs one argument vector without a shell, and captures the process output up to a limit. It reads standard output and standard error together, so the child never waits on a full pipe. When the child exits with a failure, the reason ends with the newest standard-error bytes that fit, because the last line of the child usually names the cause. Each run of line breaks shows as `; `, so the error stays on one line. The copy of the argument vector that the spawn takes lives in the caller's scratch arena.
 - [video](src/runtime/video.h): Wraps `ffprobe` to probe the duration, and `ffmpeg` to extract an auto-rotated JPEG frame. `video_frame_position_ms` places the frame for both the probe and a deferred extraction. Each video has a frame slot: a temporary path that the build allocates before the probe, which `video_extract_frame` fills with `mkostemp`, and a flag that marks a frame as created until `video_frame_remove` removes it.
 
-`fram` takes its host interface, its POSIX host, the out-of-memory report, the worker pool and the directory walk from the `runtime` library, and its small primitives from the `core` library. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules. These rules are the ones that `fram` adds:
+`fram` takes its host interface, its POSIX host and the out-of-memory report from the `os` library, the worker pool and the directory walk from the `runtime` library, and its small primitives from the `core` library. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules. These rules are the ones that `fram` adds:
 
 - `os_read` reads every file with `OS_READ_BYTES`, because it also reads media, and a JPEG contains `NUL` bytes. The text readers reject a `NUL` themselves, as [Strings and text input](#strings-and-text-input) describes.
 - `os_print` carries every byte that `fram` prints: the log at the end of a command, a rejected command line, `--help` and `--version`, the resolved config, the verbose status lines, and the workers' progress lines.
@@ -200,7 +200,7 @@ Every first-party string is a counted `struct Str` with a signed `ptrdiff_t` len
 
 ### Host access
 
-No code in `src/` makes a system call on a path or prints through `stdio`, except the video code: only the POSIX host, `runtime/fs.c` in `libs/`, does. `proc` and `video` start `ffprobe` and `ffmpeg`, and `video` creates, inspects, and removes the temporary frame that `ffmpeg` writes. They do this on the real host, whichever host an executable links. All other host access goes through `os.h`, and the link step selects the host for each executable. A new unit test links the in-memory host, unless it needs a fact that only a real filesystem has, or it starts a process. See [The `os` interface](#the-os-interface).
+No code in `src/` makes a system call on a path or prints through `stdio`, except the video code: only the POSIX host, `os/os_posix.c` in `libs/`, does. `proc` and `video` start `ffprobe` and `ffmpeg`, and `video` creates, inspects, and removes the temporary frame that `ffmpeg` writes. They do this on the real host, whichever host an executable links. All other host access goes through `os.h`, and the link step selects the host for each executable. A new unit test links the in-memory host, unless it needs a fact that only a real filesystem has, or it starts a process. See [The `os` interface](#the-os-interface).
 
 ## Design decisions
 
@@ -258,7 +258,7 @@ Each decision below states what the code does and why, and some decisions also s
 **Decision.** When an arena cannot commit more pages, it calls `os_oom`. Each program defines `os_oom`, and the `fram` version does these steps:
 
 1. It prints the errors in the command's log and in the thread's job log.
-2. It prints `fram: out of memory` and the name of the file that the thread was processing, as `(in '<file>')`. A command names its log with `memory_oom_set_log`, and a job names its file and log with `memory_oom_set_job`.
+2. It prints `fram: out of memory` and the name of the file that the thread was processing, as `(in '<file>')`. A command names its log with `oom_set_log`, and a job names its file and log with `oom_set_job`.
 3. It exits with `EXIT_CODE_FAILURE`.
 
 **Reasons.**
@@ -369,14 +369,14 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 ### The `os` interface
 
-**Decision.** All host access goes through [runtime/os.h](../../libs/runtime/os.h) in the `runtime` library, except in `proc` and `video`. `runtime/fs.c` is the POSIX implementation. [os_memory/os_memory.c](../../libs/os_memory/os_memory.c) is an in-memory implementation for unit tests: an in-memory tree with symlinks, hard links, a modification-time counter, injected failures, and captured output. The link step selects one implementation for each executable. A function that accesses the host takes `struct Os*` just before its arenas, and an `os_*` function takes it first. `proc` and `video` run `ffprobe` and `ffmpeg`, and handle the frame that `ffmpeg` writes, on the real host, whichever host an executable links, because a fake would have to emulate the file output of `ffmpeg`. The video tests write their fake tools to the POSIX host.
+**Decision.** All host access goes through [os/os.h](../../libs/os/os.h) in the `os` library, except in `proc` and `video`. `os/os_posix.c` is the POSIX implementation. [os/os_memory.c](../../libs/os/os_memory.c) is an in-memory implementation for unit tests: an in-memory tree with symlinks, hard links, a modification-time counter, injected failures, and captured output. The link step selects one implementation for each executable. A function that accesses the host takes `struct Os*` just before its arenas, and an `os_*` function takes it first. `proc` and `video` run `ffprobe` and `ffmpeg`, and handle the frame that `ffmpeg` writes, on the real host, whichever host an executable links, because a fake would have to emulate the file output of `ffmpeg`. The video tests write their fake tools to the POSIX host.
 
 **Reasons.**
 
 - Tests of the walk, the manifest, the derivatives, the pages, the writes, and the prune need no temporary directories.
 - A link-time choice needs no table of function pointers, because no executable needs two hosts.
 
-**Linking.** `fram` and every unit test registered without `OS memory` link `os_posix`, the object library of `runtime/fs.c`. The tests registered with `OS memory` link `os_memory`, as [BUILD.md](../../BUILD.md#fram-tests) lists.
+**Linking.** `fram` and every unit test registered without `OS memory` link `os_posix`, the object library of `os/os_posix.c`. The tests registered with `OS memory` link `os_memory`, as [BUILD.md](../../BUILD.md#fram-tests) lists.
 
 **Condition.** Each property that a test checks against the in-memory host must have a contract test. [runtime/test_os.c](../../libs/runtime/test_os.c), in the `libs/` project, compiles once against each host and runs the same cases, and both executables must pass, so every property that a test relies on in the in-memory host is also true on POSIX. Without the contract tests, the in-memory host can accept what POSIX rejects. For example, an in-memory host could accept `file/` as a file where POSIX returns `ENOTDIR`, and a contract test checks this case.
 
@@ -395,6 +395,6 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 ### Where the shared code lives
 
-**Decision.** The libraries in [libs/](../../libs/) hold the code that `fram` shares with the other apps. `core` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, `Log`, and the small primitives. `runtime`, `formats` and `site` hold the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own arena layout. The decoded-pixel exception stays out of the libraries.
+**Decision.** The libraries in [libs/](../../libs/) hold the code that `fram` shares with the other apps. `core` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, `Log`, and the small primitives. `os`, `runtime`, `formats` and `site` hold the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own arena layout. The decoded-pixel exception stays out of the libraries.
 
 **Reason.** These parts do not depend on what a program does.

@@ -19,7 +19,7 @@
 #include "domain/site_config.h"
 #include "formats/html.h"
 #include "mustache.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 // Bounds on one template render. There are three independent failure modes, so three limits, each
 // enforced at the one place that can observe it. Each limit names what it bounds: the expansion

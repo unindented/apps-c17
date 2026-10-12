@@ -12,7 +12,7 @@
 #include "core/error.h"
 #include "core/log.h"
 #include "core/str.h"
-#include "runtime/os.h"
+#include "os/os.h"
 #include "runtime/pool.h"
 
 /** One running parallel phase: its jobs' logs and the adapter state around the caller's job. */

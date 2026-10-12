@@ -20,8 +20,8 @@
 #include "domain/album.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
-#include "runtime/fs.h"
-#include "runtime/os.h"
+#include "os/os.h"
+#include "os/os_posix.h"
 #include "testing/test_support.h"
 
 /**

@@ -3,12 +3,12 @@
 #define TEST_NO_MAIN
 
 // `PATH_MAX` is outside strict C17, so `<limits.h>` hides it unless a feature-test macro asks for
-// it, as in `fs.c`: `_DARWIN_C_SOURCE` on macOS, `_DEFAULT_SOURCE` on glibc and musl. Both must
-// precede every `#include`.
+// it, as in `os_posix.c`: `_DARWIN_C_SOURCE` on macOS, `_DEFAULT_SOURCE` on glibc and musl. Both
+// must precede every `#include`.
 #define _DARWIN_C_SOURCE
 #define _DEFAULT_SOURCE
 
-#include "os_memory/os_memory.h"
+#include "os/os_memory.h"
 
 #include <acutest.h>
 #include <assert.h>
@@ -29,7 +29,7 @@
 #include "core/path_list.h"
 #include "core/str.h"
 #include "core/text.h"
-#include "runtime/os.h"
+#include "os/os.h"
 #include "testing/test_support.h"
 
 /**

@@ -10,7 +10,7 @@ if(APPS_BUILD_TESTING)
   foreach(module IN ITEMS cli cli_dispatch cmd_config)
     apps_add_unit_test(${module})
   endforeach()
-  # A build reads, walks and writes only through `runtime/os.h`, so its tests use the in-memory
+  # A build reads, walks and writes only through `os/os.h`, so its tests use the in-memory
   # host.
   apps_add_unit_test(cmd_build OS memory)
 endif()

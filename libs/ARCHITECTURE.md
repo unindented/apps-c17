@@ -6,7 +6,7 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and its presets. An app adds the project with `add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)`, so a library builds only when the app links it. Configured on its own, the project builds every library, its tests, its analysis and its lint.
 - [vendor.cmake](vendor.cmake): The vendored targets that the libraries and their tests use when the project is configured on its own: `acutest` and `tomlc17`, from the root [vendor/](../vendor/) directory, and the targets of [markup/vendor.cmake](markup/vendor.cmake). An app that adds the project gives these targets from its own `vendor.cmake`, which includes `markup/vendor.cmake` when the app links `markup`.
-- [core/](core/), [testing/](testing/), [runtime/](runtime/), [os_memory/](os_memory/), [formats/](formats/), [markup/](markup/) and [site/](site/): One directory for each library, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
+- [core/](core/), [testing/](testing/), [os/](os/), [runtime/](runtime/), [formats/](formats/), [markup/](markup/) and [site/](site/): One directory for each library, except `os/`, which also holds the two implementations of its interface as libraries of their own, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
 
 ## Libraries
 
@@ -14,24 +14,24 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 | --- | --- | --- |
 | [`core`](#core) | The arena allocator, counted strings, growable buffers and the error log, and ASCII classification, error text, exit codes, number parsing, paths, path lists and text helpers. | sosig, fram, cwrap |
 | [`testing`](#testing) | The support that every unit test uses, and the `os_oom` of the unit tests. | the unit tests of every app and of the other libraries |
-| [`runtime`](#runtime) | The host interface, its POSIX implementation `os_posix`, the out-of-memory report, the worker pool and the directory walk. | sosig, fram |
-| [`os_memory`](#os_memory) | The in-memory implementation of the host interface. | the unit tests of sosig, fram and the libraries |
+| [`os`](#os) | The host interface and the out-of-memory report, with the POSIX host `os_posix` and the in-memory host `os_memory`. | sosig and fram, and `os_memory` for the unit tests of sosig, fram and the libraries |
+| [`runtime`](#runtime) | The worker pool and the directory walk. | sosig, fram |
 | [`formats`](#formats) | HTML escaping and the TOML helpers. | sosig, fram |
 | [`markup`](#markup) | Markdown and Org to HTML, and the syntax highlighting of code blocks with tree-sitter. | sosig |
 | [`site`](#site) | The output manifest, the build job, output paths and the output writer. | sosig, fram |
 
-cwrap has a smaller host interface of its own in its `src/runtime/`, and links neither `runtime` nor `os_memory`.
+cwrap has a smaller host interface of its own in its `src/runtime/`, and links neither `os` nor `runtime`.
 
 ### Dependency rules
 
-- `testing` and `runtime` depend on `core`.
-- `os_memory` depends on `runtime` and `testing`.
+- `testing` and `os` depend on `core`. `os_memory` also depends on `testing`.
+- `runtime` depends on `core` and `os`.
 - `formats` depends on `core` and the vendored `tomlc17`. The project adds `formats` only when the `vendor_tomlc17` target exists, so an app that vendors no tomlc17, such as cwrap, builds without it.
 - `markup` depends on `core`, `formats` and the targets of `markup/vendor.cmake`: md4c, org4c, and tree-sitter with its grammars. The project adds `markup` only when these targets and `formats` exist.
-- `site` depends on `core` and `runtime`.
+- `site` depends on `core`, `os` and `runtime`.
 - No library depends on an app.
 
-A library include names the library and the module, for example `#include "core/parse.h"` or `#include "site/manifest.h"`. Each library has an include root of its own: `libs_add_include_root` makes a directory in the build tree that holds one link, named for the library, to the library's directory, and gives the target that directory as its include root. A target therefore reaches the headers of the libraries that it links and of no other library. A header guard is `APPS_<LIB>_<MODULE>_H`, for example `APPS_CORE_PARSE_H`. An app's own `src/<layer>/` holds only modules that no library it links has, so an app's include never resolves to a different file than the library's. An app's header can have the same path as a header of a library that the app does not link, as cwrap's `runtime/os.h` has.
+A library include names the library and the module, for example `#include "core/parse.h"` or `#include "site/manifest.h"`. Each library has an include root of its own: `libs_add_include_root` makes a directory in the build tree that holds one link, named for the library, to the library's directory, and gives the target that directory as its include root. A target therefore reaches the headers of the libraries that it links and of no other library. A header guard is `APPS_<LIB>_<MODULE>_H`, for example `APPS_CORE_PARSE_H`. An app's own `src/<layer>/` holds only modules that no library it links has, so an app's include never resolves to a different file than the library's.
 
 ### Build profiles and analysis
 
@@ -218,27 +218,29 @@ To use a log correctly:
 
 `testing` is an object library, so its `os_oom` is always linked in: a static archive member would be pulled only by a reference that comes before it on the link line, and the reference comes from the arena in `core`, which comes after it. Its `os_oom` exits with its own status, so `test_is_oom` can tell an out-of-memory exit apart from a crash or an ordinary exit. The seed of `test_rng` is `TEST_RNG_SEED_DEFAULT`, or the value of the `APPS_TEST_SEED` environment variable, so a failure that one seed finds can be replayed. `test_support.c` defines `TEST_NO_MAIN`, so the `main` function and the run state of acutest stay in the translation unit of each test executable.
 
-## runtime
+## os
 
-- [os](runtime/os.h): The host interface. Every read, write, directory creation, removal, listing, `stat` and print that an app does goes through `os_read`, `os_write`, `os_mkdirs`, `os_remove`, `os_remove_dir`, `os_list`, `os_stat` and `os_print`. Each function that accesses the host takes a `struct Os*`.
+- [os](os/os.h): The host interface. Every read, write, directory creation, removal, listing, `stat` and print that an app does goes through `os_read`, `os_write`, `os_mkdirs`, `os_remove`, `os_remove_dir`, `os_list`, `os_stat` and `os_print`. Each function that accesses the host takes a `struct Os*`.
   - `os_read` takes a size limit from each caller, and checks it before any read or allocation. It rejects a file that is not a regular file, and a file that changes size during the read. It also takes an `enum OsReadKind`: with `OS_READ_TEXT`, it rejects a file that contains a `NUL` byte, and with `OS_READ_BYTES`, it accepts any byte, as an image or a video needs.
   - `os_write` writes either bytes or the contents of a file that it streams, and it creates parent directories. It overwrites its destination in place, through a symlink or a hard link, and the write is neither atomic nor synced. A new file gets mode `0666` reduced by the process umask.
   - `os_stat` reports identity, type, size, and modification time.
   - `os_list` closes a directory before it returns. It classifies each directory entry, and for a symlink it classifies the target. It skips dangling links, and directory entries that were removed after it read them.
   - `os_print` carries every byte that an app prints, so a test on the in-memory host sees all of it. One call writes its text as a whole. A caller that prints from more than one thread holds its own lock around the call.
   - `os_oom` is the one other member. `core` declares it, and each program defines it: an app in its `app/main.c`, and `testing` for the unit tests.
-- [fs](runtime/fs.h): The POSIX implementation of `os.h`, in the object library `os_posix`. An app's executable and every unit test registered with `OS posix` link it. Its `struct Os` has no state.
-- [memory](runtime/memory.h): Holds what the out-of-memory report prints: the command's log, which `memory_oom_set_log` names, and, for each thread, the file that the thread works on and its job's log, which `memory_oom_set_job` names. `memory_oom_report` takes the name of the program, which leads its last line, as in `sosig: out of memory`.
+- [os_posix](os/os_posix.h): The POSIX implementation of `os.h`, in the object library `os_posix`. An app's executable and every unit test registered with `OS posix` link it. Its `struct Os` has no state.
+- [os_memory](os/os_memory.h): The in-memory implementation of `os.h` for unit tests, in the object library `os_memory`: an in-memory tree with symlinks, hard links, a modification-time counter, injected failures, and captured output. A lock guards the tree, so tests that run workers can use it.
+- [oom](os/oom.h): Holds what the out-of-memory report prints: the command's log, which `oom_set_log` names, and, for each thread, the file that the thread works on and its job's log, which `oom_set_job` names. `oom_report` takes the name of the program, which leads its last line, as in `sosig: out of memory`.
+
+An executable selects its host when it links. A link-time choice needs no table of function pointers, because no executable needs two hosts. `os_posix` and `os_memory` are object libraries, because `os` and an app's library refer to them, and a single-pass linker skips a static archive that comes before the code that uses it on the link line.
+
+Each property that a test checks against the in-memory host must have a contract test. [os/test_os.c](os/test_os.c) compiles once against each host, as `os.contract_posix` and `os.contract_memory`, and both executables must pass, so every property that a test relies on in the in-memory host is also true on POSIX.
+
+## runtime
+
 - [pool](runtime/pool.h): Runs indexed jobs through a pthread pool of bounded size. It completes every job, even when one job fails, and joins every worker before it returns. Each job gets the index of the worker that runs it, so the job can use that worker's arenas. The module also gets the default worker count from the number of online CPUs.
 - [walk](runtime/walk.h): Finds and sorts the matching regular files in a directory tree. It uses only `os_list` and `os_stat`, so it behaves the same on every host. It follows symlinked directories, but walks each directory once, by device and inode. It skips a cycle or a second alias of a directory. A caller can name one directory to exclude. The walk visits directory entries in byte order, and visits each symlinked directory only after every real directory, so it lists the path without a symlink when such a path exists. Only one directory is open at a time.
 
-An executable selects its host when it links. A link-time choice needs no table of function pointers, because no executable needs two hosts. `os_posix` and `os_memory` are object libraries, because `runtime` and an app's library refer to them, and a single-pass linker skips a static archive that comes before the code that uses it on the link line.
-
-## os_memory
-
-- [os_memory](os_memory/os_memory.h): The in-memory implementation of `runtime/os.h` for unit tests: an in-memory tree with symlinks, hard links, a modification-time counter, injected failures, and captured output. A lock guards the tree, so tests that run workers can use it.
-
-Each property that a test checks against the in-memory host must have a contract test. [runtime/test_os.c](runtime/test_os.c) compiles once against each host, as `runtime.os_posix` and `runtime.os_memory`, and both executables must pass, so every property that a test relies on in the in-memory host is also true on POSIX.
+[runtime/test_walk_posix.c](runtime/test_walk_posix.c) runs the walk on the POSIX host, for the failures that only a real filesystem gives.
 
 ## formats
 

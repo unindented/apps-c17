@@ -7,7 +7,7 @@ include_guard(GLOBAL)
 # `<app>.<NAME>`. The host is the app's own `<app>_os_<OS>` when the app defines one, and otherwise
 # the library's `os_<OS>`.
 #
-# `OS` names the implementation of `runtime/os.h` the test links: `posix` (the default) or
+# `OS` names the implementation of the host interface the test links: `posix` (the default) or
 # `memory` for an in-memory host. Every test registered without `OS memory`
 # links the POSIX host: the tests that need the real host, such as the POSIX layer's own tests; the
 # suites written before the in-memory host, which stay on it until they are converted; and the tests

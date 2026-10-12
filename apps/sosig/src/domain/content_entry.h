@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #include "core/str.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 /**
  * Content entry metadata and generated paths for one content source file.

@@ -16,7 +16,7 @@
 #include "domain/content_entry.h"
 #include "domain/permalink.h"
 #include "formats/toml.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 /** String-valued site config key policy. */
 struct SiteConfigStringKey {

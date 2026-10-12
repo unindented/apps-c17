@@ -10,8 +10,8 @@
 #include "domain/build_cache.h"
 #include "domain/content_entry.h"
 #include "domain/site_config.h"
-#include "runtime/memory.h"
-#include "runtime/os.h"
+#include "os/oom.h"
+#include "os/os.h"
 #include "site/job.h"
 #include "site/output_writer.h"
 
@@ -174,7 +174,7 @@ static int render_content_page_job(ptrdiff_t index,
     // A worker of the parse phase wrote `entry`. Reading it from a different thread here is not a
     // race. That phase's `pool_run` joined its workers before returning, and this phase's
     // `pthread_create` happens after, so the write is already published to this thread.
-    memory_oom_set_job(entry->source_path, log);
+    oom_set_job(entry->source_path, log);
     const struct BuildCacheEntry* row = render_content_page_find_fresh_row(context, index);
     if (row != NULL) {
       // A kept page has no render, so it reads the entry list exactly when the page the row vouches

@@ -15,7 +15,7 @@
 #include "core/fram_version.h"
 #include "core/parse.h"
 #include "core/str.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 /**
  * Command-scoped optional flags, tracked as a bitmask so each command can declare which it accepts.

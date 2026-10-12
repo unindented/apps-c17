@@ -20,8 +20,8 @@
 #include "markup/body_html.h"
 #include "markup/markdown.h"
 #include "markup/org.h"
-#include "runtime/memory.h"
-#include "runtime/os.h"
+#include "os/oom.h"
+#include "os/os.h"
 #include "site/job.h"
 #include "site/output_path.h"
 
@@ -488,7 +488,7 @@ static int parse_content_entry_job(ptrdiff_t index,
                                    void* userdata) {
   const struct EntryParseContext* context = userdata;
   const struct Str source_path = context->source_paths->items[index];
-  memory_oom_set_job(source_path, log);
+  oom_set_job(source_path, log);
   struct Arena perm = arenas->perm;
 
   struct ContentEntry* entry = arena_new(&perm, 1, struct ContentEntry);
@@ -681,7 +681,7 @@ static int convert_content_body_job(ptrdiff_t index,
   if (entry == NULL) {
     return 0;
   }
-  memory_oom_set_job(entry->source_path, log);
+  oom_set_job(entry->source_path, log);
   // The parse phase picked the converter's format from the same suffix.
   struct BodyLinks links = {
       .context = context,

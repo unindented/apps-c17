@@ -13,7 +13,7 @@
 #include "core/str.h"
 #include "domain/content_entry.h"
 #include "domain/site_config.h"
-#include "os_memory/os_memory.h"
+#include "os/os_memory.h"
 #include "site/job.h"
 #include "site/manifest.h"
 #include "site/output_writer.h"

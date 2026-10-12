@@ -35,7 +35,7 @@ struct PathList;
  * that an earlier build generated is never read back as an input, even through a symlink into the
  * output tree. An `excluded_dir` that does not exist yet holds no file and excludes nothing.
  *
- * Only the operations in `runtime/os.h` touch the host, so the walk behaves the same on every
+ * Only the operations in `os/os.h` touch the host, so the walk behaves the same on every
  * implementation of them.
  *
  * @param paths        Path list that receives the matching paths. Must not be `NULL`.

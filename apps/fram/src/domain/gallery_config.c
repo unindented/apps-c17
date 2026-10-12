@@ -17,7 +17,7 @@
 #include "core/text.h"
 #include "formats/image.h"
 #include "formats/toml.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 /** String-valued gallery config key policy. */
 struct GalleryConfigStringKey {

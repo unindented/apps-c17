@@ -17,8 +17,8 @@
 #include "domain/media_item.h"
 #include "formats/exif.h"
 #include "formats/image.h"
-#include "runtime/memory.h"
-#include "runtime/os.h"
+#include "os/oom.h"
+#include "os/os.h"
 #include "runtime/video.h"
 #include "site/job.h"
 #include "site/output_path.h"
@@ -788,7 +788,7 @@ static int probe_media_job(ptrdiff_t index,
                            void* userdata) {
   const struct ProbeContext* context = userdata;
   struct MediaItem* item = context->media[index];
-  memory_oom_set_job(item->source_path, log);
+  oom_set_job(item->source_path, log);
   const struct Str operation = S("failed to probe media");
   // A source that cannot be inspected is probed, so the read reports why.
   struct OsStat* source_stat = &context->source_stats[index];

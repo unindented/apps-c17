@@ -7,7 +7,7 @@
 #include "core/str.h"
 #include "domain/build_cache.h"
 #include "formats/image.h"
-#include "runtime/os.h"
+#include "os/os.h"
 #include "testing/test_support.h"
 
 /**

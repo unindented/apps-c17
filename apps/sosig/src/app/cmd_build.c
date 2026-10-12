@@ -26,8 +26,8 @@
 #include "domain/content_entry.h"
 #include "domain/site_config.h"
 #include "markup/highlight.h"
-#include "runtime/memory.h"
-#include "runtime/os.h"
+#include "os/oom.h"
+#include "os/os.h"
 #include "runtime/pool.h"
 #include "runtime/walk.h"
 #include "site/job.h"
@@ -581,7 +581,7 @@ enum ExitCode cmd_build_run(const struct BuildOptions* options, struct Os* os) {
   struct BuildOptions resolved = *options;
   resolved.worker_count = memory.worker_count;
   struct Log log = {.buf = {.arena = &memory.log_arena}};
-  memory_oom_set_log(&log);
+  oom_set_log(&log);
   enum ExitCode rc = EXIT_CODE_OK;
   if (cmd_build_execute(&resolved, memory.worker_arenas, os, memory.perm, memory.scratch, &log) !=
       0) {
@@ -590,8 +590,8 @@ enum ExitCode cmd_build_run(const struct BuildOptions* options, struct Os* os) {
     rc = EXIT_CODE_FAILURE;
   }
   // The names point into memory released below.
-  memory_oom_set_log(NULL);
-  memory_oom_set_job((struct Str){0}, NULL);
+  oom_set_log(NULL);
+  oom_set_job((struct Str){0}, NULL);
   arena_release(memory.block);
   return rc;
 }

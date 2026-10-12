@@ -16,8 +16,8 @@
 #include "core/log.h"
 #include "core/str.h"
 #include "domain/site_config.h"
-#include "runtime/fs.h"
-#include "runtime/os.h"
+#include "os/os.h"
+#include "os/os_posix.h"
 #include "testing/test_support.h"
 
 /**

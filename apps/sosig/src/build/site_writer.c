@@ -9,8 +9,8 @@
 #include "core/str.h"
 #include "domain/content_entry.h"
 #include "domain/site_config.h"
-#include "runtime/memory.h"
-#include "runtime/os.h"
+#include "os/oom.h"
+#include "os/os.h"
 #include "site/output_writer.h"
 
 // This module's two writers are unit-tested in `src/build/test_site_writer.c`, and CTest's golden
@@ -90,7 +90,7 @@ static int write_rendered_template(const struct OutputWriter* writer,
                                    struct Arena output,
                                    struct Arena scratch,
                                    struct Log* log) {
-  memory_oom_set_job(template_name, NULL);
+  oom_set_job(template_name, NULL);
   const struct Str output_path = path_join(output_dir, template_name, &scratch);
   struct OsStat output_stat;
   if (is_inputs_fresh && os_stat(os, output_path, &output_stat) == 0 && !output_stat.is_dir) {
@@ -112,7 +112,7 @@ int site_writer_copy_static_files(const struct OutputWriter* writer,
                                   struct Arena scratch,
                                   struct Log* log) {
   for (ptrdiff_t i = 0; i < static_paths->count; i++) {
-    memory_oom_set_job(static_paths->items[i], NULL);
+    oom_set_job(static_paths->items[i], NULL);
     // Each copy works in its own copy of `scratch`, so one file's path is dead before the next.
     struct Arena copy_scratch = scratch;
     struct Str relative = {0};

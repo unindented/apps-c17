@@ -1,5 +1,5 @@
-#ifndef APPS_RUNTIME_MEMORY_H
-#define APPS_RUNTIME_MEMORY_H
+#ifndef APPS_OS_OOM_H
+#define APPS_OS_OOM_H
 
 #include "core/str.h"
 
@@ -16,7 +16,7 @@ struct Os;
  *
  * @param log The command's log, or `NULL` to clear it.
  */
-void memory_oom_set_log(const struct Log* log);
+void oom_set_log(const struct Log* log);
 
 /**
  * @brief Names the file the calling thread works on, and the log its job writes.
@@ -29,7 +29,7 @@ void memory_oom_set_log(const struct Log* log);
  * @param log       Log of the thread's current job, or `NULL` when the thread writes the command's
  *                  log itself.
  */
-void memory_oom_set_job(struct Str file_path, const struct Log* log);
+void oom_set_job(struct Str file_path, const struct Log* log);
 
 /**
  * @brief Prints the out-of-memory report to standard error.
@@ -41,6 +41,6 @@ void memory_oom_set_job(struct Str file_path, const struct Log* log);
  * @param os      Host to print on. Must not be `NULL`.
  * @param program Name of the program, which leads the message.
  */
-void memory_oom_report(struct Os* os, struct Str program) __attribute__((nonnull(1)));
+void oom_report(struct Os* os, struct Str program) __attribute__((nonnull(1)));
 
 #endif

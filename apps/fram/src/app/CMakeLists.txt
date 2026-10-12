@@ -13,7 +13,7 @@ if(APPS_BUILD_TESTING)
   # The builds of galleries with videos run `ffprobe` and `ffmpeg` fakes, and a video's frame is a
   # file on the real host, so these run on the POSIX one.
   apps_add_unit_test(cmd_build_video)
-  # A build reads, walks and writes only through `runtime/os.h`, so its tests use the in-memory
+  # A build reads, walks and writes only through `os/os.h`, so its tests use the in-memory
   # host.
   apps_add_unit_test(cmd_build OS memory)
 endif()

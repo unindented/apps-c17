@@ -66,7 +66,7 @@ Each source directory holds the code for one purpose. Except for cwrap's host in
 
 ### Hosts
 
-Each executable selects its host when it links. The POSIX host is an object library outside `<app>_app`, and the executable links it. The unit tests that use the default, `OS posix`, also link it (see [Unit tests](#unit-tests)). The tests registered with `OS memory` link the in-memory host instead. sosig and fram link `os_posix` and `os_memory` from the `runtime` and `os_memory` libraries. cwrap has hosts of its own, as [cwrap](#cwrap) describes.
+Each executable selects its host when it links. The POSIX host is an object library outside `<app>_app`, and the executable links it. The unit tests that use the default, `OS posix`, also link it (see [Unit tests](#unit-tests)). The tests registered with `OS memory` link the in-memory host instead. sosig and fram link `os_posix` and `os_memory` from the `os` library. cwrap has hosts of its own, as [cwrap](#cwrap) describes.
 
 Both hosts are object libraries, because `<app>_app` refers to them and a single-pass linker skips a static archive when the archive comes before the code that uses it on the link line.
 
@@ -185,7 +185,7 @@ Each source directory adds its own unit tests, and `tests/` adds the golden test
 
 With the `OS memory` option, `apps_add_unit_test` links the in-memory host and compiles the test with `<APP>_TEST_OS_MEMORY` set to 1. New tests use this option. The tests registered without `OS memory` link the POSIX host. Each app's section lists these tests.
 
-When one source file compiles into more than one executable, the `NAME` option sets the name of each executable and its test. The contract tests of `runtime/os.h`, `runtime.os_posix` and `runtime.os_memory`, run in the `libs/` project, and both must pass.
+When one source file compiles into more than one executable, the `NAME` option sets the name of each executable and its test. The contract tests of `os/os.h`, `os.contract_posix` and `os.contract_memory`, run in the `libs/` project, and both must pass.
 
 Each unit test has a CTest timeout of 60 seconds, so a test that hangs fails and does not block the test run. A ThreadSanitizer build waits 300 seconds.
 
@@ -230,8 +230,8 @@ The source archive, `<app>-<version>-source.tar.gz`, holds the whole repository 
 - [apps/sosig/CMakeLists.txt](apps/sosig/CMakeLists.txt) also finds the thread library.
 - [apps/sosig/vendor.cmake](apps/sosig/vendor.cmake) also includes [libs/markup/vendor.cmake](libs/markup/vendor.cmake), as [Grammars](#grammars) describes.
 - [apps/sosig/CMakePresets.json](apps/sosig/CMakePresets.json) adds the `grammars` presets, which build `sosig` with only the TypeScript grammar.
-- `sosig` links the libraries `core`, `runtime` with the POSIX host `os_posix`, `formats`, `markup` and `site`, and for the unit tests `testing` and the in-memory host `os_memory`.
-- `sosig_app` links `vendor_tomlc17`, `core`, `formats`, `markup`, `runtime` and `site` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+- `sosig` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `markup` and `site`, and for the unit tests `testing` and the in-memory host `os_memory`.
+- `sosig_app` links `vendor_tomlc17`, `core`, `formats`, `markup`, `os`, `runtime` and `site` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 - `src/build/` links the vendored dependencies that only its own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 - The version template is [apps/sosig/src/core/sosig_version.c.in](apps/sosig/src/core/sosig_version.c.in). The file that CMake generates from it also defines `sosig_generator_string()`.
 
@@ -263,8 +263,8 @@ The script finds the expected files and the actual files with globs after `sosig
 ### fram files and targets
 
 - [apps/fram/CMakeLists.txt](apps/fram/CMakeLists.txt) also finds the thread library.
-- `fram` links the libraries `core`, `runtime` with the POSIX host `os_posix`, `formats` and `site`, and for the unit tests `testing` and the in-memory host `os_memory`.
-- `fram_app` links `vendor_tomlc17`, `core`, `formats`, `runtime` and `site` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+- `fram` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats` and `site`, and for the unit tests `testing` and the in-memory host `os_memory`.
+- `fram_app` links `vendor_tomlc17`, `core`, `formats`, `os`, `runtime` and `site` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 - `src/build/` and `src/formats/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 - The version template is [apps/fram/src/core/fram_version.c.in](apps/fram/src/core/fram_version.c.in). The file that CMake generates from it also defines `fram_generator_string()`.
 

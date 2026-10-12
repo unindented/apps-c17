@@ -62,7 +62,7 @@ endif()
 # Registers a unit test of `library`, built from `SOURCE` (by default `test_<module>.c` in the
 # calling directory), as the test `<library>.<NAME>`. `NAME` defaults to `module`, and names the
 # executable and the test when one source builds more than one. The test links the library and
-# `LIBRARIES`. `OS` names the implementation of `runtime/os.h` the test links: `posix` for
+# `LIBRARIES`. `OS` names the implementation of `os/os.h` the test links: `posix` for
 # `os_posix`, or `memory` for `os_memory`, in which case the test is compiled with
 # `APPS_TEST_OS_MEMORY` set to 1. A test without `OS` links no host.
 function(libs_add_unit_test library module)
@@ -117,8 +117,8 @@ endfunction()
 # Each library appends its own sources to `apps_libs_lint_sources`.
 add_subdirectory(core)
 add_subdirectory(testing)
+add_subdirectory(os)
 add_subdirectory(runtime)
-add_subdirectory(os_memory)
 # `formats` needs tomlc17. An app that vendors no tomlc17 links no `formats`, so its build leaves the
 # library out.
 if(TARGET vendor_tomlc17)

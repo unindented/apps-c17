@@ -12,12 +12,12 @@
 #include "core/log.h"
 #include "core/path_list.h"
 #include "core/str.h"
-#include "os_memory/os_memory.h"
-#include "runtime/os.h"
+#include "os/os.h"
+#include "os/os_memory.h"
 #include "testing/test_support.h"
 
 // These tests walk the in-memory host, so each builds its tree in a few calls and nothing is left
-// on disk. `test_fs.c` walks a real tree once, for what only the POSIX listing can show.
+// on disk. `test_walk_posix.c` walks a real tree, for what only the POSIX listing can show.
 
 /**
  * @brief Walks `root_dir` for one case-sensitive suffix, leaving nothing out.

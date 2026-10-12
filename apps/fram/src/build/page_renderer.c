@@ -9,7 +9,7 @@
 #include "core/str.h"
 #include "domain/album.h"
 #include "domain/gallery_config.h"
-#include "runtime/memory.h"
+#include "os/oom.h"
 #include "site/job.h"
 
 /**
@@ -80,8 +80,8 @@ static int render_album_page_job(ptrdiff_t index,
   // album's path is joined in the job's scratch, and the render allocates after it.
   struct Arena scratch = arenas->scratch;
   const struct Str input_dir = context->gallery_config->input_dir;
-  memory_oom_set_job(
-      album_is_root(album) ? input_dir : path_join(input_dir, album->source_dir, &scratch), log);
+  oom_set_job(album_is_root(album) ? input_dir : path_join(input_dir, album->source_dir, &scratch),
+              log);
   const struct TemplateContext template_context = {
       .gallery_config = context->gallery_config,
       .album_current = album,

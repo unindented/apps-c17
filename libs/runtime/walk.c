@@ -12,7 +12,7 @@
 #include "core/path_list.h"
 #include "core/str.h"
 #include "core/text.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 /** State that one directory walk carries from its root through every directory it reaches. */
 struct Walk {

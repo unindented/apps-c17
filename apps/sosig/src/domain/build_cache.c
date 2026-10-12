@@ -15,7 +15,7 @@
 #include "core/str.h"
 #include "domain/site_config.h"
 #include "markup/highlight.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 /** Nanoseconds in a second, the bound of a row's `mtime_ns`. */
 enum { BUILD_CACHE_NS_PER_S = 1000000000 };

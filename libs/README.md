@@ -1,6 +1,6 @@
 # libs
 
-`libs/` holds the libraries that the C17 apps in this repository share: `core`, `testing`, `runtime`, `os_memory`, `formats`, `markup` and `site`. [ARCHITECTURE.md](ARCHITECTURE.md) describes each library, its modules and its dependencies.
+`libs/` holds the libraries that the C17 apps in this repository share: `core`, `testing`, `os`, `runtime`, `formats`, `markup` and `site`. [ARCHITECTURE.md](ARCHITECTURE.md) describes each library, its modules and its dependencies.
 
 ## LLM disclosure
 

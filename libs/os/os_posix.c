@@ -1,7 +1,7 @@
 #define _DARWIN_C_SOURCE
 #define _DEFAULT_SOURCE
 
-#include "runtime/fs.h"
+#include "os/os_posix.h"
 
 #include <assert.h>
 #include <dirent.h>
@@ -24,7 +24,7 @@
 #include "core/path_list.h"
 #include "core/str.h"
 #include "core/text.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 /**
  * The POSIX host. It has no state of its own: the process's working directory, umask and file

@@ -14,7 +14,7 @@
 #include "core/path.h"
 #include "core/str.h"
 #include "formats/image.h"
-#include "runtime/os.h"
+#include "os/os.h"
 
 /** First field of a build cache's first line, which names the file kind. */
 #define BUILD_CACHE_KIND "fram-build-cache"

@@ -6,8 +6,8 @@
 #include "core/buf.h"
 #include "core/log.h"
 #include "domain/gallery_config.h"
-#include "runtime/memory.h"
-#include "runtime/os.h"
+#include "os/oom.h"
+#include "os/os.h"
 
 /**
  * Bytes `cmd_config_run` reserves. One third of the block holds the loaded values, one the file
@@ -22,7 +22,7 @@ enum ExitCode cmd_config_run(struct Os* os) {
   struct Arena perm = arena_split(&scratch, (CMD_CONFIG_RESERVE_LEN / 3) >> shift);
   struct Arena log_arena = arena_split(&scratch, (CMD_CONFIG_RESERVE_LEN / 3) >> shift);
   struct Log log = {.buf = {.arena = &log_arena}};
-  memory_oom_set_log(&log);
+  oom_set_log(&log);
   struct GalleryConfig gallery_config;
   gallery_config_init(&gallery_config);
 
@@ -41,7 +41,7 @@ enum ExitCode cmd_config_run(struct Os* os) {
   rc = EXIT_CODE_OK;
 
 cleanup:
-  memory_oom_set_log(NULL);
+  oom_set_log(NULL);
   arena_release(block);
   return rc;
 }

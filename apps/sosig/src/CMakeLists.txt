@@ -1,5 +1,5 @@
 # The private application library contains the app's own code except `app/main.c`. The `sosig`
-# executable is built from `app/main.c` and links `os_posix`, the POSIX host from `libs/runtime`.
+# executable is built from `app/main.c` and links `os_posix`, the POSIX host from `libs/os`.
 # Each unit test links the same library, the host it is registered with, and the unit-test `os_oom`
 # from the `testing` library.
 
@@ -20,6 +20,7 @@ target_link_libraries(
          core
          formats
          markup
+         os
          runtime
          site
   PRIVATE apps_build_project

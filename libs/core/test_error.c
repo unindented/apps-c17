@@ -3,7 +3,7 @@
 
 #include "core/error.h"
 
-// The `os` contract tests in `runtime/test_os.c` and the POSIX tests in `runtime/test_fs.c` derive
+// The `os` contract tests in `os/test_os.c` and the POSIX tests in `os/test_os_posix.c` derive
 // their expectations from `strerror`, so their failure assertions also pin `error_system_message`'s
 // success branch against the running libc for every `errno` they assert. The `strerror_r`-failed
 // branch is reachable only from an `errno` the system cannot describe, so this file pins it below.

@@ -15,7 +15,7 @@
 #include "domain/album.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
-#include "os_memory/os_memory.h"
+#include "os/os_memory.h"
 #include "site/manifest.h"
 #include "testing/test_support.h"
 

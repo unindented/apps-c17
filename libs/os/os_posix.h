@@ -1,9 +1,9 @@
-#ifndef APPS_RUNTIME_FS_H
-#define APPS_RUNTIME_FS_H
+#ifndef APPS_OS_OS_POSIX_H
+#define APPS_OS_OS_POSIX_H
 
 struct Os;
 
-// `fs.c` is the POSIX implementation of every operation `runtime/os.h` declares. This header adds
+// `os_posix.c` is the POSIX implementation of every operation `os/os.h` declares. This header adds
 // only the way to get one.
 
 /**

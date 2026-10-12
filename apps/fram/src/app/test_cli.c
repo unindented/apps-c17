@@ -8,7 +8,7 @@
 #include "app/cli.h"
 #include "core/fram_version.h"
 #include "core/str.h"
-#include "runtime/fs.h"
+#include "os/os_posix.h"
 #include "testing/test_support.h"
 
 /**

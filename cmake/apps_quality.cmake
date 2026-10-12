@@ -36,8 +36,8 @@ set(apps_cppcheck_property
 # build adds the libraries as `SYSTEM`, so cppcheck gets their include roots from `APPS_LIBRARIES`,
 # the libraries that the app and its tests link, which the app sets. Without the root of `core`,
 # cppcheck cannot expand `STR_FMT` and miscounts `printf` arguments. A library that the app does not
-# link stays out, so a header of the app with the same path as one of that library, such as cwrap's
-# `runtime/os.h`, is the one cppcheck reads.
+# link stays out, so a header of the app with the same path as one of that library is the one
+# cppcheck reads.
 function(apps_cppcheck_arguments arguments_out)
   set(arguments "${apps_cppcheck_property}")
   foreach(library IN LISTS APPS_LIBRARIES)

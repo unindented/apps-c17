@@ -1,5 +1,5 @@
-#ifndef APPS_RUNTIME_OS_H
-#define APPS_RUNTIME_OS_H
+#ifndef APPS_OS_OS_H
+#define APPS_OS_OS_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -15,10 +15,10 @@ struct Log;
 // paragraph below says. Each is declared once here and defined by exactly one implementation per
 // executable, chosen when it is linked, as `_ssg` does with `main_posix.cpp` and `main_test.cpp`:
 //
-// - `runtime/fs.c` is the POSIX implementation, the object library `os_posix`, which an app's
+// - `os/os_posix.c` is the POSIX implementation, the object library `os_posix`, which an app's
 //   executable and every unit test registered without `OS memory` link (`cmake/apps_testing.cmake`
 //   says which tests those are and why).
-// - `os_memory/os_memory.c` is an in-memory implementation, the object library `os_memory`, which
+// - `os/os_memory.c` is an in-memory implementation, the object library `os_memory`, which
 //   the unit tests registered with `OS memory` link, so they build their trees without touching the
 //   disk.
 //

@@ -11,7 +11,7 @@
 #include "app/cmd_config.h"
 #include "core/error.h"
 #include "core/exit_code.h"
-#include "runtime/fs.h"
+#include "os/os_posix.h"
 #include "testing/test_support.h"
 
 /**

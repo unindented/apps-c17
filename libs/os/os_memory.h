@@ -1,5 +1,5 @@
-#ifndef APPS_OS_MEMORY_OS_MEMORY_H
-#define APPS_OS_MEMORY_OS_MEMORY_H
+#ifndef APPS_OS_OS_MEMORY_H
+#define APPS_OS_OS_MEMORY_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -9,8 +9,8 @@
 
 struct Os;
 
-// `os_memory.c` is the in-memory implementation of `runtime/os.h`. A unit test linking it builds
-// its fixture tree with the functions below and passes the host to the code under test, which then
+// `os_memory.c` is the in-memory implementation of `os/os.h`. A unit test linking it builds its
+// fixture tree with the functions below and passes the host to the code under test, which then
 // reads, walks, stats and writes that tree as it would the disk. Nothing touches the filesystem, so
 // a test needs no temporary directory, no cleanup, and no change of working directory.
 //
@@ -24,8 +24,8 @@ struct Os;
 // A path ending in `/` must name a directory, and a listing comes newest entry first, an order
 // unlike the one a test builds its tree in. Each operation the code under test calls produces the
 // message the POSIX implementation would for the same situation, so a test written against this
-// host asserts the text a user sees. `runtime/test_os.c` runs the same tests against both hosts to
-// keep them in agreement: a property of the tree that a test relies on here needs a test there. An
+// host asserts the text a user sees. `os/test_os.c` runs the same tests against both hosts to keep
+// them in agreement: a property of the tree that a test relies on here needs a test there. An
 // injected failure is not one of those properties. It is reported with the message the POSIX
 // implementation gives for that `errno` value, and it matches every path below the one it names,
 // which permission bits on a real tree do not always reproduce. Every operation holds the host's
@@ -33,7 +33,7 @@ struct Os;
 //
 // Modification times come from a counter that every change advances, so a later write is newer, and
 // `os_memory_touch` makes a file newer without writing it. Modes are not modelled: what a write
-// does to them is checked against the POSIX host alone, in `runtime/test_fs.c`.
+// does to them is checked against the POSIX host alone, in `os/test_os_posix.c`.
 
 /** Which operation an injected failure applies to. */
 enum OsMemoryOp {

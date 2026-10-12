@@ -7,7 +7,7 @@ target_sources(
                output_writer.h
 )
 libs_add_include_root(site site)
-target_link_libraries(site PUBLIC core runtime PRIVATE apps_build_project)
+target_link_libraries(site PUBLIC core os runtime PRIVATE apps_build_project)
 
 set_property(
   GLOBAL APPEND
@@ -39,7 +39,7 @@ endif()
 foreach(module IN ITEMS manifest output_path)
   libs_add_unit_test(site ${module} OS posix LIBRARIES testing)
 endforeach()
-# These read and write only through `runtime/os.h`, so they run against the in-memory host.
+# These read and write only through `os/os.h`, so they run against the in-memory host.
 foreach(module IN ITEMS job output_writer)
   libs_add_unit_test(site ${module} OS memory LIBRARIES testing)
 endforeach()
