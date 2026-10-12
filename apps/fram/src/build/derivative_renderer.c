@@ -12,13 +12,13 @@
 #include "core/str.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
-#include "formats/exif.h"
-#include "formats/image.h"
+#include "media/exif.h"
+#include "media/image.h"
+#include "media/video.h"
 #include "os/oom.h"
 #include "os/os.h"
 #include "output/output_writer.h"
 #include "runtime/job.h"
-#include "runtime/video.h"
 
 /**
  * Bytes the largest decode can hold, as `image_decode_len` counts it: `IMAGE_PIXEL_COUNT_MAX`

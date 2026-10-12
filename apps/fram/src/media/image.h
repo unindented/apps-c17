@@ -328,9 +328,9 @@ void image_orient_size(enum ImageOrientation orientation,
  * @brief Allocates `size` bytes like `malloc`, calling `os_oom` instead of returning a failure.
  *
  * This is the allocator behind every pixel buffer this module allocates, and behind the working
- * memory of stb's resizer, which `formats/stb.c` routes here through stb's allocator hooks. A
- * failed pixel allocation therefore ends the build like any other failed allocation, and the report
- * names the file, rather than reaching a caller as a decode error. Release the memory with `free`.
+ * memory of stb's resizer, which `media/stb.c` routes here through stb's allocator hooks. A failed
+ * pixel allocation therefore ends the build like any other failed allocation, and the report names
+ * the file, rather than reaching a caller as a decode error. Release the memory with `free`.
  *
  * @param size Bytes to allocate. A request above `PTRDIFF_MAX` cannot succeed and calls `os_oom`.
  * @return The allocation. `NULL` only for a zero `size`, as `malloc` allows.

@@ -12,8 +12,7 @@ add_library(fram_app STATIC "${CMAKE_CURRENT_BINARY_DIR}/domain/fram_version.c")
 add_subdirectory(app)
 add_subdirectory(build)
 add_subdirectory(domain)
-add_subdirectory(formats)
-add_subdirectory(runtime)
+add_subdirectory(media)
 
 target_link_libraries(
   fram_app

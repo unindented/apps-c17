@@ -15,9 +15,9 @@
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
+#include "media/video.h"
 #include "os/os.h"
 #include "os/os_posix.h"
-#include "runtime/video.h"
 #include "testing/test_support.h"
 
 /** Largest file a test here reads back, in bytes. Every fixture file is a few hundred bytes. */

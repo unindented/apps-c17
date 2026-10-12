@@ -5,7 +5,7 @@
 #include <stddef.h>
 
 #include "core/str.h"
-#include "formats/image.h"
+#include "media/image.h"
 
 /** Kind of source represented by a media item. */
 enum MediaKind {

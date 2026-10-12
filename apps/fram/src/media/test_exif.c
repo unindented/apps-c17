@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "core/str.h"
-#include "formats/exif.h"
+#include "media/exif.h"
 #include "testing/test_support.h"
 
 enum { EXIF_APP1_END = 38, EXIF_FIXTURE_SIZE = 40 };

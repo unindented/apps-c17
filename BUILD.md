@@ -265,12 +265,12 @@ The script finds the expected files and the actual files with globs after `sosig
 - [apps/fram/CMakeLists.txt](apps/fram/CMakeLists.txt) also finds the thread library.
 - `fram` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats` and `output`, and for the unit tests `testing` and the in-memory host `os_memory`.
 - `fram_app` links `vendor_tomlc17`, `core`, `formats`, `os`, `output` and `runtime` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
-- `src/build/` and `src/formats/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
+- `src/build/` and `src/media/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 - The version template is [apps/fram/src/domain/fram_version.c.in](apps/fram/src/domain/fram_version.c.in). The file that CMake generates from it also defines `fram_generator_string()`.
 
 ### fram vendored dependencies
 
-The pinned stb implementation has its own translation unit, [apps/fram/src/formats/stb.c](apps/fram/src/formats/stb.c), which the target `vendor_stb` compiles. This file compiles the resizer with its allocator hooks, and it keeps the warnings of vendored code out of the compilation of first-party code.
+The pinned stb implementation has its own translation unit, [apps/fram/src/media/stb.c](apps/fram/src/media/stb.c), which the target `vendor_stb` compiles. This file compiles the resizer with its allocator hooks, and it keeps the warnings of vendored code out of the compilation of first-party code.
 
 The libjpeg-turbo target compiles the source files that the build system of libjpeg-turbo compiles. It uses the configuration headers in the root `vendor/libjpeg-turbo/config/` directory in place of the headers that this build system generates. On x86-64, the SIMD routines of libjpeg-turbo compile from NASM sources, so an x86-64 build needs NASM. On AArch64, these routines compile from Neon intrinsics, and other architectures use the C routines. The NASM sources are the object library `vendor_libjpeg_turbo_simd`, because the options of the vendored-code profile are for the C compiler, and NASM rejects them.
 

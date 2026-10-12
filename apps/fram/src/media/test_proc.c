@@ -16,7 +16,7 @@
 #include "core/buf.h"
 #include "core/log.h"
 #include "core/str.h"
-#include "runtime/proc.h"
+#include "media/proc.h"
 #include "testing/test_support.h"
 
 /** Descriptors the close-on-exec test inspects, from 0 up to but not including this one. */

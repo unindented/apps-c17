@@ -13,7 +13,7 @@
 #include "core/path.h"
 #include "core/str.h"
 #include "domain/fram_version.h"
-#include "formats/image.h"
+#include "media/image.h"
 #include "os/os.h"
 
 /** First field of a build cache's first line, which names the file kind. */

@@ -7,8 +7,7 @@
 - [src/app/](src/app/): The process entry point, the command-line interface, and the command boundaries.
 - [src/build/](src/build/): Build orchestration, the parallel phases, templates, manifest population, and the prune.
 - [src/domain/](src/domain/): Gallery configuration, albums, media items, and the build cache, and the tool name and version.
-- [src/formats/](src/formats/): The boundaries for JPEG, WebP, and EXIF data.
-- [src/runtime/](src/runtime/): Process and video services on the real host.
+- [src/media/](src/media/): The boundaries for JPEG, WebP, and EXIF data, and the process and video services on the real host.
 - [tests/](tests/): The golden test suite, the seeded random tests, and the test helpers of `fram`: the fixture JPEG encoder and the WebP output decoder. The fixture gallery [tests/fixtures/gallery](tests/fixtures/gallery/), which mixes JPEG and MP4 sources, has its expected output in [tests/expected/gallery](tests/expected/gallery/).
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
 - [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
@@ -20,9 +19,9 @@
 First-party dependencies point inward:
 
 - `app` can depend on every other directory.
-- `build` can depend on `domain`, `formats`, and `runtime`.
-- `domain` can depend on `formats` and `runtime`.
-- `formats` and `runtime` depend on no other first-party directory.
+- `build` can depend on `domain` and `media`.
+- `domain` can depend on `media`.
+- `media` depends on no other first-party directory.
 - Every directory can depend on the libraries in `libs/`, and no library depends on `fram`.
 
 A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root or at the include root of a library that the app links, for example `#include "build/template.h"` or `#include "core/ascii.h"`, so every include names the directory or the library that it depends on.
@@ -137,17 +136,18 @@ The build also uses [job](../../libs/runtime/job.h) from the `runtime` library, 
 - [media_item](src/domain/media_item.h): Defines `MediaItem`, one JPEG or MP4 source, and `MediaDerivative`, one configured output for that item. The serial skeleton pass fills the source, derivative-array, original, and URL fields. The probe phase fills only the scalar duration, orientation, and dimension fields. The media derivative array stays aligned with `GalleryConfig.derivatives`. `media_item_is_video_path`, which uses `text_has_suffix_folded`, is the one extension test that the skeleton pass and the video-tool check share to classify a source. The test folds ASCII case.
 - [fram_version](src/domain/fram_version.h): The tool name and version, which CMake sets when it configures `fram`. The build cache and the templates record them, so they are in the lowest layer.
 
-### Formats (`src/formats`)
+### Media (`src/media`)
 
-- [exif](src/formats/exif.h): Reads the IFD0 orientation from JPEG EXIF data. When the metadata is missing or malformed, the reader uses the top-left orientation.
-- [image](src/formats/image.h): Buffer-to-buffer JPEG probing, RGB decoding scaled in the DCT, EXIF-orientation transforms, linear-light resizing, crop views that copy no pixels, WebP encoding, and aspect-ratio calculations. The module wraps libjpeg-turbo for probing and decoding, stb for resizing, and libwebp for encoding, and does no filesystem I/O.
+- [exif](src/media/exif.h): Reads the IFD0 orientation from JPEG EXIF data. When the metadata is missing or malformed, the reader uses the top-left orientation.
+- [image](src/media/image.h): Buffer-to-buffer JPEG probing, RGB decoding scaled in the DCT, EXIF-orientation transforms, linear-light resizing, crop views that copy no pixels, WebP encoding, and aspect-ratio calculations. The module wraps libjpeg-turbo for probing and decoding, stb for resizing, and libwebp for encoding, and does no filesystem I/O.
+- [proc](src/media/proc.h): Runs one argument vector without a shell, and captures the process output up to a limit. It reads standard output and standard error together, so the child never waits on a full pipe. When the child exits with a failure, the reason ends with the newest standard-error bytes that fit, because the last line of the child usually names the cause. Each run of line breaks shows as `; `, so the error stays on one line. The copy of the argument vector that the spawn takes lives in the caller's scratch arena.
+- [video](src/media/video.h): Wraps `ffprobe` to probe the duration, and `ffmpeg` to extract an auto-rotated JPEG frame. `video_frame_position_ms` places the frame for both the probe and a deferred extraction. Each video has a frame slot: a temporary path that the build allocates before the probe, which `video_extract_frame` fills with `mkostemp`, and a flag that marks a frame as created until `video_frame_remove` removes it.
 
-The formats also use the `formats` library: [html](../../libs/formats/html.h) escapes untrusted text for generated markup, and [toml](../../libs/formats/toml.h) validates TOML text at the boundary where parsed bytes become owned text, and checks for unknown keys.
+### Formats library
 
-### Runtime (`src/runtime`)
+`fram` also uses the `formats` library: [html](../../libs/formats/html.h) escapes untrusted text for generated markup, and [toml](../../libs/formats/toml.h) validates TOML text at the boundary where parsed bytes become owned text, and checks for unknown keys.
 
-- [proc](src/runtime/proc.h): Runs one argument vector without a shell, and captures the process output up to a limit. It reads standard output and standard error together, so the child never waits on a full pipe. When the child exits with a failure, the reason ends with the newest standard-error bytes that fit, because the last line of the child usually names the cause. Each run of line breaks shows as `; `, so the error stays on one line. The copy of the argument vector that the spawn takes lives in the caller's scratch arena.
-- [video](src/runtime/video.h): Wraps `ffprobe` to probe the duration, and `ffmpeg` to extract an auto-rotated JPEG frame. `video_frame_position_ms` places the frame for both the probe and a deferred extraction. Each video has a frame slot: a temporary path that the build allocates before the probe, which `video_extract_frame` fills with `mkostemp`, and a flag that marks a frame as created until `video_frame_remove` removes it.
+### Host, runtime and core libraries
 
 `fram` takes its host interface, its POSIX host and the out-of-memory report from the `os` library, the worker pool and the directory walk from the `runtime` library, and its small primitives from the `core` library. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules. These rules are the ones that `fram` adds:
 
@@ -281,14 +281,14 @@ Each decision below states what the code does and why, and some decisions also s
 
 ### Decoded pixels stay on `malloc`
 
-**Decision.** A `struct Image` owns its pixels on `malloc`: the output of `image_decode`, `image_orient`, and `image_resize_region`. The working memory of libjpeg-turbo, such as its row buffers and the coefficients of a progressive JPEG, is also on `malloc`, and so are the encoder buffers of libwebp. The resizer buffers of stb use `image_alloc` through the hooks in [src/formats/stb.c](src/formats/stb.c). `image_free` is the only way for a caller to release a `struct Image`, and `struct Image` is the one type whose memory a caller frees. `image_alloc` calls `os_oom` instead of returning `NULL`. Everything else on the image path is in arenas: the source bytes and the encoded WebP, in the worker's scratch arena, and every path and message.
+**Decision.** A `struct Image` owns its pixels on `malloc`: the output of `image_decode`, `image_orient`, and `image_resize_region`. The working memory of libjpeg-turbo, such as its row buffers and the coefficients of a progressive JPEG, is also on `malloc`, and so are the encoder buffers of libwebp. The resizer buffers of stb use `image_alloc` through the hooks in [src/media/stb.c](src/media/stb.c). `image_free` is the only way for a caller to release a `struct Image`, and `struct Image` is the one type whose memory a caller frees. `image_alloc` calls `os_oom` instead of returning `NULL`. Everything else on the image path is in arenas: the source bytes and the encoded WebP, in the worker's scratch arena, and every path and message.
 
 **Reasons.**
 
 - An arena gets memory back only when its region is released. If the buffers of the decode were in a worker's scratch, the largest decode of each worker would stay committed for the rest of the build. At the measured peaks for a 100-megapixel 4:2:2 photo, that is up to 302 MiB for a baseline JPEG decoded at full size, and 683 MiB for a progressive one, so about 2.9 GiB or 6.7 GiB with 10 workers. A progressive CMYK one peaks at about 1.05 GiB.
 - The decode budget would stop working. It counts a reservation as returned when the job calls `image_free`, but the pages would stay committed in the worker's region, so the worker count would bound memory again.
 - Pixels are large and short-lived, the code allocates them once for each file, and the decode budget bounds them. `malloc` handles that case well, and a bump arena handles it badly.
-- The exception has one type, `struct Image`, and two files, `formats/image.c` and `formats/stb.c`. [STYLE.md](../../STYLE.md#fram) allows `malloc` and `free` only in those two files, and in the allocator wrapper that `formats/toml.c` gives to tomlc17.
+- The exception has one type, `struct Image`, and two files, `media/image.c` and `media/stb.c`. [STYLE.md](../../STYLE.md#fram) allows `malloc` and `free` only in those two files, and in the allocator wrapper that `formats/toml.c` gives to tomlc17.
 - Pixels do not go in a worker's region with a primitive that decommits it. Under strict overcommit, `madvise(MADV_DONTNEED)` leaves the pages charged, so the code would need `mmap(MAP_FIXED, PROT_NONE)` to return them. A stale by-value copy whose `end` is above the mark would then write into `PROT_NONE` pages and crash, but `arena.h` documents that a copy which makes pages usable again changes nothing. libwebp has no allocator hooks, so its memory could get into an arena only if the code patched its `malloc` calls, and the budget would have to wait for the decommit. All of this would remove only about eight `malloc` and `free` calls from one module. `arena_discard` avoids the hazard: it maps the pages again as readable and writable, so they stay usable, and it applies to a buffer that the caller names, not to the free space of an arena.
 - Pixels get no fixed share of the reservation. The largest decode, of a 100-megapixel progressive CMYK JPEG, peaks at about 1.05 GiB, and the budget leaves room for two such decodes, so a fixed share would refuse any build under a `ulimit -v` below about 3 GB, including galleries of 24-megapixel photos.
 - The decode budget does not scale with what the arenas leave, because that would change how many decodes run at the same time on a limited system, and it would need a second planner, based on decode memory.

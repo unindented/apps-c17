@@ -6,7 +6,7 @@
 #include "core/log.h"
 #include "core/str.h"
 #include "domain/build_cache.h"
-#include "formats/image.h"
+#include "media/image.h"
 #include "os/os.h"
 #include "testing/test_support.h"
 

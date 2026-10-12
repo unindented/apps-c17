@@ -1,4 +1,4 @@
-#include "formats/exif.h"
+#include "media/exif.h"
 
 #include <stdbool.h>
 #include <stddef.h>

@@ -5,7 +5,7 @@
 #define _DARWIN_C_SOURCE
 #define _GNU_SOURCE
 
-#include "runtime/proc.h"
+#include "media/proc.h"
 
 #include <errno.h>
 #include <fcntl.h>

@@ -5,7 +5,7 @@
 #include <stddef.h>
 
 #include "core/arena.h"
-#include "formats/image.h"
+#include "media/image.h"
 
 struct GalleryConfig;
 struct JobArenas;

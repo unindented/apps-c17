@@ -22,11 +22,11 @@
 #include "domain/build_cache.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
-#include "formats/image.h"
+#include "media/image.h"
+#include "media/video.h"
 #include "os/os.h"
 #include "os/os_memory.h"
 #include "runtime/job.h"
-#include "runtime/video.h"
 #include "test_jpeg_fixture.h"
 #include "testing/test_support.h"
 

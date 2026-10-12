@@ -10,7 +10,7 @@
 #include "core/buf.h"
 #include "core/log.h"
 #include "core/str.h"
-#include "formats/image.h"
+#include "media/image.h"
 #include "test_jpeg_fixture.h"
 #include "test_webp_output.h"
 #include "testing/test_support.h"

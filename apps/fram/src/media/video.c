@@ -4,7 +4,7 @@
 #define _DARWIN_C_SOURCE
 #define _GNU_SOURCE
 
-#include "runtime/video.h"
+#include "media/video.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -25,7 +25,7 @@
 #include "core/path.h"
 #include "core/str.h"
 #include "core/text.h"
-#include "runtime/proc.h"
+#include "media/proc.h"
 
 /** Size of the buffer `video_extract_frame` formats a seek position into, terminator included. */
 enum { VIDEO_POSITION_SIZE = 64 };

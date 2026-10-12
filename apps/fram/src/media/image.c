@@ -1,4 +1,4 @@
-#include "formats/image.h"
+#include "media/image.h"
 
 #include <setjmp.h>
 #include <stdarg.h>

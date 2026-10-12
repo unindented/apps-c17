@@ -15,8 +15,8 @@
 #include "core/path.h"
 #include "core/str.h"
 #include "core/text.h"
-#include "formats/image.h"
 #include "formats/toml.h"
+#include "media/image.h"
 #include "os/os.h"
 
 /** String-valued gallery config key policy. */

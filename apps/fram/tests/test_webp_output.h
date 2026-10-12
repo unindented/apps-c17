@@ -2,7 +2,7 @@
 #define FRAM_TEST_WEBP_OUTPUT_H
 
 #include "core/str.h"
-#include "formats/image.h"
+#include "media/image.h"
 
 /**
  * @brief Decodes a WebP output into an RGB image, recording why when it cannot.

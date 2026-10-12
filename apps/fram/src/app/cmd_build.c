@@ -26,15 +26,15 @@
 #include "domain/build_cache.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
-#include "formats/image.h"
+#include "media/image.h"
+#include "media/proc.h"
+#include "media/video.h"
 #include "os/oom.h"
 #include "os/os.h"
 #include "output/manifest.h"
 #include "output/output_writer.h"
 #include "runtime/job.h"
 #include "runtime/pool.h"
-#include "runtime/proc.h"
-#include "runtime/video.h"
 #include "runtime/walk.h"
 
 /** Bytes in a mebibyte, the unit of the sizes below. */

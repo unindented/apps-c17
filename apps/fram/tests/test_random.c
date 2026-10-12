@@ -15,8 +15,8 @@
 #include "core/buf.h"
 #include "core/log.h"
 #include "core/str.h"
-#include "formats/exif.h"
-#include "formats/image.h"
+#include "media/exif.h"
+#include "media/image.h"
 #include "test_jpeg_fixture.h"
 #include "testing/test_support.h"
 

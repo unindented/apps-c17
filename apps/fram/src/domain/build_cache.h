@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #include "core/str.h"
-#include "formats/image.h"
+#include "media/image.h"
 
 struct Arena;
 struct Buf;
