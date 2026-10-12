@@ -6,8 +6,7 @@
 
 - [src/app/](src/app/): The process entry point, the command-line interface, and the command boundaries.
 - [src/build/](src/build/): Build orchestration, the parallel phases, templates, manifest population, and the prune.
-- [src/domain/](src/domain/): Site configuration, content metadata, frontmatter, permalinks, and the build cache.
-- [src/core/](src/core/): The tool name and version.
+- [src/domain/](src/domain/): Site configuration, content metadata, frontmatter, permalinks, and the build cache, and the tool name and version.
 - [tests/](tests/): The golden test suite. Each fixture site under [tests/fixtures/](tests/fixtures/) has a matching directory of expected output under [tests/expected/](tests/expected/):
   - [site_file_permalink](tests/fixtures/site_file_permalink/) covers Markdown, Org, links between denote notes, and templates with the default permalink.
   - [site_index_permalink](tests/fixtures/site_index_permalink/) covers a permalink that publishes a directory index for each entry.
@@ -22,9 +21,8 @@
 First-party dependencies point inward:
 
 - `app` can depend on every other directory.
-- `build` can depend on `domain` and `core`.
-- `domain` can depend on `core`.
-- `core` depends on no other first-party directory.
+- `build` can depend on `domain`.
+- `domain` depends on no other first-party directory.
 - Every directory can depend on the libraries in `libs/`, and no library depends on `sosig`.
 
 A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root or at the include root of a library that the app links, for example `#include "build/template.h"` or `#include "core/ascii.h"`, so every include names the directory or the library that it depends on.
@@ -131,6 +129,7 @@ The build also uses [job](../../libs/runtime/job.h) from the `runtime` library, 
 - [frontmatter](src/domain/frontmatter.h): `frontmatter_split` splits a Markdown file at its `+++` fences. `frontmatter_parse` parses the TOML frontmatter into a content entry, and rejects a key that is not in the schema or in the list of ignored keys that the caller gives, `frontmatter_ignored_keys`. `frontmatter_parse_org` reads the keywords at the top of an Org file into a content entry, with the same keys, required fields and template check, and ignores all other keywords.
 - [permalink](src/domain/permalink.h): `permalink_expand` creates an entry's URL: it replaces the `{slug}` and `{section}` tokens. It removes redundant `/` characters, and appends `index.html` when the expanded path ends with `/`. The expanded path's last byte decides this, not the pattern's. The URL without its leading `/` is the relative output path, so the public URL names the output file. `site_config_load` expands sample values to check two things: that every expansion is a safe relative path, and that different entries get different paths, so a bad pattern causes one config error. The build checks each entry's output path against both output-path limits when it parses the entry, because only a real entry's slug and section give the path's length.
 - [site_config](src/domain/site_config.h): Defines `SiteConfig` and its load and print operations. The load validates and normalizes each value, and copies it into the arena that the caller gives. It rejects a key that is not in the schema, and applies the defaults of optional keys. Later phases use the resolved config and do not change it. `base_url` needs an `http://` or `https://` scheme, which the load compares without regard to case, and a host that is not empty. The load removes trailing `/` characters from `base_url` and from each configured directory, and validates template names and permalink expansion. `frontmatter_ignored_keys` can hold any strings.
+- [sosig_version](src/domain/sosig_version.h): The tool name and version, which CMake sets when it configures `sosig`. The build cache and the templates record them, so they are in the lowest layer.
 
 ### Markup and formats libraries
 
@@ -144,10 +143,6 @@ The build also uses [job](../../libs/runtime/job.h) from the `runtime` library, 
 - `os_print` carries every byte that `sosig` prints: the log at the end of a command, a rejected command line, `--help` and `--version`, the resolved config, the verbose status lines, and the workers' progress lines.
 - The walk excludes `output_dir`, and skips a second alias of a directory, so an aliased directory publishes one copy of its files.
 - `path_is_below` gives the `{section}` of each entry from the source path below `content_dir` in `entry_renderer`. `manifest_builder` uses it to plan the output of each static file and asset, and `site_writer` copies the file to the same path below `output_dir`.
-
-### Core (`src/core`)
-
-- [sosig_version](src/core/sosig_version.h): The tool name and version, which CMake sets when it configures `sosig`.
 
 ## Cross-cutting conventions
 

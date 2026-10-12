@@ -6,10 +6,9 @@
 
 - [src/app/](src/app/): The process entry point, the command-line interface, and the command boundaries.
 - [src/build/](src/build/): Build orchestration, the parallel phases, templates, manifest population, and the prune.
-- [src/domain/](src/domain/): Gallery configuration, albums, media items, and the build cache.
+- [src/domain/](src/domain/): Gallery configuration, albums, media items, and the build cache, and the tool name and version.
 - [src/formats/](src/formats/): The boundaries for JPEG, WebP, and EXIF data.
 - [src/runtime/](src/runtime/): Process and video services on the real host.
-- [src/core/](src/core/): The tool name and version.
 - [tests/](tests/): The golden test suite, the seeded random tests, and the test helpers of `fram`: the fixture JPEG encoder and the WebP output decoder. The fixture gallery [tests/fixtures/gallery](tests/fixtures/gallery/), which mixes JPEG and MP4 sources, has its expected output in [tests/expected/gallery](tests/expected/gallery/).
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
 - [cmake/](cmake/): The lint list and the golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
@@ -21,10 +20,9 @@
 First-party dependencies point inward:
 
 - `app` can depend on every other directory.
-- `build` can depend on `domain`, `formats`, `runtime`, and `core`.
-- `domain` can depend on `formats`, `runtime`, and `core`.
-- `formats` and `runtime` can depend on `core`.
-- `core` depends on no other first-party directory.
+- `build` can depend on `domain`, `formats`, and `runtime`.
+- `domain` can depend on `formats` and `runtime`.
+- `formats` and `runtime` depend on no other first-party directory.
 - Every directory can depend on the libraries in `libs/`, and no library depends on `fram`.
 
 A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root or at the include root of a library that the app links, for example `#include "build/template.h"` or `#include "core/ascii.h"`, so every include names the directory or the library that it depends on.
@@ -137,6 +135,7 @@ The build also uses [job](../../libs/runtime/job.h) from the `runtime` library, 
 - [build_cache](src/domain/build_cache.h): Parses and formats the build cache. The first line names the generator. Each later line is a row for one source, with tab-separated fields: its relative path, size, modification time, dimensions, orientation and duration. The rows are in order of path. A path that contains a tab or a newline gets no row, so no path needs escaping. `BUILD_CACHE_VERSION` names the row format in the file name.
 - [gallery_config](src/domain/gallery_config.h): Defines `GalleryConfig`, `GalleryDerivative`, and the config load and print operations. The load validates and normalizes each value, and copies it into the arena that the caller gives. It rejects a key that is not in the schema, at the top level or in a derivative or `sort` table, and applies the defaults of optional keys. Later phases use the resolved config and do not change it. `base_url` needs an `http://` or `https://` scheme, which the load compares without regard to case, and a host that is not empty. The load removes trailing `/` characters from `base_url` and from each configured directory. It also validates template names, the ordered table of named derivatives, and the `sort` table, and builds the derivative recipe.
 - [media_item](src/domain/media_item.h): Defines `MediaItem`, one JPEG or MP4 source, and `MediaDerivative`, one configured output for that item. The serial skeleton pass fills the source, derivative-array, original, and URL fields. The probe phase fills only the scalar duration, orientation, and dimension fields. The media derivative array stays aligned with `GalleryConfig.derivatives`. `media_item_is_video_path`, which uses `text_has_suffix_folded`, is the one extension test that the skeleton pass and the video-tool check share to classify a source. The test folds ASCII case.
+- [fram_version](src/domain/fram_version.h): The tool name and version, which CMake sets when it configures `fram`. The build cache and the templates record them, so they are in the lowest layer.
 
 ### Formats (`src/formats`)
 
@@ -157,10 +156,6 @@ The formats also use the `formats` library: [html](../../libs/formats/html.h) es
 - The build runs its jobs on the worker pool, because decoding a JPEG, resizing and encoding a WebP, and running `ffmpeg` take time for each file.
 - The walk excludes `output_dir`, and skips a second alias of a directory, so an aliased directory publishes one copy of its media.
 - `manifest_builder` uses `path_is_below` to plan each static file output, and `site_writer` copies the static file to the same path below `output_dir`.
-
-### Core (`src/core`)
-
-- [fram_version](src/core/fram_version.h): The tool name and version, which CMake sets when it configures `fram`.
 
 ## Cross-cutting conventions
 

@@ -233,7 +233,7 @@ The source archive, `<app>-<version>-source.tar.gz`, holds the whole repository 
 - `sosig` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `markup` and `output`, and for the unit tests `testing` and the in-memory host `os_memory`.
 - `sosig_app` links `vendor_tomlc17`, `core`, `formats`, `markup`, `os`, `output` and `runtime` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 - `src/build/` links the vendored dependencies that only its own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
-- The version template is [apps/sosig/src/core/sosig_version.c.in](apps/sosig/src/core/sosig_version.c.in). The file that CMake generates from it also defines `sosig_generator_string()`.
+- The version template is [apps/sosig/src/domain/sosig_version.c.in](apps/sosig/src/domain/sosig_version.c.in). The file that CMake generates from it also defines `sosig_generator_string()`.
 
 ### sosig tests
 
@@ -266,7 +266,7 @@ The script finds the expected files and the actual files with globs after `sosig
 - `fram` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats` and `output`, and for the unit tests `testing` and the in-memory host `os_memory`.
 - `fram_app` links `vendor_tomlc17`, `core`, `formats`, `os`, `output` and `runtime` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 - `src/build/` and `src/formats/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
-- The version template is [apps/fram/src/core/fram_version.c.in](apps/fram/src/core/fram_version.c.in). The file that CMake generates from it also defines `fram_generator_string()`.
+- The version template is [apps/fram/src/domain/fram_version.c.in](apps/fram/src/domain/fram_version.c.in). The file that CMake generates from it also defines `fram_generator_string()`.
 
 ### fram vendored dependencies
 

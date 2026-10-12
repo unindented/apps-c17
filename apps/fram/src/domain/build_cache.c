@@ -8,11 +8,11 @@
 
 #include "core/arena.h"
 #include "core/buf.h"
-#include "core/fram_version.h"
 #include "core/log.h"
 #include "core/parse.h"
 #include "core/path.h"
 #include "core/str.h"
+#include "domain/fram_version.h"
 #include "formats/image.h"
 #include "os/os.h"
 

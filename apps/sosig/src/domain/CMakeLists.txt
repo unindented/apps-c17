@@ -4,6 +4,7 @@ target_sources(
   PUBLIC FILE_SET HEADERS
          BASE_DIRS "${PROJECT_SOURCE_DIR}/src"
          FILES build_cache.h content_entry.h frontmatter.h permalink.h site_config.h
+               sosig_version.h
 )
 
 if(APPS_BUILD_TESTING)

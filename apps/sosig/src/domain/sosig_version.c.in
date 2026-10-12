@@ -1,6 +1,6 @@
 /* Generated from `sosig_version.c.in`. Change project(VERSION), not the generated source. */
 
-#include "core/sosig_version.h"
+#include "domain/sosig_version.h"
 
 struct Str sosig_version_string(void) {
   return S("@PROJECT_VERSION@");

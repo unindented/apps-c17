@@ -13,8 +13,8 @@
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/parse.h"
-#include "core/sosig_version.h"
 #include "core/str.h"
+#include "domain/sosig_version.h"
 #include "markup/highlight.h"
 #include "os/os.h"
 

@@ -3,7 +3,7 @@ target_sources(
   PRIVATE album.c build_cache.c gallery_config.c media_item.c
   PUBLIC FILE_SET HEADERS
          BASE_DIRS "${PROJECT_SOURCE_DIR}/src"
-         FILES album.h build_cache.h gallery_config.h media_item.h
+         FILES album.h build_cache.h fram_version.h gallery_config.h media_item.h
 )
 
 if(APPS_BUILD_TESTING)

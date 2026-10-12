@@ -4,14 +4,13 @@
 # from the `testing` library.
 
 configure_file(
-  core/fram_version.c.in "${CMAKE_CURRENT_BINARY_DIR}/core/fram_version.c" @ONLY
+  domain/fram_version.c.in "${CMAKE_CURRENT_BINARY_DIR}/domain/fram_version.c" @ONLY
 )
 
-add_library(fram_app STATIC "${CMAKE_CURRENT_BINARY_DIR}/core/fram_version.c")
+add_library(fram_app STATIC "${CMAKE_CURRENT_BINARY_DIR}/domain/fram_version.c")
 
 add_subdirectory(app)
 add_subdirectory(build)
-add_subdirectory(core)
 add_subdirectory(domain)
 add_subdirectory(formats)
 add_subdirectory(runtime)

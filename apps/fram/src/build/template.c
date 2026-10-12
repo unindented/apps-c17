@@ -10,12 +10,12 @@
 
 #include "core/arena.h"
 #include "core/buf.h"
-#include "core/fram_version.h"
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
 #include "core/text.h"
 #include "domain/album.h"
+#include "domain/fram_version.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
 #include "formats/html.h"

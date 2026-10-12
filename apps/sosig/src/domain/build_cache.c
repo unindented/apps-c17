@@ -11,9 +11,9 @@
 #include "core/log.h"
 #include "core/parse.h"
 #include "core/path.h"
-#include "core/sosig_version.h"
 #include "core/str.h"
 #include "domain/site_config.h"
+#include "domain/sosig_version.h"
 #include "markup/highlight.h"
 #include "os/os.h"
 

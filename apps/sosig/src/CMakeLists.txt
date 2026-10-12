@@ -4,14 +4,13 @@
 # from the `testing` library.
 
 configure_file(
-  core/sosig_version.c.in "${CMAKE_CURRENT_BINARY_DIR}/core/sosig_version.c" @ONLY
+  domain/sosig_version.c.in "${CMAKE_CURRENT_BINARY_DIR}/domain/sosig_version.c" @ONLY
 )
 
-add_library(sosig_app STATIC "${CMAKE_CURRENT_BINARY_DIR}/core/sosig_version.c")
+add_library(sosig_app STATIC "${CMAKE_CURRENT_BINARY_DIR}/domain/sosig_version.c")
 
 add_subdirectory(app)
 add_subdirectory(build)
-add_subdirectory(core)
 add_subdirectory(domain)
 
 target_link_libraries(
