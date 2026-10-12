@@ -4,12 +4,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "app/memory.h"
 #include "app/wrap_input.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/log.h"
 #include "core/str.h"
+#include "os/oom.h"
 #include "os/os.h"
 
 /** Bytes in a mebibyte, the unit of the sizes below. */
@@ -91,7 +91,7 @@ enum ExitCode cmd_wrap_run(const struct WrapOptions* options, struct Os* os) {
   const struct Arena input = arena_split(&scratch, CMD_WRAP_INPUT_LEN >> shift);
   struct Arena log_arena = log_block;
   struct Log log = {.buf = {.arena = &log_arena}};
-  memory_oom_set_log(&log);
+  oom_set_log(&log);
   if (!options->is_stdin && options->is_in_place) {
     cmd_wrap_run_read_inputs(options, os, input, &log);
   }
@@ -102,9 +102,9 @@ enum ExitCode cmd_wrap_run(const struct WrapOptions* options, struct Os* os) {
     (void)os_print(os, 2, buf_str(&log.buf));
   }
   // The log is in memory released below, and running out of memory after the inputs must not blame
-  // the last input's phase.
-  memory_oom_set_log(NULL);
-  memory_oom_set_job((struct Str){0}, (struct Str){0}, false);
+  // the last input.
+  oom_set_log(NULL);
+  oom_set_job((struct Str){0}, NULL);
   arena_release(block);
   arena_release(log_block);
   return rc == 0 ? EXIT_CODE_OK : EXIT_CODE_FAILURE;

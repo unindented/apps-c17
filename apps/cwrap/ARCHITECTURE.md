@@ -4,7 +4,7 @@
 
 ## Layout
 
-- [src/app/](src/app/): The process entry point, the command-line interface, the command boundary, the rewrap of one input, and the out-of-memory report.
+- [src/app/](src/app/): The process entry point, the command-line interface, the command boundary, and the rewrap of one input.
 - [src/domain/](src/domain/): Comment lexing, grouping, filling, Doxygen alignment, and source rewriting.
 - [tests/](tests/): The golden and idempotence test suites, and the seeded random tests. Each C file under [tests/fixtures/](tests/fixtures/) has a matching file of expected output under [tests/expected/](tests/expected/). The idempotence test also rewraps these files, every first-party source file, and the sources of the libraries that `cwrap` links, at several widths.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
@@ -84,7 +84,7 @@ The constraint is on the emitter. Every closer, prefix, and indent that the emit
 
 ### Errors
 
-No domain module or host writes a failure diagnostic to `stderr` itself. The one exception is the out-of-memory report, which `os_oom` prints through `memory_oom_report` before the process exits. Every fallible function records its errors in the log that its caller gives, and the command boundary prints the log once. The domain cannot fail, so every error is about an input, never about a comment.
+No domain module or host writes a failure diagnostic to `stderr` itself. The one exception is the out-of-memory report, which `os_oom` prints through `oom_report` before the process exits. Every fallible function records its errors in the log that its caller gives, and the command boundary prints the log once. The domain cannot fail, so every error is about an input, never about a comment.
 
 ## Modules
 
@@ -98,10 +98,6 @@ Each item below links to the module's header, which documents its interface. The
 - [fill](src/domain/fill.h): Fills prose paragraphs greedily, and keeps samples, lists, tags, and hanging indentation.
 - [lex](src/domain/lex.h): Finds comments, and does not treat string literals or character literals as comments. It records source spans, line positions, indentation, and whether a comment follows code.
 - [rewrite](src/domain/rewrite.h): Runs the domain pipeline over one source buffer, and splices the rewritten comments between the unchanged source ranges.
-
-### Out-of-memory report (`src/app/memory`)
-
-- [memory](src/app/memory.h): Prints the out-of-memory report: the command's log, and then the phase and the input in which the run ran out of memory. `memory_oom_set_job` takes a phase, an input name, and whether the input is a stream, because the report names the phase and the run has no jobs. It is `cwrap`'s own, because its last line takes the shape of `cwrap`'s other diagnostics, where the `oom` module of the `os` library, which sosig and fram use, ends with `<program>: out of memory (in '<file>')`.
 
 ### Host access
 
@@ -168,10 +164,10 @@ Each decision below states what the code does and why, and some decisions also s
 
 ### Out of memory exits the process
 
-**Decision.** When an arena cannot commit more pages, it calls `os_oom`. Each program defines `os_oom`, and the `cwrap` version, in `main.c`, calls `memory_oom_report`, which does these steps:
+**Decision.** When an arena cannot commit more pages, it calls `os_oom`. Each program defines `os_oom`, and the `cwrap` version, in `main.c`, calls `oom_report` from the `os` library, as sosig and fram do, which does these steps:
 
-1. It prints the errors in the command's log. `cmd_wrap_run` names its log with `memory_oom_set_log`.
-2. It prints a line in the shape of the other diagnostics, with the phase and the input: `failed to rewrap file: out of memory ('<path>')`, `failed to read input: out of memory (from 'stdin')`, or `failed to run: out of memory` outside an input. Before each phase of an input, `wrap_input` names the phase and the input with `memory_oom_set_job`.
+1. It prints the errors in the command's log. `cmd_wrap_run` names its log with `oom_set_log`.
+2. It prints `cwrap: out of memory`, followed by the input that the run was in: `(in '<path>')` for a file and `(in 'stdin')` for standard input. Before it reads an input, `wrap_input` names the input with `oom_set_job`.
 
 Then `os_oom` exits with `EXIT_CODE_FAILURE`.
 
@@ -179,7 +175,7 @@ Then `os_oom` exits with `EXIT_CODE_FAILURE`.
 
 - `cwrap` is a CLI tool, and its in-place write is atomic, so each file that a stopped run leaves is either as it was or completely rewritten.
 - No call site checks for allocation failure, and the domain cannot fail.
-- The report names the input that the run was working on. A user needs that name to find the input that failed. The report has no program-name prefix, because no other message of `cwrap` has one.
+- The report names the input that the run was working on. A user needs that name to find the input that failed.
 
 **Vendored code.** No vendored library in the program allocates. `copt` parses the arguments in place.
 
@@ -302,6 +298,6 @@ If the log has an error after that pass, the run writes no file. The default mod
 
 ### Where the shared code lives
 
-**Decision.** The libraries in [libs/](../../libs/) hold the code that `cwrap` shares with the other apps. `core` holds the generic parts, the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`, and the small primitives, `os` the host interface and its two hosts, and `testing` the unit-test support. Each program defines `os_oom`, and `cwrap` has its own out-of-memory report and its own arena layout.
+**Decision.** The libraries in [libs/](../../libs/) hold the code that `cwrap` shares with the other apps. `core` holds the generic parts, the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`, and the small primitives, `os` the host interface, its two hosts and the out-of-memory report, and `testing` the unit-test support. Each program defines `os_oom`, and has its own arena layout.
 
 **Reason.** These parts do not depend on what a program does.

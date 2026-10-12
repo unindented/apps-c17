@@ -4,11 +4,11 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "app/memory.h"
 #include "app/wrap_input.h"
 #include "core/arena.h"
 #include "core/log.h"
 #include "core/str.h"
+#include "os/oom.h"
 #include "os/os_memory.h"
 #include "testing/test_support.h"
 
@@ -182,19 +182,13 @@ static void test_inputs_reuse_input_region(void) {
   TEST_CHECK(test_log_is_empty(&inputs.log));
 }
 
-// An input names its last phase and itself for the out-of-memory report, in the shape of the other
-// diagnostics. The phase after the rewrite follows the mode: a check stays in the rewrap, an
-// in-place run writes the file, and the default mode writes the rewritten source to `stdout`.
-static void test_file_names_phase_for_oom_report(void) {
+// A file names itself for the out-of-memory report, in every mode, and the report leads with the
+// program's name.
+static void test_file_names_itself_for_oom_report(void) {
   static const struct {
     bool is_in_place;
     bool is_check;
-    const char* report;
-  } cases[] = {
-      {false, true, "failed to rewrap file: out of memory ('a.c')\n"},
-      {true, false, "failed to write file: out of memory ('a.c')\n"},
-      {false, false, "failed to write rewritten file: out of memory ('a.c')\n"},
-  };
+  } cases[] = {{false, true}, {true, false}, {false, false}};
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
     struct Os* os = os_memory();
     os_memory_write(os, "a.c", "// one two\n");
@@ -203,29 +197,28 @@ static void test_file_names_phase_for_oom_report(void) {
         wrap_input_process_file(S("a.c"), 40, cases[i].is_in_place, cases[i].is_check, os,
                                 test_arena(), test_arena(), &log);
     struct Os* report_os = os_memory();
-    memory_oom_report(report_os);
-    memory_oom_set_job((struct Str){0}, (struct Str){0}, false);
+    oom_report(report_os, S("cwrap"));
+    oom_set_job((struct Str){0}, NULL);
 
     TEST_CHECK(result == WRAP_INPUT_RESULT_OK);
-    TEST_CHECK(os_memory_is_printed(report_os, 2, cases[i].report));
+    TEST_CHECK(os_memory_is_printed(report_os, 2, "cwrap: out of memory (in 'a.c')\n"));
     TEST_MSG("case %td", i);
   }
 }
 
-// Standard input names its write to `stdout` and itself as a stream for the out-of-memory report.
-static void test_stdin_names_phase_for_oom_report(void) {
+// Standard input names itself for the out-of-memory report as `stdin`.
+static void test_stdin_names_itself_for_oom_report(void) {
   struct Os* os = os_memory();
   os_memory_stdin(os, S("// one two\n"), 0);
   struct Log log = test_log();
   const enum WrapInputResult result =
       wrap_input_process_stdin(40, false, os, test_arena(), test_arena(), &log);
   struct Os* report_os = os_memory();
-  memory_oom_report(report_os);
-  memory_oom_set_job((struct Str){0}, (struct Str){0}, false);
+  oom_report(report_os, S("cwrap"));
+  oom_set_job((struct Str){0}, NULL);
 
   TEST_CHECK(result == WRAP_INPUT_RESULT_OK);
-  TEST_CHECK(os_memory_is_printed(
-      report_os, 2, "failed to write rewritten input: out of memory (from 'stdin')\n"));
+  TEST_CHECK(os_memory_is_printed(report_os, 2, "cwrap: out of memory (in 'stdin')\n"));
 }
 
 // A file read error remains distinct from a check-mode change and keeps the existing diagnostic,
@@ -344,8 +337,8 @@ TEST_LIST = {
     {"stdin check change result", test_stdin_check_change_result},
     {"file emits rewritten source", test_file_emits_rewritten_source},
     {"inputs reuse input region", test_inputs_reuse_input_region},
-    {"file names phase for oom report", test_file_names_phase_for_oom_report},
-    {"stdin names phase for oom report", test_stdin_names_phase_for_oom_report},
+    {"file names itself for oom report", test_file_names_itself_for_oom_report},
+    {"stdin names itself for oom report", test_stdin_names_itself_for_oom_report},
     {"file read error result", test_file_read_error_result},
     {"file oversize error result", test_file_oversize_error_result},
     {"stdin read error result", test_stdin_read_error_result},

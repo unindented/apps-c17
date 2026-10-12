@@ -2,9 +2,9 @@
 
 #include <stdlib.h>
 
-#include "app/memory.h"
 #include "core/arena.h"
 #include "core/exit_code.h"
+#include "os/oom.h"
 #include "os/os_posix.h"
 
 /**
@@ -19,15 +19,15 @@
  * reservation the program cannot work without, and, where a vendored library allocates with
  * `malloc`, when the wrapper around that library sees `malloc` fail. None of these has a recovery
  * the program could attempt, so the policy is to stop: this is the one place that decides it, and
- * no allocation site checks for failure. `memory_oom_report` prints the log the running command
- * named and names the input in progress, so the user still learns what failed. The reasons the
- * program can stop there are in the "Out of memory exits the process" decision in ARCHITECTURE.md.
+ * no allocation site checks for failure. `oom_report` prints the log the running command named and
+ * names the input in progress, so the user still learns what failed. The reasons the program can
+ * stop there are in the "Out of memory exits the process" decision in ARCHITECTURE.md.
  *
  * It uses `_Exit`, which runs no `atexit` handlers. Nothing is buffered to lose, because every
  * print goes through `os_print`.
  */
 _Noreturn void os_oom(void) {
-  memory_oom_report(os_posix());
+  oom_report(os_posix(), S("cwrap"));
   _Exit(EXIT_CODE_FAILURE);
 }
 

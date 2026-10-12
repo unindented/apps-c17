@@ -279,6 +279,6 @@ This guide takes its ideas and conventions from these sources:
 - **Host.** cwrap reads its inputs and standard input with `os_read` and `os_read_stdin`, with `OS_READ_TEXT`, and rewrites a file with `os_replace`, never with `os_write`.
 - **System errors.** cwrap runs on one thread, so it translates an `errno` with `strerror`.
 - **Argument count.** The argument count that comes from `argc` becomes a `ptrdiff_t` one time, where the code counts the paths.
-- **Out of memory.** `os_oom` prints the current contents of the command's log, then a line that names the phase and the input that the run was in, such as `failed to rewrap file: out of memory ('<path>')`, and exits. Before each phase, an input names the phase and itself with `memory_oom_set_job`.
+- **Out of memory.** `os_oom` prints the current contents of the command's log, then `cwrap: out of memory` with the input that the run was in (`oom_report`), and exits. Each input names itself with `oom_set_job` before it is read.
 - **Random tests.** cwrap's random tests start their generator from `TEST_RNG_SEED_DEFAULT` directly, and a failed check names the case that the generator made.
 - The suites that are not yet converted to the in-memory host are `cli` and `cli_dispatch`.

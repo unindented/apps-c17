@@ -45,9 +45,8 @@ enum WrapInputResult {
 /**
  * @brief Reads one source file into `perm`, the first phase of `wrap_input_process_file`.
  *
- * Before it reads, it names the phase and the file for the out-of-memory report. A pass that only
- * checks that every input can be read, before any is written, calls it on its own and drops the
- * bytes.
+ * Before it reads, it names the file for the out-of-memory report. A pass that only checks that
+ * every input can be read, before any is written, calls it on its own and drops the bytes.
  *
  * @param file_path  Path of the file to read.
  * @param os         Host to read from. Must not be `NULL`.
@@ -67,8 +66,8 @@ int wrap_input_read_file(struct Str file_path,
  * @brief Reads, rewrites, and emits one source file.
  *
  * Holds the source and the rewritten output in `input`, and the rewrite's temporaries in `scratch`.
- * Both pass by value, so the next input reuses their memory. Before each phase it names the phase
- * and the file for the out-of-memory report.
+ * Both pass by value, so the next input reuses their memory. The read names the file for the
+ * out-of-memory report.
  *
  * @param file_path   Input path and in-place output path.
  * @param width       Wrapping column. Must be at least 1.

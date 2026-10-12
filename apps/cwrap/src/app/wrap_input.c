@@ -4,12 +4,12 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "app/memory.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/log.h"
 #include "core/str.h"
 #include "domain/rewrite.h"
+#include "os/oom.h"
 #include "os/os.h"
 
 /**
@@ -68,7 +68,7 @@ int wrap_input_read_file(struct Str file_path,
                          struct Arena* perm,
                          struct Str* source_out,
                          struct Log* log) {
-  memory_oom_set_job(S("read"), file_path, false);
+  oom_set_job(file_path, NULL);
   return os_read(os, file_path, SOURCE_LEN_MAX, OS_READ_TEXT, perm, source_out,
                  S(WRAP_INPUT_READ_FILE_OPERATION), log);
 }
@@ -98,7 +98,7 @@ enum WrapInputResult wrap_input_process_stdin(ptrdiff_t width,
                                               struct Arena scratch,
                                               struct Log* log) {
   const struct Str input_name = S("stdin");
-  memory_oom_set_job(S("read"), input_name, true);
+  oom_set_job(input_name, NULL);
   struct Str source = {0};
   if (os_read_stdin(os, SOURCE_LEN_MAX, &input, &source, S("failed to read input"), log) != 0) {
     return WRAP_INPUT_RESULT_ERROR;
@@ -117,17 +117,10 @@ static enum WrapInputResult process_source(struct Str source,
                                            struct Arena input,
                                            struct Arena scratch,
                                            struct Log* log) {
-  memory_oom_set_job(S("rewrap"), input_name, is_stream);
   // The output grows in place at the end of `input`, after the source, and nothing else allocates
   // there until it is emitted.
   struct Buf rewritten_source = {.arena = &input};
   rewrite_source(&rewritten_source, source, width, scratch);
-  // Check mode only compares the output, so a check that runs out of memory after the rewrite is
-  // still in it. The other modes name the write they go on to: back to the file, or to `stdout`.
-  if (!is_check) {
-    const struct Str write_phase = output_path.len > 0 ? S("write") : S("write rewritten");
-    memory_oom_set_job(write_phase, input_name, is_stream);
-  }
   return process_source_emit(source, buf_str(&rewritten_source), is_stream, input_name, output_path,
                              is_check, os, log);
 }
