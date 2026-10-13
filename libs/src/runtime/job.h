@@ -29,7 +29,10 @@ struct JobArenas {
   struct Arena scratch;
 };
 
-/** Most failed jobs one parallel phase prints before summarizing the rest as a count. */
+/**
+ * Most failed jobs one parallel phase prints before summarizing the rest as a count, and most jobs
+ * whose warnings it prints.
+ */
 enum { JOB_ERROR_REPORT_COUNT_MAX = 20 };
 
 /**
@@ -65,6 +68,10 @@ typedef int (*JobFn)(ptrdiff_t index, struct JobArenas* arenas, struct Log* log,
  * jobs are printed, followed by a count of the remaining failures. Every job's errors count in
  * `log->errors`, printed or not.
  *
+ * The warnings of every job, failed or not, go to `log`'s warnings in job order, with the same
+ * comparison and the same cap, and every job's warnings count in `log->warnings`. Warnings never
+ * fail the phase.
+ *
  * @param job_count     Number of job indexes to run. Must not be negative. `0` runs nothing and
  *                      succeeds.
  * @param worker_count  Requested worker threads, as for `pool_run`. Must be positive.
@@ -84,7 +91,7 @@ typedef int (*JobFn)(ptrdiff_t index, struct JobArenas* arenas, struct Log* log,
  * @param scratch       Arena for the jobs' logs and the run's thread bookkeeping, released when the
  *                      run returns. One share of it per worker holds the logs of that worker's
  *                      jobs. Must not overlap any of `worker_arenas` or `log`'s arena.
- * @param log           Log that receives the collected errors. Must not be `NULL`.
+ * @param log           Log that receives the collected errors and warnings. Must not be `NULL`.
  * @return `0` when every job succeeded, or `-1` when a job failed or the worker pool could not
  *         start.
  */

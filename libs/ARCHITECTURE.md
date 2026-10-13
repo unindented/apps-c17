@@ -175,7 +175,7 @@ To use a buffer correctly:
 
 ### Logs
 
-[`core/log.h`](src/core/log.h) defines `struct Log`, which holds a buffer of error lines and a count of the errors. A fixed-size error buffer truncates long messages and holds only the first error. With a log, a program can do these things:
+[`core/log.h`](src/core/log.h) defines `struct Log`, which holds a buffer of error lines and a count of the errors, and a separate buffer of warning lines and a count of the warnings. A fixed-size error buffer truncates long messages and holds only the first error. With a log, a program can do these things:
 
 - Continue after an error.
 - Report all of the errors together.
@@ -199,7 +199,8 @@ if (log.errors > 0) {
 | --- | --- |
 | `log_error(log, format, ...)` | Records one line and returns `-1`. This lets a function that can fail end with `return log_error(log, "failed to read '%.*s': %s", STR_FMT(path), cause);`. |
 | `log_error_in(log, file, format, ...)` | Records one line about an error inside `file`, adds ` (in '<file>')` to the end of the line, and returns `-1`. |
-| `log_append(log, source)` | Copies the lines of `source` into `log`, and adds the error count of `source` to the count of `log`. For example, after the workers finish, copy the log of each worker into the main log. |
+| `log_warn(log, format, ...)` | Records one warning line, which starts with `warning: `, in the warning buffer, and counts it in `warnings`. The error count does not change, so a run with only warnings succeeds. |
+| `log_append(log, source)` | Copies the error and warning lines of `source` into `log`, and adds both counts of `source` to those of `log`. For example, after the workers finish, copy the log of each worker into the main log. `log_append_errors` and `log_append_warnings` copy one half. |
 
 A wrapper that adds context formats its own message in scratch memory. Then it records the message with `log_error(log, "%.*s", ...)`.
 
@@ -208,7 +209,8 @@ To use a log correctly:
 - Make the log the last parameter of a function that can fail. When the function records an error, return `-1`.
 - Put the log in an arena that you never pass by value. The simplest choice is a region that only the log uses.
 - Give each thread its own log. After the threads finish, merge the logs with `log_append` in a fixed order, so that the output does not depend on the order in which the threads run.
-- `log_error` and `log_error_in` have the `format` attribute. Give the same attribute to each wrapper that formats its own arguments.
+- Print the warnings after the errors, so the errors that stopped a run come first. The warning buffer grows in the arena of the error buffer, which the first warning gives it.
+- `log_error`, `log_error_in` and `log_warn` have the `format` attribute. Give the same attribute to each wrapper that formats its own arguments.
 
 ## testing
 
@@ -235,7 +237,7 @@ Each property that a test checks against the in-memory host must have a contract
 
 ## runtime
 
-- [job](src/runtime/job.h): `job_run` connects the parallel phases of a build to the worker pool. It gives each job a log of its own, in the share of the phase's scratch that the job's worker owns. It reports progress under a lock, and merges the logs of the failed jobs. When the lines of two jobs differ only after the text that the caller names, the two jobs count as one failure. Each job writes its results into its own slot, which the caller owns.
+- [job](src/runtime/job.h): `job_run` connects the parallel phases of a build to the worker pool. It gives each job a log of its own, in the share of the phase's scratch that the job's worker owns. It reports progress under a lock, merges the errors of the failed jobs, and merges the warnings of every job. When the lines of two jobs differ only after the text that the caller names, the two jobs count as one failure, or as one job with warnings. Each job writes its results into its own slot, which the caller owns.
 - [pool](src/runtime/pool.h): Runs indexed jobs through a pthread pool of bounded size. It completes every job, even when one job fails, and joins every worker before it returns. Each job gets the index of the worker that runs it, so the job can use that worker's arenas. The module also gets the default worker count from the number of online CPUs.
 - [walk](src/runtime/walk.h): Finds and sorts the matching regular files in a directory tree. It uses only `os_list` and `os_stat`, so it behaves the same on every host. It follows symlinked directories, but walks each directory once, by device and inode. It skips a cycle or a second alias of a directory. A caller can name one directory to exclude. The walk visits directory entries in byte order, and visits each symlinked directory only after every real directory, so it lists the path without a symlink when such a path exists. Only one directory is open at a time.
 

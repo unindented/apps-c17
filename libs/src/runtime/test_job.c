@@ -115,6 +115,47 @@ static int fail_twice(ptrdiff_t index, struct JobArenas* arenas, struct Log* log
 }
 
 /**
+ * @brief Records a warning naming its own index, and fails the first `failure_count` jobs.
+ *
+ * @param index    Job index this call owns.
+ * @param arenas   Arenas of the worker running the job. Unused.
+ * @param log      Log of the job.
+ * @param userdata `struct FailureContext` holding the failure count.
+ * @return `-1` after also recording an error when the index is in the failing range, otherwise `0`.
+ */
+static int warn_selected_job(ptrdiff_t index,
+                             struct JobArenas* arenas,
+                             struct Log* log,
+                             void* userdata) {
+  (void)arenas;
+  const struct FailureContext* context = userdata;
+  log_warn(log, "warning %td", index);
+  if (index >= context->failure_count) {
+    return 0;
+  }
+  return log_error(log, "failure %td", index);
+}
+
+/**
+ * @brief Records one warning that every job shares, naming the job after it, and succeeds.
+ *
+ * @param index    Job index this call owns.
+ * @param arenas   Arenas of the worker running the job. Unused.
+ * @param log      Log of the job.
+ * @param userdata Unused.
+ * @return `0` always.
+ */
+static int warn_with_one_message(ptrdiff_t index,
+                                 struct JobArenas* arenas,
+                                 struct Log* log,
+                                 void* userdata) {
+  (void)arenas;
+  (void)userdata;
+  log_warn(log, "tree path is too long (while rendering 'content/%td.md')", index);
+  return 0;
+}
+
+/**
  * @brief Fails without recording an error.
  *
  * @param index    Unused job index.
@@ -417,6 +458,68 @@ static void test_run_reports_each_attributed_cause_once(void) {
   TEST_CHECK(log.errors == JOB_COUNT);
 }
 
+// The warnings of jobs that succeed are kept in job order and counted apart from errors, and the
+// phase still succeeds.
+static void test_run_keeps_warnings_of_successful_jobs(void) {
+  enum { JOB_COUNT = 6 };
+  struct Arena arena = test_arena();
+  struct Buf expected = {.arena = &arena};
+  for (ptrdiff_t i = 0; i < JOB_COUNT; i++) {
+    buf_printf(&expected, "warning: warning %td\n", i);
+  }
+  for (ptrdiff_t worker_count = 1; worker_count <= TEST_WORKER_COUNT_MAX; worker_count++) {
+    struct FailureContext context = {.failure_count = 0};
+    struct Log log = test_log();
+    TEST_CHECK(run_jobs(JOB_COUNT, worker_count, warn_selected_job, &context, &log) == 0);
+    TEST_CHECK(test_log_is_empty(&log));
+    TEST_CHECK(log.errors == 0);
+    TEST_CHECK(test_text_is(buf_str(&log.warning_buf), "%s", buf_cstr(&expected)));
+    TEST_CHECK(log.warnings == JOB_COUNT);
+  }
+}
+
+// A failed job's warnings are reported with every other job's, so they do not depend on which jobs
+// failed.
+static void test_run_keeps_warnings_of_failed_jobs(void) {
+  struct FailureContext context = {.failure_count = 1};
+  struct Log log = test_log();
+  TEST_CHECK(run_jobs(2, 2, warn_selected_job, &context, &log) == -1);
+  TEST_CHECK(test_log_is(&log, "failure 0\n"));
+  TEST_CHECK(test_text_is(buf_str(&log.warning_buf), "warning: warning 0\nwarning: warning 1\n"));
+  TEST_CHECK(log.errors == 1);
+  TEST_CHECK(log.warnings == 2);
+}
+
+// A warning that every job repeats, each naming itself, is printed once, then the count of the
+// other jobs, and every warning still counts.
+static void test_run_reports_a_systematic_warning_once(void) {
+  enum { JOB_COUNT = 30 };
+  struct Log log = test_log();
+  TEST_CHECK(run_jobs(JOB_COUNT, 4, warn_with_one_message, NULL, &log) == 0);
+  TEST_CHECK(test_text_is(buf_str(&log.warning_buf),
+                          "warning: tree path is too long (while rendering 'content/0.md')\n"
+                          "\xE2\x80\xA6 and 29 more jobs with warnings\n"));
+  TEST_CHECK(log.warnings == JOB_COUNT);
+}
+
+// Distinct warnings past the cap are summarized as a count of jobs, as errors are.
+static void test_run_caps_collected_warnings(void) {
+  enum { EXTRA_JOB_COUNT = 3 };
+  const ptrdiff_t job_count = JOB_ERROR_REPORT_COUNT_MAX + EXTRA_JOB_COUNT;
+  struct FailureContext context = {.failure_count = 0};
+  struct Log log = test_log();
+  TEST_CHECK(run_jobs(job_count, 4, warn_selected_job, &context, &log) == 0);
+
+  struct Arena arena = test_arena();
+  struct Buf expected = {.arena = &arena};
+  for (ptrdiff_t i = 0; i < JOB_ERROR_REPORT_COUNT_MAX; i++) {
+    buf_printf(&expected, "warning: warning %td\n", i);
+  }
+  buf_printf(&expected, "\xE2\x80\xA6 and %d more jobs with warnings\n", EXTRA_JOB_COUNT);
+  TEST_CHECK(test_text_is(buf_str(&log.warning_buf), "%s", buf_cstr(&expected)));
+  TEST_CHECK(log.warnings == job_count);
+}
+
 // A phase whose jobs fail without recording an error still reports one, naming the phase.
 static void test_run_names_a_silent_failure(void) {
   struct Log log = test_log();
@@ -458,6 +561,10 @@ TEST_LIST = {
     {"run reports an attributed systematic failure once",
      test_run_reports_an_attributed_systematic_failure_once},
     {"run reports each attributed cause once", test_run_reports_each_attributed_cause_once},
+    {"run keeps warnings of successful jobs", test_run_keeps_warnings_of_successful_jobs},
+    {"run keeps warnings of failed jobs", test_run_keeps_warnings_of_failed_jobs},
+    {"run reports a systematic warning once", test_run_reports_a_systematic_warning_once},
+    {"run caps collected warnings", test_run_caps_collected_warnings},
     {"run names a silent failure", test_run_names_a_silent_failure},
 #ifdef __GLIBC__
     {"run names the thread creation error", test_run_names_the_thread_creation_error},

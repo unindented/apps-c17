@@ -71,6 +71,22 @@ static void test_error_in_names_file(void) {
   TEST_CHECK(str_eq(buf_str(&log.buf), S("key 'title' must be a string (in 'a.md')\nno file\n")));
 }
 
+// A warning is one line with its prefix, counted apart from the errors, in the arena of the errors.
+static void test_warnings_are_kept_apart_from_errors(void) {
+  struct Arena arena = {.beg = memory, .end = memory + MEMORY_SIZE};
+  struct Log log = {.buf = {.arena = &arena}};
+  const struct Str path = S("a/b");
+  log_warn(&log, "path '%.*s' is skipped", STR_FMT(path));
+  TEST_CHECK(log_error(&log, "failed") == -1);
+  log_warn(&log, "second");
+  TEST_CHECK(log.errors == 1);
+  TEST_CHECK(log.warnings == 2);
+  TEST_CHECK(str_eq(buf_str(&log.buf), S("failed\n")));
+  TEST_CHECK(
+      str_eq(buf_str(&log.warning_buf), S("warning: path 'a/b' is skipped\nwarning: second\n")));
+  TEST_CHECK(log.warning_buf.arena == &arena);
+}
+
 // Appending one log to another keeps both sets of messages in order and adds the counts, and leaves
 // the source as it was.
 static void test_append_concatenates_logs(void) {
@@ -88,6 +104,41 @@ static void test_append_concatenates_logs(void) {
   TEST_CHECK(str_eq(buf_str(&source.buf), S("b\nc\n")));
 }
 
+// Appending a log copies its warnings and their count as well as its errors, and each half can be
+// appended alone.
+static void test_append_copies_warnings(void) {
+  struct Arena first_arena = {.beg = memory, .end = memory + MEMORY_SIZE / 2};
+  struct Arena second_arena = {.beg = memory + MEMORY_SIZE / 2, .end = memory + MEMORY_SIZE};
+  struct Log log = {.buf = {.arena = &first_arena}};
+  struct Log source = {.buf = {.arena = &second_arena}};
+  log_warn(&log, "a");
+  log_error(&source, "b");
+  log_warn(&source, "c");
+  log_append(&log, &source);
+  TEST_CHECK(log.errors == 1 && log.warnings == 2);
+  TEST_CHECK(str_eq(buf_str(&log.buf), S("b\n")));
+  TEST_CHECK(str_eq(buf_str(&log.warning_buf), S("warning: a\nwarning: c\n")));
+
+  log_append_errors(&log, &source);
+  TEST_CHECK(log.errors == 2 && log.warnings == 2);
+  log_append_warnings(&log, &source);
+  TEST_CHECK(log.errors == 2 && log.warnings == 3);
+  TEST_CHECK(str_eq(buf_str(&log.buf), S("b\nb\n")));
+  TEST_CHECK(str_eq(buf_str(&log.warning_buf), S("warning: a\nwarning: c\nwarning: c\n")));
+}
+
+// A log with no warnings appends none and keeps its warning buffer without an arena.
+static void test_append_without_warnings_adds_none(void) {
+  struct Arena first_arena = {.beg = memory, .end = memory + MEMORY_SIZE / 2};
+  struct Arena second_arena = {.beg = memory + MEMORY_SIZE / 2, .end = memory + MEMORY_SIZE};
+  struct Log log = {.buf = {.arena = &first_arena}};
+  struct Log source = {.buf = {.arena = &second_arena}};
+  log_error(&source, "b");
+  log_append(&log, &source);
+  TEST_CHECK(log.warnings == 0);
+  TEST_CHECK(log.warning_buf.arena == NULL && log.warning_buf.len == 0);
+}
+
 // An error that does not fit the log's arena ends in `os_oom` rather than being dropped or cut.
 static void test_log_past_arena_is_oom(void) {
   TEST_CHECK(test_is_oom(log_past_arena, NULL));
@@ -97,7 +148,10 @@ TEST_LIST = {
     {"errors append lines and count", test_errors_append_lines_and_count},
     {"long message is kept whole", test_long_message_is_kept_whole},
     {"error in names file", test_error_in_names_file},
+    {"warnings are kept apart from errors", test_warnings_are_kept_apart_from_errors},
     {"append concatenates logs", test_append_concatenates_logs},
+    {"append copies warnings", test_append_copies_warnings},
+    {"append without warnings adds none", test_append_without_warnings_adds_none},
     {"log past arena is oom", test_log_past_arena_is_oom},
     {NULL, NULL},
 };

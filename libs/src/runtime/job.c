@@ -107,6 +107,19 @@ static int job_run_report_errors(const struct JobSet* jobs, int pool_rc, struct 
     __attribute__((nonnull(1, 3)));
 
 /**
+ * @brief Appends the warnings of every job in job order, with the same de-duplication and cap as
+ *        `job_run_report_errors`, and the count of the jobs past the cap.
+ *
+ * Runs after `pool_run` has joined every worker, so the logs are read unsynchronized. A job that
+ * failed reports its warnings here too, so the warnings do not depend on which jobs failed.
+ *
+ * @param jobs Finished job set. Must not be `NULL`.
+ * @param log  Log receiving the warnings. Must not be `NULL`.
+ */
+static void job_run_report_warnings(const struct JobSet* jobs, struct Log* log)
+    __attribute__((nonnull(1, 2)));
+
+/**
  * @brief Reports whether a job's messages repeat the messages of an earlier job.
  *
  * @param reported       Messages of earlier jobs, appended to the report. Must not be `NULL`.
@@ -191,6 +204,7 @@ int job_run(ptrdiff_t job_count,
     return log_error(log, "%.*s: cannot start worker thread: %s", STR_FMT(phase_label),
                      error_system_message(message, sizeof(message), pool_error));
   }
+  job_run_report_warnings(&jobs, log);
   return job_run_report_errors(&jobs, pool_rc, log);
 }
 
@@ -262,7 +276,7 @@ static int job_run_report_errors(const struct JobSet* jobs, int pool_rc, struct 
       log->errors += job_log->errors;
       continue;
     }
-    log_append(log, job_log);
+    log_append_errors(log, job_log);
     // The logs are stable after the join, so a view of each is enough to compare against.
     reported[reported_count] = messages;
     reported_count++;
@@ -282,6 +296,35 @@ static int job_run_report_errors(const struct JobSet* jobs, int pool_rc, struct 
     return -1;
   }
   return 0;
+}
+
+static void job_run_report_warnings(const struct JobSet* jobs, struct Log* log) {
+  // The same reasons as for errors hold: one systematic cause, such as a template that warns on
+  // every page, would otherwise spend the cap on copies of one block.
+  struct Str reported[JOB_ERROR_REPORT_COUNT_MAX] = {0};
+  ptrdiff_t warned_count = 0;
+  ptrdiff_t reported_count = 0;
+  for (ptrdiff_t i = 0; i < jobs->count; i++) {
+    const struct Log* job_log = &jobs->logs[i];
+    if (job_log->warnings == 0) {
+      continue;
+    }
+    warned_count++;
+    const struct Str messages = buf_str(&job_log->warning_buf);
+    if (reported_count == JOB_ERROR_REPORT_COUNT_MAX ||
+        is_reported_message(reported, reported_count, messages, jobs->attribution)) {
+      log->warnings += job_log->warnings;
+      continue;
+    }
+    log_append_warnings(log, job_log);
+    reported[reported_count] = messages;
+    reported_count++;
+  }
+  if (warned_count > reported_count) {
+    // This summarizes warnings already counted, so it is not one itself.
+    buf_printf(log_warning_buf(log), "\xE2\x80\xA6 and %td more jobs with warnings\n",
+               warned_count - reported_count);
+  }
 }
 
 static bool is_reported_message(const struct Str* reported,
