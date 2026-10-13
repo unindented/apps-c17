@@ -46,7 +46,7 @@ These words have one meaning everywhere in this document:
 - [cli](src/app/cli.h): `cli_parse` parses the command line into one of four actions: version, help, run, or error. It never prints and never exits. `cli.c` is the only translation unit that defines `COPT_IMPL`.
 - [cli_dispatch](src/app/cli_dispatch.h): `cli_dispatch` calls `cli_parse`. For the run action, it calls `cmd_wrap_run`. For each other action, it prints one text through `os_print`: the diagnostic for the rejected command line, the `--help` text, or the `--version` text. It formats these texts in a reservation of its own, and releases that reservation when the command or the print returns. A command reserves its own memory.
 - [cmd_wrap](src/app/cmd_wrap.h): `cmd_wrap_run` rewraps every input, as [Wrap pipeline](#wrap-pipeline) describes.
-- [exit_code](../../libs/core/exit_code.h), in the `core` library: Every command returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
+- [exit_code](../../libs/src/core/exit_code.h), in the `core` library: Every command returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
 - [wrap_input](src/app/wrap_input.h): Reads, rewrites, and emits one input, as [Wrap pipeline](#wrap-pipeline) describes.
 
 ## Wrap pipeline
@@ -192,7 +192,7 @@ Then `os_oom` exits with `EXIT_CODE_FAILURE`.
 
 ### Counted strings with signed lengths
 
-**Decision.** Every first-party string is a `struct Str` from [str.h](../../libs/core/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. Every length, count and column is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`.
+**Decision.** Every first-party string is a `struct Str` from [str.h](../../libs/src/core/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. Every length, count and column is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`.
 
 **Reasons.**
 
@@ -249,7 +249,7 @@ log_error(log, "failed to read file: %s ('%.*s')", reason, STR_FMT(path));
 
 ### The `os` interface
 
-**Decision.** All host access goes through [os/os.h](../../libs/os/os.h) in the `os` library: `os_read`, `os_read_stdin`, `os_replace`, `os_print`, and `os_oom`. `os/os_posix.c` is the POSIX implementation. [os/os_memory.c](../../libs/os/os_memory.c) is an in-memory implementation for unit tests: a tree with a standard input, injected failures, and captured output. The link step selects one implementation for each executable. A function that accesses the host takes `struct Os*` just before its arenas, and an `os_*` function takes it first.
+**Decision.** All host access goes through [os/os.h](../../libs/src/os/os.h) in the `os` library: `os_read`, `os_read_stdin`, `os_replace`, `os_print`, and `os_oom`. `os/os_posix.c` is the POSIX implementation. [os/os_memory.c](../../libs/src/os/os_memory.c) is an in-memory implementation for unit tests: a tree with a standard input, injected failures, and captured output. The link step selects one implementation for each executable. A function that accesses the host takes `struct Os*` just before its arenas, and an `os_*` function takes it first.
 
 **Reasons.**
 
@@ -260,7 +260,7 @@ log_error(log, "failed to read file: %s ('%.*s')", reason, STR_FMT(path));
 
 **Linking.** `cwrap` and every unit test registered without `OS memory` link `os_posix`, the object library of `os/os_posix.c`. The tests registered with `OS memory` link `os_memory`, as [BUILD.md](../../BUILD.md#cwrap-tests) lists. `cwrap` does not link the `runtime` library, so it gets no worker pool and no `Threads::Threads`.
 
-**Condition.** Each property that a test checks against the in-memory host must have a contract test. [os/test_os.c](../../libs/os/test_os.c) compiles once against each host and runs the same cases, and both executables must pass, so every property that a test relies on in the in-memory host is also true on POSIX. Without the contract tests, the in-memory host can accept what POSIX rejects. For example, an in-memory host could accept `file/` as a file where POSIX returns `ENOTDIR`, and a contract test checks this case.
+**Condition.** Each property that a test checks against the in-memory host must have a contract test. [os/test_os.c](../../libs/src/os/test_os.c) compiles once against each host and runs the same cases, and both executables must pass, so every property that a test relies on in the in-memory host is also true on POSIX. Without the contract tests, the in-memory host can accept what POSIX rejects. For example, an in-memory host could accept `file/` as a file where POSIX returns `ENOTDIR`, and a contract test checks this case.
 
 **What `cwrap` uses.** `os_read` reads each file with `OS_READ_TEXT`, so a file that contains a `NUL` fails the read. `os_replace` rewrites a user's source, so the write is atomic and synced. It writes, `fsync`s and closes a temporary file next to the destination, and then renames the temporary file over the destination. `os_replace` reads the umask by setting it and restoring it, which is safe because `cwrap` runs on one thread. `cwrap` never writes with `os_write`, which overwrites in place and is meant for outputs that a build can make again.
 

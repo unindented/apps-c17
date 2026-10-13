@@ -1,6 +1,13 @@
-# apps-c17
+# apps
 
 This repository holds three small programs written in C17, and the libraries that they share.
+
+## LLM disclosure
+
+> [!warning]
+> This is all vibe-coded slop, produced with Claude Opus 4.8, 5, and 5.5.
+
+## Contents
 
 | Directory | Contents |
 | --- | --- |

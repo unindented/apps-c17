@@ -26,7 +26,8 @@ add_test(
   NAME cwrap.idempotent
   COMMAND
     "${CMAKE_COMMAND}" "-DCWRAP_EXECUTABLE=$<TARGET_FILE:cwrap>"
-    "-DCWRAP_SOURCE_DIR=${PROJECT_SOURCE_DIR}" "-DCWRAP_LIBS_DIR=${PROJECT_SOURCE_DIR}/../../libs"
+    "-DCWRAP_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+    "-DCWRAP_LIBS_DIR=${PROJECT_SOURCE_DIR}/../../libs/src"
     "-DCWRAP_LIBRARIES=${cwrap_idempotent_libraries}"
     "-DCWRAP_SCRATCH_DIR=${PROJECT_BINARY_DIR}/idempotent/$<CONFIG>" -P
     "${PROJECT_SOURCE_DIR}/cmake/cwrap_run_idempotent.cmake"

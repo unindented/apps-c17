@@ -62,7 +62,7 @@ Each source directory holds the code for one purpose. The source directories add
 
 `<app>_app` links as `PUBLIC` dependencies the libraries whose types the application headers expose, and every other dependency as `PRIVATE`.
 
-`core`, the library in [libs/core/](libs/core/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. Each app's `src/app/main.c` defines the `os_oom` of that app, which the app's ARCHITECTURE.md describes. The `testing` library defines the `os_oom` of the unit tests.
+`core`, the library in [libs/src/core/](libs/src/core/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. Each app's `src/app/main.c` defines the `os_oom` of that app, which the app's ARCHITECTURE.md describes. The `testing` library defines the `os_oom` of the unit tests.
 
 ### Hosts
 
@@ -72,12 +72,12 @@ Both hosts are object libraries, because `<app>_app` refers to them and a single
 
 ### Vendored dependencies
 
-The sources of each vendored project are in the root [vendor/](vendor/) directory, and each app's `vendor.cmake` compiles the sources that the app uses. An app that links `markup` includes [libs/markup/vendor.cmake](libs/markup/vendor.cmake) for the vendored projects of that library. Each vendored project has its own target, `vendor_<lib>`: the header-only projects, acutest and copt, are interface libraries, and the other vendored projects are static libraries. The targets have the same names in every app, because the libraries of `libs/` link the app's `vendor_acutest` and `vendor_tomlc17`.
+The sources of each vendored project are in the root [vendor/](vendor/) directory, and each app's `vendor.cmake` compiles the sources that the app uses. An app that links `markup` includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake) for the vendored projects of that library. Each vendored project has its own target, `vendor_<lib>`: the header-only projects, acutest and copt, are interface libraries, and the other vendored projects are static libraries. The targets have the same names in every app, because the libraries of `libs/` link the app's `vendor_acutest` and `vendor_tomlc17`.
 
 [vendor/vendor.toml](vendor/vendor.toml) pins each vendored project: its upstream repository, its release when it has one, and its commit. It also lists the upstream files that the directory of the project holds, the patches that this repository applies to them, and the files that this repository writes, such as the configuration headers of libjpeg-turbo. The `THIRD_PARTY_NOTICES.md` of each app and of `libs/` records the pin of each project that it lists. Renovate reads the releases in the manifest and opens a pull request for each new release. [vendor/vendor.py](vendor/vendor.py), which needs Python 3.11 or later, uses the manifest:
 
 - `vendor/vendor.py check` fetches each pinned commit and makes the copy that the manifest describes. It fails when a directory of `vendor/` differs from that copy, when a release no longer names its commit, or when a notices file records another pin. The Vendored sources job of CI runs this check.
-- `vendor/vendor.py sync <project>...` replaces the directory of each project with the copy of the commit that its release names, or of its pinned commit when it has no release, and records the pin in the manifest and in every notices file. For a tree-sitter grammar, it prints the upstream changes to the query files whose patterns `markup` keeps in `libs/markup/queries/`.
+- `vendor/vendor.py sync <project>...` replaces the directory of each project with the copy of the commit that its release names, or of its pinned commit when it has no release, and records the pin in the manifest and in every notices file. For a tree-sitter grammar, it prints the upstream changes to the query files whose patterns `markup` keeps in `libs/src/markup/queries/`.
 
 To bump a project, change its `release`, or its `commit` when it has no release, and run `vendor/vendor.py sync` with its name.
 
@@ -101,21 +101,21 @@ To bump a project, change its `release`, or its `commit` when it has no release,
 
 ## The libs project
 
-[libs/CMakeLists.txt](libs/CMakeLists.txt) defines one target and one directory for each library, as [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md) describes. An app adds the project with `add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)`:
+[libs/CMakeLists.txt](libs/CMakeLists.txt) adds one directory of `libs/src/` for each library, and that directory defines the library's target, as [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md) describes. An app adds the project with `add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)`:
 
 - `EXCLUDE_FROM_ALL` builds a library only when a target of the app links it.
 - Each library links `apps_build_project` of the app, so it compiles with the app's warnings and sanitizer options.
 - `SYSTEM` makes the include directories of the libraries system directories for the app, so the analysis of the app checks only the app's own code.
-- The libraries use the vendored targets of the app. The project adds `formats` only when the target `vendor_tomlc17` exists, so cwrap, which vendors no tomlc17, builds without it. It adds `markup` only when `formats` and the targets of `libs/markup/vendor.cmake` exist, so fram and cwrap build without it.
+- The libraries use the vendored targets of the app. The project adds `formats` only when the target `vendor_tomlc17` exists, so cwrap, which vendors no tomlc17, builds without it. It adds `markup` only when `formats` and the targets of `libs/src/markup/vendor.cmake` exist, so fram and cwrap build without it.
 - An app never builds the tests of the libraries.
 
 Configured on its own, from `libs/`, the project defines the vendored targets that the libraries need in [libs/vendor.cmake](libs/vendor.cmake), and builds every library, its analysis, its lint and its tests. `libs_add_unit_test(<lib> <module>)` registers the test `<lib>.<module>`, which links the library, `apps_build_tests`, acutest and the libraries in `LIBRARIES`. With `OS posix` or `OS memory`, the test also links `os_posix` or `os_memory`, and with `OS memory` it compiles with `APPS_TEST_OS_MEMORY` set to 1. Each library test has the labels `<lib>` and `unit`, and the same timeouts as the tests of an app. Each library appends its sources to the global property `apps_libs_lint_sources`, and the project creates its `format` and `lint` targets from that list.
 
 ### Grammars
 
-`markup` links the grammars that [libs/markup/vendor.cmake](libs/markup/vendor.cmake) builds. That file also builds md4c, org4c and the tree-sitter runtime. Each app that links `markup` includes it from its own `vendor.cmake`, and the `libs/` project includes it from `libs/vendor.cmake`.
+`markup` links the grammars that [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake) builds. That file also builds md4c, org4c and the tree-sitter runtime. Each app that links `markup` includes it from its own `vendor.cmake`, and the `libs/` project includes it from `libs/vendor.cmake`.
 
-`APPS_GRAMMARS` selects the tree-sitter grammars that a binary links. The default is an empty value, which links every grammar, as in the release archives. A list links only the grammars that it names, and each name in the list must be the name of one `markup_add_tree_sitter_grammar` call in `libs/markup/vendor.cmake`. These names are `c`, `bash`, `html`, `css`, `javascript`, `typescript`, `tsx` and `json`. If the binary does not link the grammar for the language of a code block, `markup` only escapes the block, as it does for a language that has no grammar.
+`APPS_GRAMMARS` selects the tree-sitter grammars that a binary links. The default is an empty value, which links every grammar, as in the release archives. A list links only the grammars that it names, and each name in the list must be the name of one `markup_add_tree_sitter_grammar` call in `libs/src/markup/vendor.cmake`. These names are `c`, `bash`, `html`, `css`, `javascript`, `typescript`, `tsx` and `json`. If the binary does not link the grammar for the language of a code block, `markup` only escapes the block, as it does for a language that has no grammar.
 
 ```sh
 cmake --preset release -B build/release-small -DAPPS_GRAMMARS="c;bash"
@@ -126,7 +126,7 @@ TypeScript and TSX are separate grammars. You can select either of them without 
 
 The configure step stops with an error when a name matches no grammar. It also stops with an error when `APPS_GRAMMARS` is not empty and `APPS_BUILD_TESTING` is on, because the tests need every grammar.
 
-Each selected grammar is a static library, `vendor_tree_sitter_<name>`. This library holds the highlight queries of the grammar as an embedded byte array. The parsers come from the root `vendor/` directory. The queries come from [libs/markup/queries/](libs/markup/queries/), where `markup` keeps its own copy of the upstream patterns. A grammar bump changes a query only when you port the changes of the upstream query files, as [libs/THIRD_PARTY_NOTICES.md](libs/THIRD_PARTY_NOTICES.md) describes. `vendor_tree_sitter_grammars` is an interface library. It links the selected grammars and carries the generated header `tree_sitter_grammars.h`, which declares the language, the queries and the names of each selected grammar. [libs/markup/highlight.c](libs/markup/highlight.c) defines its table of grammars from this header.
+Each selected grammar is a static library, `vendor_tree_sitter_<name>`. This library holds the highlight queries of the grammar as an embedded byte array. The parsers come from the root `vendor/` directory. The queries come from [libs/src/markup/queries/](libs/src/markup/queries/), where `markup` keeps its own copy of the upstream patterns. A grammar bump changes a query only when you port the changes of the upstream query files, as [libs/THIRD_PARTY_NOTICES.md](libs/THIRD_PARTY_NOTICES.md) describes. `vendor_tree_sitter_grammars` is an interface library. It links the selected grammars and carries the generated header `tree_sitter_grammars.h`, which declares the language, the queries and the names of each selected grammar. [libs/src/markup/highlight.c](libs/src/markup/highlight.c) defines its table of grammars from this header.
 
 With `address`, the CMake build also turns off the `function` check for the tree-sitter runtime, because the runtime calls the `create` function of each grammar scanner, and this function has no prototype.
 
@@ -193,7 +193,7 @@ No test target compiles an application source file a second time with different 
 
 ### Test-support library
 
-The `testing` library, [libs/testing/test_support.h](libs/testing/test_support.h), holds the helpers that several `test_*.c` files need: fixture directories, files and trees, the working directory, environment variables, the capture of the standard streams, an arena or a log over a fresh reservation, checks that compare the text of a log or a text exactly, the out-of-memory check `test_is_oom`, a seeded random generator, and a printable copy of any bytes for a failure message. It also defines the `os_oom` of the unit tests. [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md#testing) describes it.
+The `testing` library, [libs/src/testing/test_support.h](libs/src/testing/test_support.h), holds the helpers that several `test_*.c` files need: fixture directories, files and trees, the working directory, environment variables, the capture of the standard streams, an arena or a log over a fresh reservation, checks that compare the text of a log or a text exactly, the out-of-memory check `test_is_oom`, a seeded random generator, and a printable copy of any bytes for a failure message. It also defines the `os_oom` of the unit tests. [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md#testing) describes it.
 
 ### Tests in a parent build
 
@@ -228,7 +228,7 @@ The source archive, `<app>-<version>-source.tar.gz`, holds the whole repository 
 ### sosig files and targets
 
 - [apps/sosig/CMakeLists.txt](apps/sosig/CMakeLists.txt) also finds the thread library.
-- [apps/sosig/vendor.cmake](apps/sosig/vendor.cmake) also includes [libs/markup/vendor.cmake](libs/markup/vendor.cmake), as [Grammars](#grammars) describes.
+- [apps/sosig/vendor.cmake](apps/sosig/vendor.cmake) also includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake), as [Grammars](#grammars) describes.
 - [apps/sosig/CMakePresets.json](apps/sosig/CMakePresets.json) adds the `grammars` presets, which build `sosig` with only the TypeScript grammar.
 - `sosig` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `markup` and `output`, and for the unit tests `testing` and the in-memory host `os_memory`.
 - `sosig_app` links `vendor_tomlc17`, `core`, `formats`, `markup`, `os`, `output` and `runtime` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
@@ -328,6 +328,6 @@ The contract tests of the hosts that `cwrap` links are `os.contract_posix` and `
 
 The golden test `cwrap.golden` runs [apps/cwrap/cmake/cwrap_run_golden.cmake](apps/cwrap/cmake/cwrap_run_golden.cmake). The script rewraps every fixture in `tests/fixtures/` at width 40, in a scratch tree of its own. It then compares the list of fixture files with the list of files in `tests/expected/`, and it compares each result with its expected file byte for byte.
 
-The idempotence test `cwrap.idempotent` runs `cmake/cwrap_run_idempotent.cmake` in another scratch tree. The script rewraps the fixture files, the expected files and every first-party source file in `src/` and `tests/`, and the sources of the libraries that `APPS_LIBRARIES` in [apps/cwrap/CMakeLists.txt](apps/cwrap/CMakeLists.txt) lists, `libs/core` and `libs/testing`, at widths 20, 40, 60 and 100. A second rewrap of each result must make no change, and `--check` must agree that the first result is stable.
+The idempotence test `cwrap.idempotent` runs `cmake/cwrap_run_idempotent.cmake` in another scratch tree. The script rewraps the fixture files, the expected files and every first-party source file in `src/` and `tests/`, and the sources of the libraries that `APPS_LIBRARIES` in [apps/cwrap/CMakeLists.txt](apps/cwrap/CMakeLists.txt) lists, `libs/src/core`, `libs/src/os` and `libs/src/testing`, at widths 20, 40, 60 and 100. A second rewrap of each result must make no change, and `--check` must agree that the first result is stable.
 
 Both scripts find their input files with globs. These globs run in the test and are not inputs of the CMake build, so a change to a fixture or a source file does not require CMake to configure the project again.

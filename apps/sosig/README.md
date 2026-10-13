@@ -9,7 +9,7 @@
 ## LLM disclosure
 
 > [!warning]
-> I used LLMs extensively to create this project, mostly Claude Opus 4.8, 5, and 5.5.
+> This is all vibe-coded slop, produced with Claude Opus 4.8, 5, and 5.5.
 
 ## Installation
 
@@ -561,7 +561,7 @@ The version of every archive comes from `project(VERSION)` in [CMakeLists.txt](C
 
 The root [vendor/](../../vendor/) directory contains these dependencies, except the libraries in `libs/`. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the licenses of the vendored dependencies.
 
-- [libs/](../../libs/): The libraries that `sosig` shares with the other apps: `core`, `os`, `runtime`, `formats`, `markup` and `output`, and for the unit tests `testing` and `os_memory`. [libs/core/](../../libs/core/) holds arena allocation, counted strings, output buffers, the diagnostic log and the small primitives, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
+- [libs/](../../libs/): The libraries that `sosig` shares with the other apps: `core`, `os`, `runtime`, `formats`, `markup` and `output`, and for the unit tests `testing` and `os_memory`. [libs/src/core/](../../libs/src/core/) holds arena allocation, counted strings, output buffers, the diagnostic log and the small primitives, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
 - [copt](https://github.com/fardaniqbal/copt): Command-line option parsing.
 - [tomlc17](https://github.com/cktan/tomlc17): TOML configuration and frontmatter parsing.
 - [md4c](https://github.com/mity/md4c): Markdown parsing.

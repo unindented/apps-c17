@@ -39,7 +39,7 @@
       "allowedVersions": "!/\\.9\\d$/",
       "automerge": false,
       "prBodyNotes": [
-        "This updates only the release in `vendor/vendor.toml`. Before merging, run `vendor/vendor.py sync {{{depName}}}`, which replaces the sources under `vendor/` with that release and records its commit in the manifest and the notices. For a tree-sitter grammar, it also prints the upstream changes to the query files, to port to `libs/markup/queries/`. The Vendored sources job fails until the sources match the release."
+        "This updates only the release in `vendor/vendor.toml`. Before merging, run `vendor/vendor.py sync {{{depName}}}`, which replaces the sources under `vendor/` with that release and records its commit in the manifest and the notices. For a tree-sitter grammar, it also prints the upstream changes to the query files, to port to `libs/src/markup/queries/`. The Vendored sources job fails until the sources match the release."
       ]
     }
   ]

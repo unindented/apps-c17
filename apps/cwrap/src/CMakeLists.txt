@@ -1,5 +1,5 @@
 # The private application library contains project code except `app/main.c`. The `cwrap` executable
-# is built from `app/main.c` and links `os_posix`, the POSIX host from `libs/os`. Each unit test
+# is built from `app/main.c` and links `os_posix`, the POSIX host from `libs/src/os`. Each unit test
 # links the same library, the host it is registered with, and the unit-test `os_oom` from the
 # `testing` library.
 

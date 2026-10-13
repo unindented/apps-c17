@@ -1,11 +1,15 @@
-# libs
+<div align="center">
+  <img src="media/logo.webp" height="300" alt="">
+</div>
+
+<h1 align="center"><code>libs</code></h1>
 
 `libs/` holds the libraries that the C17 apps in this repository share: `core`, `testing`, `os`, `runtime`, `formats`, `markup` and `output`. [ARCHITECTURE.md](ARCHITECTURE.md) describes each library, its modules and its dependencies.
 
 ## LLM disclosure
 
 > [!warning]
-> I used LLMs extensively to create this project, mostly Claude Opus 4.8 and 5.
+> This is all vibe-coded slop, produced with Claude Opus 4.8, 5, and 5.5.
 
 ## Usage
 
@@ -13,7 +17,7 @@ An app adds the `libs/` project to its own build, and links the libraries that i
 
 ```cmake
 add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)
-target_link_libraries(myapp_app PUBLIC core shared)
+target_link_libraries(myapp_app PUBLIC core os)
 ```
 
 A library builds only when a target of the app links it, and it compiles with the build profile of the app. Each program that links `core` defines `os_oom`, as [ARCHITECTURE.md](ARCHITECTURE.md#os_oom) describes. [BUILD.md](../BUILD.md#the-libs-project) describes the build of the project.
@@ -41,10 +45,10 @@ cmake --build --preset debug -j 8
 
 | Preset | Configuration | Library |
 | --- | --- | --- |
-| `debug` | `Debug` with AddressSanitizer and UndefinedBehaviorSanitizer. It runs `clang-tidy` and `cppcheck` during compilation if they are available. | `build/debug/<library>/lib<library>.a` |
-| `tsan` | `Debug` with ThreadSanitizer. | `build/tsan/<library>/lib<library>.a` |
-| `release` | `RelWithDebInfo`, with no tests. | `build/release/<library>/lib<library>.a` |
-| `multi` | `Debug` and `RelWithDebInfo` in one build tree, with the `Ninja Multi-Config` generator. Build with `--preset multi-debug` or `--preset multi-relwithdebinfo`. | `build/multi/<library>/Debug/lib<library>.a`, `build/multi/<library>/RelWithDebInfo/lib<library>.a` |
+| `debug` | `Debug` with AddressSanitizer and UndefinedBehaviorSanitizer. It runs `clang-tidy` and `cppcheck` during compilation if they are available. | `build/debug/src/<library>/lib<library>.a` |
+| `tsan` | `Debug` with ThreadSanitizer. | `build/tsan/src/<library>/lib<library>.a` |
+| `release` | `RelWithDebInfo`, with no tests. | `build/release/src/<library>/lib<library>.a` |
+| `multi` | `Debug` and `RelWithDebInfo` in one build tree, with the `Ninja Multi-Config` generator. Build with `--preset multi-debug` or `--preset multi-relwithdebinfo`. | `build/multi/src/<library>/Debug/lib<library>.a`, `build/multi/src/<library>/RelWithDebInfo/lib<library>.a` |
 
 `clang-tidy` runs only with Clang, because it rejects the warning options of GCC. To run linting, configure the `debug` preset, and then run this command:
 

@@ -1,7 +1,7 @@
 # This script checks that a second rewrap changes nothing and `--check` agrees with the output. It
 # rewraps cwrap's own sources, tests and fixtures, and the sources of the libraries that cwrap links:
-# `CWRAP_LIBS_DIR` names the root `libs/` directory and `CWRAP_LIBRARIES` the libraries, separated
-# by `|`, because a `;` would split the argument.
+# `CWRAP_LIBS_DIR` names `libs/src/`, which holds one directory for each library, and
+# `CWRAP_LIBRARIES` the libraries, separated by `|`, because a `;` would split the argument.
 
 foreach(required IN ITEMS CWRAP_EXECUTABLE CWRAP_SOURCE_DIR CWRAP_LIBS_DIR CWRAP_LIBRARIES
                          CWRAP_SCRATCH_DIR

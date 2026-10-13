@@ -16,4 +16,4 @@ target_include_directories(
 target_compile_options(vendor_tomlc17 PRIVATE $<$<C_COMPILER_ID:GNU,Clang,AppleClang>:-w>)
 target_link_libraries(vendor_tomlc17 PRIVATE apps_build_vendor)
 
-include("${PROJECT_SOURCE_DIR}/markup/vendor.cmake")
+include("${PROJECT_SOURCE_DIR}/src/markup/vendor.cmake")

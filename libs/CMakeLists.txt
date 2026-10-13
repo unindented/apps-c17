@@ -102,34 +102,40 @@ function(libs_add_unit_test library module)
 endfunction()
 
 # Gives `target` the include root of `library`: a directory in the build tree that holds one link,
-# named for the library, to the library's source directory. `#include "<library>/<module>.h"` then
-# finds the library's headers through that root and no other file of `libs/`, so a library can
-# have the same layer name as a directory of an app, as `runtime` has in cwrap and fram.
+# named for the library, to the library's source directory, `src/<library>/`. `#include
+# "<library>/<module>.h"` then finds the library's headers through that root and no other file of
+# `libs/`, so a library can have the same layer name as a directory of an app, as `runtime` has in
+# cwrap and fram. A link that names another directory is replaced.
 function(libs_add_include_root target library)
   set(root "${PROJECT_BINARY_DIR}/include/${library}")
-  if(NOT EXISTS "${root}/${library}")
+  set(source_dir "${PROJECT_SOURCE_DIR}/src/${library}")
+  set(link_target "")
+  if(IS_SYMLINK "${root}/${library}")
+    file(READ_SYMLINK "${root}/${library}" link_target)
+  endif()
+  if(NOT link_target STREQUAL source_dir)
     file(MAKE_DIRECTORY "${root}")
-    file(CREATE_LINK "${PROJECT_SOURCE_DIR}/${library}" "${root}/${library}" SYMBOLIC)
+    file(CREATE_LINK "${source_dir}" "${root}/${library}" SYMBOLIC)
   endif()
   target_include_directories(${target} PUBLIC "$<BUILD_INTERFACE:${root}>")
 endfunction()
 
 # Each library appends its own sources to `apps_libs_lint_sources`.
-add_subdirectory(core)
-add_subdirectory(testing)
-add_subdirectory(os)
-add_subdirectory(runtime)
+add_subdirectory(src/core)
+add_subdirectory(src/testing)
+add_subdirectory(src/os)
+add_subdirectory(src/runtime)
 # `formats` needs tomlc17. An app that vendors no tomlc17 links no `formats`, so its build leaves the
 # library out.
 if(TARGET vendor_tomlc17)
-  add_subdirectory(formats)
+  add_subdirectory(src/formats)
 endif()
-# `markup` needs `formats` and the targets of `markup/vendor.cmake`. An app that includes no
-# `markup/vendor.cmake` links no `markup`, so its build leaves the library out.
+# `markup` needs `formats` and the targets of `src/markup/vendor.cmake`. An app that includes no
+# `src/markup/vendor.cmake` links no `markup`, so its build leaves the library out.
 if(TARGET formats AND TARGET vendor_tree_sitter_grammars)
-  add_subdirectory(markup)
+  add_subdirectory(src/markup)
 endif()
-add_subdirectory(output)
+add_subdirectory(src/output)
 
 if(PROJECT_IS_TOP_LEVEL)
   get_property(libs_lint_sources GLOBAL PROPERTY apps_libs_lint_sources)
