@@ -12,11 +12,11 @@
 
 #include "app/cli.h"
 #include "app/cli_dispatch.h"
-#include "app/cwrap_version.h"
 #include "core/arena.h"
 #include "core/exit_code.h"
 #include "core/log.h"
 #include "core/str.h"
+#include "domain/cwrap_version.h"
 #include "os/os.h"
 #include "os/os_posix.h"
 #include "testing/test_support.h"

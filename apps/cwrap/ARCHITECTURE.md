@@ -5,7 +5,7 @@
 ## Layout
 
 - [src/app/](src/app/): The process entry point, the command-line interface, the command boundary, and the rewrap of one input.
-- [src/domain/](src/domain/): Comment lexing, grouping, filling, Doxygen alignment, and source rewriting.
+- [src/domain/](src/domain/): Comment lexing, grouping, filling, Doxygen alignment, source rewriting, and the version.
 - [tests/](tests/): The golden and idempotence test suites, and the seeded random tests. Each C file under [tests/fixtures/](tests/fixtures/) has a matching file of expected output under [tests/expected/](tests/expected/). The idempotence test also rewraps these files, every first-party source file, and the sources of the libraries that `cwrap` links, at several widths.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
 - [cmake/](cmake/): The lint list and the golden and idempotence test drivers. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
@@ -46,7 +46,6 @@ These words have one meaning everywhere in this document:
 - [cli](src/app/cli.h): `cli_parse` parses the command line into one of four actions: version, help, run, or error. It never prints and never exits. `cli.c` is the only translation unit that defines `COPT_IMPL`.
 - [cli_dispatch](src/app/cli_dispatch.h): `cli_dispatch` calls `cli_parse`. For the run action, it calls `cmd_wrap_run`. For each other action, it prints one text through `os_print`: the diagnostic for the rejected command line, the `--help` text, or the `--version` text. It formats these texts in a reservation of its own, and releases that reservation when the command or the print returns. A command reserves its own memory.
 - [cmd_wrap](src/app/cmd_wrap.h): `cmd_wrap_run` rewraps every input, as [Wrap pipeline](#wrap-pipeline) describes.
-- [cwrap_version](src/app/cwrap_version.h): The version. CMake sets it when it configures the build tree.
 - [exit_code](../../libs/core/exit_code.h), in the `core` library: Every command returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
 - [wrap_input](src/app/wrap_input.h): Reads, rewrites, and emits one input, as [Wrap pipeline](#wrap-pipeline) describes.
 
@@ -98,6 +97,7 @@ Each item below links to the module's header, which documents its interface. The
 - [fill](src/domain/fill.h): Fills prose paragraphs greedily, and keeps samples, lists, tags, and hanging indentation.
 - [lex](src/domain/lex.h): Finds comments, and does not treat string literals or character literals as comments. It records source spans, line positions, indentation, and whether a comment follows code.
 - [rewrite](src/domain/rewrite.h): Runs the domain pipeline over one source buffer, and splices the rewritten comments between the unchanged source ranges.
+- [cwrap_version](src/domain/cwrap_version.h): The version, which CMake sets when it configures `cwrap`. It is in the lowest layer, as in sosig and fram.
 
 ### Host access
 

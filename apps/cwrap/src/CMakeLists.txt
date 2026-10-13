@@ -4,10 +4,10 @@
 # `testing` library.
 
 configure_file(
-  app/cwrap_version.c.in "${CMAKE_CURRENT_BINARY_DIR}/app/cwrap_version.c" @ONLY
+  domain/cwrap_version.c.in "${CMAKE_CURRENT_BINARY_DIR}/domain/cwrap_version.c" @ONLY
 )
 
-add_library(cwrap_app STATIC "${CMAKE_CURRENT_BINARY_DIR}/app/cwrap_version.c")
+add_library(cwrap_app STATIC "${CMAKE_CURRENT_BINARY_DIR}/domain/cwrap_version.c")
 
 add_subdirectory(app)
 add_subdirectory(domain)

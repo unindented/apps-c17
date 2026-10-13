@@ -11,11 +11,11 @@
 #define COPT_IMPL
 #include <copt.h>
 
-#include "app/cwrap_version.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/parse.h"
 #include "core/str.h"
+#include "domain/cwrap_version.h"
 #include "os/os.h"
 
 /**

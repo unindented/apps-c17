@@ -10,7 +10,6 @@ apps_add_lint_targets(
     "${PROJECT_SOURCE_DIR}/src/app/cli_dispatch.h"
     "${PROJECT_SOURCE_DIR}/src/app/cmd_wrap.c"
     "${PROJECT_SOURCE_DIR}/src/app/cmd_wrap.h"
-    "${PROJECT_SOURCE_DIR}/src/app/cwrap_version.h"
     "${PROJECT_SOURCE_DIR}/src/app/main.c"
     "${PROJECT_SOURCE_DIR}/src/app/test_cli.c"
     "${PROJECT_SOURCE_DIR}/src/app/test_cli_dispatch.c"
@@ -22,6 +21,7 @@ apps_add_lint_targets(
     "${PROJECT_SOURCE_DIR}/src/domain/atom.h"
     "${PROJECT_SOURCE_DIR}/src/domain/comment.c"
     "${PROJECT_SOURCE_DIR}/src/domain/comment.h"
+    "${PROJECT_SOURCE_DIR}/src/domain/cwrap_version.h"
     "${PROJECT_SOURCE_DIR}/src/domain/doxygen.c"
     "${PROJECT_SOURCE_DIR}/src/domain/doxygen.h"
     "${PROJECT_SOURCE_DIR}/src/domain/fill.c"
@@ -38,5 +38,5 @@ apps_add_lint_targets(
     "${PROJECT_SOURCE_DIR}/src/domain/test_rewrite.c"
     "${PROJECT_SOURCE_DIR}/src/domain/unicode_width_data.h"
     "${PROJECT_SOURCE_DIR}/tests/test_random.c"
-  CONFIGURED_SOURCES "${PROJECT_SOURCE_DIR}/src/app/cwrap_version.c.in"
+  CONFIGURED_SOURCES "${PROJECT_SOURCE_DIR}/src/domain/cwrap_version.c.in"
 )

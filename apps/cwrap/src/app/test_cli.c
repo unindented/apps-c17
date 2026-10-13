@@ -7,8 +7,8 @@
 #include <string.h>
 
 #include "app/cli.h"
-#include "app/cwrap_version.h"
 #include "core/str.h"
+#include "domain/cwrap_version.h"
 #include "os/os_posix.h"
 #include "testing/test_support.h"
 

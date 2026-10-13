@@ -1,6 +1,6 @@
 /* Generated from `cwrap_version.c.in`. Change project(VERSION), not the generated source. */
 
-#include "app/cwrap_version.h"
+#include "domain/cwrap_version.h"
 
 struct Str cwrap_version_string(void) {
   return S("@PROJECT_VERSION@");

@@ -315,7 +315,7 @@ The script finds the expected files and the actual files with globs after `fram`
 - `cwrap_app` holds every application source except `src/app/main.c`, and links `core` and `os` as `PUBLIC` dependencies. `src/CMakeLists.txt` links the vendored dependencies.
 - The two vendored projects of `cwrap`, acutest and copt, are header-only, so their targets are interface libraries. `cwrap` has no compiled vendored code, so it uses two of the three build profiles: `apps_build_project` and `apps_build_tests`. With `address`, the CMake build instruments first-party code and the `core` library.
 - The common presets give `cwrap` the `tsan` and `ci-tsan` presets too. CI does not run a ThreadSanitizer build of `cwrap`, because `cwrap` starts no threads.
-- The version template is [apps/cwrap/src/app/cwrap_version.c.in](apps/cwrap/src/app/cwrap_version.c.in).
+- The version template is [apps/cwrap/src/domain/cwrap_version.c.in](apps/cwrap/src/domain/cwrap_version.c.in).
 
 ### cwrap tests
 
