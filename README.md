@@ -1,4 +1,8 @@
-# apps
+<div align="center">
+  <img src="media/logo.png" height="300" alt="">
+</div>
+
+<h1 align="center"><code>apps</code></h1>
 
 This repository holds three small programs written in C17, and the libraries that they share.
 
