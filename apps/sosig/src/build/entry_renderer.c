@@ -25,6 +25,10 @@
 #include "output/output_path.h"
 #include "runtime/job.h"
 
+/** HTML level of a level 1 heading in a content body: `<h2>`, below the `<h1>` of the page
+    title. */
+enum { CONTENT_TOP_HEADING_LEVEL = 2 };
+
 /**
  * Worker context shared by all content entry parse jobs. Every field is read-only to a job, except
  * `source_entries` and `draft_flags`, where each job writes its own slot.
@@ -694,9 +698,10 @@ static int convert_content_body_job(ptrdiff_t index,
   // converter runs, so a large body is built without a copy. The read capped the file at
   // `CONTENT_FILE_LEN_MAX`, the input limit of both converters.
   entry->body_html =
-      links.is_org
-          ? org_to_html(entry->body_source, &link_targets, &arenas->perm, arenas->scratch)
-          : markdown_to_html(entry->body_source, &link_targets, &arenas->perm, arenas->scratch);
+      links.is_org ? org_to_html(entry->body_source, &link_targets, CONTENT_TOP_HEADING_LEVEL,
+                                 &arenas->perm, arenas->scratch)
+                   : markdown_to_html(entry->body_source, &link_targets, CONTENT_TOP_HEADING_LEVEL,
+                                      &arenas->perm, arenas->scratch);
   entry->has_entry_link = links.has_entry_link;
   entry->has_asset_link = links.has_asset_link;
   return log->errors > 0 ? -1 : 0;

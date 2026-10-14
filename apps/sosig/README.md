@@ -297,7 +297,7 @@ A denote link names the file whose name contains the identifier, in one of the t
 
 A link can also name a place in the other file:
 
-- A Markdown `#fragment`, or an Org `::#custom-id` search option, becomes the fragment of the URL, such as `other.html#custom-id`. The link goes to the other page, but not to the heading, because `sosig` does not write the `CUSTOM_ID` of a heading as its `id`.
+- A Markdown `#fragment`, or an Org `::#custom-id` search option, becomes the fragment of the URL, such as `other.html#custom-id`. The link goes to that heading of the other page, because each heading has an `id`, as [Generated HTML](#generated-html) describes.
 - `sosig` removes every other Org search option, such as `::*Heading`, because it does not read the headlines of the other file.
 
 An Org `file` link without a description shows the URL that `sosig` writes, as Emacs shows the path that it exports. A denote link without a description shows `denote:` and the identifier, as it does in Emacs.
@@ -323,6 +323,7 @@ To publish a directory of denote notes without changes:
 
 `sosig` uses md4c to parse Markdown, and writes the HTML itself. It enables these extensions:
 
+- Autolinks: a bare URL, a `www.` address and an e-mail address are links, as GitHub makes them
 - Tables
 - Strikethrough
 - Task lists
@@ -343,7 +344,7 @@ To publish a directory of denote notes without changes:
 - `sosig` writes an inline `src_c{…}` as its code, unless its `:exports` is `none` or `results`. By default, Emacs exports the results of an inline `src_c{…}`, but `sosig` never evaluates code.
 - A `[[id:...]]` link points to an anchor on the same page, so a link to another note does not work. A `[[file:other.org]]` link and a `[[denote:...]]` link point to the page of the other note, as [Links between content files](#links-between-content-files) describes.
 
-As in Emacs, a property drawer at the top of the file renders nothing. A `Footnotes` headline and its subtree also render nothing, but their footnote definitions go into the footnote list at the end. The Org renderer of `sosig` is a port of the renderer in org4c, so the other differences that the org4c [README](https://github.com/unindented/org4c#differences-from-emacs-ox-html) lists also apply to `sosig`, except for the shared HTML that the next section describes.
+As in Emacs, a property drawer at the top of the file renders nothing. A `Footnotes` headline and its subtree also render nothing, but their footnote definitions go into the footnote list at the end. The Org renderer of `sosig` is a port of the renderer in org4c, so the other differences that the org4c [README](https://github.com/unindented/org4c#differences-from-emacs-ox-html) lists also apply to `sosig`, except for the HTML that the next section describes.
 
 ### Generated HTML
 
@@ -351,11 +352,23 @@ For the features that Markdown and Org share, `sosig` writes the same HTML, so o
 
 - Bold text is `<strong>`, and italic text is `<em>`.
 - Headings start at `<h2>`, one level below the `<h1>` of the page title in a content template. Markdown's `#` and Org's `*` are `<h2>`, and each lower level adds one, up to `<h6>`.
+- Each heading has an `id`: an Org headline's `CUSTOM_ID`, or else a slug of its text, with ASCII letters in lowercase, digits and `_` kept, each run of spaces and `-` as one `-`, none at either end, and every other character dropped, a non-ASCII letter included. A heading with no slug is `section`, and a slug that an earlier heading of the page has gets `-1`, `-2` and so on. So `## Build & test` is `#build-test`. A slug matches GitHub's for ASCII text without punctuation between words, which GitHub keeps as `--`. Each heading sits in a `<div class="heading">` with a link to itself after it, `<a class="anchor" href="#<id>" aria-labelledby="<id>"></a>`, empty for a stylesheet to draw. The link takes its name from the heading, so it holds no English word of its own, and it sits outside the heading, so it is not part of the heading's name. Ids are unique within one body, so a template that writes the bodies of several entries on one page, inside `{{#content_entries}}`, can repeat a heading's or a footnote's id across them.
 - A footnote reference is `<sup><a href="#fn-1" id="fnref-1-1" role="doc-noteref">1</a></sup>`. The footnotes come after the body, in a `<section class="footnotes" role="doc-endnotes">` list. Each footnote has `role="doc-backlink"` links back to its references. A footnote with one paragraph has no `<p>`. An Org footnote with more than one paragraph keeps each paragraph as a `<p>`.
 - A task list item starts with a disabled `<input type="checkbox" class="task-list-item-checkbox">`. Org's partly done `[-]` item is unchecked.
 - A note, tip, important note, warning, or caution is a `<div class="admonition-note">` (or `admonition-tip`, and so on) that starts with a `<p class="admonition-title">`. In Markdown, it is a `> [!NOTE]` block. In Org, it is a `#+BEGIN_NOTE` block. In both formats, the block name can be in any letter case.
+- A Markdown spoiler, `||text||`, is `<label class="spoiler"><input type="checkbox" role="switch"><span>text</span></label>`: a switch that a reader turns on to see the text, with the keyboard or a click and no script. A stylesheet hides the text while the switch is off, with `visibility: hidden`, which hides it from a screen reader too and keeps its width in the sentence, and names the switch, for example with `.spoiler::before { content: "" / "Spoiler"; }`.
 - Inline math is `<x-equation>`, and displayed math is `<x-equation type="display">`. The element contains the LaTeX, for a script such as MathJax or KaTeX. In Org, `$y$` and `\(y\)` are inline, and `$$y$$`, `\[y\]`, and a LaTeX environment are displayed.
-- A code block is `<pre><code class="language-c">`. An Org code block with a `#+NAME:`, a `#+CAPTION:`, line numbers, or code references keeps the Org markup for these features: an `id`, a `Listing` label, and `linenr` and `coderef` spans around each line. An inline `src_c{…}` is Org's own `<code class="src src-c">`. `sosig` highlights both of them in the same way as any other code block.
+- A code block is `<pre><code class="language-c">`, and Org's inline `src_c{…}` is `<code class="language-c">`. `sosig` highlights both of them. An Org example block and Org's fixed-width `: ` lines are `<pre><code>`, as a Markdown code block without a language is.
+- An image alone in its paragraph is `<p><img></p>`.
+
+Org has features that Markdown lacks. Their classes start with `org-`:
+
+- Org's underline, `_text_`, is `<u>`, which needs no class.
+- A caption makes an image or a code block a `<figure>` with a `<figcaption>`, and gives a table a `<caption>`. The caption starts with its number in a `<span class="org-figure-number">`, `org-listing-number` or `org-table-number`. The span holds only the number, so a stylesheet writes the word, for example with `.org-figure-number::before { content: "Figure "; }`.
+- A code block with a `#+NAME:` has that `id` on its `<pre>`. A source or example block with line numbers or code references writes each line as a `<span class="code-line">`. A numbered line starts with a `<span class="code-line-numbers">` that holds its `<span class="code-line-number">`. The text of the line, with its line end, is a `<span class="code-line-text">`. A stylesheet can lay the lines out as a grid, with the numbers in the first column, and keep the numbers out of a copy of the code. These classes have no `org-` prefix because the markup of numbered code lines is shared, not Org's own. A line with a code reference also has the class `org-coderef` and the id `coderef-<name>`, and a link to it is an `<a class="org-coderef-link">`.
+- A headline's TODO keyword is a `<span class="org-todo">`, or a `<span class="org-done">` for a done keyword. Its priority is a `<span class="org-priority">`. Its tags are a `<span class="org-tags">` with a `<span class="org-tag">` for each tag.
+- A timestamp is a `<span class="org-timestamp">`, a citation is a `<span class="org-citation">`, a verse block is a `<p class="org-verse">`, and a center block is a `<div class="org-center">`.
+- The `:class` of `#+ATTR_HTML:`, and the name of a special block that is not an admonition, stay as the author wrote them, without the prefix.
 
 ### Syntax highlighting
 

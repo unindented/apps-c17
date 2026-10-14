@@ -537,11 +537,12 @@ static void writer_finish(struct Writer* writer) __attribute__((nonnull(1)));
 static void writer_open_line(struct Writer* writer) __attribute__((nonnull(1)));
 
 /**
- * @brief Closes the open span, then runs the close callback of the current line.
+ * @brief Closes the open span, then ends the current line: its close callback, or else its `\n`.
  *
- * @param writer Writer of the block. Must not be `NULL`.
+ * @param writer   Writer of the block. Must not be `NULL`.
+ * @param is_ended Whether the line ends in `\n`.
  */
-static void writer_close_line(struct Writer* writer) __attribute__((nonnull(1)));
+static void writer_close_line(struct Writer* writer, bool is_ended) __attribute__((nonnull(1)));
 
 /**
  * @brief Makes the open span the given capture's, closing the one open before.
@@ -1094,8 +1095,7 @@ static void writer_text(struct Writer* writer, ptrdiff_t end) {
       writer->pos += line.head.len;
     }
     if (line.is_found) {
-      writer_close_line(writer);
-      buf_append(writer->buffer, S("\n"));
+      writer_close_line(writer, true);
       writer->pos++;
       writer->line++;
     }
@@ -1105,7 +1105,7 @@ static void writer_text(struct Writer* writer, ptrdiff_t end) {
 static void writer_finish(struct Writer* writer) {
   writer_advance(writer, writer->code.len);
   if (writer->is_line_open) {
-    writer_close_line(writer);
+    writer_close_line(writer, false);
   }
 }
 
@@ -1119,11 +1119,13 @@ static void writer_open_line(struct Writer* writer) {
   }
 }
 
-static void writer_close_line(struct Writer* writer) {
+static void writer_close_line(struct Writer* writer, bool is_ended) {
   writer_span(writer, CAPTURE_NONE);
   writer->is_line_open = false;
   if (writer->lines != NULL) {
-    writer->lines->close(writer->buffer, writer->line, writer->lines->userdata);
+    writer->lines->close(writer->buffer, writer->line, is_ended, writer->lines->userdata);
+  } else if (is_ended) {
+    buf_append(writer->buffer, S("\n"));
   }
 }
 

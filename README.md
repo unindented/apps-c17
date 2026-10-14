@@ -4,7 +4,7 @@
 
 <h1 align="center"><code>apps</code></h1>
 
-This repository holds three small programs written in C17, and the libraries that they share.
+This repository holds four small programs written in C17, and the libraries that they share.
 
 ## LLM disclosure
 
@@ -18,6 +18,7 @@ This repository holds three small programs written in C17, and the libraries tha
 | [`apps/sosig`](apps/sosig) | `sosig`, a static site generator for Markdown and Org files. |
 | [`apps/fram`](apps/fram) | `fram`, a static photo and video gallery generator. |
 | [`apps/cwrap`](apps/cwrap) | `cwrap`, a formatter that refills the prose in C comments. |
+| [`apps/surge`](apps/surge) | `surge`, a static site generator for git repositories. |
 | [`libs`](libs) | The libraries that the apps share: `core`, `testing`, `os`, `runtime`, `formats`, `markup` and `output`, which [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md) describes. |
 | [`vendor`](vendor) | The sources of the third-party libraries that the apps and `libs` use. |
 | [`cmake`](cmake) | The CMake modules, presets and toolchains that every project uses. |

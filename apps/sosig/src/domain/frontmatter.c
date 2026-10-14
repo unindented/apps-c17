@@ -16,13 +16,13 @@
 #include "core/str.h"
 #include "core/text.h"
 #include "domain/content_entry.h"
+#include "formats/frontmatter.h"
 #include "formats/toml.h"
 
 /** UTF-8 byte order mark, tolerated as an optional prefix of a Markdown or Org source. */
 #define UTF8_BOM S("\xEF\xBB\xBF")
 
 /** Fence that delimits the TOML frontmatter block at the start and end. */
-#define FRONTMATTER_FENCE S("+++")
 
 /** Bytes Org reads as blanks inside a line, with the `\r` of a CRLF line ending. */
 #define ORG_BLANKS S(" \t\r")
@@ -57,14 +57,6 @@ static const struct Str frontmatter_keys[] = {
     STR_INIT("title"), STR_INIT("date"), STR_INIT("modified"), STR_INIT("description"),
     STR_INIT("slug"),  STR_INIT("tags"), STR_INIT("draft"),    STR_INIT("template"),
 };
-
-/**
- * @brief Reports whether a line is exactly a fence, ignoring a CRLF line ending's `\r`.
- *
- * @param line Line bytes, without the trailing `\n`.
- * @return `true` when the line is a fence, `false` otherwise.
- */
-static bool is_frontmatter_fence_line(struct Str line);
 
 /**
  * @brief Parses frontmatter bytes as a standalone TOML document, behind a synthesized blank first
@@ -581,28 +573,21 @@ int frontmatter_split(struct Str markdown,
                       struct Str source_path,
                       struct FrontmatterSplit* split_out,
                       struct Log* log) {
-  struct Str rest = markdown;
-  if (str_startswith(rest, UTF8_BOM)) {
-    rest = str_tail(rest, UTF8_BOM.len);
-  }
-  struct StrCut line = str_cut(rest, '\n');
-  if (!is_frontmatter_fence_line(line.head)) {
+  // Only TOML is content metadata, so a file that opens with a YAML fence lacks the TOML one.
+  struct Frontmatter found = {0};
+  const enum FrontmatterResult result = frontmatter_find(markdown, &found);
+  const struct Str fence = frontmatter_fence(FRONTMATTER_KIND_TOML);
+  if (found.kind != FRONTMATTER_KIND_TOML) {
     return log_error_in(log, source_path, "missing opening '%.*s' frontmatter fence",
-                        STR_FMT(FRONTMATTER_FENCE));
+                        STR_FMT(fence));
   }
-  const struct Str frontmatter = line.tail;
-  rest = line.tail;
-  while (rest.len > 0) {
-    line = str_cut(rest, '\n');
-    if (is_frontmatter_fence_line(line.head)) {
-      split_out->frontmatter = str_head(frontmatter, rest.data - frontmatter.data);
-      split_out->body = line.tail;
-      return 0;
-    }
-    rest = line.tail;
+  if (result != FRONTMATTER_FOUND) {
+    return log_error_in(log, source_path, "missing closing '%.*s' frontmatter fence",
+                        STR_FMT(fence));
   }
-  return log_error_in(log, source_path, "missing closing '%.*s' frontmatter fence",
-                      STR_FMT(FRONTMATTER_FENCE));
+  split_out->frontmatter = found.text;
+  split_out->body = found.body;
+  return 0;
 }
 
 int frontmatter_parse(struct ContentEntry* entry,
@@ -671,13 +656,6 @@ int frontmatter_parse_org(struct ContentEntry* entry,
     rc = -1;
   }
   return rc;
-}
-
-static bool is_frontmatter_fence_line(struct Str line) {
-  if (str_endswith(line, S("\r"))) {
-    line = str_head(line, line.len - 1);
-  }
-  return str_eq(line, FRONTMATTER_FENCE);
 }
 
 static int frontmatter_parse_document(struct Str frontmatter,

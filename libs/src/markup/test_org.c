@@ -64,84 +64,102 @@ static const struct SourceCase source_cases[] = {
      "#+BEGIN_SRC c\n"
      "x\n"
      "#+END_SRC\n",
-     "<label class=\"org-src-name\"><span class=\"listing-number\">Listing 1: </span>A <em>b</em> "
-     "<a href=\"https://x.org\">c</a> <code class=\"src src-c\"><span "
-     "class=\"tok-variable\">x</span></code></label><pre><code class=\"language-c\"><span "
+     "<figure><figcaption><span class=\"org-listing-number\">1</span> A <em>b</em> "
+     "<a href=\"https://x.org\">c</a> <code class=\"language-c\"><span "
+     "class=\"tok-variable\">x</span></code></figcaption>\n<pre><code class=\"language-c\"><span "
      "class=\"tok-variable\">x</span>\n"
-     "</code></pre>\n",
+     "</code></pre>\n</figure>\n",
      "#+CAPTION: A /b/ [[https://x.org][c]] src_zz{x}\n"
      "#+BEGIN_SRC zz\n"
      "x\n"
      "#+END_SRC\n",
-     "<label class=\"org-src-name\"><span class=\"listing-number\">Listing 1: </span>A <em>b</em> "
-     "<a href=\"https://x.org\">c</a> <code class=\"src src-zz\">x</code></label><pre><code "
+     "<figure><figcaption><span class=\"org-listing-number\">1</span> A <em>b</em> "
+     "<a href=\"https://x.org\">c</a> <code "
+     "class=\"language-zz\">x</code></figcaption>\n<pre><code "
      "class=\"language-zz\">x\n"
-     "</code></pre>\n"},
+     "</code></pre>\n</figure>\n"},
     {"numbered",
      "#+BEGIN_SRC c -n\n"
      "x\n"
      "\n"
      "x\n"
      "#+END_SRC\n",
-     "<pre><code class=\"language-c\"><span class=\"linenr\">1: </span><span "
-     "class=\"tok-type\">x</span>\n"
-     "<span class=\"linenr\">2: </span>\n"
-     "<span class=\"linenr\">3: </span><span class=\"tok-variable\">x</span>\n"
-     "</code></pre>\n",
+     "<pre><code class=\"language-c\"><span class=\"code-line\"><span "
+     "class=\"code-line-numbers\"><span class=\"code-line-number\">1</span></span><span "
+     "class=\"code-line-text\"><span class=\"tok-type\">x</span>\n"
+     "</span></span><span class=\"code-line\"><span class=\"code-line-numbers\"><span "
+     "class=\"code-line-number\">2</span></span><span class=\"code-line-text\">\n"
+     "</span></span><span class=\"code-line\"><span class=\"code-line-numbers\"><span "
+     "class=\"code-line-number\">3</span></span><span class=\"code-line-text\"><span "
+     "class=\"tok-variable\">x</span>\n"
+     "</span></span></code></pre>\n",
      "#+BEGIN_SRC zz -n\n"
      "x\n"
      "\n"
      "x\n"
      "#+END_SRC\n",
-     "<pre><code class=\"language-zz\"><span class=\"linenr\">1: </span>x\n"
-     "<span class=\"linenr\">2: </span>\n"
-     "<span class=\"linenr\">3: </span>x\n"
-     "</code></pre>\n"},
+     "<pre><code class=\"language-zz\"><span class=\"code-line\"><span "
+     "class=\"code-line-numbers\"><span class=\"code-line-number\">1</span></span><span "
+     "class=\"code-line-text\">x\n"
+     "</span></span><span class=\"code-line\"><span class=\"code-line-numbers\"><span "
+     "class=\"code-line-number\">2</span></span><span class=\"code-line-text\">\n"
+     "</span></span><span class=\"code-line\"><span class=\"code-line-numbers\"><span "
+     "class=\"code-line-number\">3</span></span><span class=\"code-line-text\">x\n"
+     "</span></span></code></pre>\n"},
     {"coderef",
      "#+BEGIN_SRC c\n"
      "x (ref:r)\n"
      "x\n"
      "#+END_SRC\n",
-     "<pre><code class=\"language-c\"><span id=\"coderef-r\" class=\"coderef-off\"><span "
-     "class=\"tok-type\">x</span> (r)</span>\n"
-     "<span class=\"tok-variable\">x</span>\n"
-     "</code></pre>\n",
+     "<pre><code class=\"language-c\"><span class=\"code-line org-coderef\" id=\"coderef-r\"><span "
+     "class=\"code-line-text\"><span class=\"tok-type\">x</span> (r)\n"
+     "</span></span><span class=\"code-line\"><span class=\"code-line-text\"><span "
+     "class=\"tok-variable\">x</span>\n"
+     "</span></span></code></pre>\n",
      "#+BEGIN_SRC zz\n"
      "x (ref:r)\n"
      "x\n"
      "#+END_SRC\n",
-     "<pre><code class=\"language-zz\"><span id=\"coderef-r\" class=\"coderef-off\">x (r)</span>\n"
-     "x\n"
-     "</code></pre>\n"},
+     "<pre><code class=\"language-zz\"><span class=\"code-line org-coderef\" "
+     "id=\"coderef-r\"><span class=\"code-line-text\">x (r)\n"
+     "</span></span><span class=\"code-line\"><span class=\"code-line-text\">x\n"
+     "</span></span></code></pre>\n"},
     {"numbered-coderef",
      "#+BEGIN_SRC c -n 9\n"
      "x\n"
      "x (ref:r)\n"
      "#+END_SRC\n",
-     "<pre><code class=\"language-c\"><span class=\"linenr\"> 9: </span><span "
-     "class=\"tok-type\">x</span>\n"
-     "<span id=\"coderef-r\" class=\"coderef-off\"><span class=\"linenr\">10: </span><span "
-     "class=\"tok-variable\">x</span> (r)</span>\n"
-     "</code></pre>\n",
+     "<pre><code class=\"language-c\"><span class=\"code-line\"><span "
+     "class=\"code-line-numbers\"><span class=\"code-line-number\">9</span></span><span "
+     "class=\"code-line-text\"><span class=\"tok-type\">x</span>\n"
+     "</span></span><span class=\"code-line org-coderef\" id=\"coderef-r\"><span "
+     "class=\"code-line-numbers\"><span class=\"code-line-number\">10</span></span><span "
+     "class=\"code-line-text\"><span class=\"tok-variable\">x</span> (r)\n"
+     "</span></span></code></pre>\n",
      "#+BEGIN_SRC zz -n 9\n"
      "x\n"
      "x (ref:r)\n"
      "#+END_SRC\n",
-     "<pre><code class=\"language-zz\"><span class=\"linenr\"> 9: </span>x\n"
-     "<span id=\"coderef-r\" class=\"coderef-off\"><span class=\"linenr\">10: </span>x (r)</span>\n"
-     "</code></pre>\n"},
+     "<pre><code class=\"language-zz\"><span class=\"code-line\"><span "
+     "class=\"code-line-numbers\"><span class=\"code-line-number\">9</span></span><span "
+     "class=\"code-line-text\">x\n"
+     "</span></span><span class=\"code-line org-coderef\" id=\"coderef-r\"><span "
+     "class=\"code-line-numbers\"><span class=\"code-line-number\">10</span></span><span "
+     "class=\"code-line-text\">x (r)\n"
+     "</span></span></code></pre>\n"},
     {"label-removed",
      "#+BEGIN_SRC c -r\n"
      "x (ref:r)\n"
      "#+END_SRC\n",
-     "<pre><code class=\"language-c\"><span id=\"coderef-r\" class=\"coderef-off\"><span "
-     "class=\"tok-variable\">x</span></span>\n"
-     "</code></pre>\n",
+     "<pre><code class=\"language-c\"><span class=\"code-line org-coderef\" id=\"coderef-r\"><span "
+     "class=\"code-line-text\"><span class=\"tok-variable\">x</span>\n"
+     "</span></span></code></pre>\n",
      "#+BEGIN_SRC zz -r\n"
      "x (ref:r)\n"
      "#+END_SRC\n",
-     "<pre><code class=\"language-zz\"><span id=\"coderef-r\" class=\"coderef-off\">x</span>\n"
-     "</code></pre>\n"},
+     "<pre><code class=\"language-zz\"><span class=\"code-line org-coderef\" "
+     "id=\"coderef-r\"><span class=\"code-line-text\">x\n"
+     "</span></span></code></pre>\n"},
     {"footnote",
      "A.[fn:1]\n"
      "\n"
@@ -187,7 +205,7 @@ static const struct SourceCase source_cases[] = {
  */
 static struct Str render_org(const char* org) {
   struct Arena perm = test_arena();
-  return org_to_html(str_from_cstr(org), NULL, &perm, test_arena());
+  return org_to_html(str_from_cstr(org), NULL, 2, &perm, test_arena());
 }
 
 /**
@@ -227,8 +245,8 @@ static int write_test_link_target(struct Buf* buffer,
 }
 
 /**
- * @brief Converts Org to HTML with `write_test_link_target` as the link callback, in arenas of its
- *        own.
+ * @brief Converts Org to HTML with `write_test_link_target` as the link callback, which raw HTML's
+ *        targets go to too, in arenas of its own.
  *
  * @param org       Terminated Org text. Must not be `NULL`.
  * @param mode      What the callback does with each target.
@@ -241,8 +259,12 @@ static struct Str render_org_linked(const char* org,
   struct Arena perm = test_arena();
   struct Arena calls_arena = test_arena();
   struct TestLinkTargets targets = {.mode = mode, .calls = {.arena = &calls_arena}};
-  const struct LinkTargets link_targets = {.write = write_test_link_target, .userdata = &targets};
-  const struct Str html = org_to_html(str_from_cstr(org), &link_targets, &perm, test_arena());
+  const struct LinkTargets link_targets = {
+      .write = write_test_link_target,
+      .userdata = &targets,
+      .is_raw_html_linked = true,
+  };
+  const struct Str html = org_to_html(str_from_cstr(org), &link_targets, 2, &perm, test_arena());
   *calls_out = buf_str(&targets.calls);
   return html;
 }
@@ -254,9 +276,12 @@ static struct Str render_org_linked(const char* org,
 static void test_renders_basic_html(void) {
   struct Arena perm = test_arena();
   struct Arena scratch = test_arena();
-  const struct Str html = org_to_html(S("* Title\n/em/ and =code=\n"), NULL, &perm, scratch);
+  const struct Str html = org_to_html(S("* Title\n/em/ and =code=\n"), NULL, 2, &perm, scratch);
 
-  TEST_CHECK(str_eq(html, S("<h2>Title</h2>\n<p><em>em</em> and <code>code</code></p>\n")));
+  TEST_CHECK(str_eq(
+      html,
+      S("<div class=\"heading\"><h2 id=\"title\">Title</h2><a class=\"anchor\" href=\"#title\" "
+        "aria-labelledby=\"title\"></a></div>\n<p><em>em</em> and <code>code</code></p>\n")));
 }
 
 // Bold and italics give the same HTML as in Markdown, which `test_markdown.c` checks with the same
@@ -309,14 +334,15 @@ static void test_renders_math(void) {
 // A source block gives the same highlighted HTML as in Markdown, which `test_markdown.c` checks
 // with the same expected HTML.
 static void test_renders_code_block(void) {
-  TEST_CHECK(str_eq(render_org("#+BEGIN_SRC c\nint x;\n#+END_SRC\n"),
-                    S("<pre><code class=\"language-c\"><span class=\"tok-type\">int</span> <span "
-                      "class=\"tok-variable\">x</span><span "
-                      "class=\"tok-delimiter\">;</span>\n</code></pre>\n")));
+  TEST_CHECK(
+      str_eq(render_org("#+BEGIN_SRC c\nint x;\n#+END_SRC\n"),
+             S("<pre><code class=\"language-c\"><span class=\"tok-type-builtin\">int</span> <span "
+               "class=\"tok-variable\">x</span><span "
+               "class=\"tok-delimiter\">;</span>\n</code></pre>\n")));
 }
 
-// Every path of a source block highlights its code as Emacs does, with its line numbers and code
-// references around the highlighted lines.
+// Every path of a source block highlights its code as Emacs does. A block with line numbers or code
+// references has each line as a code line, which holds its number and its reference's id.
 static void test_highlights_every_source_block_path(void) {
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(source_cases) / sizeof(source_cases[0])); i++) {
     TEST_CASE(source_cases[i].name);
@@ -331,8 +357,8 @@ static void test_follows_inline_source_exports(void) {
   TEST_CHECK(
       str_eq(render_org("A src_c[:exports none]{x} src_c[:exports results]{y} B "
                         "src_c[:exports code]{z} C src_c[:exports NONE]{w} D\n"),
-             S("<p>A   B <code class=\"src src-c\"><span class=\"tok-variable\">z</span></code> "
-               "C <code class=\"src src-c\"><span class=\"tok-variable\">w</span></code> "
+             S("<p>A   B <code class=\"language-c\"><span class=\"tok-variable\">z</span></code> "
+               "C <code class=\"language-c\"><span class=\"tok-variable\">w</span></code> "
                "D</p>\n")));
 }
 
@@ -340,15 +366,46 @@ static void test_follows_inline_source_exports(void) {
 // the block's first line keeps its own.
 static void test_numbers_no_caption_code(void) {
   TEST_CHECK(str_eq(render_org("#+CAPTION: a =v= b\n#+BEGIN_SRC zz -n\nx\n#+END_SRC\n"),
-                    S("<label class=\"org-src-name\"><span class=\"listing-number\">Listing 1: "
-                      "</span>a <code>v</code> b</label><pre><code class=\"language-zz\"><span "
-                      "class=\"linenr\">1: </span>x\n</code></pre>\n")));
+                    S("<figure><figcaption><span class=\"org-listing-number\">1</span> a "
+                      "<code>v</code> b</figcaption>\n"
+                      "<pre><code class=\"language-zz\"><span class=\"code-line\"><span "
+                      "class=\"code-line-numbers\"><span "
+                      "class=\"code-line-number\">1</span></span><span class=\"code-line-text\">x\n"
+                      "</span></span></code></pre>\n"
+                      "</figure>\n")));
 }
 
 // Headings at the first two levels give the same HTML as in Markdown, which `test_markdown.c`
 // checks with the same expected HTML.
 static void test_renders_heading_levels(void) {
-  TEST_CHECK(str_eq(render_org("* A\n** B\n"), S("<h2>A</h2>\n<h3>B</h3>\n")));
+  TEST_CHECK(
+      str_eq(render_org("* A\n** B\n"),
+             S("<div class=\"heading\"><h2 id=\"a\">A</h2><a class=\"anchor\" href=\"#a\" "
+               "aria-labelledby=\"a\"></a></div>\n<div class=\"heading\"><h3 id=\"b\">B</h3><a "
+               "class=\"anchor\" href=\"#b\" aria-labelledby=\"b\"></a></div>\n")));
+}
+
+// A headline's id is the `CUSTOM_ID` of its property drawer, else the slug of its text, without its
+// TODO keyword, priority or tags. A drawer that is not right after the headline names no id.
+static void test_gives_headlines_custom_or_slug_ids(void) {
+  const struct Str html = render_org(
+      "* TODO [#A] Fix the build :work:urgent:\n"
+      "* Installation\n:PROPERTIES:\n:custom_id:  install \n:END:\nText.\n"
+      "* Usage\nText.\n:PROPERTIES:\n:CUSTOM_ID: not-this\n:END:\n");
+  TEST_CHECK(str_eq(
+      html,
+      S("<div class=\"heading\"><h2 id=\"fix-the-build\"><span "
+        "class=\"org-todo\">TODO</span> <span class=\"org-priority\">[A]</span> Fix the "
+        "build <span class=\"org-tags\"><span class=\"org-tag\">work</span> <span "
+        "class=\"org-tag\">urgent</span></span></h2><a "
+        "class=\"anchor\" href=\"#fix-the-build\" "
+        "aria-labelledby=\"fix-the-build\"></a></div>\n<div class=\"heading\"><h2 "
+        "id=\"install\">Installation</h2><a "
+        "class=\"anchor\" href=\"#install\" "
+        "aria-labelledby=\"install\"></a></div>\n<p>Text.</p>\n<div class=\"heading\"><h2 "
+        "id=\"usage\">Usage</h2><a class=\"anchor\" href=\"#usage\" "
+        "aria-labelledby=\"usage\"></a></div>\n<p>Text.</p>\n<p>:CUSTOM_ID: not-this</p>\n")));
+  TEST_MSG("html: %.*s", STR_FMT(html));
 }
 
 // Entities give the same HTML as in Markdown, which `test_markdown.c` checks with the same expected
@@ -362,7 +419,7 @@ static void test_renders_entities(void) {
 static void test_renders_braced_subscripts_only(void) {
   struct Arena perm = test_arena();
   struct Arena scratch = test_arena();
-  const struct Str html = org_to_html(S("a_{b} and a_b\n"), NULL, &perm, scratch);
+  const struct Str html = org_to_html(S("a_{b} and a_b\n"), NULL, 2, &perm, scratch);
 
   TEST_CHECK(str_eq(html, S("<p>a<sub>b</sub> and a_b</p>\n")));
 }
@@ -371,7 +428,7 @@ static void test_renders_braced_subscripts_only(void) {
 static void test_honors_in_buffer_options(void) {
   struct Arena perm = test_arena();
   struct Arena scratch = test_arena();
-  const struct Str html = org_to_html(S("#+OPTIONS: ^:nil\na_{b}\n"), NULL, &perm, scratch);
+  const struct Str html = org_to_html(S("#+OPTIONS: ^:nil\na_{b}\n"), NULL, 2, &perm, scratch);
 
   TEST_CHECK(str_eq(html, S("<p>a_{b}</p>\n")));
 }
@@ -384,7 +441,7 @@ static void test_passes_through_export_blocks(void) {
   struct Arena scratch = test_arena();
   const struct Str html =
       org_to_html(S("#+BEGIN_EXPORT html\n<div class=\"note\">raw <b>x</b></div>\n#+END_EXPORT\n"),
-                  NULL, &perm, scratch);
+                  NULL, 2, &perm, scratch);
 
   TEST_CHECK(str_eq(html, S("<div class=\"note\">raw <b>x</b></div>\n")));
 }
@@ -412,18 +469,44 @@ static void test_keeps_source_block_paths_without_grammar(void) {
   }
 }
 
-// An example block and fixed-width lines stay plain whatever they hold, and an example block keeps
-// its line numbers and code references, as in Emacs.
+// An example block and fixed-width lines are code without a language, as an unfenced Markdown code
+// block is, whatever they hold. An example block keeps its line numbers and code references, as in
+// Emacs, with each line a code line, as a source block's is.
 static void test_leaves_example_blocks_plain(void) {
-  TEST_CHECK(str_eq(render_org("#+BEGIN_EXAMPLE -n\n"
-                               "int x; (ref:e)\n"
-                               "#+END_EXAMPLE\n"
-                               ": int x;\n"),
-                    S("<pre class=\"example\"><span id=\"coderef-e\" class=\"coderef-off\"><span "
-                      "class=\"linenr\">1: </span>int x; (e)</span>\n"
-                      "</pre>\n"
-                      "<pre class=\"example\">int x;\n"
-                      "</pre>\n")));
+  TEST_CHECK(
+      str_eq(render_org("#+BEGIN_EXAMPLE -n\n"
+                        "int x; (ref:e)\n"
+                        "#+END_EXAMPLE\n"
+                        ": int x;\n"),
+             S("<pre><code><span class=\"code-line org-coderef\" id=\"coderef-e\"><span "
+               "class=\"code-line-numbers\"><span class=\"code-line-number\">1</span></span><span "
+               "class=\"code-line-text\">int x; (e)\n"
+               "</span></span></code></pre>\n"
+               "<pre><code>int x;\n"
+               "</code></pre>\n")));
+}
+
+// An image with a caption is a `<figure>` with a numbered `<figcaption>`, whose number a stylesheet
+// labels. An image without one is a paragraph, as in Markdown.
+static void test_renders_captioned_images_as_figures(void) {
+  TEST_CHECK(str_eq(render_org("#+CAPTION: A cat\n[[file:cat.png]]\n\n[[file:dog.png]]\n"),
+                    S("<figure>\n<img src=\"cat.png\" alt=\"cat.png\">\n<figcaption><span "
+                      "class=\"org-figure-number\">1</span> A cat</figcaption>\n</figure>\n"
+                      "<p><img src=\"dog.png\" alt=\"dog.png\"></p>\n")));
+}
+
+// A table's caption is its `<caption>`, numbered as a figure's is.
+static void test_numbers_table_captions(void) {
+  TEST_CHECK(str_eq(render_org("#+CAPTION: Sizes\n| a |\n"),
+                    S("<table>\n<caption><span class=\"org-table-number\">1</span> "
+                      "Sizes</caption>\n<tbody>\n<tr>\n<td>a</td>\n</tr>\n</tbody>\n</table>\n")));
+}
+
+// Underlined text is `<u>`, and a timestamp is a span with its text as written.
+static void test_renders_underline_and_timestamps(void) {
+  TEST_CHECK(str_eq(render_org("_u_ <2026-01-02 Fri>\n"),
+                    S("<p><u>u</u> <span class=\"org-timestamp\">&lt;2026-01-02 "
+                      "Fri&gt;</span></p>\n")));
 }
 
 // A special block whose name is not an admonition type keeps its name as its class, as in Emacs.
@@ -489,6 +572,26 @@ static void test_writes_the_callback_url_in_a_footnote(void) {
         "role=\"doc-backlink\">&#8617;</a>\n</li>\n</ol>\n</section>\n")));
 }
 
+// The targets of raw HTML reach the callback too: in an export block, whose lines org4c gives one
+// by one, so a tag across them is rewritten whole, in an `@@html:...@@` snippet, and in a footnote,
+// whose body goes to a buffer of its own.
+static void test_gives_raw_html_targets_to_the_callback(void) {
+  const char org[] =
+      "#+BEGIN_EXPORT html\n<img\n  src=\"a.png\" alt=\"\">\n#+END_EXPORT\n\n"
+      "See @@html:<a href='b.org'>@@b@@html:</a>@@.[fn:1]\n\n"
+      "[fn:1] @@html:<img src=c.png>@@\n";
+  struct Str calls = {0};
+  const struct Str html = render_org_linked(org, TEST_LINK_WRITE, &calls);
+  TEST_CHECK(str_eq(calls, S("|a.png|image;|b.org|link;|c.png|image;")));
+  TEST_CHECK(str_eq(
+      html, S("<img\n  src=\"u.html\" alt=\"\">\n<p>See <a href=\"u.html\">b</a>.<sup><a "
+              "href=\"#fn-1\" id=\"fnref-1-1\" role=\"doc-noteref\">1</a></sup></p>\n<section "
+              "class=\"footnotes\" role=\"doc-endnotes\">\n<ol>\n<li id=\"fn-1\">\n<img "
+              "src=\"u.html\"><a href=\"#fnref-1-1\" class=\"footnote-backref\" "
+              "role=\"doc-backlink\">&#8617;</a>\n</li>\n</ol>\n</section>\n")));
+  TEST_MSG("html: %.*s", STR_FMT(html));
+}
+
 // Org's dollar delimiters are math too: `$...$` inline and `$$...$$` displayed.
 static void test_renders_dollar_math(void) {
   TEST_CHECK(str_eq(
@@ -501,7 +604,7 @@ static void test_renders_dollar_math(void) {
 static void test_skips_leading_byte_order_mark(void) {
   struct Arena perm = test_arena();
   struct Arena scratch = test_arena();
-  const struct Str html = org_to_html(S("\xef\xbb\xbfhello\n"), NULL, &perm, scratch);
+  const struct Str html = org_to_html(S("\xef\xbb\xbfhello\n"), NULL, 2, &perm, scratch);
 
   TEST_CHECK(str_eq(html, S("<p>hello</p>\n")));
 }
@@ -510,7 +613,7 @@ static void test_skips_leading_byte_order_mark(void) {
 static void test_empty_input_yields_empty_string(void) {
   struct Arena perm = test_arena();
   struct Arena scratch = test_arena();
-  const struct Str html = org_to_html(S(""), NULL, &perm, scratch);
+  const struct Str html = org_to_html(S(""), NULL, 2, &perm, scratch);
 
   TEST_CHECK(html.len == 0);
 }
@@ -532,7 +635,7 @@ static void test_html_grows_in_place_in_perm(void) {
   struct Arena probe = perm;
   char* const start = arena_new(&probe, 0, char);
   const struct Str html =
-      org_to_html((struct Str){org, PARAGRAPH_COUNT * PARAGRAPH_LEN}, NULL, &perm, scratch);
+      org_to_html((struct Str){org, PARAGRAPH_COUNT * PARAGRAPH_LEN}, NULL, 2, &perm, scratch);
   TEST_CHECK(html.data == start);
   TEST_CHECK(html.len == PARAGRAPH_COUNT * S("<p>ab</p>\n").len);
 }
@@ -557,6 +660,7 @@ TEST_LIST = {
     {"follows inline source exports", test_follows_inline_source_exports},
     {"numbers no caption code", test_numbers_no_caption_code},
     {"renders heading levels", test_renders_heading_levels},
+    {"gives headlines custom or slug ids", test_gives_headlines_custom_or_slug_ids},
     {"renders entities", test_renders_entities},
     {"renders braced subscripts only", test_renders_braced_subscripts_only},
     {"honors in-buffer options", test_honors_in_buffer_options},
@@ -564,6 +668,9 @@ TEST_LIST = {
     {"renders footnote of several paragraphs", test_renders_footnote_of_several_paragraphs},
     {"keeps source block paths without grammar", test_keeps_source_block_paths_without_grammar},
     {"leaves example blocks plain", test_leaves_example_blocks_plain},
+    {"renders captioned images as figures", test_renders_captioned_images_as_figures},
+    {"numbers table captions", test_numbers_table_captions},
+    {"renders underline and timestamps", test_renders_underline_and_timestamps},
     {"keeps other special blocks", test_keeps_other_special_blocks},
     {"matches admonition names in any case", test_matches_admonition_names_in_any_case},
     {"keeps admonition names", test_keeps_admonition_names},
@@ -571,6 +678,7 @@ TEST_LIST = {
     {"gives every target to the callback", test_gives_every_target_to_the_callback},
     {"writes the callback url", test_writes_the_callback_url},
     {"writes the callback url in a footnote", test_writes_the_callback_url_in_a_footnote},
+    {"gives raw html targets to the callback", test_gives_raw_html_targets_to_the_callback},
     {"renders dollar math", test_renders_dollar_math},
     {"skips leading byte order mark", test_skips_leading_byte_order_mark},
     {"empty input yields empty string", test_empty_input_yields_empty_string},

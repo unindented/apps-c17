@@ -1,6 +1,7 @@
 #ifndef APPS_MARKUP_HIGHLIGHT_H
 #define APPS_MARKUP_HIGHLIGHT_H
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #include "core/arena.h"
@@ -17,7 +18,7 @@ struct HighlightGrammar;
 enum { HIGHLIGHT_MEMORY_LEN_MAX = 128 * 1024 * 1024 };
 
 /**
- * @brief Callback the writer calls around each line of a code block.
+ * @brief Callback the writer calls before each line of a code block.
  *
  * Every span the writer opens on a line closes before the line ends, so the callback can write
  * markup around the line without crossing one.
@@ -28,6 +29,20 @@ enum { HIGHLIGHT_MEMORY_LEN_MAX = 128 * 1024 * 1024 };
  */
 typedef void (*HighlightLineFn)(struct Buf* buffer, ptrdiff_t line, void* userdata);
 
+/**
+ * @brief Callback the writer calls after each line of a code block, which writes the line's `\n`
+ *        when it has one, so markup around the line can hold it.
+ *
+ * @param buffer   Destination buffer the code is written to. Must not be `NULL`.
+ * @param line     Index of the line, from 0.
+ * @param is_ended Whether the line ends in `\n`, which only a last line may not.
+ * @param userdata Opaque pointer from `struct HighlightLines`.
+ */
+typedef void (*HighlightLineEndFn)(struct Buf* buffer,
+                                   ptrdiff_t line,
+                                   bool is_ended,
+                                   void* userdata);
+
 /** Callbacks the writer calls around each line, in order, which decorate it, such as with its
  * number.
  */
@@ -35,8 +50,8 @@ struct HighlightLines {
   /** Called before a line's text. Must not be `NULL`. */
   HighlightLineFn open;
 
-  /** Called after a line's text, before its `\n`, or at the end of a last line without one. */
-  HighlightLineFn close;
+  /** Called after a line's text, in place of the writer's `\n`. Must not be `NULL`. */
+  HighlightLineEndFn close;
 
   /** Opaque pointer passed to both callbacks. */
   void* userdata;

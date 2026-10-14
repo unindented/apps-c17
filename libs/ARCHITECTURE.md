@@ -12,13 +12,13 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 
 | Library | Contents | Linked by |
 | --- | --- | --- |
-| [`core`](#core) | The arena allocator, counted strings, growable buffers and the error log, and ASCII classification, error text, exit codes, number parsing, paths, path lists and text helpers. | sosig, fram, cwrap |
+| [`core`](#core) | The arena allocator, counted strings, growable buffers and the error log, and ASCII classification, error text, exit codes, number parsing, paths, path lists and text helpers. | sosig, fram, cwrap, surge |
 | [`testing`](#testing) | The support that every unit test uses, and the `os_oom` of the unit tests. | the unit tests of every app and of the other libraries |
-| [`os`](#os) | The host interface and the out-of-memory report, with the POSIX host `os_posix` and the in-memory host `os_memory`. | sosig, fram and cwrap, and `os_memory` for their unit tests and those of the libraries |
-| [`runtime`](#runtime) | The worker pool, the jobs of a build phase that run on it, and the directory walk. | sosig, fram |
-| [`formats`](#formats) | HTML escaping and the TOML helpers. | sosig, fram |
-| [`markup`](#markup) | Markdown and Org to HTML, and the syntax highlighting of code blocks with tree-sitter. | sosig |
-| [`output`](#output) | The output manifest, the output-path checks, the output writer and the prune. | sosig, fram |
+| [`os`](#os) | The host interface and the out-of-memory report, with the POSIX host `os_posix` and the in-memory host `os_memory`. | sosig, fram, cwrap and surge, and `os_memory` for their unit tests and those of the libraries |
+| [`runtime`](#runtime) | The worker pool, the jobs of a build phase that run on it, and the directory walk. | sosig, fram, surge |
+| [`formats`](#formats) | HTML escaping and the TOML helpers. | sosig, fram, surge |
+| [`markup`](#markup) | Markdown and Org to HTML, and the syntax highlighting of code blocks with tree-sitter. | sosig, surge |
+| [`output`](#output) | The output manifest, the output-path checks, the output writer and the prune. | sosig, fram, surge |
 
 ### Dependency rules
 
@@ -245,15 +245,16 @@ Each property that a test checks against the in-memory host must have a contract
 
 ## formats
 
+- [frontmatter](src/formats/frontmatter.h): `frontmatter_find` finds the front matter at the start of a Markdown file, TOML between `+++` lines or YAML between `---` lines, by its fences alone, and reports its kind, its text and the body after it. sosig parses the TOML of its content files, and surge shows either kind as a code block.
 - [html](src/formats/html.h): HTML escaping of untrusted text for generated markup.
 - [toml](src/formats/toml.h): TOML parsing, text validation at the boundary where parsed bytes become owned text, and the conversion and formatting of dates and datetimes. `toml_require_known_keys` is the shared check for unknown keys. It reports each table key that is not in the list of known keys that a loader gives, and it reports a key that contains a `NUL` byte without its name, but with the name of its table.
 
 ## markup
 
-- [body_html](src/markup/body_html.h): The markup that the Markdown and Org renderers share, written in one place for both: headings, footnotes, task checkboxes, admonitions, math, code blocks that `highlight` highlights, and the escaping of link targets. It also defines `LinkTargets`, a callback that both renderers give the target of every link and image. The callback can write a URL of its own for a target, or decline, and then the renderer writes the target itself. The modules know nothing about content files.
-- [highlight](src/markup/highlight.h): Syntax highlighting of a code block with tree-sitter. `highlight_grammar_find` finds the grammar for a language name among the grammars that `APPS_GRAMMARS` compiles in. [src/markup/vendor.cmake](src/markup/vendor.cmake) declares these grammars in a header that it generates, with the highlight queries from [src/markup/queries/](src/markup/queries/). `highlight_grammar_list` names those grammars. `highlight_write` writes the code with a `<span class="tok-…">` around each token that the grammar's highlight query captures. It writes the code plain, only escaped, when there is no grammar or when the code block goes past a memory limit.
-- [markdown](src/markup/markdown.h): `markdown_to_html` parses Markdown with md4c and its extension set, and writes the HTML through its own callbacks. It gives each link and image destination, as written, to the `LinkTargets` callback of its caller.
-- [org](src/markup/org.h): `org_to_html` parses Org with org4c, its flags, and the file's `#+OPTIONS:` lines, and writes the HTML through its own callbacks. It gives the org4c type and the path of each link and image to the `LinkTargets` callback of its caller. A `file` link without a description shows the URL that the callback wrote.
+- [body_html](src/markup/body_html.h): The markup that the Markdown and Org renderers share, written in one place for both: headings, with the `id` of each and its anchor link beside it in a `<div class="heading">`, which `body_html_headings_write` inserts once the body is written, because a heading's text, and an Org headline's `CUSTOM_ID`, come only after its opening tag, footnotes, task checkboxes, admonitions, math, code blocks that `highlight` highlights, the code lines of a block with line numbers or code references, and the escaping of link targets. It also defines `LinkTargets`, a callback that both renderers give the target of every link and image. The callback can write a URL of its own for a target, or decline, and then the renderer writes the target itself. With `is_raw_html_linked`, `body_html_raw_html_write` gives it the targets of raw HTML too: each file that an element embeds, such as an `<img>`'s `src` and `srcset`, a `<video>`'s `src` and `poster` or an `<iframe>`'s `src`, as an image, and the `href` of each `<a>` and `<area>` as a link, as surge asks for its READMEs and sosig does not. The modules know nothing about content files.
+- [highlight](src/markup/highlight.h): Syntax highlighting of a code block with tree-sitter. `highlight_grammar_find` finds the grammar for a language name among the grammars that `APPS_GRAMMARS` compiles in. [src/markup/vendor.cmake](src/markup/vendor.cmake) declares these grammars in a header that it generates, with the highlight queries from [src/markup/queries/](src/markup/queries/). `highlight_grammar_list` names those grammars. `highlight_write` writes the code with a `<span class="tok-…">` around each token that the grammar's highlight query captures. It writes the code plain, only escaped, when there is no grammar or when the code block goes past a memory limit. Its line callbacks run around each line, and the closing one writes the line end, so markup around a line can hold it.
+- [markdown](src/markup/markdown.h): `markdown_to_html` parses Markdown with md4c and its extension set, and writes the HTML through its own callbacks. It gives each link and image destination, as written, to the `LinkTargets` callback of its caller. md4c can split one raw HTML tag across text runs, so the renderer gathers consecutive runs of raw HTML and writes them together through `body_html_raw_html_write`.
+- [org](src/markup/org.h): `org_to_html` parses Org with org4c, its flags, and the file's `#+OPTIONS:` lines, and writes the HTML through its own callbacks. It gives the org4c type and the path of each link and image to the `LinkTargets` callback of its caller. A `file` link without a description shows the URL that the callback wrote. org4c gives an export block line by line, so the renderer gathers consecutive export text and writes it together through `body_html_raw_html_write`, to the buffer it went to.
 
 The modules escape text with `formats/html.h`.
 

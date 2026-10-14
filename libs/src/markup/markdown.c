@@ -45,6 +45,17 @@ struct MarkdownRender {
   /** Callback that may write the URL of a link's or an image's target, or `NULL`. */
   const struct LinkTargets* link_targets;
 
+  /** HTML level of a level 1 heading. */
+  ptrdiff_t top_level;
+
+  /**
+   * Raw HTML of the text runs since anything else was written, in scratch, kept only when
+   * `link_targets` asks for raw HTML's targets. md4c can split one tag across runs, such as a
+   * block's lines, so the runs are written together, before anything that follows them, for their
+   * targets to be rewritten whole.
+   */
+  struct Buf raw_html;
+
   /**
    * Count of images whose label is being written, zero outside one. An image's label becomes its
    * `alt` attribute, so nothing but its text is written there.
@@ -53,6 +64,21 @@ struct MarkdownRender {
 
   /** Whether the text is inside a code block. */
   bool is_in_code_block;
+
+  /** Text of the heading being written, in scratch, for its id. */
+  struct Buf heading_text;
+
+  /** Offset in `html` of the `<` of the open heading's tag. */
+  ptrdiff_t heading_start;
+
+  /** Offset in `html` of the `>` of the open heading's tag, or `-1` outside a heading. */
+  ptrdiff_t heading_tag_end;
+
+  /** Every heading written so far, which gets its id once the body is written. */
+  struct BodyHtmlHeadings headings;
+
+  /** Arena the headings and their texts live in. */
+  struct Arena* heading_arena;
 };
 
 /** Opening and closing tags of an element whose detail its HTML does not depend on. */
@@ -95,7 +121,12 @@ static const struct MarkdownTags span_tags[MD_SPAN_MARK + 1] = {
     [MD_SPAN_A] = {STR_INIT(""), STR_INIT("</a>")},
     [MD_SPAN_CODE] = {STR_INIT("<code>"), STR_INIT("</code>")},
     [MD_SPAN_DEL] = {STR_INIT("<del>"), STR_INIT("</del>")},
-    [MD_SPAN_SPOILER] = {STR_INIT("<x-spoiler>"), STR_INIT("</x-spoiler>")},
+    // A spoiler is a switch that a reader turns on to see its text, which a stylesheet hides, from
+    // sight and from a screen reader, while the switch is off. The label holds both, so it stays
+    // inline in its sentence, and a click anywhere on it toggles the switch with no script.
+    [MD_SPAN_SPOILER] = {STR_INIT("<label class=\"spoiler\"><input type=\"checkbox\" "
+                                  "role=\"switch\"><span>"),
+                         STR_INIT("</span></label>")},
     [MD_SPAN_SUPERSCRIPT] = {STR_INIT("<sup>"), STR_INIT("</sup>")},
     [MD_SPAN_SUBSCRIPT] = {STR_INIT("<sub>"), STR_INIT("</sub>")},
     [MD_SPAN_MARK] = {STR_INIT("<mark>"), STR_INIT("</mark>")},
@@ -214,14 +245,28 @@ static void write_attribute(struct Buf* buffer, const MD_ATTRIBUTE* attribute, E
  */
 static struct Str attribute_text(const MD_ATTRIBUTE* attribute) __attribute__((nonnull(1)));
 
+/**
+ * @brief Writes the raw HTML gathered since anything else was written, through
+ *        `body_html_raw_html_write`, and empties it.
+ *
+ * @param render The render. Must not be `NULL`.
+ */
+static void flush_raw_html(struct MarkdownRender* render) __attribute__((nonnull(1)));
+
 struct Str markdown_to_html(struct Str markdown,
                             const struct LinkTargets* link_targets,
+                            ptrdiff_t top_level,
                             struct Arena* perm,
                             struct Arena scratch) {
   struct MarkdownRender render = {
       .html = {.arena = perm},
       .code = {.arena = &scratch},
       .link_targets = link_targets,
+      .top_level = top_level,
+      .raw_html = {.arena = &scratch},
+      .heading_text = {.arena = &scratch},
+      .heading_tag_end = -1,
+      .heading_arena = &scratch,
   };
   render.code_scratch = body_html_code_block_scratch(&scratch);
 
@@ -233,10 +278,10 @@ struct Str markdown_to_html(struct Str markdown,
   // decision about who authors content, not an omission. The callbacks write only the block, span
   // and text types these extensions produce.
   const MD_PARSER parser = {
-      .flags = MD_FLAG_COLLAPSEWHITESPACE | MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH |
-               MD_FLAG_TASKLISTS | MD_FLAG_LATEXMATHSPANS | MD_FLAG_SPOILERS |
-               MD_FLAG_SUPERSCRIPTS | MD_FLAG_SUBSCRIPTS | MD_FLAG_ADMONITIONS | MD_FLAG_FOOTNOTES |
-               MD_FLAG_HIGHLIGHT,
+      .flags = MD_FLAG_COLLAPSEWHITESPACE | MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_TABLES |
+               MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS | MD_FLAG_LATEXMATHSPANS |
+               MD_FLAG_SPOILERS | MD_FLAG_SUPERSCRIPTS | MD_FLAG_SUBSCRIPTS | MD_FLAG_ADMONITIONS |
+               MD_FLAG_FOOTNOTES | MD_FLAG_HIGHLIGHT,
       .enter_block = markdown_to_html_enter_block,
       .leave_block = markdown_to_html_leave_block,
       .enter_span = markdown_to_html_enter_span,
@@ -255,11 +300,14 @@ struct Str markdown_to_html(struct Str markdown,
   if (md_parse(markdown.data, (MD_SIZE)markdown.len, &parser, &render) != 0) {
     os_oom();
   }
+  flush_raw_html(&render);
+  body_html_headings_write(&render.html, &render.headings, scratch);
   return buf_str(&render.html);
 }
 
 static int markdown_to_html_enter_block(MD_BLOCKTYPE type, void* detail, void* userdata) {
   struct MarkdownRender* render = userdata;
+  flush_raw_html(render);
   struct Buf* html = &render->html;
   switch (type) {
     case MD_BLOCK_OL: {
@@ -280,7 +328,11 @@ static int markdown_to_html_enter_block(MD_BLOCKTYPE type, void* detail, void* u
       break;
     }
     case MD_BLOCK_H:
-      body_html_heading_open(html, (ptrdiff_t)((const MD_BLOCK_H_DETAIL*)detail)->level);
+      render->heading_start = html->len;
+      body_html_heading_open(html, (ptrdiff_t)((const MD_BLOCK_H_DETAIL*)detail)->level,
+                             render->top_level);
+      render->heading_tag_end = html->len - 1;
+      render->heading_text.len = 0;
       break;
     case MD_BLOCK_CODE:
       // The block is written whole when it ends, through the writer Org's source blocks share.
@@ -315,10 +367,16 @@ static int markdown_to_html_enter_block(MD_BLOCKTYPE type, void* detail, void* u
 
 static int markdown_to_html_leave_block(MD_BLOCKTYPE type, void* detail, void* userdata) {
   struct MarkdownRender* render = userdata;
+  flush_raw_html(render);
   struct Buf* html = &render->html;
   switch (type) {
     case MD_BLOCK_H:
-      body_html_heading_close(html, (ptrdiff_t)((const MD_BLOCK_H_DETAIL*)detail)->level);
+      body_html_heading_close(html, (ptrdiff_t)((const MD_BLOCK_H_DETAIL*)detail)->level,
+                              render->top_level);
+      body_html_headings_add(
+          &render->headings, render->heading_start, render->heading_tag_end, html->len - 1,
+          str_clone(buf_str(&render->heading_text), render->heading_arena), render->heading_arena);
+      render->heading_tag_end = -1;
       break;
     case MD_BLOCK_CODE: {
       const MD_ATTRIBUTE* language = &((const MD_BLOCK_CODE_DETAIL*)detail)->lang;
@@ -349,6 +407,7 @@ static int markdown_to_html_leave_block(MD_BLOCKTYPE type, void* detail, void* u
 
 static int markdown_to_html_enter_span(MD_SPANTYPE type, void* detail, void* userdata) {
   struct MarkdownRender* render = userdata;
+  flush_raw_html(render);
   struct Buf* html = &render->html;
   const bool is_inside_image = render->image_depth > 0;
   if (type == MD_SPAN_IMG) {
@@ -392,6 +451,7 @@ static int markdown_to_html_enter_span(MD_SPANTYPE type, void* detail, void* use
 
 static int markdown_to_html_leave_span(MD_SPANTYPE type, void* detail, void* userdata) {
   struct MarkdownRender* render = userdata;
+  flush_raw_html(render);
   if (type == MD_SPAN_IMG) {
     render->image_depth--;
   }
@@ -424,6 +484,21 @@ static int markdown_to_html_text(MD_TEXTTYPE type,
   if (render->is_in_code_block) {
     buf_append(&render->code, type == MD_TEXT_NULLCHAR ? UTF8_REPLACEMENT : run);
     return 0;
+  }
+  if (type == MD_TEXT_HTML && !is_inside_image && render->link_targets != NULL &&
+      render->link_targets->is_raw_html_linked) {
+    buf_append(&render->raw_html, run);
+    return 0;
+  }
+  flush_raw_html(render);
+  // A heading's id comes from the text a reader sees in it: not raw HTML, an entity or an image's
+  // label.
+  if (render->heading_tag_end >= 0 && !is_inside_image) {
+    if (type == MD_TEXT_NORMAL || type == MD_TEXT_CODE) {
+      buf_append(&render->heading_text, run);
+    } else if (type == MD_TEXT_BR || type == MD_TEXT_SOFTBR) {
+      buf_append_char(&render->heading_text, ' ');
+    }
   }
   switch (type) {
     case MD_TEXT_NULLCHAR:
@@ -520,4 +595,11 @@ static void write_attribute(struct Buf* buffer, const MD_ATTRIBUTE* attribute, E
 
 static struct Str attribute_text(const MD_ATTRIBUTE* attribute) {
   return (struct Str){attribute->text, (ptrdiff_t)attribute->size};
+}
+
+static void flush_raw_html(struct MarkdownRender* render) {
+  if (render->raw_html.len > 0) {
+    body_html_raw_html_write(&render->html, buf_str(&render->raw_html), render->link_targets);
+    render->raw_html.len = 0;
+  }
 }

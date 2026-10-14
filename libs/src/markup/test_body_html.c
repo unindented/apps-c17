@@ -17,15 +17,18 @@ static void test_url_escape_keeps_url_bytes(void) {
   TEST_CHECK(str_eq(buf_str(&buf), S("https://example.com/a_b-c.d~e/f?g=h;i#j(k)*l!m,n+o$p@q%20")));
 }
 
-// A heading's tags are one level below its level in the source, so the first level is `<h2>`, and
-// the line end follows the closing tag.
+// A heading's tags count from the top level, so with sosig's top level of 2 the first level is
+// `<h2>`, and with surge's of 1 it is `<h1>`. The line end follows the closing tag.
 static void test_heading_writes_level_tags(void) {
   struct Arena arena = test_arena();
   struct Buf buf = {.arena = &arena};
-  body_html_heading_open(&buf, 1);
+  body_html_heading_open(&buf, 1, 2);
   buf_append(&buf, S("Title"));
-  body_html_heading_close(&buf, 1);
-  TEST_CHECK(str_eq(buf_str(&buf), S("<h2>Title</h2>\n")));
+  body_html_heading_close(&buf, 1, 2);
+  body_html_heading_open(&buf, 1, 1);
+  buf_append(&buf, S("Title"));
+  body_html_heading_close(&buf, 1, 1);
+  TEST_CHECK(str_eq(buf_str(&buf), S("<h2>Title</h2>\n<h1>Title</h1>\n")));
 }
 
 // A footnote reference links to its footnote and carries the id its back-reference links to.
@@ -107,14 +110,29 @@ static void test_code_block_names_language(void) {
                       "class=\"tok-delimiter\">;</span>\n</code></pre>\n")));
 }
 
-// A heading at level 5 or deeper stays at `<h6>`, HTML's last level.
+// A code line holds its number and then its text, whose line end stays inside it, so a copy of the
+// code keeps it.
+static void test_code_line_holds_number_and_text(void) {
+  struct Arena arena = test_arena();
+  struct Buf buf = {.arena = &arena};
+  const struct CodeLineNumber number = {.value = 9};
+  body_html_code_line_open(&buf, &(struct CodeLine){.numbers = &number, .number_count = 1});
+  buf_append(&buf, S("x"));
+  body_html_code_line_close(&buf, true);
+  TEST_CHECK(
+      str_eq(buf_str(&buf), S("<span class=\"code-line\"><span class=\"code-line-numbers\"><span "
+                              "class=\"code-line-number\">9</span></span><span "
+                              "class=\"code-line-text\">x\n</span></span>")));
+}
+
+// A heading past `<h6>`, HTML's last level, stays at `<h6>`.
 static void test_heading_caps_level_at_six(void) {
   struct Arena arena = test_arena();
   struct Buf buf = {.arena = &arena};
-  body_html_heading_open(&buf, 5);
-  body_html_heading_close(&buf, 5);
-  body_html_heading_open(&buf, 9);
-  body_html_heading_close(&buf, 9);
+  body_html_heading_open(&buf, 5, 2);
+  body_html_heading_close(&buf, 5, 2);
+  body_html_heading_open(&buf, 9, 1);
+  body_html_heading_close(&buf, 9, 1);
   TEST_CHECK(str_eq(buf_str(&buf), S("<h6></h6>\n<h6></h6>\n")));
 }
 
@@ -146,6 +164,29 @@ static void test_code_block_class_variants(void) {
   TEST_CHECK(str_eq(buf_str(&buf),
                     S("<pre><code>x\n</code></pre>\n"
                       "<pre id=\"x1\"><code class=\"language-unknown\">y\n</code></pre>\n")));
+}
+
+// A number with an anchor prefix links to itself, and a number of zero leaves its column empty, as
+// a diff line has on the side it is not on. A line without numbers has no number wrapper, and a
+// last line without a line end gets none.
+static void test_code_line_variants(void) {
+  struct Arena arena = test_arena();
+  struct Buf buf = {.arena = &arena};
+  const struct CodeLineNumber numbers[] = {{.value = 0}, {.value = 5, .anchor_prefix = S("d0-R")}};
+  body_html_code_line_open(
+      &buf,
+      &(struct CodeLine){.class_name = S("surge-add"), .numbers = numbers, .number_count = 2});
+  body_html_code_line_close(&buf, true);
+  body_html_code_line_open(&buf, &(struct CodeLine){.id = S("coderef-r")});
+  buf_append(&buf, S("y"));
+  body_html_code_line_close(&buf, false);
+  TEST_CHECK(
+      str_eq(buf_str(&buf),
+             S("<span class=\"code-line surge-add\"><span class=\"code-line-numbers\"><span "
+               "class=\"code-line-number\"></span><a class=\"code-line-number\" id=\"d0-R5\" "
+               "href=\"#d0-R5\">5</a></span><span class=\"code-line-text\">\n</span></span>"
+               "<span class=\"code-line\" id=\"coderef-r\"><span "
+               "class=\"code-line-text\">y</span></span>")));
 }
 
 // A language with no grammar keeps its class, and its code is only escaped.
@@ -185,11 +226,13 @@ TEST_LIST = {
     {"admonition names type twice", test_admonition_names_type_twice},
     {"math marks display formulas", test_math_marks_display_formulas},
     {"code block names language", test_code_block_names_language},
+    {"code line holds number and text", test_code_line_holds_number_and_text},
     {"heading caps level at six", test_heading_caps_level_at_six},
     {"admonition carries id", test_admonition_carries_id},
     {"footnote without references has no backrefs",
      test_footnote_without_references_has_no_backrefs},
     {"code block class variants", test_code_block_class_variants},
+    {"code line variants", test_code_line_variants},
     {"code block unknown language is escaped", test_code_block_unknown_language_is_escaped},
     {"code block scratch halves small arena", test_code_block_scratch_halves_small_arena},
     {"url escape encodes other bytes", test_url_escape_encodes_other_bytes},

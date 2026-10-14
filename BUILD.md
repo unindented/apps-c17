@@ -13,6 +13,7 @@ The repository root is not a CMake project. Each of these directories is a CMake
 | [apps/sosig/](apps/sosig/) | The `sosig` static site generator |
 | [apps/fram/](apps/fram/) | The `fram` gallery generator |
 | [apps/cwrap/](apps/cwrap/) | The `cwrap` comment formatter |
+| [apps/surge/](apps/surge/) | The `surge` static site generator for git repositories |
 | [libs/](libs/) | The libraries that the apps share, with their tests, analysis and lint |
 
 Only one project is configured in each build tree, so the cache variables and the targets that the presets name have the same name in every project.

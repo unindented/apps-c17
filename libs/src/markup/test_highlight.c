@@ -65,8 +65,8 @@ struct Snippet {
 static const struct Snippet snippets[] = {
     {"c", "#define MAX_LEN 10\nint main(void) { return Max + MAX_LEN; }\n",
      "<span class=\"tok-keyword\">#define</span> <span class=\"tok-constant\">MAX_LEN</span> 10\n"
-     "<span class=\"tok-type\">int</span> <span class=\"tok-function\">main</span>(<span "
-     "class=\"tok-type\">void</span>) { <span class=\"tok-keyword\">return</span> <span "
+     "<span class=\"tok-type-builtin\">int</span> <span class=\"tok-function\">main</span>(<span "
+     "class=\"tok-type-builtin\">void</span>) { <span class=\"tok-keyword\">return</span> <span "
      "class=\"tok-variable\">Max</span> <span class=\"tok-operator\">+</span> <span "
      "class=\"tok-constant\">MAX_LEN</span><span class=\"tok-delimiter\">;</span> }\n"},
     {"sh", "echo \"$HOME\" -n n # c\n",
@@ -262,16 +262,17 @@ static void open_line(struct Buf* buffer, ptrdiff_t line, void* userdata) {
 }
 
 /**
- * @brief Writes `]` after each line. A `HighlightLineFn`.
+ * @brief Writes `]` after each line, then its `\n` when it has one. A `HighlightLineEndFn`.
  *
  * @param buffer   Destination buffer. Must not be `NULL`.
  * @param line     Index of the line.
+ * @param is_ended Whether the line ends in `\n`.
  * @param userdata Unused.
  */
-static void close_line(struct Buf* buffer, ptrdiff_t line, void* userdata) {
+static void close_line(struct Buf* buffer, ptrdiff_t line, bool is_ended, void* userdata) {
   (void)line;
   (void)userdata;
-  buf_append(buffer, S("]"));
+  buf_append(buffer, is_ended ? S("]\n") : S("]"));
 }
 
 /**
@@ -568,8 +569,9 @@ static void test_write_reads_no_digit_past_ascii(void) {
 
 // A node tree-sitter inserts to recover from an error has no width, and writes nothing.
 static void test_write_skips_zero_width_capture(void) {
-  TEST_CHECK(str_eq(highlight("c", "int x\n", NULL), S("<span class=\"tok-type\">int</span> <span "
-                                                       "class=\"tok-variable\">x</span>\n")));
+  TEST_CHECK(
+      str_eq(highlight("c", "int x\n", NULL), S("<span class=\"tok-type-builtin\">int</span> <span "
+                                                "class=\"tok-variable\">x</span>\n")));
 }
 
 // With no grammar the code is written plain, only escaped.
@@ -578,7 +580,8 @@ static void test_write_plain_without_grammar(void) {
 }
 
 // The line callbacks run around each line, highlighted or plain, with the line's index, outside
-// every span, and around a last line that has no line end.
+// every span, and around a last line that has no line end. The close callback writes each line end
+// in the writer's place, and a last line without one gets none.
 static void test_write_calls_line_callbacks(void) {
   const struct HighlightLines lines = {.open = open_line, .close = close_line};
   TEST_CHECK(str_eq(highlight("c", "/* a\n\n b */\nx", &lines),
@@ -604,7 +607,7 @@ static void test_write_limited_writes_plain_past_limit(void) {
   TEST_CHECK(str_eq(buf_str(&small), buf_str(&code)));
   struct Buf large = {.arena = &arena};
   highlight_write_limited(&large, c, S("int x;\n"), NULL, HIGHLIGHT_MEMORY_LEN_MAX, test_arena());
-  TEST_CHECK(str_eq(buf_str(&large), S("<span class=\"tok-type\">int</span> <span "
+  TEST_CHECK(str_eq(buf_str(&large), S("<span class=\"tok-type-builtin\">int</span> <span "
                                        "class=\"tok-variable\">x</span><span "
                                        "class=\"tok-delimiter\">;</span>\n")));
 }

@@ -45,6 +45,8 @@ enum { MARKDOWN_INPUT_LEN_MAX = 256 * 1024 * 1024 };
  * @param markdown     Input bytes of Markdown, at most `MARKDOWN_INPUT_LEN_MAX`.
  * @param link_targets Callback that may write the URL of a destination, or `NULL` to write every
  *                     destination as written.
+ * @param top_level    HTML level of a level 1 heading, from 1 to 6: 2 for sosig, whose page title
+ *                     is the `<h1>`, and 1 for surge, as on GitHub.
  * @param perm         Arena that owns the HTML. Must not be `NULL`.
  * @param scratch      Arena for a code block's text, held until the block ends, and for
  *                     highlighting it, in a region split off when the conversion starts.
@@ -52,7 +54,8 @@ enum { MARKDOWN_INPUT_LEN_MAX = 256 * 1024 * 1024 };
  */
 struct Str markdown_to_html(struct Str markdown,
                             const struct LinkTargets* link_targets,
+                            ptrdiff_t top_level,
                             struct Arena* perm,
-                            struct Arena scratch) __attribute__((nonnull(3)));
+                            struct Arena scratch) __attribute__((nonnull(4)));
 
 #endif
