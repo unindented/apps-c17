@@ -98,6 +98,7 @@ static void test_prints_loaded_config(void) {
   char stderr_out[8192];
   if (!TEST_CHECK(write_fixture_file(root_dir, "fram.toml",
                                      "title = \"Test Gallery\"\n"
+                                     "description = \"Test description\"\n"
                                      "author = \"Author Name\"\n") == 0)) {
     goto cleanup;
   }
@@ -110,6 +111,7 @@ static void test_prints_loaded_config(void) {
   TEST_CHECK(stderr_out[0] == '\0');
   TEST_CHECK(strcmp(stdout_out,
                     "title = \"Test Gallery\"\n"
+                    "description = \"Test description\"\n"
                     "author = \"Author Name\"\n"
                     "base_url = \"\"\n"
                     "input_dir = \"media\"\n"
@@ -142,6 +144,7 @@ static void test_prints_empty_template_array(void) {
   char stderr_out[8192];
   if (!TEST_CHECK(write_fixture_file(root_dir, "fram.toml",
                                      "title = \"Test Gallery\"\n"
+                                     "description = \"Test description\"\n"
                                      "author = \"Author Name\"\n"
                                      "aggregate_templates = []\n") == 0)) {
     goto cleanup;
@@ -153,6 +156,7 @@ static void test_prints_empty_template_array(void) {
   TEST_CHECK(stderr_out[0] == '\0');
   TEST_CHECK(strcmp(stdout_out,
                     "title = \"Test Gallery\"\n"
+                    "description = \"Test description\"\n"
                     "author = \"Author Name\"\n"
                     "base_url = \"\"\n"
                     "input_dir = \"media\"\n"
@@ -210,7 +214,9 @@ static void test_reports_missing_required_key(void) {
   char stdout_out[8192];
   char stderr_out[8192];
   // Missing the required `author` key.
-  if (!TEST_CHECK(write_fixture_file(root_dir, "fram.toml", "title = \"Test Gallery\"\n") == 0)) {
+  if (!TEST_CHECK(write_fixture_file(root_dir, "fram.toml",
+                                     "title = \"Test Gallery\"\n"
+                                     "description = \"Test description\"\n") == 0)) {
     goto cleanup;
   }
 
@@ -235,6 +241,7 @@ static void test_reports_every_invalid_key(void) {
   if (!TEST_CHECK(write_fixture_file(root_dir, "fram.toml",
                                      "base_url = \"https://example.com\"\n"
                                      "title = 1\n"
+                                     "description = \"Test description\"\n"
                                      "author = \"Author Name\"\n"
                                      "colour = \"blue\"\n"
                                      "video_frame_seconds = \"ten\"\n") == 0)) {
@@ -265,6 +272,7 @@ static void test_fails_on_unwritable_stdout(void) {
   char stderr_out[8192];
   if (!TEST_CHECK(write_fixture_file(root_dir, "fram.toml",
                                      "title = \"Test Gallery\"\n"
+                                     "description = \"Test description\"\n"
                                      "author = \"Author Name\"\n") == 0)) {
     goto cleanup;
   }

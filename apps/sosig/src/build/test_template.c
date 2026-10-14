@@ -43,6 +43,7 @@ static const struct Str SITE_MODIFIED = STR_INIT("2026-07-01T00:00:00Z");
 static void init_test_site_config(struct SiteConfig* site_config) {
   site_config_init(site_config);
   site_config->title = S("Site");
+  site_config->description = S("Notes & more");
   site_config->author = S("Author");
   site_config->base_url = S("https://example.com");
 }
@@ -462,6 +463,85 @@ static void test_renders_generator(void) {
   }
   TEST_CHECK(strcmp(rendered_html, expected) == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
+// Every `site.*` field from the configuration renders, escaped, at the root and inside a section,
+// in a template of any kind.
+static void test_renders_site_fields(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/sosig-template-XXXXXX";
+  if (write_template_fixture(root_dir,
+                             "{{site.title}}|{{site.description}}|{{site.author}}|{{site.base_url}}"
+                             "{{#content_entries}}|{{site.description}}{{/content_entries}}") !=
+      0) {
+    return;
+  }
+
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
+  struct ContentEntry entry;
+  init_test_content_entry(&entry);
+  const struct ContentEntry* content_entries[] = {&entry};
+  const struct TemplateContext context = {.site_config = &site_config,
+                                          .content_entries = content_entries,
+                                          .content_entry_count = 1,
+                                          .site_modified = SITE_MODIFIED};
+  char* rendered_html = NULL;
+  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(rendered_html,
+                    "Site|Notes &amp; more|Author|https://example.com|Notes &amp; more") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
+// `path_to_root` renders the prefix the caller set for the page, at the root and inside
+// `{{#content_entries}}`, where a listed entry has none of its own. It is empty when the caller
+// sets none. `test_page_renderer.c` and `test_site_writer.c` check the prefix each kind of page
+// gets.
+static void test_renders_path_to_root(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/sosig-template-XXXXXX";
+  if (write_template_fixture(
+          root_dir,
+          "[{{path_to_root}}]{{#content_entries}}({{path_to_root}}){{/content_entries}}") != 0) {
+    return;
+  }
+
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
+  struct ContentEntry entry;
+  init_test_content_entry(&entry);
+  const struct ContentEntry* content_entries[] = {&entry};
+  const struct TemplateContext nested_context = {.site_config = &site_config,
+                                                 .content_entries = content_entries,
+                                                 .content_entry_count = 1,
+                                                 .content_entry_current = &entry,
+                                                 .site_modified = SITE_MODIFIED,
+                                                 .path_to_root = S("../../")};
+  const struct TemplateContext top_context = {.site_config = &site_config,
+                                              .content_entries = content_entries,
+                                              .content_entry_count = 1,
+                                              .site_modified = SITE_MODIFIED};
+  char* nested_html = NULL;
+  char* top_html = NULL;
+  if (!TEST_CHECK(render(root_dir, "index.html", &nested_context, &perm, &nested_html, NULL) ==
+                  0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(nested_html, "[../../](../../)") == 0);
+  TEST_MSG("rendered: '%s'", nested_html);
+  if (!TEST_CHECK(render(root_dir, "index.html", &top_context, &perm, &top_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(top_html, "[]()") == 0);
+  TEST_MSG("rendered: '%s'", top_html);
 
 cleanup:
   remove_fixture_tree(root_dir);
@@ -1545,6 +1625,8 @@ TEST_LIST = {
      test_escapes_double_brace_and_leaves_triple_brace_raw},
     {"renders atom feed", test_renders_atom_feed},
     {"renders generator", test_renders_generator},
+    {"renders site fields", test_renders_site_fields},
+    {"renders path to root", test_renders_path_to_root},
     {"renders partial", test_renders_partial},
     {"repeated partial renders same content each time",
      test_repeated_partial_renders_same_content_each_time},

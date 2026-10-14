@@ -208,9 +208,10 @@ enum { EXPECTED_SIZE = 1024 };
 
 /** Config most fixtures share. It turns off the aggregate and feed phases. */
 static const char* const SITE_CONFIG =
-    "base_url = \"https://example.com\"\n"
     "title = \"Site\"\n"
+    "description = \"Example notes\"\n"
     "author = \"Author\"\n"
+    "base_url = \"https://example.com\"\n"
     "aggregate_templates = []\n"
     "feed_templates = []\n";
 
@@ -962,9 +963,10 @@ static void test_rejects_oversize_path_segment(void) {
   }
 
   const char config[] =
-      "base_url = \"https://example.com\"\n"
       "title = \"Site\"\n"
+      "description = \"Example notes\"\n"
       "author = \"Author\"\n"
+      "base_url = \"https://example.com\"\n"
       "permalink = \"/{slug}-overflow.html\"\n"
       "aggregate_templates = []\n"
       "feed_templates = []\n";

@@ -72,6 +72,7 @@ static const struct Str AGGREGATE_TEMPLATES_DEFAULT[] = {0};
 static const struct Str config_keys[] = {
     // clang-format off: one key per line, so adding or removing a key is a one-line change.
     STR_INIT("title"),
+    STR_INIT("description"),
     STR_INIT("author"),
     STR_INIT("base_url"),
     STR_INIT("input_dir"),
@@ -438,7 +439,7 @@ static void print_string(struct Buf* buffer, struct Str text) __attribute__((non
 
 void gallery_config_init(struct GalleryConfig* gallery_config) {
   // This is one literal naming only the non-zero defaults, so a key added to `GalleryConfig` cannot
-  // be left out here. The two required keys stay empty until the load fills them.
+  // be left out here. The three required keys stay empty until the load fills them.
   *gallery_config = (struct GalleryConfig){
       .input_dir = INPUT_DIR_DEFAULT,
       .output_dir = OUTPUT_DIR_DEFAULT,
@@ -479,6 +480,7 @@ int gallery_config_print(const struct GalleryConfig* gallery_config,
                          struct Arena scratch) {
   struct Buf text = {.arena = &scratch};
   gallery_config_print_key_string(&text, "title", gallery_config->title);
+  gallery_config_print_key_string(&text, "description", gallery_config->description);
   gallery_config_print_key_string(&text, "author", gallery_config->author);
   gallery_config_print_key_string(&text, "base_url", gallery_config->base_url);
   gallery_config_print_key_string(&text, "input_dir", gallery_config->input_dir);
@@ -556,6 +558,7 @@ static void gallery_config_load_fields(struct GalleryConfig* gallery_config,
 
   const struct GalleryConfigStringKey strings[] = {
       {"title", &gallery_config->title, true},
+      {"description", &gallery_config->description, true},
       {"author", &gallery_config->author, true},
       {"base_url", &gallery_config->base_url, false},
       {"album_template", &gallery_config->album_template, false},

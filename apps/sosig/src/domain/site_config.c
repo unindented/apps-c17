@@ -69,9 +69,10 @@ static const struct Str FEED_TEMPLATES_DEFAULT[] = {STR_INIT("atom.xml")};
  */
 static const struct Str config_keys[] = {
     // clang-format off: one key per line, so adding or removing a key is a one-line change.
-    STR_INIT("base_url"),
     STR_INIT("title"),
+    STR_INIT("description"),
     STR_INIT("author"),
+    STR_INIT("base_url"),
     STR_INIT("permalink"),
     STR_INIT("content_dir"),
     STR_INIT("output_dir"),
@@ -237,8 +238,8 @@ static int copy_size(toml_datum_t table,
  * Such a value then silently produces broken links in every feed and canonical URL. Checking it
  * here keeps that a single config error.
  *
- * This must run after the required keys are copied. `base_url` is empty until then, and an empty
- * URL is rejected.
+ * This must run after `base_url` is copied. `base_url` is empty until then, and an empty URL is
+ * rejected.
  *
  * @param site_config Config whose `base_url` is validated and normalized. Must not be `NULL`.
  * @param log         Log that receives every error. Must not be `NULL`.
@@ -380,7 +381,7 @@ static void print_string(struct Buf* buffer, struct Str text) __attribute__((non
 
 void site_config_init(struct SiteConfig* site_config) {
   // This is one literal naming only the non-zero defaults, so a key added to `SiteConfig` cannot be
-  // left out here. The three required keys stay empty until the load fills them.
+  // left out here. The four required keys stay empty until the load fills them.
   *site_config = (struct SiteConfig){
       .permalink = PERMALINK_DEFAULT,
       .content_dir = CONTENT_DIR_DEFAULT,
@@ -420,9 +421,10 @@ int site_config_load(struct SiteConfig* site_config,
 
 int site_config_print(const struct SiteConfig* site_config, struct Os* os, struct Arena scratch) {
   struct Buf text = {.arena = &scratch};
-  site_config_print_key_string(&text, "base_url", site_config->base_url);
   site_config_print_key_string(&text, "title", site_config->title);
+  site_config_print_key_string(&text, "description", site_config->description);
   site_config_print_key_string(&text, "author", site_config->author);
+  site_config_print_key_string(&text, "base_url", site_config->base_url);
   site_config_print_key_string(&text, "permalink", site_config->permalink);
   site_config_print_key_string(&text, "content_dir", site_config->content_dir);
   site_config_print_key_string(&text, "output_dir", site_config->output_dir);
@@ -469,22 +471,31 @@ static void site_config_load_fields(struct SiteConfig* site_config,
   (void)toml_require_known_keys(table, config_keys, sizeof(config_keys) / sizeof(config_keys[0]),
                                 S("config"), S(""), (struct Str){0}, log);
 
-  const bool is_base_url_copied =
-      copy_string(table, "base_url", true, perm, &site_config->base_url, log) == 0;
-  const struct SiteConfigStringKey strings[] = {
+  // The site keys are read in the order the config lists them, so their errors come in that order
+  // too. `base_url` is last of them, and is validated as soon as it is copied.
+  const struct SiteConfigStringKey site_strings[] = {
       {"title", &site_config->title, true},
+      {"description", &site_config->description, true},
       {"author", &site_config->author, true},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(site_strings) / sizeof(site_strings[0])); i++) {
+    (void)copy_string(table, site_strings[i].key, site_strings[i].is_required, perm,
+                      site_strings[i].field, log);
+  }
+  // A `base_url` that is missing or mistyped is already reported, so its empty value is not judged
+  // a second time.
+  if (copy_string(table, "base_url", true, perm, &site_config->base_url, log) == 0) {
+    (void)normalize_base_url(site_config, log);
+  }
+
+  const struct SiteConfigStringKey optional_strings[] = {
       {"permalink", &site_config->permalink, false},
       {"content_template", &site_config->content_template, false},
   };
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(strings) / sizeof(strings[0])); i++) {
-    (void)copy_string(table, strings[i].key, strings[i].is_required, perm, strings[i].field, log);
-  }
-
-  // A `base_url` that is missing or mistyped is already reported, so its empty value is not judged
-  // a second time.
-  if (is_base_url_copied) {
-    (void)normalize_base_url(site_config, log);
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(optional_strings) / sizeof(optional_strings[0]));
+       i++) {
+    (void)copy_string(table, optional_strings[i].key, optional_strings[i].is_required, perm,
+                      optional_strings[i].field, log);
   }
   site_config->is_content_dir_rejected = copy_dir(table, "content_dir", CONTENT_DIR_DEFAULT, perm,
                                                   &site_config->content_dir, log) != 0;

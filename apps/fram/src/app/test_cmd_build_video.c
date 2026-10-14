@@ -28,6 +28,7 @@
 /** Config body every fixture shares. Derivatives stay small so encoding stays cheap. */
 static const char* const GALLERY_CONFIG =
     "title = \"Test Gallery\"\n"
+    "description = \"Test description\"\n"
     "author = \"Tests\"\n"
     "input_dir = \"photos\"\n"
     "[derivatives.s]\nwidth = 8\nheight = 8\nquality = 70\ncrop = true\n"

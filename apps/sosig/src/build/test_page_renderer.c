@@ -27,11 +27,13 @@
  *
  * Copies every string, `body_html` included, into `arena`, as the parse phase copies them into its
  * worker's long-lived arena. The entry sets no `modified`, so `modified_epoch` is `date_epoch`, as
- * the parse phase leaves it.
+ * the parse phase leaves it. Its `url_path` is `output_path` below `public`, the default
+ * `output_dir`, as the parse phase derives both from one permalink expansion.
  *
  * @param entry       Entry to initialize. Must not be `NULL`.
  * @param source_path Source path the diagnostics name. Must not be `NULL`.
- * @param output_path Output path the page is written to. Must not be `NULL`.
+ * @param output_path Output path the page is written to, which starts with `public/`. Must not be
+ *                    `NULL`.
  * @param title       Entry title. Must not be `NULL`.
  * @param date        RFC 3339 date. Must not be `NULL`.
  * @param date_epoch  Same instant as `date` in Unix epoch seconds.
@@ -47,6 +49,8 @@ static void init_page_entry(struct ContentEntry* entry,
   *entry = (struct ContentEntry){0};
   entry->source_path = str_clone(str_from_cstr(source_path), arena);
   entry->output_path = str_clone(str_from_cstr(output_path), arena);
+  TEST_ASSERT(str_startswith(entry->output_path, S("public/")));
+  entry->url_path = str_tail(entry->output_path, (ptrdiff_t)sizeof("public") - 1);
   entry->title = str_clone(str_from_cstr(title), arena);
   entry->date = str_clone(str_from_cstr(date), arena);
   entry->date_epoch = date_epoch;
@@ -169,6 +173,36 @@ static void test_iterates_content_entries_in_content_template(void) {
   TEST_CHECK(os_memory_is_file(os, "public/older.html", "[Newer][Older]\n"));
 }
 
+// Each page resolves `path_to_root` from its own output path, which the permalink decides: empty
+// for a page at the top of `output_dir`, and one `../` for each directory a nested page is below,
+// including a directory-index page. Inside `{{#content_entries}}` it is still the rendered page's
+// prefix, because a listed entry has no `path_to_root` of its own. The golden tests
+// `site_index_permalink` and `site_nested_sections` assert the same end to end.
+static void test_renders_path_to_root_per_page(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "templates/content.html",
+                  "[{{path_to_root}}]{{#content_entries}}({{path_to_root}}){{/content_entries}}\n");
+  struct ContentEntry top;
+  struct ContentEntry section;
+  struct ContentEntry index;
+  struct ContentEntry* source_entries[] = {&top, &section, &index};
+  struct Arena arena = test_arena();
+  struct Log log = {.buf = {.arena = &arena}};
+  init_page_entry(&top, "content/top.md", "public/top.html", "Top", "2026-07-01T00:00:00Z",
+                  1782864000, &arena);
+  init_page_entry(&section, "content/notes/a.md", "public/notes/a.html", "A",
+                  "2026-07-01T00:00:00Z", 1782864000, &arena);
+  init_page_entry(&index, "content/notes/deep/b.md", "public/notes/deep/b/index.html", "B",
+                  "2026-07-01T00:00:00Z", 1782864000, &arena);
+
+  TEST_CHECK(render_entry_slots(source_entries, 3, 2, os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_file(os, "public/top.html", "[]()()()\n"));
+  TEST_CHECK(os_memory_is_file(os, "public/notes/a.html", "[../](../)(../)(../)\n"));
+  TEST_CHECK(os_memory_is_file(os, "public/notes/deep/b/index.html",
+                               "[../../../](../../../)(../../../)(../../../)\n"));
+}
+
 // Pages that share parent directories are written concurrently, each job creating the parents its
 // own page needs, and every page lands. The `tsan` test preset runs the same path under
 // ThreadSanitizer. On a real filesystem a sibling's `EEXIST` must not count as a failure either,
@@ -276,6 +310,7 @@ TEST_LIST = {
     {"renders site modified in content template", test_renders_site_modified_in_content_template},
     {"iterates content entries in content template",
      test_iterates_content_entries_in_content_template},
+    {"renders path to root per page", test_renders_path_to_root_per_page},
     {"writes pages sharing parents concurrently", test_writes_pages_sharing_parents_concurrently},
     {"accepts empty entry set", test_accepts_empty_entry_set},
     {"reports missing template", test_reports_missing_template},

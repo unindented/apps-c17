@@ -25,6 +25,7 @@ static void test_renders_pages_by_index(void) {
   struct GalleryConfig gallery_config;
   gallery_config_init(&gallery_config);
   gallery_config.title = S("Gallery");
+  gallery_config.description = S("Description");
   gallery_config.author = S("Ada");
   struct Album root = {.source_dir = S(""), .title = S("Root"), .path_to_root = S("")};
   struct Album child = {.source_dir = S("trip"), .title = S("Trip"), .path_to_root = S("../")};
@@ -50,6 +51,7 @@ static void test_reports_missing_template(void) {
   struct GalleryConfig gallery_config;
   gallery_config_init(&gallery_config);
   gallery_config.title = S("Gallery");
+  gallery_config.description = S("Description");
   gallery_config.author = S("Ada");
   gallery_config.templates_dir = S("/does/not/exist");
   struct Album root = {.source_dir = S(""), .title = S("Root"), .path_to_root = S("")};
@@ -78,6 +80,7 @@ static void test_reports_missing_template_for_sub_album(void) {
   struct GalleryConfig gallery_config;
   gallery_config_init(&gallery_config);
   gallery_config.title = S("Gallery");
+  gallery_config.description = S("Description");
   gallery_config.author = S("Ada");
   gallery_config.templates_dir = S("/does/not/exist");
   struct Album album = {

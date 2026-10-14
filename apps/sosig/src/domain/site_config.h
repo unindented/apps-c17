@@ -30,14 +30,17 @@ extern const struct Str SITE_CONFIG_PATH_DEFAULT;
  * default literal or a copy in the arena `site_config_load` was given.
  */
 struct SiteConfig {
-  /** Required absolute base URL used by templates. */
-  struct Str base_url;
-
-  /** Required site title used by templates. */
+  /** Required title of the site. */
   struct Str title;
 
-  /** Required author name used by templates. */
+  /** Required description of the site. */
+  struct Str description;
+
+  /** Required name of the site's author. */
   struct Str author;
+
+  /** Required absolute base URL used by templates. */
+  struct Str base_url;
 
   /**
    * Permalink pattern expanded into each entry's URL and output path. Defaults to

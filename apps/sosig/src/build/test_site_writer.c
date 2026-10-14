@@ -74,6 +74,7 @@ static void test_writes_complete_output_layer(void) {
   struct SiteConfig site_config;
   init_config(&site_config);
   site_config.title = S("Site & Co");
+  site_config.description = S("Notes");
   site_config.author = S("Ada");
   site_config.base_url = S("https://example.com");
   site_config.static_dir = S("static");
@@ -101,6 +102,41 @@ static void test_writes_complete_output_layer(void) {
   TEST_CHECK(os_memory_is_file(os, "public/feeds/atom.xml",
                                "<updated>2026-07-01T00:00:00Z</updated>Newer;"));
   TEST_CHECK(os_memory_is_file(os, "public/icons/a.txt", "static"));
+}
+
+// An aggregate or a feed resolves `path_to_root` from its own name, which is also its output path
+// below `output_dir`: empty at the top, and one `../` for each directory a nested name is below.
+// The golden test `site_nested_sections` asserts the nested aggregate end to end.
+static void test_write_templates_renders_path_to_root_per_template(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "templates/index.html", "[{{path_to_root}}]");
+  os_memory_write(os, "templates/field-notes/index.html", "[{{path_to_root}}]");
+  os_memory_write(os, "templates/a/b/c.html", "[{{path_to_root}}]");
+  os_memory_write(os, "templates/feeds/atom.xml", "[{{path_to_root}}]");
+  static const struct Str aggregates[] = {
+      STR_INIT("index.html"), STR_INIT("field-notes/index.html"), STR_INIT("a/b/c.html")};
+  static const struct Str feeds[] = {STR_INIT("feeds/atom.xml")};
+  struct SiteConfig site_config;
+  init_config(&site_config);
+  static const char* const output_paths[] = {"public/index.html", "public/field-notes/index.html",
+                                             "public/a/b/c.html", "public/feeds/atom.xml"};
+  struct Arena arena = test_arena();
+  struct Manifest manifest = {0};
+  struct OutputWriter writer;
+  init_writer(&writer, &manifest, output_paths, 4, os, &arena);
+
+  struct Arena output = test_arena();
+  struct Log log = test_log();
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 3, NULL, 0,
+                                         SITE_MODIFIED, false, os, output, test_arena(),
+                                         &log) == 0);
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds, 1, NULL, 0, SITE_MODIFIED,
+                                         false, os, output, test_arena(), &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_file(os, "public/index.html", "[]"));
+  TEST_CHECK(os_memory_is_file(os, "public/field-notes/index.html", "[../]"));
+  TEST_CHECK(os_memory_is_file(os, "public/a/b/c.html", "[../../]"));
+  TEST_CHECK(os_memory_is_file(os, "public/feeds/atom.xml", "[../]"));
 }
 
 // A file below another root keeps its path relative to that root, not to `static_dir`.
@@ -183,6 +219,8 @@ static void test_copy_static_files_reports_copy_failure(void) {
 
 TEST_LIST = {
     {"writes complete output layer", test_writes_complete_output_layer},
+    {"write templates renders path to root per template",
+     test_write_templates_renders_path_to_root_per_template},
     {"copy static files keeps path below root", test_copy_static_files_keeps_path_below_root},
     {"write templates reports write failure", test_write_templates_reports_write_failure},
     {"copy static files reports copy failure", test_copy_static_files_reports_copy_failure},

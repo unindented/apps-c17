@@ -476,7 +476,8 @@ static struct Node* resolve_gallery(struct ProviderData* provider_data, struct S
  *
  * `has_media` and `has_sub_albums` resolve to a truthy scalar only when the album holds that
  * content, so a section over either renders exactly when it is non-empty. A URL resolves already
- * rebased onto the page being rendered.
+ * rebased onto the page being rendered. `path_to_root` resolves only for the rendered album, so
+ * inside a list of other albums the name falls through to the page's prefix.
  *
  * @param provider_data Render provider state. Must not be `NULL`.
  * @param album         Album to resolve against. Must not be `NULL`.
@@ -1033,6 +1034,9 @@ static struct Node* resolve_gallery(struct ProviderData* provider_data, struct S
   if (str_eq(name, S("title"))) {
     return node_scalar(provider_data, gallery_config->title);
   }
+  if (str_eq(name, S("description"))) {
+    return node_scalar(provider_data, gallery_config->description);
+  }
   if (str_eq(name, S("author"))) {
     return node_scalar(provider_data, gallery_config->author);
   }
@@ -1052,6 +1056,11 @@ static struct Node* resolve_album(struct ProviderData* provider_data,
     return node_scalar_url(provider_data, album->url_path);
   }
   if (str_eq(name, S("path_to_root"))) {
+    // `path_to_root` is the page's prefix, so only the rendered album answers it. Any other album,
+    // in `sub_albums`, `breadcrumbs` or `parent`, leaves a bare `{{path_to_root}}` to the root.
+    if (album != provider_data->context->album_current) {
+      return NULL;
+    }
     return node_scalar(provider_data, album->path_to_root);
   }
   if (str_eq(name, S("item_count"))) {

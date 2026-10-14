@@ -118,9 +118,10 @@ static int write_temp_config(struct TempConfig* temp_config_out, const char* tom
 static void check_load_rejects(const char* toml_extra, const char* expected) {
   char toml[4096];
   const int n = snprintf(toml, sizeof(toml),
-                         "base_url = \"https://example.com\"\n"
                          "title = \"Example Site\"\n"
+                         "description = \"Example notes\"\n"
                          "author = \"Example Author\"\n"
+                         "base_url = \"https://example.com\"\n"
                          "%s",
                          toml_extra);
   TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
@@ -154,9 +155,10 @@ static void check_load_rejects_permalink(const char* permalink, const char* expe
 // Loading a file with only the required keys fills the rest from `site_config_init`'s defaults.
 static void test_load_applies_required_and_defaults(void) {
   const char toml[] =
-      "base_url = \"https://example.com\"\n"
       "title = \"Example Site\"\n"
-      "author = \"Example Author\"\n";
+      "description = \"Example notes\"\n"
+      "author = \"Example Author\"\n"
+      "base_url = \"https://example.com\"\n";
   struct TempConfig temp_config;
   if (write_temp_config(&temp_config, toml) != 0) {
     return;
@@ -167,9 +169,10 @@ static void test_load_applies_required_and_defaults(void) {
   struct Log log = test_log();
   TEST_CHECK(load_site_config(&config, temp_config.path, &log) == 0);
 
-  TEST_CHECK(str_eq(config.base_url, S("https://example.com")));
   TEST_CHECK(str_eq(config.title, S("Example Site")));
+  TEST_CHECK(str_eq(config.description, S("Example notes")));
   TEST_CHECK(str_eq(config.author, S("Example Author")));
+  TEST_CHECK(str_eq(config.base_url, S("https://example.com")));
   TEST_CHECK(str_eq(config.permalink, S("/{section}/{slug}.html")));
   TEST_CHECK(str_eq(config.content_dir, S("content")));
   TEST_CHECK(str_eq(config.output_dir, S("public")));
@@ -194,9 +197,10 @@ cleanup:
 // Loading a file that sets every optional key overrides each corresponding default.
 static void test_load_overrides_optional_keys(void) {
   const char toml[] =
-      "base_url = \"https://example.com\"\n"
       "title = \"Example Site\"\n"
+      "description = \"Example notes\"\n"
       "author = \"Example Author\"\n"
+      "base_url = \"https://example.com\"\n"
       "permalink = \"/{slug}/index.html\"\n"
       "content_dir = \"posts\"\n"
       "output_dir = \"dist\"\n"
@@ -246,9 +250,10 @@ cleanup:
 // parent-relative directory survives normalization unchanged.
 static void test_load_normalizes_directory_keys(void) {
   const char toml[] =
-      "base_url = \"https://example.com\"\n"
       "title = \"Example Site\"\n"
+      "description = \"Example notes\"\n"
       "author = \"Example Author\"\n"
+      "base_url = \"https://example.com\"\n"
       "content_dir = \"content/\"\n"
       "output_dir = \"/srv/www///\"\n"
       "templates_dir = \"../shared/templates/\"\n"
@@ -286,9 +291,10 @@ static void test_load_normalizes_base_url(void) {
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
     char toml[256];
     const int n = snprintf(toml, sizeof(toml),
-                           "base_url = \"%s\"\n"
                            "title = \"Example Site\"\n"
-                           "author = \"Example Author\"\n",
+                           "description = \"Example notes\"\n"
+                           "author = \"Example Author\"\n"
+                           "base_url = \"%s\"\n",
                            cases[i][0]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
     struct TempConfig temp_config;
@@ -311,9 +317,10 @@ static void test_load_normalizes_base_url(void) {
 // overlap. The build compares them by identity before it walks or writes anything.
 static void test_load_leaves_directory_overlap_to_the_build(void) {
   const char toml[] =
-      "base_url = \"https://example.com\"\n"
       "title = \"Example Site\"\n"
+      "description = \"Example notes\"\n"
       "author = \"Example Author\"\n"
+      "base_url = \"https://example.com\"\n"
       "content_dir = \"posts\"\n"
       "output_dir = \"posts/generated\"\n";
   struct TempConfig temp_config;
@@ -344,9 +351,10 @@ static void test_load_accepts_valid_permalinks(void) {
        i++) {
     char toml[256];
     const int n = snprintf(toml, sizeof(toml),
-                           "base_url = \"https://example.com\"\n"
                            "title = \"Example Site\"\n"
+                           "description = \"Example notes\"\n"
                            "author = \"Example Author\"\n"
+                           "base_url = \"https://example.com\"\n"
                            "permalink = \"%s\"\n",
                            permalinks_valid[i]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
@@ -371,9 +379,10 @@ static void test_load_accepts_valid_permalinks(void) {
 // feed template sees no entries, which is a configuration a user can ask for.
 static void test_load_accepts_zero_feed_count(void) {
   const char toml[] =
-      "base_url = \"https://example.com\"\n"
       "title = \"Example Site\"\n"
+      "description = \"Example notes\"\n"
       "author = \"Example Author\"\n"
+      "base_url = \"https://example.com\"\n"
       "feed_count = 0\n";
   struct TempConfig temp_config;
   if (write_temp_config(&temp_config, toml) != 0) {
@@ -509,9 +518,10 @@ static void test_load_rejects_malformed_toml(void) {
  * string key's type, `base_url`, a directory, the permalink, and `feed_count`.
  */
 static const char TOML_KEYS_INVALID[] =
-    "base_url = \"ftp://example.com\"\n"
     "title = 1\n"
+    "description = \"Example notes\"\n"
     "author = \"Example Author\"\n"
+    "base_url = \"ftp://example.com\"\n"
     "colour = \"blue\"\n"
     "content_dir = \"/\"\n"
     "permalink = \"/fixed.html\"\n"
@@ -582,50 +592,104 @@ static void test_load_keeps_defaults_for_rejected_keys(void) {
   TEST_CHECK(!config.is_static_dir_rejected);
   TEST_CHECK(str_eq(config.permalink, S("/{section}/{slug}.html")));
   TEST_CHECK(config.feed_count == 10);
-  TEST_CHECK(config.base_url.len == 0);
   TEST_CHECK(config.title.len == 0);
+  TEST_CHECK(str_eq(config.description, S("Example notes")));
   TEST_CHECK(str_eq(config.author, S("Example Author")));
+  TEST_CHECK(config.base_url.len == 0);
 
   remove_fixture_tree(temp_config.root_dir);
 }
 
-// Omitting a required key is reported as missing rather than as a type error.
+/**
+ * The required keys, each with a valid line, in the order the config lists them. A test builds a
+ * config from every line but one, or with one line replaced.
+ */
+static const char* const REQUIRED_KEY_LINES[][2] = {
+    {"title", "title = \"Example Site\"\n"},
+    {"description", "description = \"Example notes\"\n"},
+    {"author", "author = \"Example Author\"\n"},
+    {"base_url", "base_url = \"https://example.com\"\n"},
+};
+
+enum { REQUIRED_KEY_COUNT = sizeof(REQUIRED_KEY_LINES) / sizeof(REQUIRED_KEY_LINES[0]) };
+
+/**
+ * @brief Writes the required keys, with the one at `index` replaced, into a terminated buffer.
+ *
+ * @param index        Index in `REQUIRED_KEY_LINES` of the key to replace.
+ * @param replacement  Terminated line written in place of that key, or `""` to leave it out.
+ * @param toml_out     Buffer that receives the terminated TOML.
+ * @param toml_out_len Size of `toml_out` in bytes. Must be non-zero.
+ */
+static void format_required_keys(ptrdiff_t index,
+                                 const char* replacement,
+                                 char* toml_out,
+                                 ptrdiff_t toml_out_len) {
+  ptrdiff_t len = 0;
+  toml_out[0] = '\0';
+  for (ptrdiff_t i = 0; i < REQUIRED_KEY_COUNT; i++) {
+    const char* line = i == index ? replacement : REQUIRED_KEY_LINES[i][1];
+    const int n = snprintf(toml_out + len, (size_t)(toml_out_len - len), "%s", line);
+    TEST_ASSERT(n >= 0 && n < toml_out_len - len);
+    len += n;
+  }
+}
+
+// Omitting any one required key is reported as missing rather than as a type error, naming that key
+// alone.
 static void test_load_rejects_missing_required_key(void) {
-  const char toml[] =
-      "title = \"Example Site\"\n"
-      "author = \"Example Author\"\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
+  for (ptrdiff_t i = 0; i < REQUIRED_KEY_COUNT; i++) {
+    char toml[512];
+    format_required_keys(i, "", toml, sizeof(toml));
+    struct TempConfig temp_config;
+    if (write_temp_config(&temp_config, toml) != 0) {
+      continue;
+    }
+
+    struct SiteConfig config;
+    site_config_init(&config);
+    struct Log log = test_log();
+    TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+    char expected[EXPECTED_SIZE];
+    (void)snprintf(expected, sizeof(expected), "missing required config key '%s'",
+                   REQUIRED_KEY_LINES[i][0]);
+    TEST_CHECK(test_log_is_one(&log, expected));
+    TEST_MSG("key '%s'", REQUIRED_KEY_LINES[i][0]);
+
+    remove_fixture_tree(temp_config.root_dir);
   }
-
-  struct SiteConfig config;
-  site_config_init(&config);
-  struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
-  TEST_CHECK(test_log_is_one(&log, "missing required config key 'base_url'"));
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
-// A required key of the wrong TOML type is reported as a type error, not a missing key.
+// Any one required key of the wrong TOML type is reported as a type error, not a missing key, and
+// its value is not stored, so the key stays empty.
 static void test_load_rejects_wrong_key_type(void) {
-  const char toml[] =
-      "base_url = 123\n"
-      "title = \"Example Site\"\n"
-      "author = \"Example Author\"\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
+  for (ptrdiff_t i = 0; i < REQUIRED_KEY_COUNT; i++) {
+    char line[64];
+    (void)snprintf(line, sizeof(line), "%s = 123\n", REQUIRED_KEY_LINES[i][0]);
+    char toml[512];
+    format_required_keys(i, line, toml, sizeof(toml));
+    struct TempConfig temp_config;
+    if (write_temp_config(&temp_config, toml) != 0) {
+      continue;
+    }
+
+    struct SiteConfig config;
+    site_config_init(&config);
+    struct Log log = test_log();
+    TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+    char expected[EXPECTED_SIZE];
+    (void)snprintf(expected, sizeof(expected), "config key '%s' must be a string",
+                   REQUIRED_KEY_LINES[i][0]);
+    TEST_CHECK(test_log_is_one(&log, expected));
+    // In the order of `REQUIRED_KEY_LINES`.
+    const struct Str fields[] = {config.title, config.description, config.author, config.base_url};
+    _Static_assert(sizeof(fields) / sizeof(fields[0]) == REQUIRED_KEY_COUNT,
+                   "one field for each required key");
+    TEST_CHECK(fields[i].len == 0);
+    TEST_MSG("key '%s'", REQUIRED_KEY_LINES[i][0]);
+
+    remove_fixture_tree(temp_config.root_dir);
   }
-
-  struct SiteConfig config;
-  site_config_init(&config);
-  struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
-  TEST_CHECK(test_log_is_one(&log, "config key 'base_url' must be a string"));
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // A key the schema does not define is rejected, naming the key, so a misspelling cannot silently
@@ -633,17 +697,22 @@ static void test_load_rejects_wrong_key_type(void) {
 // other, and so is a table the schema has no place for.
 static void test_load_rejects_unknown_keys(void) {
   static const char* const cases[][2] = {
-      {"base_url = \"https://example.com\"\ntitle = \"Example Site\"\n"
-       "author = \"Example Author\"\nouput_dir = \"site\"\n",
+      {"title = \"Example Site\"\ndescription = \"Example notes\"\n"
+       "author = \"Example Author\"\nbase_url = \"https://example.com\"\nouput_dir = \"site\"\n",
        "unknown config key 'ouput_dir'"},
-      {"base_url = \"https://example.com\"\ntitl = \"Example Site\"\n"
-       "title = \"Example Site\"\nauthor = \"Example Author\"\n",
+      {"titl = \"Example Site\"\ntitle = \"Example Site\"\ndescription = \"Example notes\"\n"
+       "author = \"Example Author\"\nbase_url = \"https://example.com\"\n",
        "unknown config key 'titl'"},
-      {"base_url = \"https://example.com\"\ntitle = \"Example Site\"\n"
-       "author = \"Example Author\"\ntitles = \"Example Site\"\n",
+      {"title = \"Example Site\"\ndescription = \"Example notes\"\n"
+       "author = \"Example Author\"\nbase_url = \"https://example.com\"\n"
+       "titles = \"Example Site\"\n",
        "unknown config key 'titles'"},
-      {"base_url = \"https://example.com\"\ntitle = \"Example Site\"\n"
-       "author = \"Example Author\"\n[extra]\nkey = 1\n",
+      {"title = \"Example Site\"\ndescription = \"Example notes\"\n"
+       "author = \"Example Author\"\nbase_url = \"https://example.com\"\n"
+       "descriptions = \"Example notes\"\n",
+       "unknown config key 'descriptions'"},
+      {"title = \"Example Site\"\ndescription = \"Example notes\"\n"
+       "author = \"Example Author\"\nbase_url = \"https://example.com\"\n[extra]\nkey = 1\n",
        "unknown config key 'extra'"},
   };
 
@@ -665,14 +734,17 @@ static void test_load_rejects_unknown_keys(void) {
 // No key in the schema holds a table, so a table under a known key fails that key's type check.
 static void test_load_rejects_table_values(void) {
   static const char* const cases[][2] = {
-      {"base_url = \"https://example.com\"\nauthor = \"Example Author\"\n"
-       "[title]\nname = \"Example Site\"\n",
+      {"description = \"Example notes\"\nauthor = \"Example Author\"\n"
+       "base_url = \"https://example.com\"\n[title]\nname = \"Example Site\"\n",
        "config key 'title' must be a string"},
-      {"base_url = \"https://example.com\"\ntitle = \"Example Site\"\n"
-       "author = \"Example Author\"\n[aggregate_templates]\nname = \"index.html\"\n",
+      {"title = \"Example Site\"\nauthor = \"Example Author\"\n"
+       "base_url = \"https://example.com\"\n[description]\ntext = \"Example notes\"\n",
+       "config key 'description' must be a string"},
+      {"title = \"Example Site\"\ndescription = \"Example notes\"\nauthor = \"Example Author\"\n"
+       "base_url = \"https://example.com\"\n[aggregate_templates]\nname = \"index.html\"\n",
        "config key 'aggregate_templates' must be an array"},
-      {"base_url = \"https://example.com\"\ntitle = \"Example Site\"\n"
-       "author = \"Example Author\"\n[feed_count]\ncount = 10\n",
+      {"title = \"Example Site\"\ndescription = \"Example notes\"\nauthor = \"Example Author\"\n"
+       "base_url = \"https://example.com\"\n[feed_count]\ncount = 10\n",
        "config key 'feed_count' must be an integer"},
   };
 
@@ -705,15 +777,19 @@ static void test_load_rejects_invalid_integer_type_and_minimum(void) {
 // load refuses it.
 static void test_load_rejects_nul_in_string_values(void) {
   static const char* const cases[][2] = {
-      {"base_url = \"a\\u0000b\"\ntitle = \"T\"\nauthor = \"A\"\n",
-       "config key 'base_url' must not contain a NUL byte"},
-      {"base_url = \"https://example.com\"\ntitle = \"a\\u0000b\"\nauthor = \"A\"\n",
+      {"title = \"a\\u0000b\"\ndescription = \"D\"\nauthor = \"A\"\n"
+       "base_url = \"https://example.com\"\n",
        "config key 'title' must not contain a NUL byte"},
-      {"base_url = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n"
-       "content_dir = \"a\\u0000b\"\n",
+      {"title = \"T\"\ndescription = \"a\\u0000b\"\nauthor = \"A\"\n"
+       "base_url = \"https://example.com\"\n",
+       "config key 'description' must not contain a NUL byte"},
+      {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\nbase_url = \"a\\u0000b\"\n",
+       "config key 'base_url' must not contain a NUL byte"},
+      {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\n"
+       "base_url = \"https://example.com\"\ncontent_dir = \"a\\u0000b\"\n",
        "config key 'content_dir' must not contain a NUL byte"},
-      {"base_url = \"https://example.com\"\ntitle = \"T\"\nauthor = \"A\"\n"
-       "aggregate_templates = [\"a\\u0000b\"]\n",
+      {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\n"
+       "base_url = \"https://example.com\"\naggregate_templates = [\"a\\u0000b\"]\n",
        "config key 'aggregate_templates' must not contain a NUL byte"},
   };
 
@@ -767,9 +843,10 @@ static void test_load_rejects_relative_base_url(void) {
        i++) {
     char toml[256];
     const int n = snprintf(toml, sizeof(toml),
-                           "base_url = \"%s\"\n"
                            "title = \"Example Site\"\n"
-                           "author = \"Example Author\"\n",
+                           "description = \"Example notes\"\n"
+                           "author = \"Example Author\"\n"
+                           "base_url = \"%s\"\n",
                            base_urls_invalid[i]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
     struct TempConfig temp_config;
@@ -843,9 +920,10 @@ static void test_load_reports_every_invalid_template_name(void) {
   struct TempConfig temp_config;
   if (write_temp_config(
           &temp_config,
-          "base_url = \"https://example.com\"\n"
           "title = \"Example Site\"\n"
+          "description = \"Example notes\"\n"
           "author = \"Example Author\"\n"
+          "base_url = \"https://example.com\"\n"
           "feed_templates = [\"../a.xml\", 1, \"a\\u0000b\", \"ok.xml\", \"/b.xml\", 2, "
           "\"c\\u0000d\"]\n") != 0) {
     return;
@@ -886,9 +964,10 @@ static void test_load_rejects_unsafe_permalink(void) {
        i++) {
     char toml[256];
     const int n = snprintf(toml, sizeof(toml),
-                           "base_url = \"https://example.com\"\n"
                            "title = \"Example Site\"\n"
+                           "description = \"Example notes\"\n"
                            "author = \"Example Author\"\n"
+                           "base_url = \"https://example.com\"\n"
                            "permalink = \"%s\"\n",
                            permalinks_unsafe[i]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
@@ -930,9 +1009,10 @@ static void test_load_rejects_permalink_without_slug(void) {
        i < (ptrdiff_t)(sizeof(permalinks_indistinct) / sizeof(permalinks_indistinct[0])); i++) {
     char toml[256];
     const int n = snprintf(toml, sizeof(toml),
-                           "base_url = \"https://example.com\"\n"
                            "title = \"Example Site\"\n"
+                           "description = \"Example notes\"\n"
                            "author = \"Example Author\"\n"
+                           "base_url = \"https://example.com\"\n"
                            "permalink = \"%s\"\n",
                            permalinks_indistinct[i]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
@@ -975,13 +1055,15 @@ static void test_load_prefers_safety_over_distinctness(void) {
 }
 
 // Printing emits every key, with the defaults `site_config_init` supplies for the optional ones.
-// `base_url`, `title` and `author` have no default and are set here so the output shows each.
+// `title`, `description`, `author` and `base_url` have no default and are set here so the output
+// shows each.
 static void test_print_defaults(void) {
   struct SiteConfig config;
   site_config_init(&config);
-  config.base_url = S("https://example.com");
   config.title = S("Example Site");
+  config.description = S("Example notes");
   config.author = S("Example Author");
+  config.base_url = S("https://example.com");
 
   char config_out[1024];
   TEST_ASSERT(render(&config, config_out, sizeof(config_out)) == 0);
@@ -989,9 +1071,10 @@ static void test_print_defaults(void) {
   // The whole buffer, not a set of per-line searches: only an exact comparison can catch a key that
   // is missing, duplicated, extra, or emitted in the wrong order.
   TEST_CHECK(strcmp(config_out,
-                    "base_url = \"https://example.com\"\n"
                     "title = \"Example Site\"\n"
+                    "description = \"Example notes\"\n"
                     "author = \"Example Author\"\n"
+                    "base_url = \"https://example.com\"\n"
                     "permalink = \"/{section}/{slug}.html\"\n"
                     "content_dir = \"content\"\n"
                     "output_dir = \"public\"\n"
@@ -1009,19 +1092,21 @@ static void test_print_defaults(void) {
 static void test_print_escapes_strings(void) {
   struct SiteConfig config;
   site_config_init(&config);
-  config.base_url = S("https://example.com");
   config.title = S("Quote \" and \\ backslash");
+  config.description = S("Example notes");
   // Each hex escape is followed by a non-hex-digit char ('Z', 'G') so it ends after one byte.
   config.author = S("a\tA\bB\nC\fD\rE\x01Z\x7FG");
+  config.base_url = S("https://example.com");
 
   char config_out[1024];
   TEST_ASSERT(render(&config, config_out, sizeof(config_out)) == 0);
 
   // Compared whole, so an escape leaking into a neighboring field cannot hide.
   TEST_CHECK(strcmp(config_out,
-                    "base_url = \"https://example.com\"\n"
                     "title = \"Quote \\\" and \\\\ backslash\"\n"
+                    "description = \"Example notes\"\n"
                     "author = \"a\\tA\\bB\\nC\\fD\\rE\\u0001Z\\u007FG\"\n"
+                    "base_url = \"https://example.com\"\n"
                     "permalink = \"/{section}/{slug}.html\"\n"
                     "content_dir = \"content\"\n"
                     "output_dir = \"public\"\n"
@@ -1044,10 +1129,11 @@ static void test_print_load_round_trips(void) {
 
   struct SiteConfig config;
   site_config_init(&config);
-  config.base_url = S("https://example.com/base");
   // '!' after `\x7F` is not a hex digit, so the escape ends after the single `DEL` byte.
   config.title = S("Quote \" back\\slash\nnewline\ttab\x7F!");
+  config.description = S("Notes on \"C17\"\n");
   config.author = S("Example Author");
+  config.base_url = S("https://example.com/base");
   config.permalink = S("/{slug}/index.html");
   config.content_dir = S("posts");
   config.output_dir = S("dist");
@@ -1075,9 +1161,10 @@ static void test_print_load_round_trips(void) {
   struct Log log = test_log();
   TEST_CHECK(load_site_config(&reloaded, temp_config.path, &log) == 0);
 
-  TEST_CHECK(str_eq(reloaded.base_url, config.base_url));
   TEST_CHECK(str_eq(reloaded.title, config.title));
+  TEST_CHECK(str_eq(reloaded.description, config.description));
   TEST_CHECK(str_eq(reloaded.author, config.author));
+  TEST_CHECK(str_eq(reloaded.base_url, config.base_url));
   TEST_CHECK(str_eq(reloaded.permalink, config.permalink));
   TEST_CHECK(str_eq(reloaded.content_dir, config.content_dir));
   TEST_CHECK(str_eq(reloaded.output_dir, config.output_dir));
@@ -1109,9 +1196,10 @@ cleanup:
 // copies, so a consumer never has to tell the two apart.
 static void test_print_empty_template_arrays(void) {
   const char toml[] =
-      "base_url = \"https://example.com\"\n"
       "title = \"Example Site\"\n"
+      "description = \"Example notes\"\n"
       "author = \"Example Author\"\n"
+      "base_url = \"https://example.com\"\n"
       "aggregate_templates = []\n"
       "feed_templates = []\n";
   struct TempConfig temp_config;
@@ -1140,9 +1228,10 @@ static void test_print_empty_template_arrays(void) {
   }
   // Compared whole: an empty array must print as `[]` and must not disturb its neighbors.
   TEST_CHECK(strcmp(config_out,
-                    "base_url = \"https://example.com\"\n"
                     "title = \"Example Site\"\n"
+                    "description = \"Example notes\"\n"
                     "author = \"Example Author\"\n"
+                    "base_url = \"https://example.com\"\n"
                     "permalink = \"/{section}/{slug}.html\"\n"
                     "content_dir = \"content\"\n"
                     "output_dir = \"public\"\n"
@@ -1166,9 +1255,10 @@ cleanup:
 static void test_print_reports_write_failure(void) {
   struct SiteConfig config;
   site_config_init(&config);
-  config.base_url = S("https://example.com");
   config.title = S("Example Site");
+  config.description = S("Example notes");
   config.author = S("Example Author");
+  config.base_url = S("https://example.com");
 
   struct StreamCapture capture;
   if (capture_begin_unwritable(stdout, &capture) != 0) {

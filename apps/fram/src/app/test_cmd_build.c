@@ -37,6 +37,7 @@ enum { TINY_ARENA_SIZE = 128 };
 /** Config body every fixture shares. Derivatives stay small so encoding stays cheap. */
 static const char* const GALLERY_CONFIG =
     "title = \"Test Gallery\"\n"
+    "description = \"Test description\"\n"
     "author = \"Tests\"\n"
     "input_dir = \"photos\"\n"
     "[derivatives.s]\nwidth = 8\nheight = 8\nquality = 70\ncrop = true\n"
@@ -391,6 +392,7 @@ static void test_tolerates_trailing_slash_on_input_dir(void) {
   // The shared config sets `input_dir`, so this fixture writes its own.
   os_memory_write(os, "fram.toml",
                   "title = \"Test Gallery\"\n"
+                  "description = \"Test description\"\n"
                   "author = \"Tests\"\n"
                   "input_dir = \"photos/\"\n"
                   "[derivatives.s]\nwidth = 8\nheight = 8\nquality = 70\ncrop = true\n"
@@ -619,6 +621,7 @@ static void test_dry_run_lists_stale_recipe_and_keeps_it(void) {
   TEST_CHECK(execute_build(os, &log) == 0);
   os_memory_write(os, "fram.toml",
                   "title = \"Test Gallery\"\n"
+                  "description = \"Test description\"\n"
                   "author = \"Tests\"\n"
                   "input_dir = \"photos\"\n"
                   "[derivatives.s]\nwidth = 4\nheight = 4\nquality = 70\ncrop = true\n"
@@ -1064,7 +1067,9 @@ static void test_reports_a_rejected_directory_key_once(void) {
     struct Os* os = os_memory();
     struct Arena config_arena = test_arena();
     struct Buf config = {.arena = &config_arena};
-    buf_append(&config, S("title = \"Test Gallery\"\nauthor = \"Tests\"\n"));
+    buf_append(&config, S("title = \"Test Gallery\"\n"
+                          "description = \"Test description\"\n"
+                          "author = \"Tests\"\n"));
     buf_append(&config, str_from_cstr(cases[i][0]));
     buf_append(&config, S("[derivatives.s]\nwidth = 8\nheight = 8\nquality = 70\n"));
     os_memory_write(os, "fram.toml", buf_cstr(&config));

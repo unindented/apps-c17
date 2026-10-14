@@ -59,6 +59,13 @@ struct TemplateContext {
 
   /** Site last-modified timestamp exposed as `site.modified`. */
   struct Str site_modified;
+
+  /**
+   * Relative prefix from the page being rendered to `output_dir`, exposed as `path_to_root`: one
+   * `../` for each directory the page's output path is below, and empty for a page at the top of
+   * `output_dir`.
+   */
+  struct Str path_to_root;
 };
 
 /**

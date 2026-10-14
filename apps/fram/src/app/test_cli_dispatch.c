@@ -85,6 +85,7 @@ static int enter_gallery_fixture(char root_dir[static 1], int* saved_dir_fd_out)
 
   static const char config[] =
       "title = \"Gallery\"\n"
+      "description = \"Test description\"\n"
       "author = \"Author\"\n";
   static const char album_template[] = "<title>{{album.title}}</title>\n";
   struct Arena arena = test_arena();
@@ -160,6 +161,7 @@ static void test_config_command_is_dispatched(void) {
   TEST_CHECK(dispatch_capturing(2, argv, &dispatch_out) == EXIT_CODE_OK);
   TEST_CHECK(strcmp(dispatch_out.stdout_out,
                     "title = \"Gallery\"\n"
+                    "description = \"Test description\"\n"
                     "author = \"Author\"\n"
                     "base_url = \"\"\n"
                     "input_dir = \"media\"\n"

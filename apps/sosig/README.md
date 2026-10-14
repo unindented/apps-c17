@@ -78,21 +78,23 @@ When `sosig` searches `content/` and `static/`, it follows symlinks to directori
 
 ### Configuration
 
-`sosig.toml` must set `base_url`, `title`, and `author`:
+`sosig.toml` must set `title`, `description`, `author` and `base_url`:
 
 ```toml
-base_url = "https://www.example.com"
 title = "C17 Notes"
+description = "Notes on C17, Markdown and Org"
 author = "Author Name"
+base_url = "https://www.example.com"
 ```
 
 This table lists every key that the config file can contain. `sosig` rejects any other key. For example, if the file contains the misspelled key `ouput_dir`, `sosig` cannot load the file. It does not ignore the key and use the default value of `output_dir`.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
+| `title` | Required | The title of the site, `site.title` in templates. |
+| `description` | Required | The description of the site, `site.description` in templates. |
+| `author` | Required | The name of the site's author, `site.author` in templates. |
 | `base_url` | Required | The absolute URL of the site, for links in feeds. It must be an `http://` or `https://` URL with a host. It can have a port, a subpath, and a query string. `sosig` removes any trailing `/`, so a template can join it with the `url` of an entry and not produce `//`. |
-| `title` | Required | The title of the site. |
-| `author` | Required | The name of the author. |
 | `permalink` | `"/{section}/{slug}.html"` | The pattern for the URL and output path of each entry. See [URLs and slugs](#urls-and-slugs). |
 | `output_dir` | `"public"` | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
 | `content_dir` | `"content"` | The directory that contains the content files. |
@@ -430,10 +432,11 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 
 | Variable | Templates | Value |
 | --- | --- | --- |
-| `site.title`, `site.base_url`, `site.author` | All | The values from the configuration. |
+| `site.title`, `site.description`, `site.author`, `site.base_url` | All | The values from the configuration. |
 | `site.modified` | All | The date of the newest change to the site. For each entry, the change is its `modified`, or its `date` if `modified` is empty. For an empty site, the value is `1970-01-01T00:00:00Z`. |
 | `content_entries` | All | Every entry that is not a draft, newest first. A feed template receives only the newest `feed_count` entries. Use `{{#content_entries}}` to iterate through them. |
 | `generator` | All | The name and version of `sosig`, for a tag such as `<meta name="generator" content="{{generator}}">`. |
+| `path_to_root` | All | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. The output path of a content page comes from `permalink`, and the output path of an aggregate or feed template is its name. |
 | `title`, `date`, `modified`, `description`, `slug`, `url`, `body`, `tags` | Content templates, and any template inside `{{#content_entries}}` | The fields of the entry. Use `{{#tags}}{{.}}{{/tags}}` to iterate through the tags. |
 
 A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_`, and `-`.

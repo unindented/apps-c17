@@ -91,7 +91,9 @@ struct Str build_cache_path(struct Str output_dir, struct Arena* arena) __attrib
  *
  * The page recipe is what an output depends on besides its input files: the configuration a render
  * reads, the generator string, the grammars the build links, and `PAGE_RECIPE_VERSION`, each as
- * `name=value`, joined by tabs.
+ * `name=value`, joined by tabs, with each `\`, tab and newline of a config text written as `\\`,
+ * `\t` and `\n`, and each `,` inside a template name of a list as `\,`, so two configs never give
+ * the same line.
  *
  * Every row, the last included, ends in a newline, and the rows are sorted by kind and then by
  * name, with none twice. An empty file, which a build leaves until it has written every page, is

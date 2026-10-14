@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <title>Field Notes &amp; Static</title>
+  <subtitle>Signals, static &amp; sections.</subtitle>
   <link href="https://www.example.com/notes/feeds/atom.xml" rel="self"/>
   <id>https://www.example.com/notes/</id>
   <updated>2026-04-11T19:00:00+02:00</updated>

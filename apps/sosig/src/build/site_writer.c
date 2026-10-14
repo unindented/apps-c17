@@ -11,6 +11,7 @@
 #include "domain/site_config.h"
 #include "os/oom.h"
 #include "os/os.h"
+#include "output/output_path.h"
 #include "output/output_writer.h"
 
 // This module's two writers are unit-tested in `src/build/test_site_writer.c`, and CTest's golden
@@ -30,7 +31,8 @@
  *                        the manifest phase over the same configured lists first. This function
  *                        does not re-check, so an overlong name reaching here fails as an opaque
  *                        write error from the OS rather than with a diagnostic naming the limit.
- * @param context         Template context for this render. Must not be `NULL`.
+ * @param context         Template context for this render, whose `path_to_root` this function sets
+ *                        for `template_name` in its own copy. Must not be `NULL`.
  * @param is_inputs_fresh Whether an existing output may be kept.
  * @param os              Host the template is read from and the output inspected on. Must not be
  *                        `NULL`.
@@ -96,8 +98,12 @@ static int write_rendered_template(const struct OutputWriter* writer,
   if (is_inputs_fresh && os_stat(os, output_path, &output_stat) == 0 && !output_stat.is_dir) {
     return output_writer_keep(writer, output_path, log);
   }
+  // The template name is also the output path below `output_dir`, so a name with a `/`, such as
+  // `feeds/atom.xml`, renders a page that is below the top of `output_dir`.
+  struct TemplateContext template_context = *context;
+  template_context.path_to_root = output_path_to_root(template_name, &scratch);
   struct Str rendered_html = {0};
-  if (template_render_file(templates_dir, template_name, context, os, &output, scratch,
+  if (template_render_file(templates_dir, template_name, &template_context, os, &output, scratch,
                            &rendered_html, NULL, log) != 0) {
     return -1;
   }

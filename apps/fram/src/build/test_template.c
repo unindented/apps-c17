@@ -40,6 +40,7 @@ enum { EXPECTED_SIZE = 1024 };
 static void init_test_gallery_config(struct GalleryConfig* gallery_config) {
   gallery_config_init(gallery_config);
   gallery_config->title = S("Gallery");
+  gallery_config->description = S("Description");
   gallery_config->author = S("Ada");
 }
 
@@ -180,6 +181,7 @@ static void test_renders_gallery_tree_with_page_relative_urls(void) {
   struct GalleryConfig gallery_config;
   gallery_config_init(&gallery_config);
   gallery_config.title = S("A & B");
+  gallery_config.description = S("Description");
   gallery_config.author = S("Ada");
   gallery_config.templates_dir = str_from_cstr(root_dir);
 
@@ -224,6 +226,34 @@ cleanup:
   remove_fixture_tree(root_dir);
 }
 
+// Every `gallery` field resolves to its configured value, escaped like any other scalar.
+static void test_renders_gallery_fields(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/fram-template-XXXXXX";
+  if (write_template_fixture(root_dir,
+                             "{{gallery.title}}|{{gallery.description}}|{{gallery.author}}|"
+                             "{{gallery.base_url}}") != 0) {
+    return;
+  }
+
+  struct GalleryConfig gallery_config;
+  init_test_gallery_config(&gallery_config);
+  gallery_config.description = S("Photos <& videos>");
+  gallery_config.base_url = S("https://example.com/gallery");
+  struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
+  const struct TemplateContext context = {.gallery_config = &gallery_config,
+                                          .album_current = &root};
+  char* rendered_html = NULL;
+  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(rendered_html,
+                    "Gallery|Photos &lt;&amp; videos&gt;|Ada|https://example.com/gallery") == 0);
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
 // Sub-album links and inherited covers are materialized relative to the page being rendered.
 static void test_renders_sub_album_cover(void) {
   struct Arena perm = test_arena();
@@ -259,6 +289,53 @@ static void test_renders_sub_album_cover(void) {
     goto cleanup;
   }
   TEST_CHECK(strcmp(rendered_html, "Trip=trip/index.html=_fram/r/s/trip/x.jpg=120x120=3;") == 0);
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
+// `path_to_root` is the prefix of the page being rendered in every context: inside `sub_albums`,
+// `breadcrumbs` and `parent`, whose albums have prefixes of their own, it still names the page's.
+static void test_path_to_root_is_the_page_prefix_in_every_context(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/fram-template-XXXXXX";
+  if (write_template_fixture(
+          root_dir,
+          "{{path_to_root}}|{{album.path_to_root}}|"
+          "{{#sub_albums}}[{{path_to_root}},{{album.path_to_root}}]{{/sub_albums}}|"
+          "{{#breadcrumbs}}[{{path_to_root}}]{{/breadcrumbs}}|"
+          "{{#parent}}[{{path_to_root}}]{{/parent}}") != 0) {
+    return;
+  }
+  struct GalleryConfig gallery_config;
+  init_test_gallery_config(&gallery_config);
+  struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
+  struct Album trip = {.title = S("Trip"),
+                       .url_path = S("trip/index.html"),
+                       .path_to_root = S("../"),
+                       .parent = &root,
+                       .depth = 1};
+  struct Album dawn = {.title = S("Dawn"),
+                       .url_path = S("trip/day/dawn/index.html"),
+                       .path_to_root = S("../../../"),
+                       .depth = 3};
+  struct Album* children[] = {&dawn};
+  struct Album day = {.title = S("Day"),
+                      .url_path = S("trip/day/index.html"),
+                      .path_to_root = S("../../"),
+                      .sub_albums = children,
+                      .sub_album_count = 1,
+                      .parent = &trip,
+                      .depth = 2};
+  dawn.parent = &day;
+  const struct TemplateContext context = {.gallery_config = &gallery_config, .album_current = &day};
+  char* rendered_html = NULL;
+  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(rendered_html,
+                    "../../|../../|[../../,../../]|[../../][../../][../../]|[../../]") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
 
 cleanup:
   remove_fixture_tree(root_dir);
@@ -1307,7 +1384,10 @@ cleanup:
 TEST_LIST = {
     {"renders gallery tree with page-relative URLs",
      test_renders_gallery_tree_with_page_relative_urls},
+    {"renders gallery fields", test_renders_gallery_fields},
     {"renders sub-album cover", test_renders_sub_album_cover},
+    {"path to root is the page prefix in every context",
+     test_path_to_root_is_the_page_prefix_in_every_context},
     {"renders generator", test_renders_generator},
     {"renders partial", test_renders_partial},
     {"repeated partial renders same content each time",

@@ -74,10 +74,11 @@ When `fram` searches `media/` and `static/`, it follows symlinks to directories,
 
 ### Configuration
 
-`fram.toml` must set `title` and `author`:
+`fram.toml` must set `title`, `description` and `author`:
 
 ```toml
 title = "Family Photos"
+description = "Photos and videos of the family"
 author = "Daniel Perez Alvarez"
 ```
 
@@ -85,8 +86,9 @@ This table lists every key that the config file can contain. `fram` rejects any 
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `title` | Required | The title of the gallery. The root album also uses this title. |
-| `author` | Required | The name of the author. |
+| `title` | Required | The title of the gallery, `gallery.title` in templates. The root album also uses this title. |
+| `description` | Required | The description of the gallery, `gallery.description` in templates. |
+| `author` | Required | The name of the gallery's author, `gallery.author` in templates. |
 | `base_url` | `""` | Optional. The absolute URL where you deploy the gallery. If it is set, it must be an `http://` or `https://` URL with a host. It can have a port, a subpath, and a query string. `fram` removes any trailing `/`. If it is not set, a template can read it as an empty section. |
 | `output_dir` | `"public"` | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
 | `input_dir` | `"media"` | The directory that contains the media files. |
@@ -243,13 +245,13 @@ Every template can use these variables:
 
 | Variable | Value |
 | --- | --- |
-| `gallery.title`, `gallery.author`, `gallery.base_url` | The values from the configuration. |
-| `album.title`, `album.url`, `album.path_to_root`, `album.item_count`, `album.cover`, `album.has_media`, `album.has_sub_albums`, `album.parent` | The fields of the current album. They are also available at the top level. `album.cover` is a media value, so its named derivatives are available in the same way as for `media`. |
+| `gallery.title`, `gallery.description`, `gallery.author`, `gallery.base_url` | The values from the configuration. |
+| `album.title`, `album.url`, `album.path_to_root`, `album.item_count`, `album.cover`, `album.has_media`, `album.has_sub_albums`, `album.parent` | The fields of the current album. They are also available at the top level. `album.path_to_root` is the page's `path_to_root`, so the albums of `sub_albums`, `breadcrumbs` and `parent` have no `path_to_root` of their own. `album.cover` is a media value, so its named derivatives are available in the same way as for `media`. |
 | `sub_albums` | The immediate child albums, each with the album fields. |
 | `breadcrumbs` | The albums from the root album through the current album, each with the album fields. |
 | `media` | The media items directly in the current album. Each item has `title`, `is_image`, `is_video`, `original_url`, and `duration`, the length of a video in milliseconds. Each configured derivative is also a named child with `url`, `width`, and `height`, so the defaults give `s.url`, `s.width`, `s.height`, `m.url`, and so on. If a derivative has the same name as a built-in media field, the built-in field takes precedence. |
 | `generator` | The name and version of `fram`, for a tag such as `<meta name="generator" content="{{generator}}">`. |
-| `path_to_root` | The relative prefix from the current output page to `output_dir`. |
+| `path_to_root` | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. It stays the page's prefix inside `sub_albums`, `breadcrumbs` and `parent`. |
 
 A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_`, and `-`.
 

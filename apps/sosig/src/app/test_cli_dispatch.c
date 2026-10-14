@@ -78,9 +78,10 @@ static int enter_site_fixture(char root_dir[static 1], int* saved_dir_fd_out) {
   }
 
   static const char config[] =
-      "base_url = \"https://example.com\"\n"
       "title = \"Site\"\n"
+      "description = \"Example notes\"\n"
       "author = \"Author\"\n"
+      "base_url = \"https://example.com\"\n"
       "aggregate_templates = []\n"
       "feed_templates = []\n";
   static const char entry[] =
@@ -153,9 +154,10 @@ static void test_config_command_is_dispatched(void) {
   struct DispatchOutput dispatch_out;
   TEST_CHECK(dispatch_capturing(2, argv, &dispatch_out) == EXIT_CODE_OK);
   TEST_CHECK(strcmp(dispatch_out.stdout_out,
-                    "base_url = \"https://example.com\"\n"
                     "title = \"Site\"\n"
+                    "description = \"Example notes\"\n"
                     "author = \"Author\"\n"
+                    "base_url = \"https://example.com\"\n"
                     "permalink = \"/{section}/{slug}.html\"\n"
                     "content_dir = \"content\"\n"
                     "output_dir = \"public\"\n"

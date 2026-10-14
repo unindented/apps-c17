@@ -3,7 +3,7 @@
   <channel>
     <title>{{site.title}}</title>
     <link>{{site.base_url}}</link>
-    <description>{{site.title}}</description>
+    <description>{{site.description}}</description>
     <lastBuildDate>{{site.modified}}</lastBuildDate>
 {{#content_entries}}    <item>
       <title>{{title}}</title>

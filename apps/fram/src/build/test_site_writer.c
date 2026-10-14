@@ -55,6 +55,7 @@ static void test_writes_complete_output_layer(void) {
   struct GalleryConfig gallery_config;
   gallery_config_init(&gallery_config);
   gallery_config.title = S("Gallery & Co");
+  gallery_config.description = S("Description");
   gallery_config.author = S("Ada");
   gallery_config.output_dir = S("public");
   gallery_config.templates_dir = S("templates");

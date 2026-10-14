@@ -276,7 +276,8 @@ static void* node_get_root(void* provider_data_ptr);
  *
  * This is installed in `provider` as the by-name lookup callback. At the root a name selects the
  * `site.*` subtree, the `content_entries` list, the `generator` string that names this tool and its
- * version, or otherwise a field of the entry being rendered, such as `title`.
+ * version, the page's `path_to_root`, or otherwise a field of the entry being rendered, such as
+ * `title`.
  *
  * @param node_ptr          Parent node, as a `struct Node*`.
  * @param name              Requested child name. Not `NUL`-terminated.
@@ -671,6 +672,9 @@ static void* node_get_child_by_name(void* node_ptr,
       if (str_eq(name_text, S("generator"))) {
         return node_scalar(provider_data, sosig_generator_string());
       }
+      if (str_eq(name_text, S("path_to_root"))) {
+        return node_scalar(provider_data, provider_data->context->path_to_root);
+      }
       return resolve_entry(provider_data, provider_data->context->content_entry_current, name_text);
     case NODE_SITE:
       return resolve_site(provider_data, name_text);
@@ -894,6 +898,9 @@ static struct Node* resolve_site(struct ProviderData* provider_data, struct Str 
   const struct SiteConfig* site_config = provider_data->context->site_config;
   if (str_eq(name, S("title"))) {
     return node_scalar(provider_data, site_config->title);
+  }
+  if (str_eq(name, S("description"))) {
+    return node_scalar(provider_data, site_config->description);
   }
   if (str_eq(name, S("author"))) {
     return node_scalar(provider_data, site_config->author);

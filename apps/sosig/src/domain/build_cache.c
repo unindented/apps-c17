@@ -14,6 +14,7 @@
 #include "core/str.h"
 #include "domain/site_config.h"
 #include "domain/sosig_version.h"
+#include "formats/tsv.h"
 #include "markup/highlight.h"
 #include "os/os.h"
 
@@ -36,7 +37,8 @@ static void format_recipe(struct Buf* buffer, const struct SiteConfig* site_conf
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Appends a list of names to the page recipe, joined by commas.
+ * @brief Appends a list of names to the page recipe, joined by commas, with each name escaped as a
+ *        tab-separated field and each `,` inside a name written as `\,`.
  *
  * @param buffer Buffer that receives the list. Must not be `NULL`.
  * @param names  Array of `count` names. May be `NULL` only when `count` is 0.
@@ -163,12 +165,19 @@ void build_cache_format(struct Buf* buffer,
 static void format_recipe(struct Buf* buffer, const struct SiteConfig* site_config) {
   const struct Str generator = sosig_generator_string();
   const struct Str grammars = highlight_grammar_list();
-  buf_printf(buffer,
-             "base_url=%.*s\ttitle=%.*s\tauthor=%.*s\tpermalink=%.*s\tcontent_template=%.*s\t"
-             "aggregate_templates=",
-             STR_FMT(site_config->base_url), STR_FMT(site_config->title),
-             STR_FMT(site_config->author), STR_FMT(site_config->permalink),
-             STR_FMT(site_config->content_template));
+  buf_append(buffer, S("title="));
+  tsv_escape_append(buffer, site_config->title);
+  buf_append(buffer, S("\tdescription="));
+  tsv_escape_append(buffer, site_config->description);
+  buf_append(buffer, S("\tauthor="));
+  tsv_escape_append(buffer, site_config->author);
+  buf_append(buffer, S("\tbase_url="));
+  tsv_escape_append(buffer, site_config->base_url);
+  buf_append(buffer, S("\tpermalink="));
+  tsv_escape_append(buffer, site_config->permalink);
+  buf_append(buffer, S("\tcontent_template="));
+  tsv_escape_append(buffer, site_config->content_template);
+  buf_append(buffer, S("\taggregate_templates="));
   format_recipe_list(buffer, site_config->aggregate_templates,
                      site_config->aggregate_template_count);
   buf_append(buffer, S("\tfeed_templates="));
@@ -182,7 +191,14 @@ static void format_recipe_list(struct Buf* buffer, const struct Str* names, ptrd
     if (i > 0) {
       buf_append_char(buffer, ',');
     }
-    buf_append(buffer, names[i]);
+    // A `,` inside a name is written `\,`, so one name that holds a comma never formats as two.
+    struct StrCut cut = str_cut(names[i], ',');
+    tsv_escape_append(buffer, cut.head);
+    while (cut.is_found) {
+      buf_append(buffer, S("\\,"));
+      cut = str_cut(cut.tail, ',');
+      tsv_escape_append(buffer, cut.head);
+    }
   }
 }
 

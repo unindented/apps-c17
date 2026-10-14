@@ -64,10 +64,13 @@ enum GallerySortOrder {
  * default literal or a copy in the arena `gallery_config_load` was given.
  */
 struct GalleryConfig {
-  /** Required gallery title used by templates, also the root album's title. */
+  /** Required title of the gallery, also the root album's title. */
   struct Str title;
 
-  /** Required author name used by templates. */
+  /** Required description of the gallery. */
+  struct Str description;
+
+  /** Required name of the gallery's author. */
   struct Str author;
 
   /** Optional absolute deployment URL, or an empty string when absent. */

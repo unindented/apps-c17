@@ -98,9 +98,10 @@ static void test_prints_loaded_config(void) {
   char stderr_out[8192];
   if (!TEST_CHECK(write_fixture_file(
                       root_dir, "sosig.toml",
-                      "base_url = \"https://example.com\"\n"
                       "title = \"Test Site\"\n"
+                      "description = \"Example notes\"\n"
                       "author = \"Author Name\"\n"
+                      "base_url = \"https://example.com\"\n"
                       "frontmatter_ignored_keys = [\"identifier\", \"signature\"]\n") == 0)) {
     goto cleanup;
   }
@@ -112,9 +113,10 @@ static void test_prints_loaded_config(void) {
   // `stdout`, and the success path says nothing on `stderr`.
   TEST_CHECK(stderr_out[0] == '\0');
   TEST_CHECK(strcmp(stdout_out,
-                    "base_url = \"https://example.com\"\n"
                     "title = \"Test Site\"\n"
+                    "description = \"Example notes\"\n"
                     "author = \"Author Name\"\n"
+                    "base_url = \"https://example.com\"\n"
                     "permalink = \"/{section}/{slug}.html\"\n"
                     "content_dir = \"content\"\n"
                     "output_dir = \"public\"\n"
@@ -142,9 +144,10 @@ static void test_prints_empty_template_arrays(void) {
   char stdout_out[8192];
   char stderr_out[8192];
   if (!TEST_CHECK(write_fixture_file(root_dir, "sosig.toml",
-                                     "base_url = \"https://example.com\"\n"
                                      "title = \"Test Site\"\n"
+                                     "description = \"Example notes\"\n"
                                      "author = \"Author Name\"\n"
+                                     "base_url = \"https://example.com\"\n"
                                      "aggregate_templates = []\n"
                                      "feed_templates = []\n") == 0)) {
     goto cleanup;
@@ -155,9 +158,10 @@ static void test_prints_empty_template_arrays(void) {
   // Compared whole, and `stderr` empty, for the reasons at `test_prints_loaded_config`.
   TEST_CHECK(stderr_out[0] == '\0');
   TEST_CHECK(strcmp(stdout_out,
-                    "base_url = \"https://example.com\"\n"
                     "title = \"Test Site\"\n"
+                    "description = \"Example notes\"\n"
                     "author = \"Author Name\"\n"
+                    "base_url = \"https://example.com\"\n"
                     "permalink = \"/{section}/{slug}.html\"\n"
                     "content_dir = \"content\"\n"
                     "output_dir = \"public\"\n"
@@ -213,8 +217,9 @@ static void test_reports_missing_required_key(void) {
   char stderr_out[8192];
   // Missing the required `author` key.
   if (!TEST_CHECK(write_fixture_file(root_dir, "sosig.toml",
-                                     "base_url = \"https://example.com\"\n"
-                                     "title = \"Test Site\"\n") == 0)) {
+                                     "title = \"Test Site\"\n"
+                                     "description = \"Example notes\"\n"
+                                     "base_url = \"https://example.com\"\n") == 0)) {
     goto cleanup;
   }
 
@@ -237,9 +242,10 @@ static void test_reports_every_invalid_key(void) {
   char stdout_out[8192];
   char stderr_out[8192];
   if (!TEST_CHECK(write_fixture_file(root_dir, "sosig.toml",
-                                     "base_url = \"https://example.com\"\n"
                                      "title = 1\n"
+                                     "description = \"Example notes\"\n"
                                      "author = \"Author Name\"\n"
+                                     "base_url = \"https://example.com\"\n"
                                      "colour = \"blue\"\n"
                                      "feed_count = \"ten\"\n") == 0)) {
     goto cleanup;
@@ -268,9 +274,10 @@ static void test_fails_on_unwritable_stdout(void) {
   }
   char stderr_out[8192];
   if (!TEST_CHECK(write_fixture_file(root_dir, "sosig.toml",
-                                     "base_url = \"https://example.com\"\n"
                                      "title = \"Test Site\"\n"
-                                     "author = \"Author Name\"\n") == 0)) {
+                                     "description = \"Example notes\"\n"
+                                     "author = \"Author Name\"\n"
+                                     "base_url = \"https://example.com\"\n") == 0)) {
     goto cleanup;
   }
 

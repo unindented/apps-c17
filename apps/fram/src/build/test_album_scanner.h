@@ -21,6 +21,7 @@ static inline void test_album_scanner_init_config(struct GalleryConfig* gallery_
 static inline void test_album_scanner_init_config(struct GalleryConfig* gallery_config) {
   gallery_config_init(gallery_config);
   gallery_config->title = S("Gallery");
+  gallery_config->description = S("Description");
   gallery_config->author = S("Author");
   gallery_config->input_dir = S("/photos");
   gallery_config->output_dir = S("/public");

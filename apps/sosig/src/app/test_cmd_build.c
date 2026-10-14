@@ -40,9 +40,10 @@ enum { TINY_ARENA_SIZE = 128 };
 
 /** Config body every fixture shares. It configures no aggregate or feed templates. */
 static const char* const SITE_CONFIG =
-    "base_url = \"https://example.com\"\n"
     "title = \"Site\"\n"
+    "description = \"Example notes\"\n"
     "author = \"Author\"\n"
+    "base_url = \"https://example.com\"\n"
     "aggregate_templates = []\n"
     "feed_templates = []\n";
 
@@ -106,9 +107,10 @@ static struct Os* every_output_kind_fixture(void) {
   // The shared config turns off aggregates and feeds, so this fixture writes its own.
   struct Os* os = os_memory();
   os_memory_write(os, "sosig.toml",
-                  "base_url = \"https://example.com\"\n"
                   "title = \"Site\"\n"
+                  "description = \"Example notes\"\n"
                   "author = \"Author\"\n"
+                  "base_url = \"https://example.com\"\n"
                   "aggregate_templates = [\"index.html\"]\n"
                   "feed_templates = [\"feed.xml\"]\n");
   os_memory_write(os, "content/alpha.md",
@@ -663,9 +665,10 @@ static void test_rebuild_skips_output_dir_linked_from_content_dir(void) {
   // The shared config turns off aggregates, so this fixture writes its own.
   struct Os* os = os_memory();
   os_memory_write(os, "sosig.toml",
-                  "base_url = \"https://example.com\"\n"
                   "title = \"Site\"\n"
+                  "description = \"Example notes\"\n"
                   "author = \"Author\"\n"
+                  "base_url = \"https://example.com\"\n"
                   "aggregate_templates = [\"notes.md\"]\n"
                   "feed_templates = []\n");
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);
@@ -950,21 +953,34 @@ static void test_force_makes_every_output(void) {
   TEST_CHECK(is_listing(dry_run_listing(os, true, &arena), EVERY_OUTPUT_KIND_WRITES));
 }
 
-// A change to a config field a render reads, here `title`, changes the page recipe, so every output
-// is made again although no source or template changed.
+// A change to a config field a render reads, here `title` or `description`, changes the page
+// recipe, so every output is made again although no source or template changed.
 static void test_changed_recipe_field_makes_every_output(void) {
-  struct Os* os = every_output_kind_fixture();
-  struct Arena arena = test_arena();
-  struct Log log = test_log();
-  TEST_CHECK(execute_build(os, &log) == 0);
-  os_memory_write(os, "sosig.toml",
-                  "base_url = \"https://example.com\"\n"
-                  "title = \"Renamed\"\n"
-                  "author = \"Author\"\n"
-                  "aggregate_templates = [\"index.html\"]\n"
-                  "feed_templates = [\"feed.xml\"]\n");
+  static const char* const configs_changed[] = {
+      "title = \"Renamed\"\n"
+      "description = \"Example notes\"\n"
+      "author = \"Author\"\n"
+      "base_url = \"https://example.com\"\n"
+      "aggregate_templates = [\"index.html\"]\n"
+      "feed_templates = [\"feed.xml\"]\n",
+      "title = \"Site\"\n"
+      "description = \"Other notes\"\n"
+      "author = \"Author\"\n"
+      "base_url = \"https://example.com\"\n"
+      "aggregate_templates = [\"index.html\"]\n"
+      "feed_templates = [\"feed.xml\"]\n",
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(configs_changed) / sizeof(configs_changed[0]));
+       i++) {
+    struct Os* os = every_output_kind_fixture();
+    struct Arena arena = test_arena();
+    struct Log log = test_log();
+    TEST_CHECK(execute_build(os, &log) == 0);
+    os_memory_write(os, "sosig.toml", configs_changed[i]);
 
-  TEST_CHECK(is_listing(dry_run_listing(os, false, &arena), EVERY_OUTPUT_KIND_WRITES));
+    TEST_CHECK(is_listing(dry_run_listing(os, false, &arena), EVERY_OUTPUT_KIND_WRITES));
+    TEST_MSG("config %td", i);
+  }
 }
 
 // A build that fails after its first write leaves an empty build cache, so a later build trusts no
@@ -980,9 +996,10 @@ static void test_failed_build_leaves_no_trusted_cache(void) {
   TEST_CHECK(os_memory_file(os, "sosig.toml", &config) == 0);
   const char* config_text = str_cstr(config, &arena);
   os_memory_write(os, "sosig.toml",
-                  "base_url = \"https://example.com\"\n"
                   "title = \"Renamed\"\n"
+                  "description = \"Example notes\"\n"
                   "author = \"Author\"\n"
+                  "base_url = \"https://example.com\"\n"
                   "aggregate_templates = [\"index.html\"]\n"
                   "feed_templates = [\"feed.xml\"]\n");
   os_memory_fail(os, OS_MEMORY_OP_WRITE, "public/index.html", EACCES);
@@ -1574,9 +1591,10 @@ static void test_stops_after_rejected_output_key(void) {
     struct Os* os = os_memory();
     char config[512];
     const int config_len = snprintf(config, sizeof(config),
-                                    "base_url = \"https://example.com\"\n"
                                     "title = \"Site\"\n"
+                                    "description = \"Example notes\"\n"
                                     "author = \"Author\"\n"
+                                    "base_url = \"https://example.com\"\n"
                                     "%s",
                                     cases[i].config);
     TEST_ASSERT(config_len > 0 && config_len < (int)sizeof(config));
@@ -1686,9 +1704,10 @@ static void test_rejects_duplicate_output(void) {
   // The shared config turns off aggregates, so this fixture writes its own.
   struct Os* os = os_memory();
   os_memory_write(os, "sosig.toml",
-                  "base_url = \"https://example.com\"\n"
                   "title = \"Site\"\n"
+                  "description = \"Example notes\"\n"
                   "author = \"Author\"\n"
+                  "base_url = \"https://example.com\"\n"
                   "aggregate_templates = [\"index.html\"]\n"
                   "feed_templates = []\n");
   os_memory_write(os, "content/index.md", HELLO_ENTRY);

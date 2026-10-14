@@ -12,6 +12,7 @@
 #include "domain/site_config.h"
 #include "os/oom.h"
 #include "os/os.h"
+#include "output/output_path.h"
 #include "output/output_writer.h"
 #include "runtime/job.h"
 
@@ -23,10 +24,10 @@
 struct PageRenderContext {
   /**
    * Template context every page render starts from, fully populated here so a job varies only
-   * `content_entry_current`. Leaving a field zeroed would make `site.modified` render empty. That
-   * every pointer in `TemplateContext` is `const` is a thread-safety invariant. During this phase
-   * every worker holds pointers to every entry, and the `const` keeps any job from writing what
-   * another job reads. Do not relax it to add a mutable field.
+   * `content_entry_current` and `path_to_root`. Leaving a field zeroed would make `site.modified`
+   * render empty. That every pointer in `TemplateContext` is `const` is a thread-safety invariant.
+   * During this phase every worker holds pointers to every entry, and the `const` keeps any job
+   * from writing what another job reads. Do not relax it to add a mutable field.
    */
   struct TemplateContext base_context;
 
@@ -184,18 +185,23 @@ static int render_content_page_job(ptrdiff_t index,
       return output_writer_keep(context->writer, entry->output_path, log);
     }
 
-    // Copy the shared context before setting `content_entry_current`. Every page job reads
-    // `base_context` concurrently, so mutating it in place would be a data race, which is undefined
-    // behavior. The copy lives on this job's stack, so no other job can observe a change to it.
+    // Copy the shared context before setting `content_entry_current` and `path_to_root`. Every page
+    // job reads `base_context` concurrently, so mutating it in place would be a data race, which is
+    // undefined behavior. The copy lives on this job's stack, so no other job can observe a change
+    // to it.
     struct TemplateContext template_context = context->base_context;
     template_context.content_entry_current = entry;
     // Both arenas are copies, so the page and the render's temporaries are dropped when this job
     // returns. The page lands past the entries this worker parsed, which the copy never touches.
     struct Arena perm = arenas->perm;
+    struct Arena scratch = arenas->scratch;
+    // The page's path below `output_dir` is its URL without the leading `/`, so the permalink
+    // decides how deep the page is.
+    template_context.path_to_root = output_path_to_root(str_tail(entry->url_path, 1), &scratch);
     struct Str rendered_html = {0};
     rc = render_content_page_template(context->templates_dir, &template_context, context->os, &perm,
-                                      arenas->scratch, &rendered_html,
-                                      &context->entry_list_flags[index], log);
+                                      scratch, &rendered_html, &context->entry_list_flags[index],
+                                      log);
     if (rc == 0) {
       // The render has returned, so its temporaries are dead and the write can reuse the region.
       rc = render_content_page_write(context->writer, entry, rendered_html, arenas->scratch, log);

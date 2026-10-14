@@ -115,19 +115,12 @@ static int write_temp_config(struct TempConfig* temp_config_out, const char* tom
 }
 
 /**
- * @brief Loads a config with the given extra TOML and checks it fails with one diagnostic.
+ * @brief Loads a config and checks it fails with one diagnostic.
  *
- * @param toml_extra Terminated TOML appended to the required keys of an otherwise valid config.
- * @param expected   Exact diagnostic `gallery_config_load` must report.
+ * @param toml     Terminated TOML of the whole config.
+ * @param expected Exact diagnostic `gallery_config_load` must report.
  */
-static void check_load_rejects(const char* toml_extra, const char* expected) {
-  char toml[4096];
-  const int n = snprintf(toml, sizeof(toml),
-                         "title = \"Example Gallery\"\n"
-                         "author = \"Example Author\"\n"
-                         "%s",
-                         toml_extra);
-  TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
+static void check_load_rejects_whole(const char* toml, const char* expected) {
   struct TempConfig temp_config;
   if (write_temp_config(&temp_config, toml) != 0) {
     return;
@@ -142,10 +135,29 @@ static void check_load_rejects(const char* toml_extra, const char* expected) {
   remove_fixture_tree(temp_config.root_dir);
 }
 
+/**
+ * @brief Loads a config with the given extra TOML and checks it fails with one diagnostic.
+ *
+ * @param toml_extra Terminated TOML appended to the required keys of an otherwise valid config.
+ * @param expected   Exact diagnostic `gallery_config_load` must report.
+ */
+static void check_load_rejects(const char* toml_extra, const char* expected) {
+  char toml[4096];
+  const int n = snprintf(toml, sizeof(toml),
+                         "title = \"Example Gallery\"\n"
+                         "description = \"Example Description\"\n"
+                         "author = \"Example Author\"\n"
+                         "%s",
+                         toml_extra);
+  TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
+  check_load_rejects_whole(toml, expected);
+}
+
 // Loading a file with only the required keys fills the rest from `gallery_config_init`'s defaults.
 static void test_load_applies_required_and_defaults(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
       "author = \"Example Author\"\n";
   struct TempConfig temp_config;
   if (write_temp_config(&temp_config, toml) != 0) {
@@ -158,6 +170,7 @@ static void test_load_applies_required_and_defaults(void) {
   TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
 
   TEST_CHECK(str_eq(config.title, S("Example Gallery")));
+  TEST_CHECK(str_eq(config.description, S("Example Description")));
   TEST_CHECK(str_eq(config.author, S("Example Author")));
   TEST_CHECK(str_eq(config.base_url, S("")));
   TEST_CHECK(str_eq(config.input_dir, S("media")));
@@ -197,6 +210,7 @@ cleanup:
 static void test_load_overrides_optional_keys(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
       "base_url = \"https://example.com\"\n"
       "input_dir = \"photos\"\n"
@@ -258,6 +272,7 @@ cleanup:
 static void test_load_normalizes_directory_keys(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
       "input_dir = \"media/\"\n"
       "output_dir = \"/srv/www///\"\n"
@@ -297,6 +312,7 @@ static void test_load_normalizes_base_url(void) {
     char toml[256];
     const int n = snprintf(toml, sizeof(toml),
                            "title = \"Example Gallery\"\n"
+                           "description = \"Example Description\"\n"
                            "author = \"Example Author\"\n"
                            "base_url = \"%s\"\n",
                            cases[i][0]);
@@ -322,6 +338,7 @@ static void test_load_normalizes_base_url(void) {
 static void test_load_leaves_directory_overlap_to_the_build(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
       "input_dir = \"photos\"\n"
       "output_dir = \"photos/generated\"\n";
@@ -356,8 +373,9 @@ static void test_load_reads_sort_orders_independently(void) {
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
     char toml[256];
-    TEST_ASSERT(
-        snprintf(toml, sizeof(toml), "title = \"T\"\nauthor = \"A\"\n%s", cases[i].toml_extra) > 0);
+    TEST_ASSERT(snprintf(toml, sizeof(toml),
+                         "title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\n%s",
+                         cases[i].toml_extra) > 0);
     struct TempConfig temp_config;
     if (write_temp_config(&temp_config, toml) != 0) {
       continue;
@@ -378,6 +396,7 @@ static void test_load_reads_sort_orders_independently(void) {
 static void test_load_accepts_empty_sort_table(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
       "[sort]\n";
   struct TempConfig temp_config;
@@ -401,6 +420,7 @@ static void test_load_accepts_empty_sort_table(void) {
 static void test_load_accepts_zero_video_frame_seconds(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
       "video_frame_seconds = 0\n";
   struct TempConfig temp_config;
@@ -539,6 +559,7 @@ static void test_load_rejects_malformed_toml(void) {
  */
 static const char TOML_KEYS_INVALID[] =
     "title = 1\n"
+    "description = \"Example Description\"\n"
     "author = \"Example Author\"\n"
     "base_url = \"ftp://example.com\"\n"
     "colour = \"blue\"\n"
@@ -618,6 +639,7 @@ static void test_load_keeps_defaults_for_rejected_keys(void) {
   TEST_CHECK(config.derivatives[0].width_px == 120);
   TEST_CHECK(config.video_frame_seconds == 1);
   TEST_CHECK(config.title.len == 0);
+  TEST_CHECK(str_eq(config.description, S("Example Description")));
   TEST_CHECK(str_eq(config.author, S("Example Author")));
 
   remove_fixture_tree(temp_config.root_dir);
@@ -625,38 +647,47 @@ static void test_load_keeps_defaults_for_rejected_keys(void) {
 
 // Omitting a required key is reported as missing rather than as a type error.
 static void test_load_rejects_missing_required_key(void) {
-  const char toml[] = "author = \"Example Author\"\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
-
-  struct GalleryConfig config;
-  gallery_config_init(&config);
-  struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
-  TEST_CHECK(test_log_is_one(&log, "missing required config key 'title'"));
-
-  remove_fixture_tree(temp_config.root_dir);
+  check_load_rejects_whole(
+      "description = \"Example Description\"\n"
+      "author = \"Example Author\"\n",
+      "missing required config key 'title'");
+  check_load_rejects_whole(
+      "title = \"Example Gallery\"\n"
+      "author = \"Example Author\"\n",
+      "missing required config key 'description'");
+  check_load_rejects_whole(
+      "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n",
+      "missing required config key 'author'");
 }
 
-// A required key of the wrong TOML type is reported as a type error, not a missing key.
+// A required key of the wrong TOML type is reported as a type error, not a missing key, and its
+// value is not stored, so the key stays empty.
 static void test_load_rejects_wrong_key_type(void) {
-  const char toml[] =
-      "title = 123\n"
-      "author = \"Example Author\"\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
+  static const char* const cases[][2] = {
+      {"title = 123\ndescription = \"Example Description\"\nauthor = \"Example Author\"\n",
+       "config key 'title' must be a string"},
+      {"title = \"Example Gallery\"\ndescription = 123\nauthor = \"Example Author\"\n",
+       "config key 'description' must be a string"},
+      {"title = \"Example Gallery\"\ndescription = \"Example Description\"\nauthor = 123\n",
+       "config key 'author' must be a string"},
+  };
+
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    struct TempConfig temp_config;
+    if (write_temp_config(&temp_config, cases[i][0]) != 0) {
+      continue;
+    }
+    struct GalleryConfig config;
+    gallery_config_init(&config);
+    struct Log log = test_log();
+    TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+    TEST_CHECK(test_log_is_one(&log, cases[i][1]));
+    const struct Str fields[] = {config.title, config.description, config.author};
+    TEST_CHECK(fields[i].len == 0);
+    TEST_MSG("case %td", i);
+    remove_fixture_tree(temp_config.root_dir);
   }
-
-  struct GalleryConfig config;
-  gallery_config_init(&config);
-  struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
-  TEST_CHECK(test_log_is_one(&log, "config key 'title' must be a string"));
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // A key the schema does not define is rejected, naming the key, so a misspelling cannot silently
@@ -665,15 +696,23 @@ static void test_load_rejects_wrong_key_type(void) {
 // full dotted path.
 static void test_load_rejects_unknown_keys(void) {
   static const char* const cases[][2] = {
-      {"title = \"Example Gallery\"\nauthor = \"Example Author\"\nouput_dir = \"site\"\n",
+      {"title = \"Example Gallery\"\ndescription = \"Example Description\"\n"
+       "author = \"Example Author\"\nouput_dir = \"site\"\n",
        "unknown config key 'ouput_dir'"},
-      {"titl = \"Example Gallery\"\ntitle = \"Example Gallery\"\nauthor = \"Example Author\"\n",
+      {"titl = \"Example Gallery\"\ntitle = \"Example Gallery\"\n"
+       "description = \"Example Description\"\nauthor = \"Example Author\"\n",
        "unknown config key 'titl'"},
-      {"title = \"Example Gallery\"\nauthor = \"Example Author\"\ntitles = \"Example Gallery\"\n",
+      {"title = \"Example Gallery\"\ndescription = \"Example Description\"\n"
+       "author = \"Example Author\"\ntitles = \"Example Gallery\"\n",
        "unknown config key 'titles'"},
-      {"title = \"Example Gallery\"\nauthor = \"Example Author\"\n[extra]\nkey = 1\n",
+      {"title = \"Example Gallery\"\ndescription = \"Example Description\"\n"
+       "author = \"Example Author\"\ndescriptions = \"Example Description\"\n",
+       "unknown config key 'descriptions'"},
+      {"title = \"Example Gallery\"\ndescription = \"Example Description\"\n"
+       "author = \"Example Author\"\n[extra]\nkey = 1\n",
        "unknown config key 'extra'"},
-      {"title = \"Example Gallery\"\nauthor = \"Example Author\"\n"
+      {"title = \"Example Gallery\"\ndescription = \"Example Description\"\n"
+       "author = \"Example Author\"\n"
        "[derivatives.m]\nwidth = 10\nheight = 10\nquality = 80\ncorp = true\n",
        "unknown config key 'derivatives.m.corp'"},
   };
@@ -697,12 +736,18 @@ static void test_load_rejects_unknown_keys(void) {
 // type check.
 static void test_load_rejects_table_values(void) {
   static const char* const cases[][2] = {
-      {"author = \"Example Author\"\n[title]\nname = \"Example Gallery\"\n",
+      {"description = \"Example Description\"\nauthor = \"Example Author\"\n[title]\n"
+       "name = \"Example Gallery\"\n",
        "config key 'title' must be a string"},
-      {"title = \"Example Gallery\"\nauthor = \"Example Author\"\n"
+      {"title = \"Example Gallery\"\nauthor = \"Example Author\"\n[description]\n"
+       "text = \"Example Description\"\n",
+       "config key 'description' must be a string"},
+      {"title = \"Example Gallery\"\ndescription = \"Example Description\"\n"
+       "author = \"Example Author\"\n"
        "[aggregate_templates]\nname = \"sitemap.xml\"\n",
        "config key 'aggregate_templates' must be an array"},
-      {"title = \"Example Gallery\"\nauthor = \"Example Author\"\n"
+      {"title = \"Example Gallery\"\ndescription = \"Example Description\"\n"
+       "author = \"Example Author\"\n"
        "[video_frame_seconds]\nseconds = 1\n",
        "config key 'video_frame_seconds' must be an integer"},
   };
@@ -742,12 +787,16 @@ static void test_load_rejects_invalid_integer_type_and_minimum(void) {
 // writes, so the load refuses it.
 static void test_load_rejects_nul_in_string_values(void) {
   static const char* const cases[][2] = {
-      {"title = \"a\\u0000b\"\nauthor = \"A\"\n", "config key 'title' must not contain a NUL byte"},
-      {"title = \"T\"\nauthor = \"A\"\nbase_url = \"a\\u0000b\"\n",
+      {"title = \"a\\u0000b\"\ndescription = \"D\"\nauthor = \"A\"\n",
+       "config key 'title' must not contain a NUL byte"},
+      {"title = \"T\"\ndescription = \"a\\u0000b\"\nauthor = \"A\"\n",
+       "config key 'description' must not contain a NUL byte"},
+      {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\nbase_url = \"a\\u0000b\"\n",
        "config key 'base_url' must not contain a NUL byte"},
-      {"title = \"T\"\nauthor = \"A\"\ninput_dir = \"a\\u0000b\"\n",
+      {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\ninput_dir = \"a\\u0000b\"\n",
        "config key 'input_dir' must not contain a NUL byte"},
-      {"title = \"T\"\nauthor = \"A\"\naggregate_templates = [\"a\\u0000b\"]\n",
+      {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\n"
+       "aggregate_templates = [\"a\\u0000b\"]\n",
        "config key 'aggregate_templates' must not contain a NUL byte"},
   };
 
@@ -802,6 +851,7 @@ static void test_load_rejects_relative_base_url(void) {
     char toml[256];
     const int n = snprintf(toml, sizeof(toml),
                            "title = \"Example Gallery\"\n"
+                           "description = \"Example Description\"\n"
                            "author = \"Example Author\"\n"
                            "base_url = \"%s\"\n",
                            base_urls_invalid[i]);
@@ -868,6 +918,7 @@ static void test_load_reports_every_invalid_template_name(void) {
   if (write_temp_config(
           &temp_config,
           "title = \"Example Gallery\"\n"
+          "description = \"Example Description\"\n"
           "author = \"Example Author\"\n"
           "aggregate_templates = [\"../a.xml\", 1, \"a\\u0000b\", \"ok.xml\", \"/b.xml\", "
           "2, \"c\\u0000d\"]\n") != 0) {
@@ -987,6 +1038,7 @@ static void test_load_reports_every_invalid_sort_key(void) {
   struct TempConfig temp_config;
   if (write_temp_config(&temp_config,
                         "title = \"Example Gallery\"\n"
+                        "description = \"Example Description\"\n"
                         "author = \"Example Author\"\n"
                         "sort = { albums = \"up\", order = \"asc\", media = 1 }\n") != 0) {
     return;
@@ -1010,12 +1062,13 @@ static void test_load_reports_every_invalid_sort_key(void) {
 }
 
 // Printing emits every key, with the defaults `gallery_config_init` supplies for the optional ones.
-// `title` and `author` have no default and are set here so the output shows each. A derivative
-// prints `crop` only when it crops.
+// `title`, `description`, and `author` have no default and are set here so the output shows each. A
+// derivative prints `crop` only when it crops.
 static void test_print_defaults(void) {
   struct GalleryConfig config;
   gallery_config_init(&config);
   config.title = S("Example Gallery");
+  config.description = S("Example Description");
   config.author = S("Example Author");
 
   char config_out[1024];
@@ -1025,6 +1078,7 @@ static void test_print_defaults(void) {
   // is missing, duplicated, extra, or emitted in the wrong order.
   TEST_CHECK(strcmp(config_out,
                     "title = \"Example Gallery\"\n"
+                    "description = \"Example Description\"\n"
                     "author = \"Example Author\"\n"
                     "base_url = \"\"\n"
                     "input_dir = \"media\"\n"
@@ -1046,6 +1100,7 @@ static void test_print_escapes_strings(void) {
   struct GalleryConfig config;
   gallery_config_init(&config);
   config.title = S("Quote \" and \\ backslash");
+  config.description = S("Example Description");
   // Each hex escape is followed by a non-hex-digit char ('Z', 'G') so it ends after one byte.
   config.author = S("a\tA\bB\nC\fD\rE\x01Z\x7FG");
 
@@ -1055,6 +1110,7 @@ static void test_print_escapes_strings(void) {
   // Compared whole, so an escape leaking into a neighboring field cannot hide.
   TEST_CHECK(strcmp(config_out,
                     "title = \"Quote \\\" and \\\\ backslash\"\n"
+                    "description = \"Example Description\"\n"
                     "author = \"a\\tA\\bB\\nC\\fD\\rE\\u0001Z\\u007FG\"\n"
                     "base_url = \"\"\n"
                     "input_dir = \"media\"\n"
@@ -1089,6 +1145,7 @@ static void test_print_load_round_trips(void) {
   gallery_config_init(&config);
   // '!' after `\x7F` is not a hex digit, so the escape ends after the single `DEL` byte.
   config.title = S("Quote \" back\\slash\nnewline\ttab\x7F!");
+  config.description = S("Example Description");
   config.author = S("Example Author");
   config.base_url = S("https://example.com/gallery");
   config.input_dir = S("photos");
@@ -1118,6 +1175,7 @@ static void test_print_load_round_trips(void) {
   TEST_CHECK(load_gallery_config(&reloaded, temp_config.path, &log) == 0);
 
   TEST_CHECK(str_eq(reloaded.title, config.title));
+  TEST_CHECK(str_eq(reloaded.description, config.description));
   TEST_CHECK(str_eq(reloaded.author, config.author));
   TEST_CHECK(str_eq(reloaded.base_url, config.base_url));
   TEST_CHECK(str_eq(reloaded.input_dir, config.input_dir));
@@ -1155,6 +1213,7 @@ cleanup:
 static void test_print_empty_template_array(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
       "aggregate_templates = []\n";
   struct TempConfig temp_config;
@@ -1180,6 +1239,7 @@ static void test_print_empty_template_array(void) {
   // Compared whole: an empty array must print as `[]` and must not disturb its neighbors.
   TEST_CHECK(strcmp(config_out,
                     "title = \"Example Gallery\"\n"
+                    "description = \"Example Description\"\n"
                     "author = \"Example Author\"\n"
                     "base_url = \"\"\n"
                     "input_dir = \"media\"\n"
@@ -1207,6 +1267,7 @@ static void test_print_reports_write_failure(void) {
   struct GalleryConfig config;
   gallery_config_init(&config);
   config.title = S("Example Gallery");
+  config.description = S("Example Description");
   config.author = S("Example Author");
 
   struct StreamCapture capture;

@@ -1,3 +1,4 @@
 title = "Fram Test Gallery"
+description = "Fixture gallery for the golden test"
 author = "Fram Tests"
 base_url = "https://example.com/gallery"
