@@ -5,7 +5,7 @@
 ## Layout
 
 - [src/app/](src/app/): The process entry point, the command-line interface, and the command boundaries.
-- [src/build/](src/build/): Build orchestration, the parallel phases, templates, manifest population, and the prune.
+- [src/build/](src/build/): Build orchestration, the parallel phases, templates, and manifest population.
 - [src/domain/](src/domain/): Gallery configuration, albums, media items, and the build cache, and the tool name and version.
 - [src/media/](src/media/): The boundaries for JPEG, WebP, and EXIF data, and the process and video services on the real host.
 - [tests/](tests/): The golden test suite, the seeded random tests, and the test helpers of `fram`: the fixture JPEG encoder and the WebP output decoder. The fixture gallery [tests/fixtures/gallery](tests/fixtures/gallery/), which mixes JPEG and MP4 sources, has its expected output in [tests/expected/gallery](tests/expected/gallery/).
@@ -65,9 +65,8 @@ The phases call these modules in `src/build`:
 - `derivative_renderer` generates the media outputs.
 - `page_renderer` renders the album pages.
 - `site_writer` writes the generated gallery.
-- `output_pruner` removes what the build did not write.
 
-Every change under `output_dir` goes through `output_writer`, which does not make the changes in a dry run.
+The prune is `output_pruner` from the `output` library, which removes what the build did not write. Every change under `output_dir` goes through `output_writer`, which does not make the changes in a dry run.
 
 ### Phases
 
@@ -121,12 +120,11 @@ Each item below links to the module's header, which documents its interface. The
 - [album_scanner](src/build/album_scanner.h): The serial skeleton pass and the first parallel phase. `album_scanner_build_skeleton` creates albums and media from the sorted source paths in the caller's arena, plans their output, and completes their relationships. `album_scanner_probe_media` fills only the scalar fields below the probe boundary. It fills them from the build cache when the row of a source still matches the source. Otherwise it probes the source, and for a video it creates one temporary JPEG in the frame slot that the build allocated for the video. `album_scanner_remove_video_frames` removes the frames that a slot still marks as created.
 - [derivative_renderer](src/build/derivative_renderer.h): The second parallel phase. `derivative_renderer_generate` checks whether each named derivative is current, decodes and orients a source image or a retained video frame once, applies the crop and fit rules of each derivative definition, writes every stale derivative, and copies the original. A derivative path holds the recipe of the settings that affect the output, and appends the derivative name to a slug of the full filename, which includes the source extension. Originals use a stable namespace.
 - [manifest_builder](src/build/manifest_builder.h): Builds the [manifest](../../libs/src/output/manifest.h) before the build writes a generated file. `manifest_builder_check_output_dir` checks `output_dir` against the input roots before the build walks an input tree. `manifest_builder_populate` records every album page, derivative, original, aggregate, and static file output, and rejects the conflicts that the manifest phase lists. The root and input checks compare device and inode values, so they detect alternate spellings, hard links, symlinks, and case-insensitive paths to the same file or directory.
-- [output_pruner](src/build/output_pruner.h): `output_pruner_prune` removes every directory entry below `output_dir` that the manifest does not name and that no output is below, as the prune phase describes.
 - [page_renderer](src/build/page_renderer.h): The third parallel phase. `page_renderer_render_pages` renders each album into the result slot for its index, in the perm of the worker that renders it. Each render reads the complete album set through a template context that is `const` at every level.
 - [site_writer](src/build/site_writer.h): Writes the generated gallery from the rendered results. It writes each album page first. Then it renders and writes the aggregate templates, and copies the discovered static files. It stops at the first output that fails to render, write, or copy.
 - [template](src/build/template.h): `template_render_file` uses mustache4c to render a template with a `TemplateContext`. Template names must be safe relative paths, and partial names use a restricted identifier grammar. Each render has three limits. The partial-expansion limit stops a partial that includes itself, so every render ends. The output-byte limit sets the maximum size of the output buffer. The distinct-partial limit sets the maximum size of the compiled-partial cache. The limits do not bound a render's total memory, because templates are trusted input, and a template's nested sections use memory in proportion to the iterations that they request. The module escapes all interpolation for HTML, and rejects unescaped Mustache interpolation. A media node looks up the configured derivative names when it renders, so a new `xl` definition gives `xl.url`, `xl.width`, and `xl.height` without a change to the C model.
 
-The build also uses [job](../../libs/src/runtime/job.h) from the `runtime` library, which runs the three parallel phases on the worker pool, and the `output` library: [output_path](../../libs/src/output/output_path.h) reports an output path that exceeds a limit and builds the `../` prefix back to the output root for `album_scanner`, `manifest_builder`, and `site_writer`, and [output_writer](../../libs/src/output/output_writer.h) makes every change under `output_dir` for the derivative renderer, the site writer, and the prune.
+The build also uses [job](../../libs/src/runtime/job.h) from the `runtime` library, which runs the three parallel phases on the worker pool, and the `output` library: [output_path](../../libs/src/output/output_path.h) reports an output path that exceeds a limit and builds the `../` prefix back to the output root for `album_scanner`, `manifest_builder`, and `site_writer`, [output_writer](../../libs/src/output/output_writer.h) makes every change under `output_dir` for the derivative renderer, the site writer, and the prune, and [output_pruner](../../libs/src/output/output_pruner.h) removes every directory entry below `output_dir` that the manifest does not name and that no output is below, as the prune phase describes, and never enters `input_dir`, `templates_dir` or `static_dir`.
 
 ### Domain (`src/domain`)
 

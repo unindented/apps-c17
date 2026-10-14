@@ -1,5 +1,6 @@
-#include "build/output_pruner.h"
+#include "output/output_pruner.h"
 
+#include <assert.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -10,13 +11,9 @@
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
-#include "domain/site_config.h"
 #include "os/os.h"
 #include "output/manifest.h"
 #include "output/output_writer.h"
-
-/** Number of input roots the prune never enters: `content_dir`, `templates_dir`, `static_dir`. */
-enum { PRUNE_ROOT_COUNT = 3 };
 
 /** What one prune keeps and where it reports, gathered before the walk. */
 struct Prune {
@@ -31,7 +28,7 @@ struct Prune {
   ptrdiff_t kept_count;
 
   /** Identities of the input roots that exist. */
-  struct OsIdentity root_items[PRUNE_ROOT_COUNT];
+  struct OsIdentity* root_items;
 
   /** Number of identities in `root_items`. */
   ptrdiff_t root_count;
@@ -81,11 +78,15 @@ static void claim_kept_outputs_identity(struct Prune* prune, struct Str path)
 /**
  * @brief Records the identity of each input root that exists.
  *
- * @param prune       Prune that receives the identities. Must not be `NULL`.
- * @param site_config Configuration supplying the roots. Must not be `NULL`.
+ * @param prune      Prune that receives the identities. Must not be `NULL`.
+ * @param root_dirs  Input roots, `root_count` of them.
+ * @param root_count Number of entries in `root_dirs`.
+ * @param scratch    Arena that owns the identities. Must not be `NULL`.
  */
-static void claim_input_roots(struct Prune* prune, const struct SiteConfig* site_config)
-    __attribute__((nonnull(1, 2)));
+static void claim_input_roots(struct Prune* prune,
+                              const struct Str* root_dirs,
+                              ptrdiff_t root_count,
+                              struct Arena* scratch) __attribute__((nonnull(1, 4)));
 
 /**
  * @brief Removes the stale entries below one directory.
@@ -133,22 +134,25 @@ static bool is_input_root(const struct Prune* prune, const struct OsIdentity* id
     __attribute__((nonnull(1, 2)));
 
 int output_pruner_prune(struct OutputWriter* writer,
-                        const struct SiteConfig* site_config,
+                        struct Str output_dir,
+                        const struct Str* root_dirs,
+                        ptrdiff_t root_count,
                         struct Os* os,
                         struct Arena scratch,
                         ptrdiff_t* removed_count_out,
                         struct Log* log) {
+  assert(root_count >= 0);
   // A dry run withholds the creation of `output_dir`, so a first build's dry run reaches here
   // without one, and nothing is stale.
   struct OsStat st;
-  if (os_stat(os, site_config->output_dir, &st) != 0 && errno == ENOENT) {
+  if (os_stat(os, output_dir, &st) != 0 && errno == ENOENT) {
     *removed_count_out = 0;
     return 0;
   }
   struct Prune prune = {.os = os, .writer = writer, .log = log};
-  claim_kept_outputs(&prune, writer->manifest, site_config->output_dir, &scratch);
-  claim_input_roots(&prune, site_config);
-  (void)prune_dir(&prune, site_config->output_dir, scratch);
+  claim_kept_outputs(&prune, writer->manifest, output_dir, &scratch);
+  claim_input_roots(&prune, root_dirs, root_count, &scratch);
+  (void)prune_dir(&prune, output_dir, scratch);
   *removed_count_out = prune.removed_count;
   return prune.is_failed ? -1 : 0;
 }
@@ -202,10 +206,12 @@ static void claim_kept_outputs_identity(struct Prune* prune, struct Str path) {
   }
 }
 
-static void claim_input_roots(struct Prune* prune, const struct SiteConfig* site_config) {
-  const struct Str root_dirs[PRUNE_ROOT_COUNT] = {
-      site_config->content_dir, site_config->templates_dir, site_config->static_dir};
-  for (ptrdiff_t i = 0; i < PRUNE_ROOT_COUNT; i++) {
+static void claim_input_roots(struct Prune* prune,
+                              const struct Str* root_dirs,
+                              ptrdiff_t root_count,
+                              struct Arena* scratch) {
+  prune->root_items = arena_new(scratch, root_count, struct OsIdentity);
+  for (ptrdiff_t i = 0; i < root_count; i++) {
     struct OsStat st;
     if (os_stat(prune->os, root_dirs[i], &st) == 0) {
       prune->root_items[prune->root_count++] = st.identity;

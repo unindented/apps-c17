@@ -11,15 +11,14 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "build/output_pruner.h"
 #include "core/arena.h"
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
-#include "domain/site_config.h"
 #include "os/os.h"
 #include "os/os_posix.h"
 #include "output/manifest.h"
+#include "output/output_pruner.h"
 #include "output/output_writer.h"
 #include "testing/test_support.h"
 
@@ -33,7 +32,7 @@
  * @return `true` when `probe` names the file created as `Probe`, otherwise `false`.
  */
 static bool is_tmp_case_insensitive(void) {
-  char probe_dir[] = "/tmp/sosig-pruner-case-probe.XXXXXX";
+  char probe_dir[] = "/tmp/output-pruner-case-probe.XXXXXX";
   if (mkdtemp(probe_dir) == NULL) {
     return false;
   }
@@ -61,7 +60,7 @@ static void test_keeps_output_named_in_another_case(void) {
     TEST_SKIP("needs a case-insensitive filesystem");
     return;
   }
-  char root_dir[] = "/tmp/sosig-pruner-case.XXXXXX";
+  char root_dir[] = "/tmp/output-pruner-case.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -74,19 +73,14 @@ static void test_keeps_output_named_in_another_case(void) {
   const struct Str output_path = path_join(output_dir, S("logo.png"), &arena);
   TEST_CHECK(access(str_cstr(output_path, &arena), F_OK) == 0);
 
-  struct SiteConfig site_config;
-  site_config_init(&site_config);
-  site_config.content_dir = path_join(str_from_cstr(root_dir), S("content"), &arena);
-  site_config.output_dir = output_dir;
-  site_config.templates_dir = path_join(str_from_cstr(root_dir), S("templates"), &arena);
-  site_config.static_dir = path_join(str_from_cstr(root_dir), S("static"), &arena);
+  const struct Str root_dirs[] = {path_join(str_from_cstr(root_dir), S("content"), &arena)};
   struct Manifest manifest = {0};
   TEST_CHECK(manifest_add(&manifest, output_path, S("static/logo.png"), &arena, NULL) == 0);
 
   struct OutputWriter writer = {.manifest = &manifest, .os = os_posix()};
   ptrdiff_t removed_count = -1;
-  TEST_CHECK(output_pruner_prune(&writer, &site_config, os_posix(), test_arena(), &removed_count,
-                                 &log) == 0);
+  TEST_CHECK(output_pruner_prune(&writer, output_dir, root_dirs, 1, os_posix(), test_arena(),
+                                 &removed_count, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(removed_count == 0);
   TEST_CHECK(access(str_cstr(written_path, &arena), F_OK) == 0);

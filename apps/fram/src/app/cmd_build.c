@@ -11,7 +11,6 @@
 #include "build/album_scanner.h"
 #include "build/derivative_renderer.h"
 #include "build/manifest_builder.h"
-#include "build/output_pruner.h"
 #include "build/page_renderer.h"
 #include "build/site_writer.h"
 #include "build/template.h"
@@ -32,6 +31,7 @@
 #include "os/oom.h"
 #include "os/os.h"
 #include "output/manifest.h"
+#include "output/output_pruner.h"
 #include "output/output_writer.h"
 #include "runtime/job.h"
 #include "runtime/pool.h"
@@ -894,8 +894,12 @@ static int write_generated_site(struct BuildState* state, struct Log* log) {
 static int prune_stale_outputs(struct BuildState* state, struct Log* log) {
   build_verbose(state, "removing stale outputs");
   ptrdiff_t removed_count = 0;
-  const int rc = output_pruner_prune(&state->writer, &state->gallery_config, state->os,
-                                     state->scratch, &removed_count, log);
+  const struct GalleryConfig* gallery_config = &state->gallery_config;
+  const struct Str root_dirs[] = {gallery_config->input_dir, gallery_config->templates_dir,
+                                  gallery_config->static_dir};
+  const int rc = output_pruner_prune(&state->writer, gallery_config->output_dir, root_dirs,
+                                     (ptrdiff_t)(sizeof(root_dirs) / sizeof(root_dirs[0])),
+                                     state->os, state->scratch, &removed_count, log);
   build_verbose(state, "removed stale outputs: %td", removed_count);
   return rc;
 }

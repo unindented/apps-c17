@@ -237,7 +237,7 @@ This guide takes its ideas and conventions from these sources:
 
 - Run a new test against the in-memory host unless it needs a fact that only a real filesystem has, such as the umask, a FIFO, permissions, or an interrupted write. An app registers such a test with `apps_add_unit_test(<module> OS memory)`, and a library with `libs_add_unit_test(<lib> <module> OS memory)`. A memory-host test builds its tree with the `os_memory_*` helpers, injects failures with `os_memory_fail`, and has no fixture to remove.
 - Every unit test that is registered with the POSIX host, or in an app without `OS memory`, links the POSIX host. These tests are:
-  - The POSIX layer's own tests (`os.os_posix`, `os.contract_posix` and `runtime.walk_posix`), and sosig's and fram's `output_pruner_case`, which need a real filesystem.
+  - The POSIX layer's own tests (`os.os_posix`, `os.contract_posix` and `runtime.walk_posix`), and `output.output_pruner_case`, which need a real filesystem.
   - The suites of each app that are not yet converted to the in-memory host, which [App-specific rules](#app-specific-rules) lists.
   - The tests that reach no host.
 - A test that is added to one of those suites runs on the host that its suite links.

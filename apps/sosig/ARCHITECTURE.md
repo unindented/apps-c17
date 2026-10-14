@@ -5,7 +5,7 @@
 ## Layout
 
 - [src/app/](src/app/): The process entry point, the command-line interface, and the command boundaries.
-- [src/build/](src/build/): Build orchestration, the parallel phases, templates, manifest population, and the prune.
+- [src/build/](src/build/): Build orchestration, the parallel phases, templates, and manifest population.
 - [src/domain/](src/domain/): Site configuration, content metadata, frontmatter, permalinks, and the build cache, and the tool name and version.
 - [tests/](tests/): The golden test suite. Each fixture site under [tests/fixtures/](tests/fixtures/) has a matching directory of expected output under [tests/expected/](tests/expected/):
   - [site_file_permalink](tests/fixtures/site_file_permalink/) covers Markdown, Org, links between denote notes, and templates with the default permalink.
@@ -67,9 +67,8 @@ The phases call these modules in `src/build`:
 - `manifest_builder` plans the output paths.
 - `page_renderer` renders and writes the content pages.
 - `site_writer` writes the aggregate and feed outputs, and copies the static files and the assets.
-- `output_pruner` removes what the build did not write.
 
-Every change under `output_dir` goes through `output_writer`, which does not make the changes in a dry run.
+The prune is `output_pruner` from the `output` library, which removes what the build did not write. Every change under `output_dir` goes through `output_writer`, which does not make the changes in a dry run.
 
 ### Phases
 
@@ -115,12 +114,11 @@ Each item below links to the module's header, which documents its interface. The
 
 - [entry_renderer](src/build/entry_renderer.h): The first two parallel phases. `entry_renderer_parse_entries` parses each source into its slot of an entry array that the caller owns, with one slot for each source path. For an entry that is not a draft, it keeps the body, and creates the URL and the output path. A draft leaves its slot `NULL` and sets its slot of `draft_flags`. `entry_renderer_convert_bodies` converts each body after every entry has its URL. The module owns the rules for links between content files: which link targets name a content file by path or by denote identifier, the URL of each target, and the errors for a missing file or a draft.
 - [manifest_builder](src/build/manifest_builder.h): Builds the [manifest](../../libs/src/output/manifest.h) before the build writes a generated file. `manifest_builder_check_output_dir` checks `output_dir` against the input roots before the build walks an input tree. `manifest_builder_populate` records every content, aggregate, feed, static file, and asset output, and rejects the conflicts that the manifest phase lists. The root and input checks compare device and inode values, so they detect alternate spellings, hard links, symlinks, and case-insensitive paths to the same file or directory. The manifest and `site_writer` both use `path_join` to join each aggregate and feed template name, and the path of each static file below `static_dir` or asset below `content_dir`, to `output_dir`, so the path that the manifest checked is the path that the build writes.
-- [output_pruner](src/build/output_pruner.h): `output_pruner_prune` removes every directory entry below `output_dir` that the manifest does not name and that no output is below, as the prune phase describes.
 - [page_renderer](src/build/page_renderer.h): The third parallel phase. `page_renderer_render_pages` renders each parsed entry through its content template and writes the page, or keeps the page when the build cache shows that its inputs did not change. Each render reads the complete sorted set of entries and `site.modified` through a template context that is `const` at every level.
 - [site_writer](src/build/site_writer.h): After the page phase, renders and writes the aggregate and feed templates, or keeps the outputs that the build cache allows it to keep. Then it copies each static file and each asset with one streamed `os_write`. It stops at the first template or file that fails. `cmd_build` gives a feed only the newest `feed_count` entries.
 - [template](src/build/template.h): `template_render_file` uses mustache4c to render a template with a `TemplateContext`. Template names must be safe relative paths, and partial names use a restricted identifier grammar. Each render has three limits. The partial-expansion limit stops a partial that includes itself, so every render ends. The output-byte limit sets the maximum size of the output buffer. The distinct-partial limit sets the maximum size of the compiled-partial cache. The limits do not bound a render's total memory, because templates are trusted input, and a template's nested sections use memory in proportion to the iterations that they request. A render also reports whether it resolved `content_entries` or `site.modified`, the two names whose values depend on every entry. The build cache records this for each page.
 
-The build also uses [job](../../libs/src/runtime/job.h) from the `runtime` library, which runs the three parallel phases on the worker pool, and the `output` library: [output_path](../../libs/src/output/output_path.h) reports an output path that exceeds a limit for `entry_renderer` and `manifest_builder`, and [output_writer](../../libs/src/output/output_writer.h) makes every change under `output_dir` for the page renderer, the site writer, and the prune.
+The build also uses [job](../../libs/src/runtime/job.h) from the `runtime` library, which runs the three parallel phases on the worker pool, and the `output` library: [output_path](../../libs/src/output/output_path.h) reports an output path that exceeds a limit for `entry_renderer` and `manifest_builder`, [output_writer](../../libs/src/output/output_writer.h) makes every change under `output_dir` for the page renderer, the site writer, and the prune, and [output_pruner](../../libs/src/output/output_pruner.h) removes every directory entry below `output_dir` that the manifest does not name and that no output is below, as the prune phase describes, and never enters `content_dir`, `templates_dir` or `static_dir`.
 
 ### Domain (`src/domain`)
 

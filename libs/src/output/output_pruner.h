@@ -1,11 +1,11 @@
-#ifndef FRAM_OUTPUT_PRUNER_H
-#define FRAM_OUTPUT_PRUNER_H
+#ifndef APPS_OUTPUT_OUTPUT_PRUNER_H
+#define APPS_OUTPUT_OUTPUT_PRUNER_H
 
 #include <stddef.h>
 
 #include "core/arena.h"
+#include "core/str.h"
 
-struct GalleryConfig;
 struct Log;
 struct Os;
 struct OutputWriter;
@@ -19,9 +19,9 @@ struct OutputWriter;
  * than by name: a case-insensitive filesystem keeps the case an earlier build created, so a name
  * comparison would remove a current output whose name changed only in case. A symlink is removed as
  * a link and never descended, so what it points to is never touched, and removing a hard link
- * leaves the file under its other names. A directory that is `input_dir`, `templates_dir`, or
- * `static_dir`, such as a mount of one inside `output_dir`, is neither entered nor removed. A stale
- * directory is removed once everything inside it is.
+ * leaves the file under its other names. A directory that is one of `root_dirs`, such as a mount of
+ * an input root inside `output_dir`, is neither entered nor removed. A stale directory is removed
+ * once everything inside it is.
  *
  * Every removal goes through `writer`, so a dry run removes nothing and records what it would
  * remove instead, and an `output_dir` that does not exist, which only a dry run leaves, has nothing
@@ -33,20 +33,24 @@ struct OutputWriter;
  *
  * @param writer            Writer of the build, whose manifest names every output path, each joined
  *                          onto `output_dir`, and which makes the removals. Must not be `NULL`.
- * @param gallery_config    Configuration supplying `output_dir` and the input roots. Must not be
- *                          `NULL`.
+ * @param output_dir        Directory to prune.
+ * @param root_dirs         Input roots the prune never enters, `root_count` of them. A root that
+ *                          does not exist is skipped. May be `NULL` when `root_count` is `0`.
+ * @param root_count        Number of entries in `root_dirs`. Must not be negative.
  * @param os                Host the output tree is read from. Must not be `NULL`.
- * @param scratch           Arena for the kept identities and the listings.
+ * @param scratch           Arena for the kept identities, the roots' identities and the listings.
  * @param removed_count_out Receives the number of entries removed, directories included. Must not
  *                          be `NULL`.
  * @param log               Log that receives every failure. Must not be `NULL`.
  * @return `0` when every stale entry was removed, or `-1` when one could not be listed or removed.
  */
 int output_pruner_prune(struct OutputWriter* writer,
-                        const struct GalleryConfig* gallery_config,
+                        struct Str output_dir,
+                        const struct Str* root_dirs,
+                        ptrdiff_t root_count,
                         struct Os* os,
                         struct Arena scratch,
                         ptrdiff_t* removed_count_out,
-                        struct Log* log) __attribute__((nonnull(1, 2, 3, 5, 6)));
+                        struct Log* log) __attribute__((nonnull(1, 5, 7, 8)));
 
 #endif
