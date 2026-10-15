@@ -94,7 +94,7 @@ This table lists every key that the config file can contain. `sosig` rejects any
 | `title` | Required | The title of the site, `site.title` in templates. |
 | `description` | Required | The description of the site, `site.description` in templates. |
 | `author` | Required | The name of the site's author, `site.author` in templates. |
-| `base_url` | Required | The absolute URL of the site, for links in feeds. It must be an `http://` or `https://` URL with a host. It can have a port, a subpath, and a query string. `sosig` removes any trailing `/`, so a template can join it with the `url` of an entry and not produce `//`. |
+| `base_url` | Required | The absolute URL of the site, for links in feeds. It must be an `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. `sosig` removes any trailing `/`, so a template can join it with the `url` of an entry and not produce `//`. |
 | `permalink` | `"/{section}/{slug}.html"` | The pattern for the URL and output path of each entry. See [URLs and slugs](#urls-and-slugs). |
 | `output_dir` | `"public"` | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
 | `content_dir` | `"content"` | The directory that contains the content files. |

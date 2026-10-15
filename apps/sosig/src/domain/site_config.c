@@ -8,11 +8,11 @@
 #include <tomlc17.h>
 
 #include "core/arena.h"
-#include "core/ascii.h"
 #include "core/buf.h"
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
+#include "core/url.h"
 #include "domain/content_entry.h"
 #include "domain/permalink.h"
 #include "formats/toml.h"
@@ -232,38 +232,15 @@ static int copy_size(toml_datum_t table,
                      struct Log* log) __attribute__((nonnull(3, 4)));
 
 /**
- * @brief Validates `base_url` as an absolute HTTP(S) URL and trims any trailing `/`.
+ * @brief Validates `base_url` as an absolute HTTP(S) URL with a host, and with no byte that a link
+ *        below it could not hold as written, and trims any trailing `/`.
  *
- * `copy_string` accepts a relative or scheme-less value, because it checks only presence and type.
- * Such a value then silently produces broken links in every feed and canonical URL. Checking it
- * here keeps that a single config error.
- *
- * This must run after `base_url` is copied. `base_url` is empty until then, and an empty URL is
- * rejected.
- *
- * @param site_config Config whose `base_url` is validated and normalized. Must not be `NULL`.
- * @param log         Log that receives every error. Must not be `NULL`.
- * @return `0` on success, or `-1` when the URL is not absolute, which leaves `base_url` empty.
+ * @param site_config Config whose `base_url` is checked, and emptied when rejected. Must not be
+ *                    `NULL`.
+ * @param log         Log that receives the error. Must not be `NULL`.
  */
-static int normalize_base_url(struct SiteConfig* site_config, struct Log* log)
+static void normalize_base_url(struct SiteConfig* site_config, struct Log* log)
     __attribute__((nonnull(1, 2)));
-
-/**
- * @brief Reports whether a URL is absolute: an HTTP(S) scheme followed by a non-empty host.
- *
- * @param url URL to check.
- * @return `true` when `url` has a recognized scheme and a host, `false` otherwise.
- */
-static bool is_valid_base_url(struct Str url);
-
-/**
- * @brief Reports whether `url` starts with `scheme`, matching ASCII letters case-insensitively.
- *
- * @param url    URL to inspect.
- * @param scheme Scheme prefix to match, such as `https://`.
- * @return `true` when `url` starts with `scheme`, `false` otherwise.
- */
-static bool has_scheme(struct Str url, struct Str scheme);
 
 /**
  * @brief Copies one optional directory key, trims its trailing `/` and rejects an empty result.
@@ -485,7 +462,7 @@ static void site_config_load_fields(struct SiteConfig* site_config,
   // A `base_url` that is missing or mistyped is already reported, so its empty value is not judged
   // a second time.
   if (copy_string(table, "base_url", true, perm, &site_config->base_url, log) == 0) {
-    (void)normalize_base_url(site_config, log);
+    normalize_base_url(site_config, log);
   }
 
   const struct SiteConfigStringKey optional_strings[] = {
@@ -652,57 +629,27 @@ static int copy_size(toml_datum_t table,
   return 0;
 }
 
-static int normalize_base_url(struct SiteConfig* site_config, struct Log* log) {
-  if (!is_valid_base_url(site_config->base_url)) {
+static void normalize_base_url(struct SiteConfig* site_config, struct Log* log) {
+  if (!url_is_http_with_host(site_config->base_url)) {
     (void)log_error(
         log,
         "config key 'base_url' must be an absolute 'http://' or 'https://' URL with a host: '%.*s'",
         STR_FMT(site_config->base_url));
-    // A required key has no default, so a rejected one goes back to empty.
     site_config->base_url = (struct Str){0};
-    return -1;
+    return;
   }
-
-  // Trim a trailing `/` so templates can join `base_url` with an entry's `url`, which always starts
-  // with one, without producing `//`. Normalizing once here keeps the rule in one place and makes
-  // `site_config_print` round-trip the normalized form, as `copy_dir` does for directories. The
-  // trim cannot eat the scheme's slashes, because the check above proved a host byte follows them.
-  // The value is a counted view, so trimming shortens it in place.
+  // Every link appends a path to `base_url`, so a query or a fragment in it would swallow the path,
+  // and a space or a control byte would reach the links raw.
+  if (url_has_path_breaking_byte(site_config->base_url)) {
+    (void)log_error(log,
+                    "config key 'base_url' must not hold '?', '#', a space or a control "
+                    "character: '%.*s'",
+                    STR_FMT(site_config->base_url));
+    site_config->base_url = (struct Str){0};
+    return;
+  }
+  // Every link joins `base_url` with a path that starts with `/`, so the trailing `/` goes.
   site_config->base_url = trim_trailing_slashes(site_config->base_url);
-  return 0;
-}
-
-static bool is_valid_base_url(struct Str url) {
-  /**
-   * It accepts a scheme plus a non-empty host, and nothing more. A port, subpath, or query string
-   * must stay valid, and judging a host beyond "not empty" would mean ruling on what DNS and
-   * punycode allow. Schemes are case-insensitive, so `HTTPS://` is the same URL.
-   */
-  static const struct Str URL_SCHEMES[] = {STR_INIT("http://"), STR_INIT("https://")};
-
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(URL_SCHEMES) / sizeof(URL_SCHEMES[0])); i++) {
-    if (has_scheme(url, URL_SCHEMES[i])) {
-      // `https://` has no host at all. `https:///path`, `https://?q`, `https://#f` and
-      // `https://:8080` have an empty host: `/`, `?`, `#`, or the port's `:` starts immediately.
-      const struct Str host = str_tail(url, URL_SCHEMES[i].len);
-      return host.len > 0 && host.data[0] != '/' && host.data[0] != '?' && host.data[0] != '#' &&
-             host.data[0] != ':';
-    }
-  }
-  return false;
-}
-
-static bool has_scheme(struct Str url, struct Str scheme) {
-  if (url.len < scheme.len) {
-    return false;
-  }
-  for (ptrdiff_t i = 0; i < scheme.len; i++) {
-    if (ascii_to_lower((unsigned char)url.data[i]) !=
-        ascii_to_lower((unsigned char)scheme.data[i])) {
-      return false;
-    }
-  }
-  return true;
 }
 
 static int copy_dir(toml_datum_t table,

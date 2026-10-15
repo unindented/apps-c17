@@ -296,15 +296,15 @@ static void test_load_normalizes_directory_keys(void) {
   remove_fixture_tree(temp_config.root_dir);
 }
 
-// An absolute `base_url` keeps its scheme, host, port, path and query, and loses only a trailing
-// `/`, which templates would otherwise double when joining it with a path.
+// An absolute `base_url` keeps its scheme, host, port and path, and loses only a trailing `/`,
+// which templates would otherwise double when joining it with a path.
 static void test_load_normalizes_base_url(void) {
   static const char* const cases[][2] = {
       {"https://example.com", "https://example.com"},
       {"https://example.com/", "https://example.com"},
       {"https://example.com///", "https://example.com"},
       {"http://example.com/gallery/", "http://example.com/gallery"},
-      {"https://example.com:8443/gallery?draft=1", "https://example.com:8443/gallery?draft=1"},
+      {"https://example.com:8443/gallery", "https://example.com:8443/gallery"},
       {"HTTPS://Example.COM", "HTTPS://Example.COM"},  // the scheme matches case-insensitively
   };
 
@@ -830,52 +830,53 @@ static void test_load_rejects_empty_directory_keys(void) {
   }
 }
 
-// `gallery_config_load` rejects a present `base_url` that is not an absolute HTTP(S) URL. Without
-// that rejection it is not a load error at all: it silently produces a broken link wherever a
-// template builds an absolute URL from it. An empty `base_url` means the key is absent, so it is
-// not among the cases.
-static void test_load_rejects_relative_base_url(void) {
-  static const char* const base_urls_invalid[] = {
-      "example.com",         // no scheme
-      "/relative",           // a path, not a URL
-      "ftp://example.com",   // a scheme, but not one a browser follows from a page
-      "https:/example.com",  // one slash short of a scheme
-      "https://",            // scheme with no host
-      "https:///path",       // the host ends before it starts
-      "https://?draft=1",    // likewise
-      "https://:8080",       // a port with no host before it
-  };
-
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(base_urls_invalid) / sizeof(base_urls_invalid[0]));
-       i++) {
-    char toml[256];
-    const int n = snprintf(toml, sizeof(toml),
-                           "title = \"Example Gallery\"\n"
-                           "description = \"Example Description\"\n"
-                           "author = \"Example Author\"\n"
-                           "base_url = \"%s\"\n",
-                           base_urls_invalid[i]);
-    TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, toml) != 0) {
-      continue;
-    }
-
-    struct GalleryConfig config;
-    gallery_config_init(&config);
-    struct Log log = test_log();
-    TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
-    char expected[EXPECTED_SIZE];
-    const int expected_len =
-        snprintf(expected, sizeof(expected),
-                 "config key 'base_url' must be an absolute 'http://' or 'https://' URL with "
-                 "a host: '%s'",
-                 base_urls_invalid[i]);
-    TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected));
-    TEST_CHECK(test_log_is_one(&log, expected));
-
-    remove_fixture_tree(temp_config.root_dir);
+// `base_url` needs an HTTP(S) scheme and a host, and a rejected one becomes empty. `core/url`'s
+// tests cover the other URLs without a host.
+static void test_load_rejects_base_url_without_host(void) {
+  struct TempConfig temp_config;
+  if (write_temp_config(&temp_config,
+                        "title = \"Example Gallery\"\n"
+                        "description = \"Example Description\"\n"
+                        "author = \"Example Author\"\n"
+                        "base_url = \"https:///path\"\n") != 0) {
+    return;
   }
+
+  struct GalleryConfig config;
+  gallery_config_init(&config);
+  struct Log log = test_log();
+  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(test_log_is_one(
+      &log,
+      "config key 'base_url' must be an absolute 'http://' or 'https://' URL with a "
+      "host: 'https:///path'"));
+  TEST_CHECK(config.base_url.len == 0);
+
+  remove_fixture_tree(temp_config.root_dir);
+}
+
+// A `base_url` with a query, a fragment, a space or a control byte would break every link below it,
+// so it is rejected, and the config keeps no `base_url`. `core/url`'s tests cover each byte.
+static void test_load_rejects_base_url_with_path_breaking_byte(void) {
+  struct TempConfig temp_config;
+  if (write_temp_config(&temp_config,
+                        "title = \"Example Gallery\"\n"
+                        "description = \"Example Description\"\n"
+                        "author = \"Example Author\"\n"
+                        "base_url = \"https://example.com/x?y=1\"\n") != 0) {
+    return;
+  }
+
+  struct GalleryConfig config;
+  gallery_config_init(&config);
+  struct Log log = test_log();
+  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(test_log_is_one(&log,
+                             "config key 'base_url' must not hold '?', '#', a space or a control "
+                             "character: 'https://example.com/x?y=1'"));
+  TEST_CHECK(config.base_url.len == 0);
+
+  remove_fixture_tree(temp_config.root_dir);
 }
 
 // An unsafe `album_template` is rejected at load, in the singular wording that names the key,
@@ -1331,7 +1332,9 @@ TEST_LIST = {
      test_load_rejects_invalid_integer_type_and_minimum},
     {"load rejects nul in string values", test_load_rejects_nul_in_string_values},
     {"load rejects empty directory keys", test_load_rejects_empty_directory_keys},
-    {"load rejects relative base url", test_load_rejects_relative_base_url},
+    {"load rejects base url without host", test_load_rejects_base_url_without_host},
+    {"load rejects base url with path breaking byte",
+     test_load_rejects_base_url_with_path_breaking_byte},
     {"load rejects unsafe album template", test_load_rejects_unsafe_album_template},
     {"load rejects invalid template arrays", test_load_rejects_invalid_template_arrays},
     {"load reports every invalid template name", test_load_reports_every_invalid_template_name},

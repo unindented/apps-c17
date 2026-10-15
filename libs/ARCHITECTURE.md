@@ -12,7 +12,7 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 
 | Library | Contents | Linked by |
 | --- | --- | --- |
-| [`core`](#core) | The arena allocator, counted strings, growable buffers and the error log, and ASCII classification, error text, exit codes, number parsing, paths, path lists and text helpers. | sosig, fram, cwrap, surge |
+| [`core`](#core) | The arena allocator, counted strings, growable buffers and the error log, and ASCII classification, error text, exit codes, number parsing, paths, path lists, text helpers and URL checks. | sosig, fram, cwrap, surge |
 | [`testing`](#testing) | The support that every unit test uses, and the `os_oom` of the unit tests. | the unit tests of every app and of the other libraries |
 | [`os`](#os) | The host interface and the out-of-memory report, with the POSIX host `os_posix` and the in-memory host `os_memory`. | sosig, fram, cwrap and surge, and `os_memory` for their unit tests and those of the libraries |
 | [`runtime`](#runtime) | The worker pool, the jobs of a build phase that run on it, and the directory walk. | sosig, fram, surge |
@@ -57,6 +57,7 @@ The other modules are small primitives:
 - [path](src/core/path.h): Path construction and validation, the filename and output-path limits, and `path_basename_without_extension`. `path_is_below` finds the part of a path below a root by text comparison.
 - [path_list](src/core/path_list.h): A growable list of path strings.
 - [text](src/core/text.h): Text normalization, matching and validation, including the slug that `text_slugify` makes and the `NUL` check `text_is_nul_free`.
+- [url](src/core/url.h): The checks of a base URL that each app's config applies: `url_is_http_with_host` asks for an `http://` or `https://` scheme in any letter case and a host, and `url_has_path_breaking_byte` finds a `?`, a `#`, a space or a control byte, which would break a path joined after the URL.
 
 ### `os_oom`
 

@@ -89,7 +89,7 @@ This table lists every key that the config file can contain. `fram` rejects any 
 | `title` | Required | The title of the gallery, `gallery.title` in templates. The root album also uses this title. |
 | `description` | Required | The description of the gallery, `gallery.description` in templates. |
 | `author` | Required | The name of the gallery's author, `gallery.author` in templates. |
-| `base_url` | `""` | Optional. The absolute URL where you deploy the gallery. If it is set, it must be an `http://` or `https://` URL with a host. It can have a port, a subpath, and a query string. `fram` removes any trailing `/`. If it is not set, a template can read it as an empty section. |
+| `base_url` | `""` | Optional. The absolute URL where you deploy the gallery. If it is set, it must be an `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. `fram` removes any trailing `/`. If it is not set, a template can read it as an empty section. |
 | `output_dir` | `"public"` | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
 | `input_dir` | `"media"` | The directory that contains the media files. |
 | `templates_dir` | `"templates"` | The directory that contains the templates and partials. |

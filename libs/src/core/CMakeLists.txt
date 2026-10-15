@@ -1,6 +1,6 @@
 # `core`: the arena allocator, counted strings, growable buffers and the error log, and ASCII
-# classification, error text, number parsing, paths, path lists, text helpers and the exit codes of
-# the apps.
+# classification, error text, number parsing, paths, path lists, text helpers, URL checks and the
+# exit codes of the apps.
 
 add_library(core STATIC)
 target_sources(
@@ -14,6 +14,7 @@ target_sources(
           path_list.c
           str.c
           text.c
+          url.c
           arena.h
           asan.h
           ascii.h
@@ -26,6 +27,7 @@ target_sources(
           path_list.h
           str.h
           text.h
+          url.h
 )
 libs_add_include_root(core core)
 target_link_libraries(core PRIVATE apps_build_project)
@@ -64,8 +66,11 @@ set_property(
            "${CMAKE_CURRENT_SOURCE_DIR}/test_path_list.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/test_str.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/test_text.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/test_url.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/text.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/text.h"
+           "${CMAKE_CURRENT_SOURCE_DIR}/url.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/url.h"
 )
 
 if(NOT PROJECT_IS_TOP_LEVEL)
@@ -83,7 +88,7 @@ endif()
 foreach(module IN ITEMS arena buf log str)
   libs_add_unit_test(core ${module})
 endforeach()
-foreach(module IN ITEMS ascii error parse path path_list text)
+foreach(module IN ITEMS ascii error parse path path_list text url)
   libs_add_unit_test(core ${module} LIBRARIES testing)
 endforeach()
 
