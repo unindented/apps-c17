@@ -73,7 +73,7 @@ struct GalleryConfig {
   /** Required name of the gallery's author. */
   struct Str author;
 
-  /** Optional absolute deployment URL, or an empty string when absent. */
+  /** Optional absolute base URL, without a trailing `/`, or empty when absent. */
   struct Str base_url;
 
   /** Directory containing source media. Defaults to `media`. */

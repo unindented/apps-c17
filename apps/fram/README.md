@@ -241,15 +241,15 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 
 `{{value}}` escapes its output for HTML. `fram` rejects triple-brace and ampersand interpolation, so it escapes every scalar that it renders.
 
-Every template can use these variables:
+Every template can use these variables. Each album, media item and derivative sets every one of its fields, and an absent value or a false flag is empty, so a section over it is skipped, and the field never resolves from an enclosing album. A name that the album, item or derivative does not have is looked up in the enclosing scopes, as Mustache does:
 
 | Variable | Value |
 | --- | --- |
 | `gallery.title`, `gallery.description`, `gallery.author`, `gallery.base_url` | The values from the configuration. |
-| `album.title`, `album.url`, `album.path_to_root`, `album.item_count`, `album.cover`, `album.has_media`, `album.has_sub_albums`, `album.parent` | The fields of the current album. They are also available at the top level. `album.path_to_root` is the page's `path_to_root`, so the albums of `sub_albums`, `breadcrumbs` and `parent` have no `path_to_root` of their own. `album.cover` is a media value, so its named derivatives are available in the same way as for `media`. |
+| `album.title`, `album.url`, `album.item_count`, `album.cover`, `album.has_media`, `album.has_sub_albums`, `album.parent` | The fields of the current album. They are also available at the top level. `album.cover` is a media value, so its named derivatives are available in the same way as for `media`. It is empty for an album with no media below it. `album.parent` is empty for the root album. |
 | `sub_albums` | The immediate child albums, each with the album fields. |
 | `breadcrumbs` | The albums from the root album through the current album, each with the album fields. |
-| `media` | The media items directly in the current album. Each item has `title`, `is_image`, `is_video`, `original_url`, and `duration`, the length of a video in milliseconds. Each configured derivative is also a named child with `url`, `width`, and `height`, so the defaults give `s.url`, `s.width`, `s.height`, `m.url`, and so on. If a derivative has the same name as a built-in media field, the built-in field takes precedence. |
+| `media` | The media items directly in the current album. Each item has `title`, `is_image`, `is_video`, `original_url`, and `duration`, the length of a video in milliseconds, empty for an image. Each configured derivative is also a named child with `url`, `width`, and `height`, so the defaults give `s.url`, `s.width`, `s.height`, `m.url`, and so on. If a derivative has the same name as a built-in media field, the built-in field takes precedence. |
 | `generator` | The name and version of `fram`, for a tag such as `<meta name="generator" content="{{generator}}">`. |
 | `path_to_root` | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. It stays the page's prefix inside `sub_albums`, `breadcrumbs` and `parent`. |
 

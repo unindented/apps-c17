@@ -138,8 +138,8 @@ struct Node {
   const struct MediaDerivative* derivative;
 
   /**
-   * Borrowed text for `NODE_SCALAR`. Never empty, because `node_scalar` maps an empty value to an
-   * absent node.
+   * Borrowed text for `NODE_SCALAR`, empty for an absent value or a false flag.
+   * `node_get_child_by_index` makes an empty scalar falsey as a section.
    */
   struct Str scalar;
 };
@@ -300,8 +300,8 @@ static void* node_get_root(void* provider_data_ptr);
  *
  * This is installed in `provider` as the by-name lookup callback. At the root a name selects the
  * `gallery.*` subtree, the rendered `album`, the page's `sub_albums`, `media`, or `breadcrumbs`
- * list, the `generator` string that names this tool and its version, or otherwise a field of the
- * album being rendered, such as `path_to_root`.
+ * list, the `generator` string that names this tool and its version, the page's `path_to_root`, or
+ * otherwise a field of the album being rendered.
  *
  * @param node_ptr          Parent node, as a `struct Node*`.
  * @param name              Requested child name. Not `NUL`-terminated.
@@ -424,11 +424,11 @@ static struct Node* node_alloc(struct ProviderData* provider_data, enum NodeKind
     __attribute__((nonnull(1), returns_nonnull));
 
 /**
- * @brief Returns a scalar node wrapping `value`, or `NULL` when `value` is empty.
+ * @brief Returns a scalar node wrapping `value`, which may be empty.
  *
  * @param provider_data Render provider state owning the node arena. Must not be `NULL`.
  * @param value         String to wrap, borrowed for the rest of the render.
- * @return A scalar node, or `NULL` when `value` is empty.
+ * @return A scalar node.
  */
 static struct Node* node_scalar(struct ProviderData* provider_data, struct Str value)
     __attribute__((nonnull(1)));
@@ -456,7 +456,7 @@ static struct Node* node_scalar_number(struct ProviderData* provider_data, ptrdi
  *                          Must not be `NULL`.
  * @param root_relative_url Output-root-relative URL, already URL-safe because it is built from
  *                          slugs.
- * @return A scalar node, or `NULL` when the rebased URL is empty.
+ * @return A scalar node.
  */
 static struct Node* node_scalar_url(struct ProviderData* provider_data,
                                     struct Str root_relative_url) __attribute__((nonnull(1)));
@@ -466,7 +466,7 @@ static struct Node* node_scalar_url(struct ProviderData* provider_data,
  *
  * @param provider_data Render provider state holding the gallery configuration. Must not be `NULL`.
  * @param name          Requested field name.
- * @return The resolved node, or `NULL` when the name is unmatched or its value is unset.
+ * @return The resolved node, or `NULL` when the name is unmatched.
  */
 static struct Node* resolve_gallery(struct ProviderData* provider_data, struct Str name)
     __attribute__((nonnull(1)));
@@ -476,13 +476,13 @@ static struct Node* resolve_gallery(struct ProviderData* provider_data, struct S
  *
  * `has_media` and `has_sub_albums` resolve to a truthy scalar only when the album holds that
  * content, so a section over either renders exactly when it is non-empty. A URL resolves already
- * rebased onto the page being rendered. `path_to_root` resolves only for the rendered album, so
- * inside a list of other albums the name falls through to the page's prefix.
+ * rebased onto the page being rendered. An absent `cover` or `parent` resolves to an empty scalar,
+ * so the name does not fall through to an enclosing album.
  *
  * @param provider_data Render provider state. Must not be `NULL`.
  * @param album         Album to resolve against. Must not be `NULL`.
  * @param name          Requested field name.
- * @return The resolved node, or `NULL` when the name is unmatched or the field is absent.
+ * @return The resolved node, or `NULL` when the name is unmatched.
  */
 static struct Node* resolve_album(struct ProviderData* provider_data,
                                   const struct Album* album,
@@ -493,12 +493,13 @@ static struct Node* resolve_album(struct ProviderData* provider_data,
  *
  * A name matching no media field is matched against the item's configured derivative names, so
  * `{{m.url}}` reaches the derivative named `m`. `is_image` and `is_video` resolve to a truthy
- * scalar only for that source kind, so a section over either renders exactly for it.
+ * scalar only for that source kind, so a section over either renders exactly for it. `duration` is
+ * empty for an image.
  *
  * @param provider_data Render provider state. Must not be `NULL`.
  * @param media         Media item to resolve against. Must not be `NULL`.
  * @param name          Requested field name.
- * @return The resolved node, or `NULL` when the name is unmatched or the field is absent.
+ * @return The resolved node, or `NULL` when the name is unmatched.
  */
 static struct Node* resolve_media(struct ProviderData* provider_data,
                                   const struct MediaItem* media,
@@ -724,19 +725,20 @@ static int node_dump(void* node_ptr,
                      int (*out_fn)(const char*, size_t, void*),
                      void* renderer_data,
                      void* provider_data_ptr) {
-  const struct Node* node = node_ptr;
-  if (node->kind != NODE_SCALAR) {
-    return 0;
-  }
   // The callback identity is what distinguishes `{{{value}}}` from `{{value}}`. mustache4c passes
   // the renderer's unescaped-output callback for a triple-brace or ampersand tag and names the tag
   // kind nowhere else, so comparing against `out_escaped` is how this render refuses to emit a
-  // value unescaped.
+  // value unescaped. It comes before the kind check, so a tag fails whatever kind its value has,
+  // and `{{{parent}}}` fails on the root album as on any other.
   if (out_fn != out_escaped) {
     struct ProviderData* provider_data = provider_data_ptr;
     render_fail(provider_data, provider_data->template_name,
                 "unescaped Mustache interpolation is not supported");
     return -1;
+  }
+  const struct Node* node = node_ptr;
+  if (node->kind != NODE_SCALAR) {
+    return 0;
   }
   assert(node->scalar.len >= 0);
   return out_fn(node->scalar.data, (size_t)node->scalar.len, renderer_data);
@@ -774,6 +776,9 @@ static void* node_get_child_by_name(void* node_ptr,
       }
       if (str_eq(name_text, S("generator"))) {
         return node_scalar(provider_data, fram_generator_string());
+      }
+      if (str_eq(name_text, S("path_to_root"))) {
+        return node_scalar(provider_data, provider_data->context->album_current->path_to_root);
       }
       return resolve_album(provider_data, provider_data->context->album_current, name_text);
     case NODE_GALLERY:
@@ -826,6 +831,11 @@ static void* node_get_child_by_index(void* node_ptr, unsigned index, void* provi
     struct Node* child = node_alloc(provider_data, NODE_ALBUM);
     child->album = crumb;
     return child;
+  }
+  // An empty scalar is falsey, so `{{#field}}` skips an absent value or a false flag and
+  // `{{^field}}` fires.
+  if (node->kind == NODE_SCALAR && node->scalar.len == 0) {
+    return NULL;
   }
   // `vendor/mustache4c/mustache.h` requires this. Per the Mustache specification a single value is
   // iterable too, so this callback returns the node itself for index 0 and `NULL` for every other
@@ -1002,15 +1012,10 @@ static struct Node* node_alloc(struct ProviderData* provider_data, enum NodeKind
 }
 
 static struct Node* node_scalar(struct ProviderData* provider_data, struct Str value) {
-  // An empty value is absent, not present-and-empty, so `{{#field}}` skips it and `{{^field}}`
-  // fires. mustache4c decides a section's truthiness by asking for child 0. A non-list node answers
-  // with itself, so returning a node here for `""` would make a section over an unset field always
-  // render. Interpolation is unchanged. `{{field}}` writes zero bytes whether the node is absent or
-  // holds an empty string. `resolve_album` already applies this same rule to `has_media` and
-  // `has_sub_albums`.
-  if (value.len == 0) {
-    return NULL;
-  }
+  // An empty value is a present field, not a missing name. mustache4c looks a missing name up in
+  // the enclosing contexts, so inside `{{#sub_albums}}`, an album with no `cover` would show the
+  // current album's. A present empty node stops the lookup at the listed album, and
+  // `node_get_child_by_index` makes it falsey, so `{{#field}}` skips it and `{{^field}}` fires.
   struct Node* node = node_alloc(provider_data, NODE_SCALAR);
   node->scalar = value;
   return node;
@@ -1055,34 +1060,26 @@ static struct Node* resolve_album(struct ProviderData* provider_data,
   if (str_eq(name, S("url"))) {
     return node_scalar_url(provider_data, album->url_path);
   }
-  if (str_eq(name, S("path_to_root"))) {
-    // `path_to_root` is the page's prefix, so only the rendered album answers it. Any other album,
-    // in `sub_albums`, `breadcrumbs` or `parent`, leaves a bare `{{path_to_root}}` to the root.
-    if (album != provider_data->context->album_current) {
-      return NULL;
-    }
-    return node_scalar(provider_data, album->path_to_root);
-  }
   if (str_eq(name, S("item_count"))) {
     return node_scalar_number(provider_data, album->item_count_total);
   }
   if (str_eq(name, S("cover"))) {
     if (album->cover == NULL) {
-      return NULL;
+      return node_scalar(provider_data, S(""));
     }
     struct Node* cover = node_alloc(provider_data, NODE_MEDIA);
     cover->media = album->cover;
     return cover;
   }
   if (str_eq(name, S("has_media"))) {
-    return album->media_count == 0 ? NULL : node_scalar(provider_data, S("true"));
+    return node_scalar(provider_data, album->media_count == 0 ? S("") : S("true"));
   }
   if (str_eq(name, S("has_sub_albums"))) {
-    return album->sub_album_count == 0 ? NULL : node_scalar(provider_data, S("true"));
+    return node_scalar(provider_data, album->sub_album_count == 0 ? S("") : S("true"));
   }
   if (str_eq(name, S("parent"))) {
     if (album->parent == NULL) {
-      return NULL;
+      return node_scalar(provider_data, S(""));
     }
     struct Node* parent = node_alloc(provider_data, NODE_ALBUM);
     parent->album = album->parent;
@@ -1098,15 +1095,19 @@ static struct Node* resolve_media(struct ProviderData* provider_data,
     return node_scalar(provider_data, media->title);
   }
   if (str_eq(name, S("is_video"))) {
-    return media->kind == MEDIA_KIND_VIDEO ? node_scalar(provider_data, S("true")) : NULL;
+    return node_scalar(provider_data, media->kind == MEDIA_KIND_VIDEO ? S("true") : S(""));
   }
   if (str_eq(name, S("is_image"))) {
-    return media->kind == MEDIA_KIND_IMAGE ? node_scalar(provider_data, S("true")) : NULL;
+    return node_scalar(provider_data, media->kind == MEDIA_KIND_IMAGE ? S("true") : S(""));
   }
   if (str_eq(name, S("original_url"))) {
     return node_scalar_url(provider_data, media->original_url);
   }
   if (str_eq(name, S("duration"))) {
+    // An image has no length, so its `duration` is empty, not a truthy `0`.
+    if (media->kind != MEDIA_KIND_VIDEO) {
+      return node_scalar(provider_data, S(""));
+    }
     return node_scalar_number(provider_data, media->duration_ms);
   }
   for (ptrdiff_t i = 0; i < media->derivative_count; i++) {

@@ -333,6 +333,28 @@ static void test_load_normalizes_base_url(void) {
   }
 }
 
+// `base_url` is optional, so a present but empty `base_url` reads as absent and loads, where sosig
+// and surge, whose `base_url` is required, reject it.
+static void test_load_accepts_empty_base_url(void) {
+  struct TempConfig temp_config;
+  if (write_temp_config(&temp_config,
+                        "title = \"Example Gallery\"\n"
+                        "description = \"Example Description\"\n"
+                        "author = \"Example Author\"\n"
+                        "base_url = \"\"\n") != 0) {
+    return;
+  }
+
+  struct GalleryConfig config;
+  gallery_config_init(&config);
+  struct Log log = test_log();
+  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(log.errors == 0);
+  TEST_CHECK(config.base_url.len == 0);
+
+  remove_fixture_tree(temp_config.root_dir);
+}
+
 // Overlapping directories load, because comparing path text cannot tell whether two directories
 // overlap. The build compares them by identity before it walks or writes anything.
 static void test_load_leaves_directory_overlap_to_the_build(void) {
@@ -1313,6 +1335,7 @@ TEST_LIST = {
     {"load overrides optional keys", test_load_overrides_optional_keys},
     {"load normalizes directory keys", test_load_normalizes_directory_keys},
     {"load normalizes base url", test_load_normalizes_base_url},
+    {"load accepts empty base url", test_load_accepts_empty_base_url},
     {"load leaves directory overlap to the build", test_load_leaves_directory_overlap_to_the_build},
     {"load reads sort orders independently", test_load_reads_sort_orders_independently},
     {"load accepts empty sort table", test_load_accepts_empty_sort_table},

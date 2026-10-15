@@ -295,16 +295,16 @@ cleanup:
 }
 
 // `path_to_root` is the prefix of the page being rendered in every context: inside `sub_albums`,
-// `breadcrumbs` and `parent`, whose albums have prefixes of their own, it still names the page's.
+// `breadcrumbs` and `parent`, whose albums have prefixes of their own, it still names the page's,
+// because only the root answers it.
 static void test_path_to_root_is_the_page_prefix_in_every_context(void) {
   struct Arena perm = test_arena();
   char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(
-          root_dir,
-          "{{path_to_root}}|{{album.path_to_root}}|"
-          "{{#sub_albums}}[{{path_to_root}},{{album.path_to_root}}]{{/sub_albums}}|"
-          "{{#breadcrumbs}}[{{path_to_root}}]{{/breadcrumbs}}|"
-          "{{#parent}}[{{path_to_root}}]{{/parent}}") != 0) {
+  if (write_template_fixture(root_dir,
+                             "{{path_to_root}}|"
+                             "{{#sub_albums}}[{{path_to_root}}]{{/sub_albums}}|"
+                             "{{#breadcrumbs}}[{{path_to_root}}]{{/breadcrumbs}}|"
+                             "{{#parent}}[{{path_to_root}}]{{/parent}}") != 0) {
     return;
   }
   struct GalleryConfig gallery_config;
@@ -333,8 +333,7 @@ static void test_path_to_root_is_the_page_prefix_in_every_context(void) {
   if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
     goto cleanup;
   }
-  TEST_CHECK(strcmp(rendered_html,
-                    "../../|../../|[../../,../../]|[../../][../../][../../]|[../../]") == 0);
+  TEST_CHECK(strcmp(rendered_html, "../../|[../../]|[../../][../../][../../]|[../../]") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
 
 cleanup:
@@ -579,9 +578,8 @@ cleanup:
 
 // An empty field value is falsey as a section, so an unset field reads as absent. Were an empty
 // scalar truthy, `{{#original_url}}` would render for every item and `{{^original_url}}` for none,
-// so both branches are asserted here. The field is media-only, so an empty value cannot resolve
-// through an outer context instead, as an empty media `title` would to the album's `title`.
-// `gallery.base_url` is empty unless configured, so a template guarding it relies on this rule.
+// so both branches are asserted here. `gallery.base_url` is empty unless configured, so a template
+// guarding it relies on this rule.
 static void test_empty_field_is_falsey_as_section(void) {
   struct Arena perm = test_arena();
   char root_dir[] = "/tmp/fram-template-XXXXXX";
@@ -608,6 +606,119 @@ static void test_empty_field_is_falsey_as_section(void) {
     goto cleanup;
   }
   TEST_CHECK(strcmp(rendered_html, "[NONE][U:_fram/originals/b.jpg]") == 0);
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
+// An absent value or a false flag is an empty field, so it never resolves from an enclosing album:
+// inside `sub_albums` an album without a cover, media or sub-albums shows none of the current
+// album's, an untitled media item shows no album title, and the root breadcrumb shows no parent.
+// Each false flag also fires its inverted section.
+static void test_absent_value_does_not_resolve_from_enclosing_album(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/fram-template-XXXXXX";
+  if (write_template_fixture(
+          root_dir,
+          "{{#sub_albums}}[{{title}}:{{cover.s.url}}{{^cover}}none{{/cover}}:"
+          "{{#has_media}}M{{/has_media}}{{^has_media}}empty{{/has_media}}:"
+          "{{#has_sub_albums}}S{{/has_sub_albums}}{{^has_sub_albums}}leaf{{/has_sub_albums}}]"
+          "{{/sub_albums}}|"
+          "{{#media}}[{{title}}:{{^is_video}}still{{/is_video}}{{^is_image}}moving{{/is_image}}]"
+          "{{/media}}|"
+          "{{#breadcrumbs}}[{{title}}:{{parent.title}}{{^parent}}top{{/parent}}]{{/"
+          "breadcrumbs}}") != 0) {
+    return;
+  }
+  struct GalleryConfig gallery_config;
+  init_test_gallery_config(&gallery_config);
+  struct MediaDerivative photo_derivatives[] = {
+      {.name = S("s"), .url = S("_fram/r/s/trip/x.jpg"), .width_px = 120, .height_px = 120},
+  };
+  struct MediaItem photo = {
+      .kind = MEDIA_KIND_IMAGE, .derivatives = photo_derivatives, .derivative_count = 1};
+  struct MediaItem clip = {.title = S("Clip"), .kind = MEDIA_KIND_VIDEO};
+  struct MediaItem* media[] = {&photo, &clip};
+  struct Album root = {.title = S("Root"), .url_path = S("index.html")};
+  struct Album empty = {.title = S("Empty"), .url_path = S("trip/empty/index.html"), .depth = 2};
+  struct Album* children[] = {&empty};
+  struct Album trip = {.title = S("Trip"),
+                       .url_path = S("trip/index.html"),
+                       .path_to_root = S("../"),
+                       .media = media,
+                       .media_count = 2,
+                       .cover = &photo,
+                       .sub_albums = children,
+                       .sub_album_count = 1,
+                       .parent = &root,
+                       .depth = 1};
+  empty.parent = &trip;
+  const struct TemplateContext context = {.gallery_config = &gallery_config,
+                                          .album_current = &trip};
+  char* rendered_html = NULL;
+  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(rendered_html,
+                    "[Empty:none:empty:leaf]|[:still][Clip:moving]|[Root:top][Trip:Root]") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
+// A name that no media item has is looked up in the enclosing scopes, as Mustache asks, so inside
+// `media` a bare `url` names the album's page. Only the fields an album, item or derivative has
+// stop the lookup.
+static void test_unknown_name_resolves_from_enclosing_album(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/fram-template-XXXXXX";
+  if (write_template_fixture(root_dir, "{{#media}}[{{url}}]{{/media}}") != 0) {
+    return;
+  }
+  struct GalleryConfig gallery_config;
+  init_test_gallery_config(&gallery_config);
+  struct MediaItem photo = {.kind = MEDIA_KIND_IMAGE};
+  struct MediaItem* media[] = {&photo};
+  struct Album root = {
+      .title = S("Root"), .url_path = S("index.html"), .media = media, .media_count = 1};
+  const struct TemplateContext context = {.gallery_config = &gallery_config,
+                                          .album_current = &root};
+  char* rendered_html = NULL;
+  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(rendered_html, "[index.html]") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
+// A video's `duration` is its length in milliseconds, even when that is `0`, and an image's is
+// empty, so `{{#duration}}` renders only for a video.
+static void test_duration_is_empty_for_an_image(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/fram-template-XXXXXX";
+  if (write_template_fixture(
+          root_dir, "{{#media}}[{{#duration}}D{{duration}}{{/duration}}]{{/media}}") != 0) {
+    return;
+  }
+  struct GalleryConfig gallery_config;
+  init_test_gallery_config(&gallery_config);
+  struct MediaItem image = {.kind = MEDIA_KIND_IMAGE};
+  struct MediaItem video = {.kind = MEDIA_KIND_VIDEO, .duration_ms = 0};
+  struct MediaItem* media[] = {&image, &video};
+  struct Album root = {
+      .title = S("Root"), .url_path = S("index.html"), .media = media, .media_count = 2};
+  const struct TemplateContext context = {.gallery_config = &gallery_config,
+                                          .album_current = &root};
+  char* rendered_html = NULL;
+  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(rendered_html, "[][D0]") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
 
 cleanup:
   remove_fixture_tree(root_dir);
@@ -1381,6 +1492,37 @@ cleanup:
   remove_fixture_tree(root_dir);
 }
 
+// A triple-brace tag fails whatever kind of value it names, so `{{{album.parent}}}` fails on a
+// sub-album, whose parent is an album, as it does on the root album, whose parent is empty.
+static void test_rejects_unescaped_interpolation_of_any_value(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/fram-template-XXXXXX";
+  if (write_template_fixture(root_dir, "{{{album.parent}}}") != 0) {
+    return;
+  }
+
+  struct GalleryConfig gallery_config;
+  init_test_gallery_config(&gallery_config);
+  struct Album root = {.title = S("Root"), .url_path = S("index.html")};
+  struct Album trip = {.title = S("Trip"),
+                       .url_path = S("trip/index.html"),
+                       .path_to_root = S("../"),
+                       .parent = &root,
+                       .depth = 1};
+  const struct Album* albums[] = {&root, &trip};
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(albums) / sizeof(albums[0])); i++) {
+    const struct TemplateContext context = {.gallery_config = &gallery_config,
+                                            .album_current = albums[i]};
+    struct Log log = test_log();
+    TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
+    TEST_CHECK(test_log_is_one(
+        &log, "unescaped Mustache interpolation is not supported (in 'album.html')"));
+    TEST_MSG("album: %.*s", STR_FMT(albums[i]->title));
+  }
+
+  remove_fixture_tree(root_dir);
+}
+
 TEST_LIST = {
     {"renders gallery tree with page-relative URLs",
      test_renders_gallery_tree_with_page_relative_urls},
@@ -1398,6 +1540,10 @@ TEST_LIST = {
     {"unknown variable renders empty", test_unknown_variable_renders_empty},
     {"inverted section renders when list empty", test_inverted_section_renders_when_list_empty},
     {"empty field is falsey as section", test_empty_field_is_falsey_as_section},
+    {"absent value does not resolve from enclosing album",
+     test_absent_value_does_not_resolve_from_enclosing_album},
+    {"unknown name resolves from enclosing album", test_unknown_name_resolves_from_enclosing_album},
+    {"duration is empty for an image", test_duration_is_empty_for_an_image},
     {"comments are dropped", test_comments_are_dropped},
     {"output bound applies per call", test_output_bound_applies_per_call},
     {"rejects unsafe partial name", test_rejects_unsafe_partial_name},
@@ -1416,5 +1562,7 @@ TEST_LIST = {
     {"rejects syntax error in partial", test_rejects_syntax_error_in_partial},
     {"rejects syntax error inside partial", test_rejects_syntax_error_inside_partial},
     {"rejects unescaped interpolation", test_rejects_unescaped_interpolation},
+    {"rejects unescaped interpolation of any value",
+     test_rejects_unescaped_interpolation_of_any_value},
     {NULL, NULL},
 };
