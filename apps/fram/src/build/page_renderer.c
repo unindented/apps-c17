@@ -79,8 +79,8 @@ static int render_album_page_job(ptrdiff_t index,
   // The report names the album's source directory, as the other jobs name their source. A nested
   // album's path is joined in the job's scratch, and the render allocates after it.
   struct Arena scratch = arenas->scratch;
-  const struct Str input_dir = context->gallery_config->input_dir;
-  oom_set_job(album_is_root(album) ? input_dir : path_join(input_dir, album->source_dir, &scratch),
+  const struct Str media_dir = context->gallery_config->media_dir;
+  oom_set_job(album_is_root(album) ? media_dir : path_join(media_dir, album->source_dir, &scratch),
               log);
   const struct TemplateContext template_context = {
       .gallery_config = context->gallery_config,

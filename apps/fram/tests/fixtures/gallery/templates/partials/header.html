@@ -1,5 +1,5 @@
 <nav class="breadcrumbs" aria-label="Breadcrumbs">
-  {{#breadcrumbs}}<a href="{{url}}">{{title}}</a>{{/breadcrumbs}}
+  {{#breadcrumbs}}{{^is_last}}<a href="{{url}}">{{title}}</a><span aria-hidden="true">/</span>{{/is_last}}{{#is_last}}<span aria-current="page">{{title}}</span>{{/is_last}}{{/breadcrumbs}}
 </nav>
 
 <header class="header">

@@ -13,7 +13,7 @@ struct MediaItem;
  * and its pointer arrays all live in the arena the skeleton was built in.
  */
 struct Album {
-  /** Source directory relative to `input_dir`, or an empty string for the root. */
+  /** Source directory relative to `media_dir`, or an empty string for the root. */
   struct Str source_dir;
 
   /** URL-safe generated directory relative to `output_dir`, or empty for the root. */
@@ -53,7 +53,7 @@ struct Album {
   const struct MediaItem* cover;
 
   /** Total media count including descendants. */
-  ptrdiff_t item_count_total;
+  ptrdiff_t media_count_total;
 
   /** Number of directory edges below the root album. */
   ptrdiff_t depth;

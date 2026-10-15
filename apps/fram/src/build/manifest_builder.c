@@ -24,12 +24,12 @@
  * intended output naming one of them can be rejected before anything is written.
  *
  * Path strings cannot reliably identify the same file. An output path is relative to `output_dir`,
- * but a source path is relative to `input_dir`. For example, a symlink `public/link` to `../photos`
+ * but a source path is relative to `media_dir`. For example, a symlink `public/link` to `../photos`
  * can produce `public/link/x.jpg` for the source `photos/x.jpg`. That is one file with two
  * spellings that are not byte-equal. A `(device, inode)` comparison also detects cases that text
  * cannot. These include symlinks, hard links, and case-insensitive path aliases.
  *
- * The input roots reject any output below `input_dir`, `templates_dir`, or `static_dir` first, so
+ * The input roots reject any output below `media_dir`, `templates_dir`, or `static_dir` first, so
  * this set is what still protects an input outside all three trees: the configuration file, and the
  * target of a source, template, or static file that is a symlink or hard link to a file elsewhere.
  *
@@ -53,7 +53,7 @@ struct InputIdentities {
 };
 
 /**
- * Number of input directory trees no output may enter: `input_dir`, `templates_dir`, and
+ * Number of input directory trees no output may enter: `media_dir`, `templates_dir`, and
  * `static_dir`.
  */
 enum { INPUT_ROOT_COUNT = 3 };
@@ -84,7 +84,7 @@ struct InputRoot {
  * Input directory trees that no output may land at or below, gathered before any output path is
  * registered.
  *
- * Protecting the files that already exist is not enough. A new output below `input_dir` can be
+ * Protecting the files that already exist is not enough. A new output below `media_dir` can be
  * discovered as a media source by the next build, and a new output below `static_dir` is copied as
  * a static file by the next build. A new output below `templates_dir` can be read as a partial by
  * the render of the same build, because partials resolve lazily. None of them overwrites a file, so
@@ -100,7 +100,7 @@ struct InputRoot {
  * output tree can still lead into a root.
  */
 struct InputRoots {
-  /** The `input_dir`, `templates_dir`, and `static_dir` roots. */
+  /** The `media_dir`, `templates_dir`, and `static_dir` roots. */
   struct InputRoot items[INPUT_ROOT_COUNT];
 
   /** Output directory every registered output path is joined onto. */
@@ -200,7 +200,7 @@ static void claim_build_inputs_identity(struct InputIdentities* inputs,
                                         struct Os* os) __attribute__((nonnull(1, 3)));
 
 /**
- * @brief Records the identity of `input_dir`, `templates_dir`, and `static_dir`.
+ * @brief Records the identity of `media_dir`, `templates_dir`, and `static_dir`.
  *
  * A root with no identity is recorded as absent rather than refused, for the same reason
  * `claim_build_inputs_identity` skips a missing file: it holds no input an output could land among.
@@ -289,7 +289,7 @@ static bool is_held_by_output_dir(struct Str dir_path,
  * @param albums      Scanned albums whose outputs, each joined onto `roots->output_dir`, are
  *                    recorded. May be `NULL` only when `album_count` is 0.
  * @param album_count Number of albums in `albums`.
- * @param input_dir   Configured source root, which labels each album's page.
+ * @param media_dir   Configured source root, which labels each album's page.
  * @param inputs      Identities of this build's input files, which no output may name. Must not be
  *                    `NULL`.
  * @param roots       Input directory trees no output may land in. Must not be `NULL`.
@@ -301,7 +301,7 @@ static bool is_held_by_output_dir(struct Str dir_path,
 static int register_album_list(struct Manifest* manifest,
                                const struct Album* const* albums,
                                ptrdiff_t album_count,
-                               struct Str input_dir,
+                               struct Str media_dir,
                                const struct InputIdentities* inputs,
                                struct InputRoots* roots,
                                struct Arena* perm,
@@ -317,7 +317,7 @@ static int register_album_list(struct Manifest* manifest,
  *
  * @param manifest  Manifest that receives the output paths. Must not be `NULL`.
  * @param album     Album whose outputs are registered. Must not be `NULL`.
- * @param input_dir Configured source root, which labels the album's page.
+ * @param media_dir Configured source root, which labels the album's page.
  * @param inputs    Identities of this build's input files, which no output may name. Must not be
  *                  `NULL`.
  * @param roots     Input directory trees no output may land in. Must not be `NULL`.
@@ -328,7 +328,7 @@ static int register_album_list(struct Manifest* manifest,
  */
 static int register_album_outputs(struct Manifest* manifest,
                                   const struct Album* album,
-                                  struct Str input_dir,
+                                  struct Str media_dir,
                                   const struct InputIdentities* inputs,
                                   struct InputRoots* roots,
                                   struct Arena* perm,
@@ -340,17 +340,17 @@ static int register_album_outputs(struct Manifest* manifest,
  *        under.
  *
  * The label is a quoted value in every collision diagnostic, so it has to be a real path rather
- * than a placeholder. The root album's `source_dir` is empty, so the root is labeled by `input_dir`
+ * than a placeholder. The root album's `source_dir` is empty, so the root is labeled by `media_dir`
  * itself, and every other album by its `source_dir` below it, the same way a media item is labeled
  * by its full source path. No sub-album label can then read the same as the root's.
  *
  * @param album     Album whose source directory is returned. Must not be `NULL`.
- * @param input_dir Configured source root that `album->source_dir` is relative to.
+ * @param media_dir Configured source root that `album->source_dir` is relative to.
  * @param arena     Arena that owns a joined path. Must not be `NULL`.
- * @return `input_dir` for the root album, otherwise a joined path owned by `arena`.
+ * @return `media_dir` for the root album, otherwise a joined path owned by `arena`.
  */
 static struct Str album_source_path(const struct Album* album,
-                                    struct Str input_dir,
+                                    struct Str media_dir,
                                     struct Arena* arena) __attribute__((nonnull(1, 3)));
 
 /**
@@ -604,7 +604,7 @@ int manifest_builder_populate(struct Manifest* manifest,
   // one run. A rejected path is not recorded, so it cannot cause a second report against a later
   // one, and a media item stops at its first rejected output, so it is reported once.
   int rc = 0;
-  if (register_album_list(manifest, albums, album_count, gallery_config->input_dir, &inputs, &roots,
+  if (register_album_list(manifest, albums, album_count, gallery_config->media_dir, &inputs, &roots,
                           perm, scratch, log) != 0) {
     rc = -1;
   }
@@ -704,7 +704,7 @@ static void claim_input_roots(struct InputRoots* roots,
                               const struct GalleryConfig* gallery_config,
                               struct Os* os) {
   *roots = (struct InputRoots){
-      .items = {{.config_key = S("input_dir"), .dir_path = gallery_config->input_dir},
+      .items = {{.config_key = S("media_dir"), .dir_path = gallery_config->media_dir},
                 {.config_key = S("templates_dir"), .dir_path = gallery_config->templates_dir},
                 {.config_key = S("static_dir"), .dir_path = gallery_config->static_dir}},
       .output_dir = gallery_config->output_dir,
@@ -801,7 +801,7 @@ static bool is_held_by_output_dir(struct Str dir_path,
 static int register_album_list(struct Manifest* manifest,
                                const struct Album* const* albums,
                                ptrdiff_t album_count,
-                               struct Str input_dir,
+                               struct Str media_dir,
                                const struct InputIdentities* inputs,
                                struct InputRoots* roots,
                                struct Arena* perm,
@@ -809,7 +809,7 @@ static int register_album_list(struct Manifest* manifest,
                                struct Log* log) {
   int rc = 0;
   for (ptrdiff_t i = 0; i < album_count; i++) {
-    if (register_album_outputs(manifest, albums[i], input_dir, inputs, roots, perm, scratch, log) !=
+    if (register_album_outputs(manifest, albums[i], media_dir, inputs, roots, perm, scratch, log) !=
         0) {
       rc = -1;
     }
@@ -819,13 +819,13 @@ static int register_album_list(struct Manifest* manifest,
 
 static int register_album_outputs(struct Manifest* manifest,
                                   const struct Album* album,
-                                  struct Str input_dir,
+                                  struct Str media_dir,
                                   const struct InputIdentities* inputs,
                                   struct InputRoots* roots,
                                   struct Arena* perm,
                                   struct Arena scratch,
                                   struct Log* log) {
-  const struct Str album_label = album_source_path(album, input_dir, &scratch);
+  const struct Str album_label = album_source_path(album, media_dir, &scratch);
   int rc =
       register_output_path(manifest, album->output_path, album_label, inputs, roots, perm, log);
   for (ptrdiff_t i = 0; i < album->media_count; i++) {
@@ -847,12 +847,12 @@ static int register_album_outputs(struct Manifest* manifest,
 }
 
 static struct Str album_source_path(const struct Album* album,
-                                    struct Str input_dir,
+                                    struct Str media_dir,
                                     struct Arena* arena) {
   if (album_is_root(album)) {
-    return input_dir;
+    return media_dir;
   }
-  return path_join(input_dir, album->source_dir, arena);
+  return path_join(media_dir, album->source_dir, arena);
 }
 
 static int register_template_list(struct Manifest* manifest,

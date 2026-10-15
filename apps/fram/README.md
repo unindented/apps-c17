@@ -26,7 +26,7 @@ Download a prebuilt binary from a `fram-v` release on the [Releases](https://git
   - `-n, --dry-run`: Report the changes that the build would make, but do not make them. See [Dry run](#dry-run).
   - `--force`: Ignore the [build cache](#build-cache) for this build.
   - `-v, --verbose`: Print build progress to `stderr`.
-- `fram config`: Print the resolved project configuration as TOML.
+- `fram config`: Print the resolved project configuration as TOML. It leaves out an optional string that is empty.
 
 There's also these options:
 
@@ -91,7 +91,7 @@ This table lists every key that the config file can contain. `fram` rejects any 
 | `author` | Required | The name of the gallery's author, `gallery.author` in templates. |
 | `base_url` | `""` | Optional. The absolute URL where you deploy the gallery. If it is set, it must be an `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. `fram` removes any trailing `/`. If it is not set, a template can read it as an empty section. |
 | `output_dir` | `"public"` | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
-| `input_dir` | `"media"` | The directory that contains the media files. |
+| `media_dir` | `"media"` | The directory that contains the media files. |
 | `templates_dir` | `"templates"` | The directory that contains the templates and partials. |
 | `static_dir` | `"static"` | The directory of files that the build copies into `output_dir` without changes. |
 | `album_template` | `"album.html"` | The template for each album page. |
@@ -113,7 +113,7 @@ When a build writes an output, it replaces any file that is already at that path
 
 Before a build searches the media directory, `fram` rejects `output_dir` in these cases:
 
-- `output_dir` is at or below `input_dir`, `templates_dir`, or `static_dir`. `fram` also makes this check when `output_dir` does not exist yet.
+- `output_dir` is at or below `media_dir`, `templates_dir`, or `static_dir`. `fram` also makes this check when `output_dir` does not exist yet.
 - `output_dir` exists and contains one of those directories or the config file, for example with `output_dir = "."`.
 
 Every search of an input directory skips `output_dir`, so a symlink that leads into `output_dir` cannot make the build read generated files as inputs.
@@ -122,7 +122,7 @@ Before it renders page templates or writes output files, `fram` rejects an outpu
 
 - Two outputs have the same path, for example a static file at the same path as an album page, a derivative, or an aggregate. Paths that differ only in ASCII letter case, such as `assets/Logo.png` and `assets/logo.png`, count as the same path, because a case-insensitive filesystem such as the macOS default stores them as one file.
 - One output path must be both a file and a directory. This check also ignores ASCII letter case.
-- An output is at or below `input_dir`, `templates_dir`, or `static_dir`, for example through a symlink inside `output_dir`. This check also applies when no file exists at that path yet.
+- An output is at or below `media_dir`, `templates_dir`, or `static_dir`, for example through a symlink inside `output_dir`. This check also applies when no file exists at that path yet.
 - An output overwrites the config file, a media file, a static file, or any file below `templates_dir`, including partials.
 
 These checks compare the directories themselves, not the text of the paths, so they also find a different spelling of the same directory, or a symlink to it. The build creates `output_dir` only after all of these checks pass, so a rejected build creates nothing.
@@ -169,7 +169,7 @@ A build writes the build cache to `_fram/v1-build-cache.tsv` below `output_dir`.
 
 Some tools, such as `exiftool -P`, change a file but keep its size and modification time. After such a change, the build cache can keep a row that no longer describes the file. To correct this, run `fram build --force` once. That build probes every media file again and writes a new build cache.
 
-When you publish `output_dir`, you also publish the build cache. It contains the path of each media file relative to `input_dir`, with the raw filename that page titles and URL slugs change. It also contains the size and modification time of each media file, which no other published file contains. If you do not want to publish this information, exclude `_fram/v1-build-cache.tsv` when you deploy.
+When you publish `output_dir`, you also publish the build cache. It contains the path of each media file relative to `media_dir`, with the raw filename that page titles and URL slugs change. It also contains the size and modification time of each media file, which no other published file contains. If you do not want to publish this information, exclude `_fram/v1-build-cache.tsv` when you deploy.
 
 ### Limits
 
@@ -192,7 +192,7 @@ The build reserves its memory once, when it starts, in fixed sizes that come fro
 
 ## Albums and media
 
-Each directory below `input_dir` becomes a nested album page if it contains media files or if a directory below it is an album. `input_dir` itself becomes `output_dir/index.html`. For each JPEG, the build makes every configured derivative and copies the original. Each derivative is a lossy WebP image. For each MP4, the build makes the same derivatives from an auto-rotated poster frame, and the copied original is the video that the gallery plays. A gallery with MP4 files needs the `ffmpeg` and `ffprobe` executables on `PATH`. A gallery with only images does not need them.
+Each directory below `media_dir` becomes a nested album page if it contains media files or if a directory below it is an album. `media_dir` itself becomes `output_dir/index.html`. For each JPEG, the build makes every configured derivative and copies the original. Each derivative is a lossy WebP image. For each MP4, the build makes the same derivatives from an auto-rotated poster frame, and the copied original is the video that the gallery plays. A gallery with MP4 files needs the `ffmpeg` and `ffprobe` executables on `PATH`. A gallery with only images does not need them.
 
 ### Albums
 
@@ -246,10 +246,10 @@ Every template can use these variables. Each album, media item and derivative se
 | Variable | Value |
 | --- | --- |
 | `gallery.title`, `gallery.description`, `gallery.author`, `gallery.base_url` | The values from the configuration. |
-| `album.title`, `album.url`, `album.item_count`, `album.cover`, `album.has_media`, `album.has_sub_albums`, `album.parent` | The fields of the current album. They are also available at the top level. `album.cover` is a media value, so its named derivatives are available in the same way as for `media`. It is empty for an album with no media below it. `album.parent` is empty for the root album. |
+| `album.title`, `album.url`, `album.media_count_total`, `album.cover`, `album.has_media`, `album.has_sub_albums`, `album.parent` | The fields of the current album. They are also available at the top level. `album.media_count_total` counts the media items of the album and of every album below it. `album.cover` is a media value, so its named derivatives are available in the same way as for `media`. It is empty for an album with no media below it. `album.parent` is empty for the root album. |
 | `sub_albums` | The immediate child albums, each with the album fields. |
-| `breadcrumbs` | The albums from the root album through the current album, each with the album fields. |
-| `media` | The media items directly in the current album. Each item has `title`, `is_image`, `is_video`, `original_url`, and `duration`, the length of a video in milliseconds, empty for an image. Each configured derivative is also a named child with `url`, `width`, and `height`, so the defaults give `s.url`, `s.width`, `s.height`, `m.url`, and so on. If a derivative has the same name as a built-in media field, the built-in field takes precedence. |
+| `breadcrumbs` | The albums from the root album through the current album, each with the album fields and `is_last`, which is true only for the current album on its own page. Its `url` is empty there, so the page does not link to itself. An aggregate is not an album's page, so no crumb of it is last. |
+| `media` | The media items directly in the current album. Each item has `title`, `kind` (`image` or `video`), `is_image`, `is_video`, `original_url`, and `duration`, the length of a video in milliseconds, empty for an image. Each configured derivative is also a named child with `url`, `width`, and `height`, so the defaults give `s.url`, `s.width`, `s.height`, `m.url`, and so on. If a derivative has the same name as a built-in media field, the built-in field takes precedence. |
 | `generator` | The name and version of `fram`, for a tag such as `<meta name="generator" content="{{generator}}">`. |
 | `path_to_root` | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. It stays the page's prefix inside `sub_albums`, `breadcrumbs` and `parent`. |
 

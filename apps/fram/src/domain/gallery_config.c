@@ -55,7 +55,7 @@ struct GalleryConfigIntKey {
 
 const struct Str GALLERY_CONFIG_PATH_DEFAULT = STR_INIT("fram.toml");
 
-#define INPUT_DIR_DEFAULT S("media")
+#define MEDIA_DIR_DEFAULT S("media")
 #define OUTPUT_DIR_DEFAULT S("public")
 #define TEMPLATES_DIR_DEFAULT S("templates")
 #define STATIC_DIR_DEFAULT S("static")
@@ -76,7 +76,7 @@ static const struct Str config_keys[] = {
     STR_INIT("description"),
     STR_INIT("author"),
     STR_INIT("base_url"),
-    STR_INIT("input_dir"),
+    STR_INIT("media_dir"),
     STR_INIT("output_dir"),
     STR_INIT("templates_dir"),
     STR_INIT("static_dir"),
@@ -313,7 +313,7 @@ static void normalize_base_url(struct GalleryConfig* gallery_config, struct Log*
  * @brief Copies one optional directory key, trims its trailing `/` and rejects an empty result.
  *
  * A trailing slash would otherwise survive into path construction, where it defeats the
- * `<input_dir>/` prefix strip that places each media item in its album. Normalizing once here keeps
+ * `<media_dir>/` prefix strip that places each media item in its album. Normalizing once here keeps
  * that rule in one place and makes `gallery_config_print` round-trip the normalized form. The
  * location is not otherwise constrained. An absolute or parent-relative directory stays valid.
  *
@@ -422,7 +422,7 @@ void gallery_config_init(struct GalleryConfig* gallery_config) {
   // This is one literal naming only the non-zero defaults, so a key added to `GalleryConfig` cannot
   // be left out here. The three required keys stay empty until the load fills them.
   *gallery_config = (struct GalleryConfig){
-      .input_dir = INPUT_DIR_DEFAULT,
+      .media_dir = MEDIA_DIR_DEFAULT,
       .output_dir = OUTPUT_DIR_DEFAULT,
       .templates_dir = TEMPLATES_DIR_DEFAULT,
       .static_dir = STATIC_DIR_DEFAULT,
@@ -463,8 +463,12 @@ int gallery_config_print(const struct GalleryConfig* gallery_config,
   gallery_config_print_key_string(&text, "title", gallery_config->title);
   gallery_config_print_key_string(&text, "description", gallery_config->description);
   gallery_config_print_key_string(&text, "author", gallery_config->author);
-  gallery_config_print_key_string(&text, "base_url", gallery_config->base_url);
-  gallery_config_print_key_string(&text, "input_dir", gallery_config->input_dir);
+  // An empty `base_url` is an absent key, so it is left out, as surge leaves out an empty optional
+  // string.
+  if (gallery_config->base_url.len > 0) {
+    gallery_config_print_key_string(&text, "base_url", gallery_config->base_url);
+  }
+  gallery_config_print_key_string(&text, "media_dir", gallery_config->media_dir);
   gallery_config_print_key_string(&text, "output_dir", gallery_config->output_dir);
   gallery_config_print_key_string(&text, "templates_dir", gallery_config->templates_dir);
   gallery_config_print_key_string(&text, "static_dir", gallery_config->static_dir);
@@ -549,8 +553,8 @@ static void gallery_config_load_fields(struct GalleryConfig* gallery_config,
   }
 
   normalize_base_url(gallery_config, log);
-  gallery_config->is_input_dir_rejected =
-      copy_dir(table, "input_dir", INPUT_DIR_DEFAULT, perm, &gallery_config->input_dir, log) != 0;
+  gallery_config->is_media_dir_rejected =
+      copy_dir(table, "media_dir", MEDIA_DIR_DEFAULT, perm, &gallery_config->media_dir, log) != 0;
   gallery_config->is_output_dir_rejected = copy_dir(table, "output_dir", OUTPUT_DIR_DEFAULT, perm,
                                                     &gallery_config->output_dir, log) != 0;
   gallery_config->is_templates_dir_rejected =

@@ -29,7 +29,7 @@ struct OsStat;
  * the configuration, so editing `fram.toml` never invalidates a row.
  */
 struct BuildCacheEntry {
-  /** Source path relative to `input_dir`. */
+  /** Source path relative to `media_dir`. */
   struct Str path;
 
   /** Size of the source in bytes when it was probed. */
@@ -93,7 +93,7 @@ int build_cache_parse(struct Str text,
  * @brief Finds the row for `path` whose size and modification time match `source_stat`.
  *
  * @param cache       Build cache to search. Must not be `NULL`.
- * @param path        Source path relative to `input_dir`.
+ * @param path        Source path relative to `media_dir`.
  * @param source_stat What `os_stat` reported for the source now. Must not be `NULL`.
  * @return The matching row, or `NULL` when there is none or the source changed since.
  */

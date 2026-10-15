@@ -14,7 +14,7 @@ struct Os;
 struct PathList;
 
 /**
- * @brief Rejects an `output_dir` at or below `input_dir`, `templates_dir`, or `static_dir`, whether
+ * @brief Rejects an `output_dir` at or below `media_dir`, `templates_dir`, or `static_dir`, whether
  *        or not it exists yet, and one that holds any of them or the configuration file.
  *
  * A build runs this before it walks an input tree or creates anything. An `output_dir` inside a
@@ -33,7 +33,7 @@ struct PathList;
  * yet holds nothing and passes. One `output_dir` can hold every root and the configuration file at
  * once, which is one mistake, so only the first held input is reported.
  *
- * @param gallery_config Configuration supplying `input_dir`, `output_dir`, `templates_dir`, and
+ * @param gallery_config Configuration supplying `media_dir`, `output_dir`, `templates_dir`, and
  *                       `static_dir`. Must not be `NULL`.
  * @param config_path    Path the configuration was loaded from.
  * @param os             Host the directories are on. Must not be `NULL`.
@@ -56,13 +56,13 @@ int manifest_builder_check_output_dir(const struct GalleryConfig* gallery_config
  * producers up front. A static file at the build cache's path is a duplicate rather than a silent
  * overwrite, and being recorded is what keeps the build cache through the stale-output prune. It
  * rejects four kinds of collision:
- * - an output path at or below `input_dir`, `templates_dir`, or `static_dir`
+ * - an output path at or below `media_dir`, `templates_dir`, or `static_dir`
  * - an output path that names a build input
  * - two producers that claim one output path, compared after folding ASCII case
  * - an output path that is a `/`-delimited directory prefix of another output path
  *
  * The first case catches an output that would be read back as an input without overwriting one: a
- * new file below `input_dir` can be discovered as media and one below `static_dir` is copied as a
+ * new file below `media_dir` can be discovered as media and one below `static_dir` is copied as a
  * static file by the next build, and a new file below `templates_dir` can be read as a partial by
  * the render of this same build. The caller has already run `manifest_builder_check_output_dir`, so
  * this compares each root by `(device, inode)` against each existing directory between `output_dir`
@@ -88,7 +88,7 @@ int manifest_builder_check_output_dir(const struct GalleryConfig* gallery_config
  * inputs already rejects it.
  *
  * @param manifest       Manifest that receives the output paths. Must not be `NULL`.
- * @param gallery_config Configuration supplying `input_dir`, `output_dir`, `templates_dir`,
+ * @param gallery_config Configuration supplying `media_dir`, `output_dir`, `templates_dir`,
  *                       `static_dir`, the album template, and the aggregate template list. Must not
  *                       be `NULL`.
  * @param config_path    Path the configuration itself was loaded from. Claimed as an input like any

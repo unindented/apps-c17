@@ -106,7 +106,7 @@ static void insert_album(struct SkeletonState* state, struct Album* album)
  *
  * @param albums      Array sorted by `source_dir`, as `insert_album` maintains. Must not be `NULL`.
  * @param album_count Number of entries in `albums`.
- * @param source_dir  Directory relative to `input_dir` to look for, empty for the root.
+ * @param source_dir  Directory relative to `media_dir` to look for, empty for the root.
  * @return The matching album, or `NULL` when no album carries that `source_dir`.
  */
 static struct Album* find_album(struct Album* const* albums,
@@ -122,7 +122,7 @@ static struct Album* find_album(struct Album* const* albums,
  *
  * @param albums      Array sorted by `source_dir`. Must not be `NULL`.
  * @param album_count Number of entries in `albums`.
- * @param source_dir  Directory relative to `input_dir` to place.
+ * @param source_dir  Directory relative to `media_dir` to place.
  * @return Index of that album, or `album_count` when every album sorts before `source_dir`.
  */
 static ptrdiff_t find_album_position(struct Album* const* albums,
@@ -141,7 +141,7 @@ static ptrdiff_t find_album_position(struct Album* const* albums,
  *
  * @param gallery_config Gallery configuration supplying the gallery title and output directory.
  *                       Must not be `NULL`.
- * @param source_dir     Directory relative to `input_dir`, empty for the root album.
+ * @param source_dir     Directory relative to `media_dir`, empty for the root album.
  * @param parent         Album whose `slug_path` prefixes this one, or `NULL` for the root.
  * @param arena          Arena that owns the album and its strings. Must not be `NULL`.
  * @param scratch        Arena for the page path relative to `output_dir`.
@@ -167,7 +167,7 @@ static int make_album(const struct GalleryConfig* gallery_config,
  * @param state          Skeleton state whose album array is searched and extended. Must not be
  *                       `NULL`.
  * @param gallery_config Gallery configuration passed to each created album. Must not be `NULL`.
- * @param source_dir     Directory relative to `input_dir`, empty for the root.
+ * @param source_dir     Directory relative to `media_dir`, empty for the root.
  * @param scratch        Arena for each created album's temporaries.
  * @param album_out      Receives the album for `source_dir`, owned by `state`. Must not be `NULL`.
  * @param log            Log that receives every error. Must not be `NULL`.
@@ -197,7 +197,7 @@ static int ensure_source_albums(struct SkeletonState* state,
  * @param album           Album the item belongs to, which counts it. Must not be `NULL`.
  * @param media_index     Slot in `state->media` to publish to. Must be below `state->media_count`.
  * @param source_path     Full source path, stored on the item and named in diagnostics.
- * @param source_relative Same path relative to `input_dir`, whose basename names the item.
+ * @param source_relative Same path relative to `media_dir`, whose basename names the item.
  * @param recipe_root     Derivative output subtree, `_fram/<recipe>`, relative to `output_dir`.
  * @param scratch         Arena for the item's intermediate names and relative paths.
  * @param log             Log that receives every error. Must not be `NULL`.
@@ -219,7 +219,7 @@ static int add_media(struct SkeletonState* state,
  *
  * Runs once every album and media item exists. It counts each album's children, allocates the
  * per-album child and media arrays in `state->perm`, fills them in source order, reverses each
- * array whose configured order is descending, then accumulates `item_count_total` and `cover` from
+ * array whose configured order is descending, then accumulates `media_count_total` and `cover` from
  * the deepest album upwards. It leaves `state->albums` and `state->media` in source order.
  * `state->albums[0]` must be the root, and `state->media_albums[i]` must name the album owning
  * `state->media[i]`.
@@ -267,7 +267,7 @@ static struct Str make_derivative_name(struct Str slug,
  * Only the last component is slugified. The ancestors come from `parent->slug_path`, which was
  * built the same way, so each component is slugified exactly once.
  *
- * @param source_dir Directory relative to `input_dir`, empty for the root.
+ * @param source_dir Directory relative to `media_dir`, empty for the root.
  * @param parent     Album supplying the prefix, or `NULL` for a top-level album.
  * @param arena      Arena that owns the result. Must not be `NULL`.
  * @return Slug path owned by `arena`, empty for the root.
@@ -279,7 +279,7 @@ static struct Str make_album_slug_path(struct Str source_dir,
 /**
  * @brief Derives an album's display title from its directory basename.
  *
- * @param source_dir    Directory relative to `input_dir`, empty for the root.
+ * @param source_dir    Directory relative to `media_dir`, empty for the root.
  * @param gallery_title Title used for the root album.
  * @param arena         Arena that owns the result. Must not be `NULL`.
  * @return Title owned by `arena`, or `gallery_title` itself for the root.
@@ -429,9 +429,9 @@ int album_scanner_build_skeleton(const struct GalleryConfig* gallery_config,
 
   for (ptrdiff_t i = 0; i < source_paths->count; i++) {
     const struct Str source_path = source_paths->items[i];
-    // The walk lists only files below `input_dir`, so this always finds the relative part.
+    // The walk lists only files below `media_dir`, so this always finds the relative part.
     struct Str relative = {0};
-    (void)path_is_below(source_path, gallery_config->input_dir, &relative);
+    (void)path_is_below(source_path, gallery_config->media_dir, &relative);
     const struct Str source_dir = path_parent(relative);
     struct Album* album = NULL;
     if (ensure_source_albums(&state, gallery_config, source_dir, scratch, &album, log) != 0) {
@@ -694,10 +694,10 @@ static void finish_relationships(struct SkeletonState* state,
   // descendants, so walking backwards visits every child before its parent.
   for (ptrdiff_t i = state->album_count; i > 0; i--) {
     struct Album* album = state->albums[i - 1];
-    album->item_count_total = album->media_count;
+    album->media_count_total = album->media_count;
     album->cover = album->media_count > 0 ? album->media[0] : NULL;
     for (ptrdiff_t child = 0; child < album->sub_album_count; child++) {
-      album->item_count_total += album->sub_albums[child]->item_count_total;
+      album->media_count_total += album->sub_albums[child]->media_count_total;
       if (album->cover == NULL) {
         album->cover = album->sub_albums[child]->cover;
       }
@@ -795,7 +795,7 @@ static int probe_media_job(ptrdiff_t index,
   const struct BuildCacheEntry* entry = NULL;
   if (os_stat(context->os, item->source_path, source_stat) == 0) {
     struct Str relative = {0};
-    (void)path_is_below(item->source_path, context->gallery_config->input_dir, &relative);
+    (void)path_is_below(item->source_path, context->gallery_config->media_dir, &relative);
     entry = build_cache_find(context->build_cache, relative, source_stat);
   }
   int rc = 0;

@@ -39,7 +39,7 @@ static const char* const GALLERY_CONFIG =
     "title = \"Test Gallery\"\n"
     "description = \"Test description\"\n"
     "author = \"Tests\"\n"
-    "input_dir = \"photos\"\n"
+    "media_dir = \"photos\"\n"
     "[derivatives.s]\nwidth = 8\nheight = 8\nquality = 70\ncrop = true\n"
     "[derivatives.m]\nwidth = 16\nheight = 16\nquality = 75\n";
 
@@ -115,7 +115,7 @@ enum {
 
 /**
  * @brief Returns a host holding a gallery with one output of every kind: album pages, derivatives,
- *        an original, an aggregate and a static file, beside a file in `input_dir` that is not
+ *        an original, an aggregate and a static file, beside a file in `media_dir` that is not
  *        media, which build to `EVERY_OUTPUT_KIND_FILES`.
  *
  * @return The host.
@@ -373,7 +373,7 @@ static void test_honors_configured_album_template(void) {
 }
 
 // A build writes exactly the manifest's intended outputs: album pages, derivatives, originals,
-// aggregate outputs and static files, and nothing for a file in `input_dir` that is not media.
+// aggregate outputs and static files, and nothing for a file in `media_dir` that is not media.
 static void test_writes_exactly_manifest_outputs(void) {
   struct Os* os = every_output_kind_fixture();
   struct Log log = test_log();
@@ -384,17 +384,17 @@ static void test_writes_exactly_manifest_outputs(void) {
   TEST_CHECK(is_file_list(os, "public", EVERY_OUTPUT_KIND_FILES, EVERY_OUTPUT_KIND_FILE_COUNT));
 }
 
-// A trailing slash on `input_dir` does not leak the directory name into the output tree. The prefix
-// strip that places each media item in its album compares `<input_dir>/`, so an unnormalized
+// A trailing slash on `media_dir` does not leak the directory name into the output tree. The prefix
+// strip that places each media item in its album compares `<media_dir>/`, so an unnormalized
 // `"photos/"` would miss and publish `public/photos/album/index.html`.
-static void test_tolerates_trailing_slash_on_input_dir(void) {
+static void test_tolerates_trailing_slash_on_media_dir(void) {
   struct Os* os = os_memory();
-  // The shared config sets `input_dir`, so this fixture writes its own.
+  // The shared config sets `media_dir`, so this fixture writes its own.
   os_memory_write(os, "fram.toml",
                   "title = \"Test Gallery\"\n"
                   "description = \"Test description\"\n"
                   "author = \"Tests\"\n"
-                  "input_dir = \"photos/\"\n"
+                  "media_dir = \"photos/\"\n"
                   "[derivatives.s]\nwidth = 8\nheight = 8\nquality = 70\ncrop = true\n"
                   "[derivatives.m]\nwidth = 16\nheight = 16\nquality = 75\n");
   os_memory_write(os, "templates/album.html", ALBUM_TEMPLATE);
@@ -403,7 +403,7 @@ static void test_tolerates_trailing_slash_on_input_dir(void) {
 
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  // No output, page, derivative or original, carries the name of `input_dir`.
+  // No output, page, derivative or original, carries the name of `media_dir`.
   static const char* const expected[] = {
       "public/_fram/originals/album/one-jpg.jpg",
       "public/_fram/v1-build-cache.tsv",
@@ -555,10 +555,10 @@ static void test_rebuild_removes_stale_outputs(void) {
   TEST_CHECK(os_memory_files(os, "public").count == 6);
 }
 
-// An `output_dir` that a symlink inside `input_dir` reaches is left out of the media walk, so a
+// An `output_dir` that a symlink inside `media_dir` reaches is left out of the media walk, so a
 // rebuild does not read the first build's outputs back as sources. The derivatives here are JPEG
 // files, which the walk would otherwise discover as media.
-static void test_rebuild_skips_output_dir_linked_from_input_dir(void) {
+static void test_rebuild_skips_output_dir_linked_from_media_dir(void) {
   struct Os* os = os_memory();
   struct Log log = test_log();
   write_gallery_fixture(os, NULL);
@@ -623,7 +623,7 @@ static void test_dry_run_lists_stale_recipe_and_keeps_it(void) {
                   "title = \"Test Gallery\"\n"
                   "description = \"Test description\"\n"
                   "author = \"Tests\"\n"
-                  "input_dir = \"photos\"\n"
+                  "media_dir = \"photos\"\n"
                   "[derivatives.s]\nwidth = 4\nheight = 4\nquality = 70\ncrop = true\n"
                   "[derivatives.m]\nwidth = 16\nheight = 16\nquality = 75\n");
 
@@ -938,7 +938,7 @@ static void test_builds_a_large_album(void) {
 static void test_skips_empty_phases_in_verbose_output(void) {
   struct Os* os = os_memory();
   write_gallery_fixture(os, NULL);
-  // A file that is not media keeps `input_dir` present while the gallery holds no media.
+  // A file that is not media keeps `media_dir` present while the gallery holds no media.
   os_memory_write(os, "photos/notes.txt", "not media\n");
   const struct BuildOptions options = {.worker_count = 3, .is_verbose = true};
 
@@ -1017,16 +1017,16 @@ static void test_reports_missing_config(void) {
   TEST_CHECK(test_log_is(&log, "failed to read config: %s ('fram.toml')\n", strerror(ENOENT)));
 }
 
-// `input_dir` is required, so an absent one is a failure, reported as a resolution failure carrying
+// `media_dir` is required, so an absent one is a failure, reported as a resolution failure carrying
 // the system cause. `ENOENT` and `EACCES` need different fixes and nothing later would report
 // either, so the cause has to appear here. Only the optional read root is skipped when missing.
 // Compared exactly, so a caller that appended the path a second time would fail.
-static void test_reports_absent_input_dir(void) {
+static void test_reports_absent_media_dir(void) {
   struct Os* os = os_memory();
   write_gallery_fixture(os, NULL);
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == -1);
-  TEST_CHECK(test_log_is(&log, "failed to resolve config directory 'input_dir': %s ('photos')\n",
+  TEST_CHECK(test_log_is(&log, "failed to resolve config directory 'media_dir': %s ('photos')\n",
                          strerror(ENOENT)));
 }
 
@@ -1046,7 +1046,7 @@ static void test_reports_absent_templates_dir(void) {
   log = test_log();
   TEST_CHECK(execute_build(os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "failed to resolve config directory 'input_dir': %s ('photos')\nfailed "
+                         "failed to resolve config directory 'media_dir': %s ('photos')\nfailed "
                          "to resolve config directory 'templates_dir': %s ('templates')\n",
                          strerror(EACCES), strerror(ENOENT)));
 }
@@ -1055,11 +1055,11 @@ static void test_reports_absent_templates_dir(void) {
 // never chose, so the build does not go on to report that default missing as well.
 static void test_reports_a_rejected_directory_key_once(void) {
   static const char* const cases[][4] = {
-      {"input_dir = 5\n", "photos/album/one.jpg", "templates/album.html",
-       "config key 'input_dir' must be a string"},
-      {"input_dir = \"/\"\n", "photos/album/one.jpg", "templates/album.html",
-       "config key 'input_dir' must not be empty"},
-      {"input_dir = \"photos\"\ntemplates_dir = [\"layouts\"]\n", "photos/album/one.jpg",
+      {"media_dir = 5\n", "photos/album/one.jpg", "templates/album.html",
+       "config key 'media_dir' must be a string"},
+      {"media_dir = \"/\"\n", "photos/album/one.jpg", "templates/album.html",
+       "config key 'media_dir' must not be empty"},
+      {"media_dir = \"photos\"\ntemplates_dir = [\"layouts\"]\n", "photos/album/one.jpg",
        "layouts/album.html", "config key 'templates_dir' must be a string"},
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
@@ -1146,11 +1146,11 @@ static void test_reports_dangling_output_dir_symlink(void) {
       strerror(ENOENT)));
 }
 
-// An `output_dir` below `input_dir` is refused before media is discovered or probed, so no earlier
+// An `output_dir` below `media_dir` is refused before media is discovered or probed, so no earlier
 // build's output can be read back as a source, and it is refused although it does not exist yet.
 // The verbose phase lines show that the build stopped before the media walk, and the refused build
 // creates none of the nested directories.
-static void test_rejects_output_dir_inside_input_dir(void) {
+static void test_rejects_output_dir_inside_media_dir(void) {
   struct Os* os = os_memory();
   write_gallery_fixture(os, "output_dir = \"photos/generated/site\"\n");
   write_jpeg(os, "photos/album/one.jpg");
@@ -1160,15 +1160,15 @@ static void test_rejects_output_dir_inside_input_dir(void) {
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
   TEST_CHECK(os_memory_is_printed(os, 2,
                                   "loading config\n"
-                                  "output directory would write inside 'input_dir': "
+                                  "output directory would write inside 'media_dir': "
                                   "'photos/generated/site'\n"));
   TEST_CHECK(!os_memory_has_path(os, "photos/generated"));
 }
 
-// An `output_dir` that holds `input_dir`, such as `output_dir = "."`, is refused before media is
+// An `output_dir` that holds `media_dir`, such as `output_dir = "."`, is refused before media is
 // discovered, so the gallery's own files never share a tree with its outputs, and the refused build
 // writes nothing beside them.
-static void test_rejects_output_dir_holding_input_dir(void) {
+static void test_rejects_output_dir_holding_media_dir(void) {
   struct Os* os = os_memory();
   write_gallery_fixture(os, "output_dir = \".\"\n");
   write_jpeg(os, "photos/album/one.jpg");
@@ -1178,7 +1178,7 @@ static void test_rejects_output_dir_holding_input_dir(void) {
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
   TEST_CHECK(os_memory_is_printed(os, 2,
                                   "loading config\n"
-                                  "output directory would hold 'input_dir': '.'\n"));
+                                  "output directory would hold 'media_dir': '.'\n"));
   // The config, the template, and the source.
   TEST_CHECK(os_memory_files(os, ".").count == 3);
 }
@@ -1461,7 +1461,7 @@ static void test_reports_static_dir_that_cannot_be_inspected(void) {
 TEST_LIST = {
     {"honors configured album template", test_honors_configured_album_template},
     {"writes exactly manifest outputs", test_writes_exactly_manifest_outputs},
-    {"tolerates trailing slash on input_dir", test_tolerates_trailing_slash_on_input_dir},
+    {"tolerates trailing slash on media_dir", test_tolerates_trailing_slash_on_media_dir},
     {"builds with no static dir", test_builds_with_no_static_dir},
     {"copies static files when present", test_copies_static_files_when_present},
     {"distinguishes same name in different dirs", test_distinguishes_same_name_in_different_dirs},
@@ -1470,7 +1470,7 @@ TEST_LIST = {
     {"rebuild succeeds and repeats its outputs", test_rebuild_succeeds_and_repeats_its_outputs},
     {"rebuild removes stale outputs", test_rebuild_removes_stale_outputs},
     {"rebuild skips output dir linked from input dir",
-     test_rebuild_skips_output_dir_linked_from_input_dir},
+     test_rebuild_skips_output_dir_linked_from_media_dir},
     {"dry run lists every output and writes nothing",
      test_dry_run_lists_every_output_and_writes_nothing},
     {"dry run keeps fresh media", test_dry_run_keeps_fresh_media},
@@ -1495,15 +1495,15 @@ TEST_LIST = {
     {"run prints diagnostic once and fails", test_run_prints_diagnostic_once_and_fails},
     {"tiny arena ends in oom", test_tiny_arena_ends_in_oom},
     {"reports missing config", test_reports_missing_config},
-    {"reports absent input dir", test_reports_absent_input_dir},
+    {"reports absent input dir", test_reports_absent_media_dir},
     {"reports absent templates dir", test_reports_absent_templates_dir},
     {"reports a rejected directory key once", test_reports_a_rejected_directory_key_once},
     {"reports a rejected static dir once", test_reports_a_rejected_static_dir_once},
     {"reports templates dir that is a file", test_reports_templates_dir_that_is_a_file},
     {"reports unusable output dir", test_reports_unusable_output_dir},
     {"reports dangling output dir symlink", test_reports_dangling_output_dir_symlink},
-    {"rejects output dir inside input dir", test_rejects_output_dir_inside_input_dir},
-    {"rejects output dir holding input dir", test_rejects_output_dir_holding_input_dir},
+    {"rejects output dir inside input dir", test_rejects_output_dir_inside_media_dir},
+    {"rejects output dir holding input dir", test_rejects_output_dir_holding_media_dir},
     {"rejects colliding source names", test_rejects_colliding_source_names},
     {"rejects static file colliding with album page",
      test_rejects_static_file_colliding_with_album_page},

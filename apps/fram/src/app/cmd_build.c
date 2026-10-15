@@ -132,7 +132,7 @@ struct BuildState {
   /** Loaded gallery configuration. Its values live in `perm`. */
   struct GalleryConfig gallery_config;
 
-  /** Discovered media source paths below `input_dir`, sorted by the walk that produced them. */
+  /** Discovered media source paths below `media_dir`, sorted by the walk that produced them. */
   struct PathList source_paths;
 
   /** Discovered static file paths below `static_dir`, left empty when that directory is absent. */
@@ -253,7 +253,7 @@ static int load_build_inputs(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Lists the media sources below `input_dir` and counts the videos.
+ * @brief Lists the media sources below `media_dir` and counts the videos.
  *
  * One walk lists every media suffix.
  *
@@ -586,7 +586,7 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
   // checks and the walks that would report that default as a second error.
   const struct GalleryConfig* gallery_config = &state->gallery_config;
   if (load_build_inputs_require_read_roots(state, log) != 0 ||
-      gallery_config->is_input_dir_rejected || gallery_config->is_output_dir_rejected ||
+      gallery_config->is_media_dir_rejected || gallery_config->is_output_dir_rejected ||
       gallery_config->is_templates_dir_rejected || gallery_config->is_static_dir_rejected) {
     return -1;
   }
@@ -612,7 +612,7 @@ static int load_build_inputs_media(struct BuildState* state, struct Log* log) {
   // A failure names the directory or entry that failed, which is more precise than the configured
   // root, so the root is not repeated.
   if (walk_files_with_suffixes(
-          &state->source_paths, state->gallery_config.input_dir, state->gallery_config.output_dir,
+          &state->source_paths, state->gallery_config.media_dir, state->gallery_config.output_dir,
           media_suffixes, (ptrdiff_t)(sizeof(media_suffixes) / sizeof(media_suffixes[0])), true,
           state->os, &state->perm, state->scratch, S("failed to list source media"), log) != 0) {
     return -1;
@@ -643,8 +643,8 @@ static int load_build_inputs_static(struct BuildState* state, struct Log* log) {
 
 static int load_build_inputs_require_read_roots(const struct BuildState* state, struct Log* log) {
   const struct ReadRoot roots[] = {
-      {state->gallery_config.input_dir, "input_dir", false,
-       state->gallery_config.is_input_dir_rejected},
+      {state->gallery_config.media_dir, "media_dir", false,
+       state->gallery_config.is_media_dir_rejected},
       {state->gallery_config.templates_dir, "templates_dir", false,
        state->gallery_config.is_templates_dir_rejected},
       {state->gallery_config.static_dir, "static_dir", true,
@@ -664,7 +664,7 @@ static int load_build_inputs_require_read_roots(const struct BuildState* state, 
     // and nothing after this point would report either, because the build stops once a root is
     // unusable. The cause carries no verb of its own, so the operation names what was being
     // resolved, as in
-    // `failed to resolve config directory 'input_dir': No such file or directory ('photos')`.
+    // `failed to resolve config directory 'media_dir': No such file or directory ('photos')`.
     if (roots[i].is_rejected) {
       continue;
     }
@@ -838,7 +838,7 @@ static int write_build_cache(struct BuildState* state, struct Log* log) {
     const struct MediaItem* item = state->media[i];
     const struct OsStat* source_stat = &state->source_stats[i];
     struct Str relative = {0};
-    (void)path_is_below(item->source_path, state->gallery_config.input_dir, &relative);
+    (void)path_is_below(item->source_path, state->gallery_config.media_dir, &relative);
     const struct BuildCacheEntry entry = {
         .path = relative,
         .len = source_stat->len,
@@ -895,7 +895,7 @@ static int prune_stale_outputs(struct BuildState* state, struct Log* log) {
   build_verbose(state, "removing stale outputs");
   ptrdiff_t removed_count = 0;
   const struct GalleryConfig* gallery_config = &state->gallery_config;
-  const struct Str root_dirs[] = {gallery_config->input_dir, gallery_config->templates_dir,
+  const struct Str root_dirs[] = {gallery_config->media_dir, gallery_config->templates_dir,
                                   gallery_config->static_dir};
   const int rc = output_pruner_prune(&state->writer, gallery_config->output_dir, root_dirs,
                                      (ptrdiff_t)(sizeof(root_dirs) / sizeof(root_dirs[0])),

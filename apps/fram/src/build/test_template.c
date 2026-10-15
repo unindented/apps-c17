@@ -210,14 +210,14 @@ static void test_renders_gallery_tree_with_page_relative_urls(void) {
                         .media_count = 1,
                         .parent = &root,
                         .depth = 1};
-  const struct TemplateContext context = {.gallery_config = &gallery_config,
-                                          .album_current = &child};
+  const struct TemplateContext context = {
+      .gallery_config = &gallery_config, .album_current = &child, .is_album_page = true};
   char* rendered_html = NULL;
   if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
     goto cleanup;
   }
   TEST_CHECK(strcmp(rendered_html,
-                    "A &amp; B|Trip|[Root=../index.html][Trip=../trip/index.html]|"
+                    "A &amp; B|Trip|[Root=../index.html][Trip=]|"
                     "x&lt;y.jpg=../_fram/r/s/x.jpg/120x120,"
                     "../_fram/r/card/x.jpg/480x320,"
                     "../_fram/originals/x.jpgI;") == 0);
@@ -260,7 +260,7 @@ static void test_renders_sub_album_cover(void) {
   char root_dir[] = "/tmp/fram-template-XXXXXX";
   if (write_template_fixture(root_dir,
                              "{{#sub_albums}}{{title}}={{url}}={{cover.s.url}}={{cover.s.width}}x"
-                             "{{cover.s.height}}={{item_count}};"
+                             "{{cover.s.height}}={{media_count_total}};"
                              "{{/sub_albums}}") != 0) {
     return;
   }
@@ -273,7 +273,7 @@ static void test_renders_sub_album_cover(void) {
   struct Album child = {.title = S("Trip"),
                         .url_path = S("trip/index.html"),
                         .cover = &cover,
-                        .item_count_total = 3,
+                        .media_count_total = 3,
                         .depth = 1};
   struct Album* children[] = {&child};
   struct Album root = {.title = S("Root"),
@@ -334,6 +334,58 @@ static void test_path_to_root_is_the_page_prefix_in_every_context(void) {
     goto cleanup;
   }
   TEST_CHECK(strcmp(rendered_html, "../../|[../../]|[../../][../../][../../]|[../../]") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
+// On an album's page, the trail's last crumb is that album: only it has `is_last`, and its `url` is
+// empty, so the page does not link itself. An album of `sub_albums` is no crumb, so it has no
+// `is_last`, and keeps its `url`.
+static void test_breadcrumbs_mark_the_current_album_last(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/fram-template-XXXXXX";
+  if (write_template_fixture(root_dir,
+                             "{{#breadcrumbs}}[{{title}}:{{url}}:{{#is_last}}last{{/is_last}}]"
+                             "{{/breadcrumbs}}|{{#sub_albums}}[{{title}}:{{url}}:"
+                             "{{#is_last}}last{{/is_last}}]{{/sub_albums}}") != 0) {
+    return;
+  }
+  struct GalleryConfig gallery_config;
+  init_test_gallery_config(&gallery_config);
+  struct Album root = {.title = S("Root"), .url_path = S("index.html")};
+  struct Album dawn = {.title = S("Dawn"), .url_path = S("trip/day/dawn/index.html"), .depth = 3};
+  struct Album* children[] = {&dawn};
+  struct Album trip = {
+      .title = S("Trip"), .url_path = S("trip/index.html"), .parent = &root, .depth = 1};
+  struct Album day = {.title = S("Day"),
+                      .url_path = S("trip/day/index.html"),
+                      .path_to_root = S("../../"),
+                      .sub_albums = children,
+                      .sub_album_count = 1,
+                      .parent = &trip,
+                      .depth = 2};
+  dawn.parent = &day;
+  const struct TemplateContext context = {
+      .gallery_config = &gallery_config, .album_current = &day, .is_album_page = true};
+  // An aggregate renders against the root album without being its page, so its one crumb is not
+  // last and keeps its link.
+  const struct TemplateContext aggregate = {.gallery_config = &gallery_config,
+                                            .album_current = &root};
+  char* rendered_html = NULL;
+  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(rendered_html,
+                    "[Root:../../index.html:][Trip:../../trip/index.html:][Day::last]|"
+                    "[Dawn:../../trip/day/dawn/index.html:]") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
+
+  if (!TEST_CHECK(render(root_dir, "album.html", &aggregate, &perm, &rendered_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(rendered_html, "[Root:index.html:]|") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
 
 cleanup:
@@ -689,6 +741,35 @@ static void test_unknown_name_resolves_from_enclosing_album(void) {
     goto cleanup;
   }
   TEST_CHECK(strcmp(rendered_html, "[index.html]") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
+// A media item names its kind, `image` or `video`, and has the flag of that kind only.
+static void test_media_names_its_kind(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/fram-template-XXXXXX";
+  if (write_template_fixture(root_dir,
+                             "{{#media}}[{{kind}}:{{#is_image}}I{{/is_image}}"
+                             "{{#is_video}}V{{/is_video}}]{{/media}}") != 0) {
+    return;
+  }
+  struct GalleryConfig gallery_config;
+  init_test_gallery_config(&gallery_config);
+  struct MediaItem image = {.kind = MEDIA_KIND_IMAGE};
+  struct MediaItem video = {.kind = MEDIA_KIND_VIDEO};
+  struct MediaItem* media[] = {&image, &video};
+  struct Album root = {
+      .title = S("Root"), .url_path = S("index.html"), .media = media, .media_count = 2};
+  const struct TemplateContext context = {.gallery_config = &gallery_config,
+                                          .album_current = &root};
+  char* rendered_html = NULL;
+  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(rendered_html, "[image:I][video:V]") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
 
 cleanup:
@@ -1543,7 +1624,9 @@ TEST_LIST = {
     {"absent value does not resolve from enclosing album",
      test_absent_value_does_not_resolve_from_enclosing_album},
     {"unknown name resolves from enclosing album", test_unknown_name_resolves_from_enclosing_album},
+    {"media names its kind", test_media_names_its_kind},
     {"duration is empty for an image", test_duration_is_empty_for_an_image},
+    {"breadcrumbs mark the current album last", test_breadcrumbs_mark_the_current_album_last},
     {"comments are dropped", test_comments_are_dropped},
     {"output bound applies per call", test_output_bound_applies_per_call},
     {"rejects unsafe partial name", test_rejects_unsafe_partial_name},

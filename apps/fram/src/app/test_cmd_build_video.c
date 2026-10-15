@@ -30,7 +30,7 @@ static const char* const GALLERY_CONFIG =
     "title = \"Test Gallery\"\n"
     "description = \"Test description\"\n"
     "author = \"Tests\"\n"
-    "input_dir = \"photos\"\n"
+    "media_dir = \"photos\"\n"
     "[derivatives.s]\nwidth = 8\nheight = 8\nquality = 70\ncrop = true\n"
     "[derivatives.m]\nwidth = 16\nheight = 16\nquality = 75\n";
 

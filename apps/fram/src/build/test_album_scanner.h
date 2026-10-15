@@ -23,7 +23,7 @@ static inline void test_album_scanner_init_config(struct GalleryConfig* gallery_
   gallery_config->title = S("Gallery");
   gallery_config->description = S("Description");
   gallery_config->author = S("Author");
-  gallery_config->input_dir = S("/photos");
+  gallery_config->media_dir = S("/photos");
   gallery_config->output_dir = S("/public");
 }
 

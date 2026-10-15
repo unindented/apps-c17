@@ -15,7 +15,7 @@
   <main
     data-url="{{album.url}}"
     data-path-to-root="{{path_to_root}}"
-    data-item-count="{{album.item_count}}"
+    data-media-count-total="{{album.media_count_total}}"
     data-cover-src="{{album.cover.s.url}}">
     {{#has_sub_albums}}
     <ul class="gallery-grid">
@@ -30,7 +30,7 @@
             loading="lazy">
           <span class="gallery-grid__caption">
             <span class="gallery-grid__title" aria-hidden="true">{{title}}</span>
-            <small class="gallery-grid__count">{{item_count}} items</small>
+            <small class="gallery-grid__count">{{media_count_total}} items</small>
           </span>
         </a>
       </li>
@@ -41,7 +41,7 @@
     {{#has_media}}
     <div class="gallery-grid" data-label="{{album.title}}">
       {{#media}}
-      <a class="gallery-grid__item{{#is_image}} gallery-grid__item--image{{/is_image}}{{#is_video}} gallery-grid__item--video{{/is_video}}"
+      <a class="gallery-grid__item gallery-grid__item--{{kind}}"
         href="{{original_url}}"
         download="{{title}}"
         data-small-src="{{s.url}}"

@@ -93,6 +93,12 @@ enum { SCALAR_NUMBER_SIZE = 32 };
 _Static_assert(SCALAR_NUMBER_SIZE > sizeof("-9223372036854775808") - 1,
                "scalar number buffer must hold the widest ptrdiff_t");
 
+/** Name of each media kind as a template sees it, indexed by `enum MediaKind`. */
+static const struct Str MEDIA_KIND_NAMES[] = {
+    [MEDIA_KIND_IMAGE] = STR_INIT("image"),
+    [MEDIA_KIND_VIDEO] = STR_INIT("video"),
+};
+
 /** Kind of a node in the immutable data tree walked by `mustache_process`. */
 enum NodeKind {
   /** Top-level lookup context: `gallery.*`, the page's lists, and the current album's fields. */
@@ -119,6 +125,9 @@ enum NodeKind {
   /** The rendered album's ancestors from the root down to itself, iterated by index. */
   NODE_BREADCRUMB_LIST,
 
+  /** One album of `breadcrumbs`, resolving `is_last` and its `url`, and its other album fields. */
+  NODE_BREADCRUMB,
+
   /** A terminal string value. */
   NODE_SCALAR,
 };
@@ -128,7 +137,7 @@ struct Node {
   /** Selects which of the fields below carry meaning for this node. */
   enum NodeKind kind;
 
-  /** Album a `NODE_ALBUM` presents. */
+  /** Album a `NODE_ALBUM` or a `NODE_BREADCRUMB` presents. */
   const struct Album* album;
 
   /** Backing media item for `NODE_MEDIA`. */
@@ -489,12 +498,28 @@ static struct Node* resolve_album(struct ProviderData* provider_data,
                                   struct Str name) __attribute__((nonnull(1, 2)));
 
 /**
+ * @brief Resolves a bare field name against an album of `breadcrumbs`.
+ *
+ * `is_last` is truthy only for the rendered album on its own page, the trail's last crumb, and that
+ * crumb's `url` is empty, so a template writes the page it is on without a link to itself, as
+ * surge's breadcrumbs do. Every other name resolves as for the album.
+ *
+ * @param provider_data Render provider state. Must not be `NULL`.
+ * @param album         Album of the crumb. Must not be `NULL`.
+ * @param name          Requested field name.
+ * @return The resolved node, or `NULL` when the name is unmatched.
+ */
+static struct Node* resolve_breadcrumb(struct ProviderData* provider_data,
+                                       const struct Album* album,
+                                       struct Str name) __attribute__((nonnull(1, 2)));
+
+/**
  * @brief Resolves a bare field name against a media item, including its derivative names.
  *
  * A name matching no media field is matched against the item's configured derivative names, so
- * `{{m.url}}` reaches the derivative named `m`. `is_image` and `is_video` resolve to a truthy
- * scalar only for that source kind, so a section over either renders exactly for it. `duration` is
- * empty for an image.
+ * `{{m.url}}` reaches the derivative named `m`. `kind` names the source kind, as surge names the
+ * kind of a tree entry, and `is_image` and `is_video` resolve to a truthy scalar only for that
+ * kind, so a section over either renders exactly for it. `duration` is empty for an image.
  *
  * @param provider_data Render provider state. Must not be `NULL`.
  * @param media         Media item to resolve against. Must not be `NULL`.
@@ -785,6 +810,8 @@ static void* node_get_child_by_name(void* node_ptr,
       return resolve_gallery(provider_data, name_text);
     case NODE_ALBUM:
       return resolve_album(provider_data, node->album, name_text);
+    case NODE_BREADCRUMB:
+      return resolve_breadcrumb(provider_data, node->album, name_text);
     case NODE_MEDIA:
       return resolve_media(provider_data, node->media, name_text);
     case NODE_DERIVATIVE:
@@ -828,7 +855,7 @@ static void* node_get_child_by_index(void* node_ptr, unsigned index, void* provi
     for (ptrdiff_t remaining = current->depth - index; remaining > 0; remaining--) {
       crumb = crumb->parent;
     }
-    struct Node* child = node_alloc(provider_data, NODE_ALBUM);
+    struct Node* child = node_alloc(provider_data, NODE_BREADCRUMB);
     child->album = crumb;
     return child;
   }
@@ -1060,8 +1087,8 @@ static struct Node* resolve_album(struct ProviderData* provider_data,
   if (str_eq(name, S("url"))) {
     return node_scalar_url(provider_data, album->url_path);
   }
-  if (str_eq(name, S("item_count"))) {
-    return node_scalar_number(provider_data, album->item_count_total);
+  if (str_eq(name, S("media_count_total"))) {
+    return node_scalar_number(provider_data, album->media_count_total);
   }
   if (str_eq(name, S("cover"))) {
     if (album->cover == NULL) {
@@ -1088,11 +1115,29 @@ static struct Node* resolve_album(struct ProviderData* provider_data,
   return NULL;
 }
 
+static struct Node* resolve_breadcrumb(struct ProviderData* provider_data,
+                                       const struct Album* album,
+                                       struct Str name) {
+  // An aggregate renders against the root album without being its page, so no crumb is last there.
+  const struct TemplateContext* context = provider_data->context;
+  const bool is_last = context->is_album_page && album == context->album_current;
+  if (str_eq(name, S("is_last"))) {
+    return node_scalar(provider_data, is_last ? S("true") : S(""));
+  }
+  if (str_eq(name, S("url")) && is_last) {
+    return node_scalar(provider_data, S(""));
+  }
+  return resolve_album(provider_data, album, name);
+}
+
 static struct Node* resolve_media(struct ProviderData* provider_data,
                                   const struct MediaItem* media,
                                   struct Str name) {
   if (str_eq(name, S("title"))) {
     return node_scalar(provider_data, media->title);
+  }
+  if (str_eq(name, S("kind"))) {
+    return node_scalar(provider_data, MEDIA_KIND_NAMES[media->kind]);
   }
   if (str_eq(name, S("is_video"))) {
     return node_scalar(provider_data, media->kind == MEDIA_KIND_VIDEO ? S("true") : S(""));

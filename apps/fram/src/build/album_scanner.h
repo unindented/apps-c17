@@ -26,7 +26,7 @@ struct VideoFrame;
  * failure. A failed scan writes no output and leaves `perm` as it found it.
  *
  * @param gallery_config  Gallery configuration. Must not be `NULL`.
- * @param source_paths    Lexicographically sorted, distinct full source paths below `input_dir`, as
+ * @param source_paths    Lexicographically sorted, distinct full source paths below `media_dir`, as
  *                        the walk lists them. Must not be `NULL`.
  * @param perm            Arena that owns the skeleton. Must not be `NULL`.
  * @param scratch         Arena for the scan's own bookkeeping and the names and relative paths the

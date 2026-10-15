@@ -233,9 +233,9 @@ static void test_build_skeleton_derives_nested_gallery(void) {
   TEST_CHECK(albums[2]->media[0] == media[0]);
   TEST_CHECK(albums[2]->media[1] == media[1]);
 
-  TEST_CHECK(albums[2]->item_count_total == 2);
-  TEST_CHECK(albums[1]->item_count_total == 3);
-  TEST_CHECK(albums[0]->item_count_total == 4);
+  TEST_CHECK(albums[2]->media_count_total == 2);
+  TEST_CHECK(albums[1]->media_count_total == 3);
+  TEST_CHECK(albums[0]->media_count_total == 4);
   TEST_CHECK(albums[2]->cover == media[0]);
   TEST_CHECK(albums[1]->cover == media[2]);
   TEST_CHECK(albums[0]->cover == media[3]);
@@ -270,7 +270,7 @@ static void test_build_skeleton_sorts_late_ancestors(void) {
   TEST_CHECK(albums[0]->sub_albums[0] == albums[1]);
   TEST_CHECK(albums[0]->sub_albums[1] == albums[2]);
   TEST_CHECK(albums[1]->sub_albums[0] == albums[3]);
-  TEST_CHECK(albums[0]->item_count_total == 2);
+  TEST_CHECK(albums[0]->media_count_total == 2);
 }
 
 // An album discovered after many siblings that sort after it is inserted at its sorted place, far
@@ -309,7 +309,7 @@ static void test_build_skeleton_inserts_late_album_before_siblings(void) {
   TEST_CHECK(albums[1]->sub_album_count == 1);
   TEST_CHECK(albums[1]->sub_albums[0] == albums[9]);
   TEST_CHECK(albums[9]->parent == albums[1]);
-  TEST_CHECK(albums[0]->item_count_total == 9);
+  TEST_CHECK(albums[0]->media_count_total == 9);
 }
 
 // Source names remain literal while generated paths are slugged and display titles expose spaces.

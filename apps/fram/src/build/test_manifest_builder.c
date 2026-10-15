@@ -30,7 +30,7 @@
  * @brief Creates a host holding `gallery/fram.toml` and `gallery/templates/album.html`, and points
  *        a configuration at it.
  *
- * `input_dir` is `gallery/photos`, `output_dir` is `gallery/public`, `templates_dir` is
+ * `media_dir` is `gallery/photos`, `output_dir` is `gallery/public`, `templates_dir` is
  * `gallery/templates`, and `static_dir` is `gallery/static`. No aggregate template is configured.
  * Only the two files exist, so no source, static file, or output is present.
  *
@@ -39,7 +39,7 @@
  */
 static struct Os* init_manifest_fixture(struct GalleryConfig* gallery_config) {
   gallery_config_init(gallery_config);
-  gallery_config->input_dir = S("gallery/photos");
+  gallery_config->media_dir = S("gallery/photos");
   gallery_config->output_dir = S("gallery/public");
   gallery_config->templates_dir = S("gallery/templates");
   gallery_config->static_dir = S("gallery/static");
@@ -99,7 +99,7 @@ static void check_rejects_output_in_root(const struct GalleryConfig* gallery_con
   struct Log log = test_log();
   TEST_CHECK(populate(&manifest, gallery_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log, "output path would write inside '%s' for '%.*s': '%s'\n", root_key,
-                         STR_FMT(gallery_config->input_dir), output_path));
+                         STR_FMT(gallery_config->media_dir), output_path));
 }
 
 /**
@@ -132,7 +132,7 @@ static void check_rejects_output_dir_in_root(const struct GalleryConfig* gallery
  *
  * @param gallery_config Configuration whose `output_dir` holds an input root or the configuration
  *                       file. Must not be `NULL`.
- * @param held           Held input as the diagnostic names it, such as `'input_dir'` or
+ * @param held           Held input as the diagnostic names it, such as `'media_dir'` or
  *                       `the config`. Must not be `NULL`.
  * @param os             Host the fixture is on. Must not be `NULL`.
  */
@@ -364,7 +364,7 @@ static void test_rejects_every_prefix_collision(void) {
 }
 
 // The root album and a configured `index.html` aggregate collide before any writer runs. The root
-// is labeled by `input_dir`, a real path, rather than a placeholder a sub-album could share.
+// is labeled by `media_dir`, a real path, rather than a placeholder a sub-album could share.
 static void test_rejects_album_aggregate_collision(void) {
   struct GalleryConfig gallery_config;
   struct Os* os = init_manifest_fixture(&gallery_config);
@@ -406,7 +406,7 @@ static void test_rejects_duplicate_template(void) {
 // `manifest_builder_populate` rejects an output path that names one of the build's own input files,
 // so a build cannot overwrite its own source. Here an original output is a hard link to its own
 // media source, so the two paths differ and only filesystem identity sees the collision. An output
-// inside `input_dir` fails the root check first, as `test_rejects_output_in_input_dir` pins.
+// inside `media_dir` fails the root check first, as `test_rejects_output_in_media_dir` pins.
 static void test_rejects_input_overwrite(void) {
   struct GalleryConfig gallery_config;
   struct Os* os = init_manifest_fixture(&gallery_config);
@@ -572,7 +572,7 @@ static void test_check_output_dir_rejects_dir_in_input_root(void) {
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(input_output_dirs) / sizeof(input_output_dirs[0]));
        i++) {
     gallery_config.output_dir = input_output_dirs[i];
-    check_rejects_output_dir_in_root(&gallery_config, "input_dir", os);
+    check_rejects_output_dir_in_root(&gallery_config, "media_dir", os);
   }
 
   gallery_config.output_dir = S("gallery/templates/partials");
@@ -602,11 +602,11 @@ static void test_check_output_dir_rejects_dir_holding_input(void) {
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(holding_dirs) / sizeof(holding_dirs[0])); i++) {
     gallery_config.output_dir = holding_dirs[i];
-    check_rejects_output_dir_holding(&gallery_config, "'input_dir'", os);
+    check_rejects_output_dir_holding(&gallery_config, "'media_dir'", os);
   }
 
   gallery_config.output_dir = S("gallery");
-  gallery_config.input_dir = S("elsewhere/photos");
+  gallery_config.media_dir = S("elsewhere/photos");
   check_rejects_output_dir_holding(&gallery_config, "'templates_dir'", os);
   gallery_config.templates_dir = S("elsewhere/templates");
   check_rejects_output_dir_holding(&gallery_config, "'static_dir'", os);
@@ -614,11 +614,11 @@ static void test_check_output_dir_rejects_dir_holding_input(void) {
   check_rejects_output_dir_holding(&gallery_config, "the config", os);
 }
 
-// An output that would land below `input_dir` is rejected even though no file sits at its path yet,
+// An output that would land below `media_dir` is rejected even though no file sits at its path yet,
 // because the next build could discover it as media. The root is compared by identity, so an
 // alternate spelling of it, a symlink to it, a symlink inside `output_dir` that leads into it, and
 // an `output_dir` inside it are rejected the same way.
-static void test_rejects_output_in_input_dir(void) {
+static void test_rejects_output_in_media_dir(void) {
   struct GalleryConfig gallery_config;
   struct Os* os = init_manifest_fixture(&gallery_config);
   os_memory_write(os, "gallery/photos/x.jpg", "source");
@@ -628,16 +628,16 @@ static void test_rejects_output_in_input_dir(void) {
 
   // The output is a new file below the root, reached from an `output_dir` that holds the root.
   gallery_config.output_dir = S("gallery");
-  check_rejects_output_in_root(&gallery_config, "gallery/photos/b.html", "input_dir", os);
+  check_rejects_output_in_root(&gallery_config, "gallery/photos/b.html", "media_dir", os);
 
   // The root is configured through a symlink and spelled with a `./` component.
-  gallery_config.input_dir = S("gallery/./photos-link");
-  check_rejects_output_in_root(&gallery_config, "gallery/photos/sub/b.html", "input_dir", os);
+  gallery_config.media_dir = S("gallery/./photos-link");
+  check_rejects_output_in_root(&gallery_config, "gallery/photos/sub/b.html", "media_dir", os);
 
   // A symlink inside `output_dir` leads into the root.
-  gallery_config.input_dir = S("gallery/photos");
+  gallery_config.media_dir = S("gallery/photos");
   gallery_config.output_dir = S("gallery/out");
-  check_rejects_output_in_root(&gallery_config, "gallery/out/link/b.html", "input_dir", os);
+  check_rejects_output_in_root(&gallery_config, "gallery/out/link/b.html", "media_dir", os);
 }
 
 // An output that would land below `templates_dir` is rejected even though no file sits at its path
@@ -701,11 +701,11 @@ static void test_reports_input_root_once_per_album(void) {
   struct Log log = test_log();
   TEST_CHECK(populate(&manifest, &gallery_config, NULL, &static_paths, albums, 4, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "output path would write inside 'input_dir' for 'gallery/photos': "
+                         "output path would write inside 'media_dir' for 'gallery/photos': "
                          "'gallery/out/link/index.html'\n"
                          "output path would write inside 'templates_dir' for 'gallery/photos/b': "
                          "'gallery/out/tlink/b/index.html'\n"
-                         "output path would write inside 'input_dir' for "
+                         "output path would write inside 'media_dir' for "
                          "'gallery/static/link/y.css': 'gallery/out/link/y.css'\n"));
   TEST_CHECK(log.errors == 3);
 }
@@ -811,7 +811,7 @@ TEST_LIST = {
     {"rejects template overwrite", test_rejects_template_overwrite},
     {"check output dir rejects dir in input root", test_check_output_dir_rejects_dir_in_input_root},
     {"check output dir rejects dir holding input", test_check_output_dir_rejects_dir_holding_input},
-    {"rejects output in input dir", test_rejects_output_in_input_dir},
+    {"rejects output in input dir", test_rejects_output_in_media_dir},
     {"rejects output in templates dir", test_rejects_output_in_templates_dir},
     {"rejects output in static dir", test_rejects_output_in_static_dir},
     {"reports input root once per album", test_reports_input_root_once_per_album},

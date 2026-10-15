@@ -77,7 +77,7 @@ struct GalleryConfig {
   struct Str base_url;
 
   /** Directory containing source media. Defaults to `media`. */
-  struct Str input_dir;
+  struct Str media_dir;
 
   /** Directory where generated files are written. Defaults to `public`. */
   struct Str output_dir;
@@ -117,10 +117,10 @@ struct GalleryConfig {
   ptrdiff_t video_frame_seconds;
 
   /**
-   * Whether the load rejected `input_dir`, which then holds its default rather than a directory the
+   * Whether the load rejected `media_dir`, which then holds its default rather than a directory the
    * user chose.
    */
-  bool is_input_dir_rejected;
+  bool is_media_dir_rejected;
 
   /** Whether the load rejected `output_dir`, which then holds its default. */
   bool is_output_dir_rejected;

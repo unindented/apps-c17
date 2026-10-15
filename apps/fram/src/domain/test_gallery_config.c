@@ -173,7 +173,7 @@ static void test_load_applies_required_and_defaults(void) {
   TEST_CHECK(str_eq(config.description, S("Example Description")));
   TEST_CHECK(str_eq(config.author, S("Example Author")));
   TEST_CHECK(str_eq(config.base_url, S("")));
-  TEST_CHECK(str_eq(config.input_dir, S("media")));
+  TEST_CHECK(str_eq(config.media_dir, S("media")));
   TEST_CHECK(str_eq(config.output_dir, S("public")));
   TEST_CHECK(str_eq(config.templates_dir, S("templates")));
   TEST_CHECK(str_eq(config.static_dir, S("static")));
@@ -213,7 +213,7 @@ static void test_load_overrides_optional_keys(void) {
       "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
       "base_url = \"https://example.com\"\n"
-      "input_dir = \"photos\"\n"
+      "media_dir = \"photos\"\n"
       "output_dir = \"dist\"\n"
       "templates_dir = \"layouts\"\n"
       "static_dir = \"files\"\n"
@@ -234,7 +234,7 @@ static void test_load_overrides_optional_keys(void) {
   TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
 
   TEST_CHECK(str_eq(config.base_url, S("https://example.com")));
-  TEST_CHECK(str_eq(config.input_dir, S("photos")));
+  TEST_CHECK(str_eq(config.media_dir, S("photos")));
   TEST_CHECK(str_eq(config.output_dir, S("dist")));
   TEST_CHECK(str_eq(config.templates_dir, S("layouts")));
   TEST_CHECK(str_eq(config.static_dir, S("files")));
@@ -266,7 +266,7 @@ cleanup:
 }
 
 // Directory keys have trailing separators trimmed at load. Left in place, a trailing slash defeats
-// the `<input_dir>/` prefix strip that places each media item in its album. The end-to-end
+// the `<media_dir>/` prefix strip that places each media item in its album. The end-to-end
 // consequence is asserted in the `cmd_build` tests. An absolute or parent-relative directory
 // survives normalization unchanged.
 static void test_load_normalizes_directory_keys(void) {
@@ -274,7 +274,7 @@ static void test_load_normalizes_directory_keys(void) {
       "title = \"Example Gallery\"\n"
       "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
-      "input_dir = \"media/\"\n"
+      "media_dir = \"media/\"\n"
       "output_dir = \"/srv/www///\"\n"
       "templates_dir = \"../shared/templates/\"\n"
       "static_dir = \"files/\"\n";
@@ -288,7 +288,7 @@ static void test_load_normalizes_directory_keys(void) {
   struct Log log = test_log();
   TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(str_eq(config.input_dir, S("media")));
+  TEST_CHECK(str_eq(config.media_dir, S("media")));
   TEST_CHECK(str_eq(config.output_dir, S("/srv/www")));
   TEST_CHECK(str_eq(config.templates_dir, S("../shared/templates")));
   TEST_CHECK(str_eq(config.static_dir, S("files")));
@@ -362,7 +362,7 @@ static void test_load_leaves_directory_overlap_to_the_build(void) {
       "title = \"Example Gallery\"\n"
       "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
-      "input_dir = \"photos\"\n"
+      "media_dir = \"photos\"\n"
       "output_dir = \"photos/generated\"\n";
   struct TempConfig temp_config;
   if (write_temp_config(&temp_config, toml) != 0) {
@@ -374,7 +374,7 @@ static void test_load_leaves_directory_overlap_to_the_build(void) {
   struct Log log = test_log();
   TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(str_eq(config.input_dir, S("photos")));
+  TEST_CHECK(str_eq(config.media_dir, S("photos")));
   TEST_CHECK(str_eq(config.output_dir, S("photos/generated")));
 
   remove_fixture_tree(temp_config.root_dir);
@@ -585,7 +585,7 @@ static const char TOML_KEYS_INVALID[] =
     "author = \"Example Author\"\n"
     "base_url = \"ftp://example.com\"\n"
     "colour = \"blue\"\n"
-    "input_dir = \"/\"\n"
+    "media_dir = \"/\"\n"
     "album_template = \"../album.html\"\n"
     "derivatives = { s = { width = 0, height = 120, quality = 70 } }\n"
     "video_frame_seconds = -1\n";
@@ -607,7 +607,7 @@ static void test_load_reports_every_invalid_key(void) {
                          "config key 'title' must be a string\n"
                          "config key 'base_url' must be an absolute 'http://' or 'https://' URL "
                          "with a host: 'ftp://example.com'\n"
-                         "config key 'input_dir' must not be empty\n"
+                         "config key 'media_dir' must not be empty\n"
                          "config key 'album_template' must be a safe relative template name: "
                          "'../album.html'\n"
                          "config key 'derivatives.s.width' must be at least 1: 0\n"
@@ -650,8 +650,8 @@ static void test_load_keeps_defaults_for_rejected_keys(void) {
   gallery_config_init(&config);
   struct Log log = test_log();
   TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
-  TEST_CHECK(str_eq(config.input_dir, S("media")));
-  TEST_CHECK(config.is_input_dir_rejected);
+  TEST_CHECK(str_eq(config.media_dir, S("media")));
+  TEST_CHECK(config.is_media_dir_rejected);
   TEST_CHECK(!config.is_output_dir_rejected);
   TEST_CHECK(!config.is_templates_dir_rejected);
   TEST_CHECK(!config.is_static_dir_rejected);
@@ -815,8 +815,8 @@ static void test_load_rejects_nul_in_string_values(void) {
        "config key 'description' must not contain a NUL byte"},
       {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\nbase_url = \"a\\u0000b\"\n",
        "config key 'base_url' must not contain a NUL byte"},
-      {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\ninput_dir = \"a\\u0000b\"\n",
-       "config key 'input_dir' must not contain a NUL byte"},
+      {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\nmedia_dir = \"a\\u0000b\"\n",
+       "config key 'media_dir' must not contain a NUL byte"},
       {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\n"
        "aggregate_templates = [\"a\\u0000b\"]\n",
        "config key 'aggregate_templates' must not contain a NUL byte"},
@@ -841,7 +841,7 @@ static void test_load_rejects_nul_in_string_values(void) {
 // A directory key that is empty, or that trims to empty, is rejected by name.
 static void test_load_rejects_empty_directory_keys(void) {
   static const char* const cases[][2] = {
-      {"input_dir = \"\"\n", "config key 'input_dir' must not be empty"},
+      {"media_dir = \"\"\n", "config key 'media_dir' must not be empty"},
       {"output_dir = \"/\"\n", "config key 'output_dir' must not be empty"},
       {"templates_dir = \"///\"\n", "config key 'templates_dir' must not be empty"},
       {"static_dir = \"\"\n", "config key 'static_dir' must not be empty"},
@@ -1103,8 +1103,7 @@ static void test_print_defaults(void) {
                     "title = \"Example Gallery\"\n"
                     "description = \"Example Description\"\n"
                     "author = \"Example Author\"\n"
-                    "base_url = \"\"\n"
-                    "input_dir = \"media\"\n"
+                    "media_dir = \"media\"\n"
                     "output_dir = \"public\"\n"
                     "templates_dir = \"templates\"\n"
                     "static_dir = \"static\"\n"
@@ -1135,8 +1134,7 @@ static void test_print_escapes_strings(void) {
                     "title = \"Quote \\\" and \\\\ backslash\"\n"
                     "description = \"Example Description\"\n"
                     "author = \"a\\tA\\bB\\nC\\fD\\rE\\u0001Z\\u007FG\"\n"
-                    "base_url = \"\"\n"
-                    "input_dir = \"media\"\n"
+                    "media_dir = \"media\"\n"
                     "output_dir = \"public\"\n"
                     "templates_dir = \"templates\"\n"
                     "static_dir = \"static\"\n"
@@ -1171,7 +1169,7 @@ static void test_print_load_round_trips(void) {
   config.description = S("Example Description");
   config.author = S("Example Author");
   config.base_url = S("https://example.com/gallery");
-  config.input_dir = S("photos");
+  config.media_dir = S("photos");
   config.output_dir = S("dist");
   config.templates_dir = S("layouts");
   config.static_dir = S("files");
@@ -1201,7 +1199,7 @@ static void test_print_load_round_trips(void) {
   TEST_CHECK(str_eq(reloaded.description, config.description));
   TEST_CHECK(str_eq(reloaded.author, config.author));
   TEST_CHECK(str_eq(reloaded.base_url, config.base_url));
-  TEST_CHECK(str_eq(reloaded.input_dir, config.input_dir));
+  TEST_CHECK(str_eq(reloaded.media_dir, config.media_dir));
   TEST_CHECK(str_eq(reloaded.output_dir, config.output_dir));
   TEST_CHECK(str_eq(reloaded.templates_dir, config.templates_dir));
   TEST_CHECK(str_eq(reloaded.static_dir, config.static_dir));
@@ -1264,8 +1262,7 @@ static void test_print_empty_template_array(void) {
                     "title = \"Example Gallery\"\n"
                     "description = \"Example Description\"\n"
                     "author = \"Example Author\"\n"
-                    "base_url = \"\"\n"
-                    "input_dir = \"media\"\n"
+                    "media_dir = \"media\"\n"
                     "output_dir = \"public\"\n"
                     "templates_dir = \"templates\"\n"
                     "static_dir = \"static\"\n"
