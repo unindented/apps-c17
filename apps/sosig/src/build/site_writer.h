@@ -16,8 +16,7 @@ struct SiteConfig;
 
 // The manifest phase in `manifest_builder` claims every intended output path before this module
 // writes anything. Content pages are written earlier, by `page_renderer_render_pages`. Ordering the
-// entries and deriving `site.modified` happen earlier still, in `content_entry`
-// (`content_entry_sort`, `content_entry_modified_latest`).
+// entries happens earlier still, in `content_entry` (`content_entry_sort`).
 
 /**
  * @brief Renders each of `template_names` with `content_entries` visible and writes it through
@@ -36,7 +35,7 @@ struct SiteConfig;
  * @param content_entries     Content entries, sorted newest-first, visible to the templates. May be
  *                            `NULL` only when `content_entry_count` is 0.
  * @param content_entry_count Number of entries in `content_entries`.
- * @param site_modified       Site last-modified timestamp exposed as `site.modified`.
+ * @param is_feed             Whether the templates are feed templates, whose links are absolute.
  * @param is_inputs_fresh     Whether the build cache vouches that every template and every entry,
  *                            and the page recipe, are as they were when the outputs were made.
  * @param os                  Host the templates are read from and the outputs inspected on. Must
@@ -55,7 +54,7 @@ int site_writer_write_templates(const struct OutputWriter* writer,
                                 ptrdiff_t template_count,
                                 const struct ContentEntry* const* content_entries,
                                 ptrdiff_t content_entry_count,
-                                struct Str site_modified,
+                                bool is_feed,
                                 bool is_inputs_fresh,
                                 struct Os* os,
                                 struct Arena output,

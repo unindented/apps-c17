@@ -166,7 +166,7 @@ static void test_config_command_is_dispatched(void) {
                     "content_template = \"content.html\"\n"
                     "aggregate_templates = []\n"
                     "feed_templates = []\n"
-                    "feed_count = 10\n"
+                    "feed_count = 25\n"
                     "frontmatter_ignored_keys = []\n") == 0);
   TEST_CHECK(dispatch_out.stderr_out[0] == '\0');
   // No page was written, which is what separates `config` from `build`.

@@ -187,7 +187,7 @@ static void test_load_applies_required_and_defaults(void) {
     goto cleanup;
   }
   TEST_CHECK(str_eq(config.feed_templates[0], S("atom.xml")));
-  TEST_CHECK(config.feed_count == 10);
+  TEST_CHECK(config.feed_count == 25);
   TEST_CHECK(config.frontmatter_ignored_key_count == 0);
 
 cleanup:
@@ -277,7 +277,7 @@ static void test_load_normalizes_directory_keys(void) {
 }
 
 // An absolute `base_url` keeps its scheme, host, port and path, and loses only a trailing `/`,
-// which templates would otherwise double when joining it with an entry's `url`.
+// which templates would otherwise double when joining it with a path that starts with `/`.
 static void test_load_normalizes_base_url(void) {
   static const char* const cases[][2] = {
       {"https://example.com", "https://example.com"},
@@ -591,7 +591,7 @@ static void test_load_keeps_defaults_for_rejected_keys(void) {
   TEST_CHECK(!config.is_templates_dir_rejected);
   TEST_CHECK(!config.is_static_dir_rejected);
   TEST_CHECK(str_eq(config.permalink, S("/{section}/{slug}.html")));
-  TEST_CHECK(config.feed_count == 10);
+  TEST_CHECK(config.feed_count == 25);
   TEST_CHECK(config.title.len == 0);
   TEST_CHECK(str_eq(config.description, S("Example notes")));
   TEST_CHECK(str_eq(config.author, S("Example Author")));
@@ -848,6 +848,29 @@ static void test_load_rejects_base_url_without_host(void) {
   remove_fixture_tree(temp_config.root_dir);
 }
 
+// `base_url` is required, so a present but empty `base_url` is rejected as a URL without a host,
+// where fram, whose `base_url` is optional, reads it as absent.
+static void test_load_rejects_empty_base_url(void) {
+  struct TempConfig temp_config;
+  if (write_temp_config(&temp_config,
+                        "title = \"Example Site\"\n"
+                        "description = \"Example notes\"\n"
+                        "author = \"Example Author\"\n"
+                        "base_url = \"\"\n") != 0) {
+    return;
+  }
+
+  struct SiteConfig config;
+  site_config_init(&config);
+  struct Log log = test_log();
+  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(test_log_is_one(
+      &log,
+      "config key 'base_url' must be an absolute 'http://' or 'https://' URL with a host: ''"));
+
+  remove_fixture_tree(temp_config.root_dir);
+}
+
 // A `base_url` with a query, a fragment, a space or a control byte would break every link below it,
 // so it is rejected, and the config keeps no `base_url`. `core/url`'s tests cover each byte.
 static void test_load_rejects_base_url_with_path_breaking_byte(void) {
@@ -1084,7 +1107,7 @@ static void test_print_defaults(void) {
                     "content_template = \"content.html\"\n"
                     "aggregate_templates = [\"index.html\"]\n"
                     "feed_templates = [\"atom.xml\"]\n"
-                    "feed_count = 10\n"
+                    "feed_count = 25\n"
                     "frontmatter_ignored_keys = []\n") == 0);
 }
 
@@ -1116,7 +1139,7 @@ static void test_print_escapes_strings(void) {
                     "content_template = \"content.html\"\n"
                     "aggregate_templates = [\"index.html\"]\n"
                     "feed_templates = [\"atom.xml\"]\n"
-                    "feed_count = 10\n"
+                    "feed_count = 25\n"
                     "frontmatter_ignored_keys = []\n") == 0);
 }
 
@@ -1241,7 +1264,7 @@ static void test_print_empty_template_arrays(void) {
                     "content_template = \"content.html\"\n"
                     "aggregate_templates = []\n"
                     "feed_templates = []\n"
-                    "feed_count = 10\n"
+                    "feed_count = 25\n"
                     "frontmatter_ignored_keys = []\n") == 0);
 
 cleanup:
@@ -1297,6 +1320,7 @@ TEST_LIST = {
     {"load rejects nul in string values", test_load_rejects_nul_in_string_values},
     {"load rejects empty directory keys", test_load_rejects_empty_directory_keys},
     {"load rejects base url without host", test_load_rejects_base_url_without_host},
+    {"load rejects empty base url", test_load_rejects_empty_base_url},
     {"load rejects base url with path breaking byte",
      test_load_rejects_base_url_with_path_breaking_byte},
     {"load rejects unsafe content template", test_load_rejects_unsafe_content_template},

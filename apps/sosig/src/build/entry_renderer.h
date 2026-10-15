@@ -45,8 +45,7 @@ _Static_assert(CONTENT_FILE_LEN_MAX < INT_MAX,
  * body for `entry_renderer_convert_bodies`, and finalizes the entry's URL and output paths. It
  * leaves the conversion to the next phase, because a link to another content file needs that file's
  * URL, and it leaves page rendering to `page_renderer_render_pages`, because a content template can
- * read `site.modified` and `content_entries`, and neither is known until every entry is parsed and
- * sorted.
+ * read `content_entries`, which is not known until every entry is parsed and sorted.
  *
  * One job runs per source path and fills that path's slot in `source_entries` with a parsed
  * `ContentEntry` on success. The entry, its source, and everything it points at live in the `perm`

@@ -94,7 +94,7 @@ This table lists every key that the config file can contain. `sosig` rejects any
 | `title` | Required | The title of the site, `site.title` in templates. |
 | `description` | Required | The description of the site, `site.description` in templates. |
 | `author` | Required | The name of the site's author, `site.author` in templates. |
-| `base_url` | Required | The absolute URL of the site, for links in feeds. It must be an `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. `sosig` removes any trailing `/`, so a template can join it with the `url` of an entry and not produce `//`. |
+| `base_url` | Required | The absolute URL of the site, for the links of feeds and the `absolute_url` of each entry. It must be an `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. `sosig` removes any trailing `/`, so a template can join it with a path that starts with `/` and not produce `//`. |
 | `permalink` | `"/{section}/{slug}.html"` | The pattern for the URL and output path of each entry. See [URLs and slugs](#urls-and-slugs). |
 | `output_dir` | `"public"` | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
 | `content_dir` | `"content"` | The directory that contains the content files. |
@@ -103,7 +103,7 @@ This table lists every key that the config file can contain. `sosig` rejects any
 | `content_template` | `"content.html"` | The template for each entry, unless the `template` field of the entry overrides it. |
 | `aggregate_templates` | `["index.html"]` | The templates that the build renders once, with every entry that is not a draft. |
 | `feed_templates` | `["atom.xml"]` | The templates that the build renders once, with the newest `feed_count` entries. |
-| `feed_count` | `10` | The maximum number of entries in each feed. |
+| `feed_count` | `25` | The maximum number of entries in each feed. |
 | `frontmatter_ignored_keys` | `[]` | The keys that Markdown frontmatter can contain in addition to the keys that [Markdown frontmatter](#markdown-frontmatter) lists. `sosig` accepts any value for these keys, and does not read it. For denote notes, set it to `["identifier", "signature"]`. |
 
 `sosig` removes trailing `/` characters from the values of the four directory keys. A directory value must not be empty. It can be an absolute path, or a relative path that contains `..`.
@@ -177,7 +177,7 @@ A build writes the build cache to `_sosig/v1-build-cache.tsv` below `output_dir`
 
 The next build keeps a content page, and does not render it again, if its content file, its templates, and the configuration did not change. The build keeps the aggregates and feeds if no content file changed. Some changes make the build render pages again:
 
-- If any entry changes, the build renders again each page whose template reads `content_entries` or `site.modified`, and each page whose body [links another content file](#links-between-content-files).
+- If any entry changes, the build renders again each page whose template reads `content_entries`, and each page whose body [links another content file](#links-between-content-files).
 - If a page has a denote link to an asset in its body, the build renders that page in every build, because the build cache does not record assets. An aggregate or a feed that shows the body is made again only when an entry changes, so after you rename the asset, it keeps the old link until then.
 - If any file below `templates_dir` changes, such as a partial, the build renders every page again.
 
@@ -430,14 +430,18 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 
 `{{value}}` escapes its output for HTML, and `{{{value}}}` writes its output without escaping. Use `{{{body}}}` to write the rendered body.
 
+Each entry sets every one of the fields below, with empty text where a value is absent, so the field never resolves from an enclosing scope. Empty text is false in a section, so `{{#description}}…{{/description}}` shows its contents only for a description that is not empty.
+
+Every link in an entry's data is relative to the page and already holds its `path_to_root`, except in the feed templates, where every link is absolute, below `base_url`.
+
 | Variable | Templates | Value |
 | --- | --- | --- |
 | `site.title`, `site.description`, `site.author`, `site.base_url` | All | The values from the configuration. |
-| `site.modified` | All | The date of the newest change to the site. For each entry, the change is its `modified`, or its `date` if `modified` is empty. For an empty site, the value is `1970-01-01T00:00:00Z`. |
+| `feed` | Feed templates | `id` and `url` (the feed's own URL), `html_url` (the site's home), `modified` (the newest change among the feed's entries, or `1970-01-01T00:00:00Z` for a feed without entries). |
 | `content_entries` | All | Every entry that is not a draft, newest first. A feed template receives only the newest `feed_count` entries. Use `{{#content_entries}}` to iterate through them. |
 | `generator` | All | The name and version of `sosig`, for a tag such as `<meta name="generator" content="{{generator}}">`. |
 | `path_to_root` | All | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. The output path of a content page comes from `permalink`, and the output path of an aggregate or feed template is its name. |
-| `title`, `date`, `modified`, `description`, `slug`, `url`, `body`, `tags` | Content templates, and any template inside `{{#content_entries}}` | The fields of the entry. Use `{{#tags}}{{.}}{{/tags}}` to iterate through the tags. |
+| `title`, `date`, `modified`, `description`, `slug`, `url`, `absolute_url`, `body`, `tags` | Content templates, and any template inside `{{#content_entries}}` | The fields of the entry. `url` links to the entry's page, relative to the page being rendered, or absolute in a feed template. `absolute_url` is always absolute, below `base_url`, for a canonical link or a page that a host serves at any depth, such as a 404 page. Use `{{#tags}}{{.}}{{/tags}}` to iterate through the tags. |
 
 A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_`, and `-`.
 
@@ -451,20 +455,24 @@ A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A p
 {{> footer}}
 ```
 
-If an entry does not set `modified`, its `modified` is empty, so `{{#modified}}` writes its contents only for an entry that sets it. A content template can show the date of the last change only when the entry has one:
+If an entry does not set `modified`, its `modified` is empty, except in a feed template, where it is the entry's `date`. So `{{#modified}}` writes its contents only for an entry that sets it, and a content template can show the date of the last change only when the entry has one:
 
 ```html
 <p class="meta">{{date}}{{#modified}} | Updated {{modified}}{{/modified}}</p>
 ```
 
-An Atom feed template can use `site.modified` for the `<updated>` element of the feed. For the `<updated>` element of an entry, it can use `modified`, or `date` if the entry has no `modified`:
+An Atom feed template can use `feed.modified` for the `<updated>` element of the feed, and `modified` for the `<updated>` element of each entry:
 
 ```xml
-<updated>{{site.modified}}</updated>
+<id>{{feed.id}}</id>
+<link rel="self" href="{{feed.url}}"/>
+<link rel="alternate" type="text/html" href="{{feed.html_url}}"/>
+<updated>{{feed.modified}}</updated>
 {{#content_entries}}
 <entry>
+  <id>{{url}}</id>
   <title>{{title}}</title>
-  <updated>{{#modified}}{{modified}}{{/modified}}{{^modified}}{{date}}{{/modified}}</updated>
+  <updated>{{modified}}</updated>
 </entry>
 {{/content_entries}}
 ```

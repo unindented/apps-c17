@@ -39,7 +39,7 @@ struct SiteConfig {
   /** Required name of the site's author. */
   struct Str author;
 
-  /** Required absolute base URL used by templates. */
+  /** Required absolute base URL, without a trailing `/`, for feeds and canonical links. */
   struct Str base_url;
 
   /**

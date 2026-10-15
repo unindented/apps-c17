@@ -57,9 +57,9 @@ static void test_sort_handles_empty_and_single(void) {
 
 // Without `modified` values, the latest change is the newest entry's own `date` bytes, not a copy,
 // and the empty set falls back to the Unix epoch. Neither is reachable from the golden test suite,
-// whose fixture sites always have entries. Without this test, `MODIFIED_LATEST_FALLBACK` could
-// change without a failure. An invalid `<updated>` value would then appear in every feed for an
-// empty site. Both expected values came from a run.
+// whose fixture sites always have entries. Without this test, `RFC3339_EPOCH` could change without
+// a failure. An invalid `<updated>` value would then appear in every feed for an empty site. Both
+// expected values came from a run.
 static void test_modified_latest_uses_newest_or_epoch(void) {
   TEST_CHECK(str_eq(content_entry_modified_latest(NULL, 0), S("1970-01-01T00:00:00Z")));
 

@@ -2,7 +2,9 @@
 # and the escaping of a tab-separated field.
 
 add_library(formats STATIC)
-target_sources(formats PRIVATE frontmatter.c html.c toml.c tsv.c frontmatter.h html.h toml.h tsv.h)
+target_sources(
+  formats PRIVATE frontmatter.c html.c toml.c tsv.c frontmatter.h html.h rfc3339.h toml.h tsv.h
+)
 libs_add_include_root(formats formats)
 target_link_libraries(formats PUBLIC core vendor_tomlc17 PRIVATE apps_build_project)
 
@@ -13,6 +15,7 @@ set_property(
            "${CMAKE_CURRENT_SOURCE_DIR}/frontmatter.h"
            "${CMAKE_CURRENT_SOURCE_DIR}/html.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/html.h"
+           "${CMAKE_CURRENT_SOURCE_DIR}/rfc3339.h"
            "${CMAKE_CURRENT_SOURCE_DIR}/test_frontmatter.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/test_html.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/test_toml.c"

@@ -21,9 +21,8 @@ struct SiteConfig;
  * This is the third of the three parallel phases. When `source_entry_count` is 0, it runs no job
  * and returns `0`. It runs only after `entry_renderer_parse_entries` and
  * `entry_renderer_convert_bodies` succeed and the entries are collected and sorted. Every entry's
- * template sees the whole sorted entry set and the site's last-modified timestamp, so a content
- * template resolves `site.modified` and `{{#content_entries}}` exactly as an aggregate template
- * does.
+ * template sees the whole sorted entry set, so a content template resolves `{{#content_entries}}`
+ * exactly as an aggregate template does.
  *
  * One job runs per slot of `source_entries`. Each job renders its entry's page into a copy of its
  * worker's `perm` and its temporaries into a copy of its worker's scratch, writes the page to the
@@ -49,7 +48,6 @@ struct SiteConfig;
  * @param content_entries     Non-draft entries, sorted newest-first, visible to every page. May be
  *                            `NULL` only when `content_entry_count` is 0.
  * @param content_entry_count Number of entries in `content_entries`.
- * @param site_modified       Site last-modified timestamp exposed as `site.modified`.
  * @param fresh_rows          One slot per source, holding the build cache row that vouches for the
  *                            page's inputs, or `NULL` where the page must be made. May be `NULL`
  *                            when no page is fresh.
@@ -74,7 +72,6 @@ int page_renderer_render_pages(const struct OutputWriter* writer,
                                ptrdiff_t source_entry_count,
                                const struct ContentEntry* const* content_entries,
                                ptrdiff_t content_entry_count,
-                               struct Str site_modified,
                                const struct BuildCacheEntry* const* fresh_rows,
                                ptrdiff_t worker_count,
                                struct JobArenas* worker_arenas,
@@ -82,6 +79,6 @@ int page_renderer_render_pages(const struct OutputWriter* writer,
                                struct Os* os,
                                struct Arena scratch,
                                bool* entry_list_flags,
-                               struct Log* log) __attribute__((nonnull(1, 2, 10, 12, 14, 15)));
+                               struct Log* log) __attribute__((nonnull(1, 2, 9, 11, 13, 14)));
 
 #endif

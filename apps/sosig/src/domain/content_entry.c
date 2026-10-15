@@ -4,12 +4,7 @@
 #include <stdlib.h>
 
 #include "core/str.h"
-
-/**
- * `content_entry_modified_latest` returns the Unix epoch when there are no entries. This gives
- * `site.modified` a valid RFC 3339 value before the first post.
- */
-#define MODIFIED_LATEST_FALLBACK S("1970-01-01T00:00:00Z")
+#include "formats/rfc3339.h"
 
 /**
  * @brief Orders two content entries newest-first, breaking ties by output path.
@@ -30,7 +25,8 @@ void content_entry_sort(struct ContentEntry** content_entries, ptrdiff_t content
 struct Str content_entry_modified_latest(const struct ContentEntry* const* content_entries,
                                          ptrdiff_t content_entry_count) {
   if (content_entry_count == 0) {
-    return MODIFIED_LATEST_FALLBACK;
+    // The Unix epoch gives `feed.modified` a valid RFC 3339 value before the first post.
+    return RFC3339_EPOCH;
   }
   // The entries sort by `date`, so the newest change can be any of them. A tie keeps the earlier
   // entry, which makes a site without `modified` values return the first entry's `date`.

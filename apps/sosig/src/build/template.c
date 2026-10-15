@@ -89,6 +89,9 @@ enum NodeKind {
   /** Site metadata subtree resolving `site.*` names. */
   NODE_SITE,
 
+  /** Feed metadata subtree resolving `feed.*` names, in a feed template only. */
+  NODE_FEED,
+
   /** One content entry, resolving bare field names. */
   NODE_ENTRY,
 
@@ -174,8 +177,8 @@ struct ProviderData {
   struct Log* log;
 
   /**
-   * Whether the render resolved `content_entries` or `site.modified`, whose values depend on every
-   * entry. A partial's lookups count too, because they share this state.
+   * Whether the render resolved `content_entries`, whose value depends on every entry. A partial's
+   * lookups count too, because they share this state.
    */
   bool is_entry_list_read;
 
@@ -410,14 +413,55 @@ static struct Node* node_scalar(struct ProviderData* provider_data, struct Str v
     __attribute__((nonnull(1)));
 
 /**
- * @brief Resolves a `site.*` name against the render's site configuration and timestamp.
+ * @brief Returns a scalar node holding an output-root-relative URL rebased onto the current page.
  *
- * @param provider_data Render provider state holding the site configuration and `site.modified`.
- *                      Must not be `NULL`.
+ * Joins the URL behind the page's `path_to_root`, so a link resolves from the page's own directory
+ * rather than only from the output root. In a feed, every link is absolute instead, as
+ * `node_scalar_url_absolute` makes it.
+ *
+ * @param provider_data     Render provider state supplying the render context and the node arena.
+ *                          Must not be `NULL`.
+ * @param root_relative_url Output-root-relative URL, built from the permalink.
+ * @return A scalar node.
+ */
+static struct Node* node_scalar_url(struct ProviderData* provider_data,
+                                    struct Str root_relative_url) __attribute__((nonnull(1)));
+
+/**
+ * @brief Returns a scalar node holding an output-root-relative URL joined behind `base_url`.
+ *
+ * @param provider_data     Render provider state supplying the site configuration and the node
+ *                          arena. Must not be `NULL`.
+ * @param root_relative_url Output-root-relative URL, built from the permalink.
+ * @return A scalar node.
+ */
+static struct Node* node_scalar_url_absolute(struct ProviderData* provider_data,
+                                             struct Str root_relative_url)
+    __attribute__((nonnull(1)));
+
+/**
+ * @brief Resolves a `site.*` name against the render's site configuration.
+ *
+ * @param provider_data Render provider state holding the site configuration. Must not be `NULL`.
  * @param name          Requested field name.
- * @return The resolved node, or `NULL` when the name is unmatched or its value is unset.
+ * @return The resolved node, or `NULL` when the name is unmatched.
  */
 static struct Node* resolve_site(struct ProviderData* provider_data, struct Str name)
+    __attribute__((nonnull(1)));
+
+/**
+ * @brief Resolves a `feed.*` name against the feed template being rendered and its entries.
+ *
+ * `id` and `url` are the feed's own absolute URL, `html_url` is the site's home, and `modified` is
+ * the newest change among the feed's entries, so an edit to an entry outside the feed does not
+ * change it.
+ *
+ * @param provider_data Render provider state holding the template name and the feed's entries. Must
+ *                      not be `NULL`.
+ * @param name          Requested field name.
+ * @return The resolved node, or `NULL` when the name is unmatched.
+ */
+static struct Node* resolve_feed(struct ProviderData* provider_data, struct Str name)
     __attribute__((nonnull(1)));
 
 /**
@@ -665,6 +709,9 @@ static void* node_get_child_by_name(void* node_ptr,
       if (str_eq(name_text, S("site"))) {
         return node_alloc(provider_data, NODE_SITE);
       }
+      if (str_eq(name_text, S("feed")) && provider_data->context->is_feed) {
+        return node_alloc(provider_data, NODE_FEED);
+      }
       if (str_eq(name_text, S("content_entries"))) {
         provider_data->is_entry_list_read = true;
         return node_alloc(provider_data, NODE_ENTRY_LIST);
@@ -678,6 +725,8 @@ static void* node_get_child_by_name(void* node_ptr,
       return resolve_entry(provider_data, provider_data->context->content_entry_current, name_text);
     case NODE_SITE:
       return resolve_site(provider_data, name_text);
+    case NODE_FEED:
+      return resolve_feed(provider_data, name_text);
     case NODE_ENTRY:
       return resolve_entry(provider_data, node->entry, name_text);
     case NODE_ENTRY_LIST:
@@ -894,6 +943,22 @@ static struct Node* node_scalar(struct ProviderData* provider_data, struct Str v
   return node;
 }
 
+static struct Node* node_scalar_url(struct ProviderData* provider_data,
+                                    struct Str root_relative_url) {
+  const struct TemplateContext* context = provider_data->context;
+  if (context->is_feed) {
+    return node_scalar_url_absolute(provider_data, root_relative_url);
+  }
+  return node_scalar(provider_data,
+                     path_join(context->path_to_root, root_relative_url, provider_data->arena));
+}
+
+static struct Node* node_scalar_url_absolute(struct ProviderData* provider_data,
+                                             struct Str root_relative_url) {
+  return node_scalar(provider_data, path_join(provider_data->context->site_config->base_url,
+                                              root_relative_url, provider_data->arena));
+}
+
 static struct Node* resolve_site(struct ProviderData* provider_data, struct Str name) {
   const struct SiteConfig* site_config = provider_data->context->site_config;
   if (str_eq(name, S("title"))) {
@@ -908,10 +973,20 @@ static struct Node* resolve_site(struct ProviderData* provider_data, struct Str 
   if (str_eq(name, S("base_url"))) {
     return node_scalar(provider_data, site_config->base_url);
   }
+  return NULL;
+}
+
+static struct Node* resolve_feed(struct ProviderData* provider_data, struct Str name) {
+  if (str_eq(name, S("id")) || str_eq(name, S("url"))) {
+    return node_scalar_url_absolute(provider_data, provider_data->template_name);
+  }
+  if (str_eq(name, S("html_url"))) {
+    return node_scalar_url_absolute(provider_data, S(""));
+  }
   if (str_eq(name, S("modified"))) {
-    // This is derived from the whole entry set rather than read off the configuration.
-    provider_data->is_entry_list_read = true;
-    return node_scalar(provider_data, provider_data->context->site_modified);
+    const struct TemplateContext* context = provider_data->context;
+    return node_scalar(provider_data, content_entry_modified_latest(context->content_entries,
+                                                                    context->content_entry_count));
   }
   return NULL;
 }
@@ -929,6 +1004,12 @@ static struct Node* resolve_entry(struct ProviderData* provider_data,
     return node_scalar(provider_data, entry->date);
   }
   if (str_eq(name, S("modified"))) {
+    // Every entry of a feed needs the date of its last change, as Atom's `updated` does, so in a
+    // feed an entry that sets no `modified` gives its `date`. On a page it stays empty, so a
+    // template can show it only for an entry that was changed.
+    if (provider_data->context->is_feed && entry->modified.len == 0) {
+      return node_scalar(provider_data, entry->date);
+    }
     return node_scalar(provider_data, entry->modified);
   }
   if (str_eq(name, S("description"))) {
@@ -938,7 +1019,10 @@ static struct Node* resolve_entry(struct ProviderData* provider_data,
     return node_scalar(provider_data, entry->slug);
   }
   if (str_eq(name, S("url"))) {
-    return node_scalar(provider_data, entry->url_path);
+    return node_scalar_url(provider_data, str_tail(entry->url_path, 1));
+  }
+  if (str_eq(name, S("absolute_url"))) {
+    return node_scalar_url_absolute(provider_data, str_tail(entry->url_path, 1));
   }
   if (str_eq(name, S("body"))) {
     return node_scalar(provider_data, entry->body_html);

@@ -4,11 +4,11 @@
     <title>{{site.title}}</title>
     <link>{{site.base_url}}</link>
     <description>{{site.description}}</description>
-    <lastBuildDate>{{site.modified}}</lastBuildDate>
+    <lastBuildDate>{{feed.modified}}</lastBuildDate>
 {{#content_entries}}    <item>
       <title>{{title}}</title>
-      <link>{{site.base_url}}{{url}}</link>
-      <guid>{{site.base_url}}{{url}}</guid>
+      <link>{{url}}</link>
+      <guid>{{url}}</guid>
       <pubDate>{{date}}</pubDate>
       <description>{{body}}</description>
     </item>

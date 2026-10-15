@@ -3,7 +3,8 @@
   <title>Field Notes &amp; Static</title>
   <subtitle>Signals, static &amp; sections.</subtitle>
   <link href="https://www.example.com/notes/feeds/atom.xml" rel="self"/>
-  <id>https://www.example.com/notes/</id>
+  <link href="https://www.example.com/notes/" rel="alternate"/>
+  <id>https://www.example.com/notes/feeds/atom.xml</id>
   <updated>2026-04-11T19:00:00+02:00</updated>
   <author><name>Sosig Tests</name></author>
   <entry>

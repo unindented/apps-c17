@@ -57,15 +57,18 @@ struct TemplateContext {
   /** Current entry for content templates, or `NULL` for aggregate and feed templates. */
   const struct ContentEntry* content_entry_current;
 
-  /** Site last-modified timestamp exposed as `site.modified`. */
-  struct Str site_modified;
-
   /**
    * Relative prefix from the page being rendered to `output_dir`, exposed as `path_to_root`: one
    * `../` for each directory the page's output path is below, and empty for a page at the top of
    * `output_dir`.
    */
   struct Str path_to_root;
+
+  /**
+   * Whether the render is of a feed template, whose links are absolute below `base_url`. A link in
+   * any other render is relative to the page, behind `path_to_root`.
+   */
+  bool is_feed;
 };
 
 /**
@@ -93,9 +96,9 @@ struct TemplateContext {
  * @param scratch                Arena for the render's temporaries, released when it returns. Must
  *                               not overlap `perm`.
  * @param html_out               Receives the HTML, owned by `perm`, on success. Must not be `NULL`.
- * @param is_entry_list_read_out Receives, on success, whether the render resolved `content_entries`
- *                               or `site.modified`, the two names whose values depend on every
- *                               entry and not just the current one. Ignored when `NULL`.
+ * @param is_entry_list_read_out Receives, on success, whether the render resolved
+ *                               `content_entries`, whose value depends on every entry and not just
+ *                               the current one. Ignored when `NULL`.
  * @param log                    Log that receives the render's first failure: an unreadable
  *                               template or partial, a syntax error, or an exceeded limit. A page
  *                               render, one with `content_entry_current` set, ends the message with

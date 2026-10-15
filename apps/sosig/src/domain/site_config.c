@@ -86,8 +86,8 @@ static const struct Str config_keys[] = {
     // clang-format on
 };
 
-/** Default cap on content entries included in a feed when `feed_count` is unset. */
-enum { FEED_COUNT_DEFAULT = 10 };
+/** Entries in one feed when `feed_count` is unset. */
+enum { FEED_COUNT_DEFAULT = 25 };
 
 /**
  * Largest config file read, in bytes.

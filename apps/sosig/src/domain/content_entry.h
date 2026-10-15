@@ -36,9 +36,9 @@ struct ContentEntry {
   struct Str title;
 
   /**
-   * Normalized RFC 3339 timestamp. A feed template can write it verbatim into an Atom `updated`
-   * element when `modified` is empty, so the format is part of the feed's contract, not only a
-   * display choice.
+   * Normalized RFC 3339 timestamp. In a feed template an entry's `modified` falls back to it, and a
+   * feed writes it into an Atom `<updated>` element, so the format is part of the feed's contract,
+   * not only a display choice.
    */
   struct Str date;
 
@@ -137,12 +137,11 @@ struct ContentEntry {
 void content_entry_sort(struct ContentEntry** content_entries, ptrdiff_t content_entry_count);
 
 /**
- * @brief Returns the newest change among the entries, exposed to templates as `site.modified`.
+ * @brief Returns the newest change among the entries, exposed to feed templates as `feed.modified`.
  *
- * An entry's change is its `modified`, or its `date` when `modified` is empty. Resolved once from
- * the sorted entry set and passed to every render, so a content template and an aggregate template
- * cannot disagree about it. An empty set falls back to the Unix epoch, so `site.modified` always
- * holds a valid RFC 3339 value even for a site with no posts yet.
+ * An entry's change is its `modified`, or its `date` when `modified` is empty. An empty set falls
+ * back to the Unix epoch, so `feed.modified` always holds a valid RFC 3339 value, as Atom requires,
+ * even for a feed with no entries yet.
  *
  * @param content_entries     Content entries sorted newest-first. Each entry must have
  *                            `modified_epoch` set. May be `NULL` only when `content_entry_count` is

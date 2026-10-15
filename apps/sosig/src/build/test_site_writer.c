@@ -18,9 +18,6 @@
 // Every test here runs against the in-memory host: the writers read templates and static files and
 // write their outputs only through `runtime/os.h`.
 
-/** Timestamp every write below passes as `site.modified`, which the writers require. */
-#define SITE_MODIFIED S("2026-07-01T00:00:00Z")
-
 /**
  * @brief Initializes a configuration rooted at `templates` and `public`, with no outputs.
  *
@@ -55,18 +52,20 @@ static void init_writer(struct OutputWriter* writer,
 }
 
 // Templates and static files, nested ones included, land at their planned destinations, and the
-// templates see the entries passed.
+// templates see the entries passed, with page-relative links in an aggregate and absolute ones in a
+// feed.
 static void test_writes_complete_output_layer(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "templates/index.html",
                   "<h1>{{site.title}}</h1>{{#content_entries}}{{title}};{{/content_entries}}");
   os_memory_write(os, "templates/nested/links.html",
-                  "{{#content_entries}}{{url}};{{/content_entries}}");
+                  "{{#content_entries}}{{url}}|{{absolute_url}};{{/content_entries}}");
   os_memory_write(os, "templates/feeds/atom.xml",
-                  "<updated>{{site.modified}}</updated>{{#content_entries}}{{title}};"
+                  "<updated>{{feed.modified}}</updated>{{#content_entries}}{{title}}={{url}};"
                   "{{/content_entries}}");
   os_memory_write(os, "static/icons/a.txt", "static");
-  const struct ContentEntry newer = {.title = S("Newer"), .url_path = S("/newer.html")};
+  const struct ContentEntry newer = {
+      .title = S("Newer"), .url_path = S("/newer.html"), .date = S("2026-07-01T00:00:00Z")};
   const struct ContentEntry older = {.title = S("Older"), .url_path = S("/older.html")};
   const struct ContentEntry* const entries[] = {&newer, &older};
   static const struct Str aggregates[] = {STR_INIT("index.html"), STR_INIT("nested/links.html")};
@@ -89,19 +88,78 @@ static void test_writes_complete_output_layer(void) {
 
   struct Arena output = test_arena();
   struct Log log = test_log();
-  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 2, entries, 2,
-                                         SITE_MODIFIED, false, os, output, test_arena(),
-                                         &log) == 0);
-  TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds, 1, entries, 1, SITE_MODIFIED,
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 2, entries, 2, false,
                                          false, os, output, test_arena(), &log) == 0);
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds, 1, entries, 1, true, false,
+                                         os, output, test_arena(), &log) == 0);
   TEST_CHECK(site_writer_copy_static_files(&writer, &site_config, &static_paths,
                                            site_config.static_dir, test_arena(), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_file(os, "public/index.html", "<h1>Site &amp; Co</h1>Newer;Older;"));
-  TEST_CHECK(os_memory_is_file(os, "public/nested/links.html", "/newer.html;/older.html;"));
+  TEST_CHECK(os_memory_is_file(os, "public/nested/links.html",
+                               "../newer.html|https://example.com/newer.html;"
+                               "../older.html|https://example.com/older.html;"));
   TEST_CHECK(os_memory_is_file(os, "public/feeds/atom.xml",
-                               "<updated>2026-07-01T00:00:00Z</updated>Newer;"));
+                               "<updated>2026-07-01T00:00:00Z</updated>"
+                               "Newer=https://example.com/newer.html;"));
   TEST_CHECK(os_memory_is_file(os, "public/icons/a.txt", "static"));
+}
+
+// A feed template gets `feed`: its own absolute URL as `id` and `url`, the site's home as
+// `html_url`, and the newest change among its own entries as `modified`, so a later change to an
+// entry outside the feed does not move it. In a feed, an entry without `modified` gives its `date`.
+// An aggregate gets no `feed`, and an entry's `modified` stays empty there.
+static void test_write_templates_gives_feed_data(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "templates/index.html",
+                  "[{{feed.url}}]{{#content_entries}}{{modified}};{{/content_entries}}");
+  os_memory_write(os, "templates/feeds/atom.xml",
+                  "{{feed.id}}|{{feed.url}}|{{feed.html_url}}|{{feed.modified}}|"
+                  "{{#content_entries}}{{modified}}={{absolute_url}};{{/content_entries}}");
+  const struct ContentEntry newer = {.title = S("Newer"),
+                                     .url_path = S("/newer.html"),
+                                     .date = S("2026-07-01T00:00:00Z"),
+                                     .date_epoch = 1782864000,
+                                     .modified_epoch = 1782864000};
+  const struct ContentEntry older = {.title = S("Older"),
+                                     .url_path = S("/older.html"),
+                                     .date = S("2026-06-01T00:00:00Z"),
+                                     .date_epoch = 1780272000,
+                                     .modified = S("2026-06-15T00:00:00Z"),
+                                     .modified_epoch = 1781481600};
+  const struct ContentEntry oldest = {.title = S("Oldest"),
+                                      .url_path = S("/oldest.html"),
+                                      .date = S("2026-05-01T00:00:00Z"),
+                                      .date_epoch = 1777593600,
+                                      .modified = S("2026-08-01T00:00:00Z"),
+                                      .modified_epoch = 1785542400};
+  const struct ContentEntry* const entries[] = {&newer, &older, &oldest};
+  static const struct Str aggregates[] = {STR_INIT("index.html")};
+  static const struct Str feeds[] = {STR_INIT("feeds/atom.xml")};
+  struct SiteConfig site_config;
+  init_config(&site_config);
+  site_config.base_url = S("https://example.com");
+  static const char* const output_paths[] = {"public/index.html", "public/feeds/atom.xml"};
+  struct Arena arena = test_arena();
+  struct Manifest manifest = {0};
+  struct OutputWriter writer;
+  init_writer(&writer, &manifest, output_paths, 2, os, &arena);
+
+  struct Arena output = test_arena();
+  struct Log log = test_log();
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 1, entries, 3, false,
+                                         false, os, output, test_arena(), &log) == 0);
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds, 1, entries, 2, true, false,
+                                         os, output, test_arena(), &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(
+      os_memory_is_file(os, "public/index.html", "[];2026-06-15T00:00:00Z;2026-08-01T00:00:00Z;"));
+  TEST_CHECK(
+      os_memory_is_file(os, "public/feeds/atom.xml",
+                        "https://example.com/feeds/atom.xml|https://example.com/feeds/atom.xml|"
+                        "https://example.com/|2026-07-01T00:00:00Z|"
+                        "2026-07-01T00:00:00Z=https://example.com/newer.html;"
+                        "2026-06-15T00:00:00Z=https://example.com/older.html;"));
 }
 
 // An aggregate or a feed resolves `path_to_root` from its own name, which is also its output path
@@ -127,11 +185,10 @@ static void test_write_templates_renders_path_to_root_per_template(void) {
 
   struct Arena output = test_arena();
   struct Log log = test_log();
-  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 3, NULL, 0,
-                                         SITE_MODIFIED, false, os, output, test_arena(),
-                                         &log) == 0);
-  TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds, 1, NULL, 0, SITE_MODIFIED,
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 3, NULL, 0, false,
                                          false, os, output, test_arena(), &log) == 0);
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds, 1, NULL, 0, true, false, os,
+                                         output, test_arena(), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_file(os, "public/index.html", "[]"));
   TEST_CHECK(os_memory_is_file(os, "public/field-notes/index.html", "[../]"));
@@ -178,9 +235,8 @@ static void test_write_templates_reports_write_failure(void) {
 
   struct Arena output = test_arena();
   struct Log log = test_log();
-  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 1, NULL, 0,
-                                         SITE_MODIFIED, false, os, output, test_arena(),
-                                         &log) == -1);
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 1, NULL, 0, false,
+                                         false, os, output, test_arena(), &log) == -1);
   TEST_CHECK(test_log_is(&log, "failed to write template output: %s ('public/index.html')\n",
                          strerror(EISDIR)));
 }
@@ -219,6 +275,7 @@ static void test_copy_static_files_reports_copy_failure(void) {
 
 TEST_LIST = {
     {"writes complete output layer", test_writes_complete_output_layer},
+    {"write templates gives feed data", test_write_templates_gives_feed_data},
     {"write templates renders path to root per template",
      test_write_templates_renders_path_to_root_per_template},
     {"copy static files keeps path below root", test_copy_static_files_keeps_path_below_root},

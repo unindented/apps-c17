@@ -248,6 +248,7 @@ Each property that a test checks against the in-memory host must have a contract
 
 - [frontmatter](src/formats/frontmatter.h): `frontmatter_find` finds the front matter at the start of a Markdown file, TOML between `+++` lines or YAML between `---` lines, by its fences alone, and reports its kind, its text and the body after it. sosig parses the TOML of its content files, and surge shows either kind as a code block.
 - [html](src/formats/html.h): HTML escaping of untrusted text for generated markup.
+- [rfc3339](src/formats/rfc3339.h): `RFC3339_EPOCH`, the Unix epoch in UTC, which surge and sosig write for a date that Atom requires and a value lacks. Every date the apps write spells a zero offset `Z`.
 - [toml](src/formats/toml.h): TOML parsing, text validation at the boundary where parsed bytes become owned text, and the conversion and formatting of dates and datetimes. `toml_require_known_keys` is the shared check for unknown keys. It reports each table key that is not in the list of known keys that a loader gives, and it reports a key that contains a `NUL` byte without its name, but with the name of its table.
 - [tsv](src/formats/tsv.h): `tsv_escape_append` writes a text as a field of a tab-separated line, with each `\`, tab and newline escaped, so that the field cannot split its line and two different texts never give the same field. surge and sosig write the texts of the page recipe of their build caches with it.
 
