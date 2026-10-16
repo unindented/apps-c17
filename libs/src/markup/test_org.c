@@ -435,7 +435,7 @@ static void test_honors_in_buffer_options(void) {
 
 // An HTML export block passes through verbatim. `org_to_html` deliberately omits
 // `ORG_FLAG_NOEXPORTBLOCKS` because the Org is first-party and the content template emits the body
-// unescaped as `{{{body}}}`. This pins the same trust decision as Markdown's raw HTML.
+// unescaped as `{{{body_html}}}`. This pins the same trust decision as Markdown's raw HTML.
 static void test_passes_through_export_blocks(void) {
   struct Arena perm = test_arena();
   struct Arena scratch = test_arena();

@@ -201,9 +201,9 @@ static int render(const char* templates_dir,
   return 0;
 }
 
-// `{{title}}` is escaped and `{{{body}}}` is not in the same render, so escaping is chosen per tag
-// rather than per template. This renders the real `templates/content.html`, whose output, including
-// the feed `<link rel="alternate">`, is compared end to end with the expected output in
+// `{{title}}` is escaped and `{{{body_html}}}` is not in the same render, so escaping is chosen per
+// tag rather than per template. This renders the real `templates/content.html`, whose output,
+// including the feed `<link rel="alternate">`, is compared end to end with the expected output in
 // `tests/expected/site_file_permalink` by the golden test.
 static void test_renders_escaped_title_and_raw_body(void) {
   struct Arena perm = test_arena();

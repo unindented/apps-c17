@@ -11,6 +11,6 @@
     <link href="{{url}}"/>
     <id>{{url}}</id>
     <updated>{{modified}}</updated>
-    <content type="html">{{body}}</content>
+    <content type="html">{{body_html}}</content>
   </entry>
 {{/content_entries}}</feed>

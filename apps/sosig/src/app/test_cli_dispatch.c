@@ -90,10 +90,11 @@ static int enter_site_fixture(char root_dir[static 1], int* saved_dir_fd_out) {
       "date = 2026-07-01T00:00:00Z\n"
       "+++\n"
       "Body\n";
-  const bool written = write_fixture_file(root_dir, "sosig.toml", config) == 0 &&
-                       write_fixture_file(root_dir, "content/hello.md", entry) == 0 &&
-                       write_fixture_file(root_dir, "content/world.md", entry) == 0 &&
-                       write_fixture_file(root_dir, "templates/content.html", "{{{body}}}\n") == 0;
+  const bool written =
+      write_fixture_file(root_dir, "sosig.toml", config) == 0 &&
+      write_fixture_file(root_dir, "content/hello.md", entry) == 0 &&
+      write_fixture_file(root_dir, "content/world.md", entry) == 0 &&
+      write_fixture_file(root_dir, "templates/content.html", "{{{body_html}}}\n") == 0;
   TEST_CHECK(written);
   if (!written || working_dir_enter(root_dir, saved_dir_fd_out) != 0) {
     remove_fixture_tree(root_dir);

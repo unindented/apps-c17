@@ -10,7 +10,7 @@
       <link>{{url}}</link>
       <guid>{{url}}</guid>
       <pubDate>{{date}}</pubDate>
-      <description>{{body}}</description>
+      <description>{{body_html}}</description>
     </item>
 {{/content_entries}}  </channel>
 </rss>

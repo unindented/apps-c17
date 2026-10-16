@@ -1010,7 +1010,7 @@ struct Str org_to_html(struct Str org,
   // defaults, as it does in Emacs's export, so one file can differ without a config key. Export
   // blocks and `@@html:...@@` snippets stay enabled (no `ORG_FLAG_NOEXPORTBLOCKS`) for the reason
   // `markdown_to_html` keeps raw HTML: the Org is first-party and the content template emits the
-  // body unescaped as `{{{body}}}`.
+  // body unescaped as `{{{body_html}}}`.
   unsigned parser_flags = ORG_FLAG_SUBSUPERSCRIPTS_BRACED;
   unsigned export_flags = 0;
   apply_in_buffer_options(org, &parser_flags, &export_flags);

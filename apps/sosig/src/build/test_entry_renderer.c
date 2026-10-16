@@ -311,7 +311,7 @@ static void test_renders_entry_metadata_and_html(void) {
     goto cleanup;
   }
   if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html",
-                                     "<main>{{title}} {{{body}}}</main>\n") == 0)) {
+                                     "<main>{{title}} {{{body_html}}}</main>\n") == 0)) {
     goto cleanup;
   }
 
@@ -365,7 +365,7 @@ static void test_renders_org_entry_metadata_and_html(void) {
     goto cleanup;
   }
   if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html",
-                                     "<main>{{title}} {{{body}}}</main>\n") == 0)) {
+                                     "<main>{{title}} {{{body_html}}}</main>\n") == 0)) {
     goto cleanup;
   }
 
@@ -416,7 +416,8 @@ static void test_skips_draft_entry(void) {
   if (!TEST_CHECK(write_fixture_file(root_dir, "content/hello.md", content) == 0)) {
     goto cleanup;
   }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body}}}\n") == 0)) {
+  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body_html}}}\n") ==
+                  0)) {
     goto cleanup;
   }
 
@@ -457,7 +458,8 @@ static void test_skips_org_draft_entry(void) {
   if (!TEST_CHECK(write_fixture_file(root_dir, "content/hello.org", content) == 0)) {
     goto cleanup;
   }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body}}}\n") == 0)) {
+  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body_html}}}\n") ==
+                  0)) {
     goto cleanup;
   }
 
@@ -629,7 +631,8 @@ static void test_nests_output_under_slugified_sections(void) {
   if (!TEST_CHECK(write_fixture_file(root_dir, source_relative_path, content) == 0)) {
     goto cleanup;
   }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body}}}\n") == 0)) {
+  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body_html}}}\n") ==
+                  0)) {
     goto cleanup;
   }
 
@@ -708,7 +711,8 @@ static void test_reports_unreadable_source(void) {
   if (!TEST_CHECK(write_fixture_file(root_dir, "content/hello.md", content) == 0)) {
     goto cleanup;
   }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body}}}\n") == 0)) {
+  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body_html}}}\n") ==
+                  0)) {
     goto cleanup;
   }
   source_path = str_cstr(path_join(str_from_cstr(root_dir), S("content/hello.md"), &arena), &arena);
@@ -760,7 +764,8 @@ static void test_rejects_oversize_source(void) {
           write_fixture_file(root_dir, "content/hello.md", "+++\ntitle = \"Hello\"\n+++\n") == 0)) {
     goto cleanup;
   }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body}}}\n") == 0)) {
+  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body_html}}}\n") ==
+                  0)) {
     goto cleanup;
   }
   source_path = str_cstr(path_join(str_from_cstr(root_dir), S("content/hello.md"), &arena), &arena);
@@ -850,7 +855,8 @@ static void test_appends_one_error_line_per_failing_source(void) {
   if (!TEST_CHECK(write_fixture_file(root_dir, "content/b.md", second) == 0)) {
     goto cleanup;
   }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body}}}\n") == 0)) {
+  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body_html}}}\n") ==
+                  0)) {
     goto cleanup;
   }
 
@@ -911,7 +917,8 @@ static void test_rejects_oversize_output_path(void) {
   if (!TEST_CHECK(write_fixture_file(root_dir, "content/hello.md", content) == 0)) {
     goto cleanup;
   }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body}}}\n") == 0)) {
+  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body_html}}}\n") ==
+                  0)) {
     goto cleanup;
   }
 
@@ -980,7 +987,8 @@ static void test_rejects_oversize_path_segment(void) {
   if (!TEST_CHECK(write_fixture_file(root_dir, "content/hello.md", content) == 0)) {
     goto cleanup;
   }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body}}}\n") == 0)) {
+  if (!TEST_CHECK(write_fixture_file(root_dir, "templates/content.html", "{{{body_html}}}\n") ==
+                  0)) {
     goto cleanup;
   }
 

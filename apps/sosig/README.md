@@ -428,7 +428,7 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 | Aggregate | `aggregate_templates` | Once, to the same relative path below `output_dir`. The fields of an entry are not available at the top level. |
 | Feed | `feed_templates` | In the same way as an aggregate template, but with only the newest `feed_count` entries. |
 
-`{{value}}` escapes its output for HTML, and `{{{value}}}` writes its output without escaping. Use `{{{body}}}` to write the rendered body.
+`{{value}}` escapes its output for HTML, and `{{{value}}}` writes its output without escaping. Use `{{{body_html}}}` to write the rendered body. A value that holds HTML that `sosig` made, such as the body, has a name that ends in `_html`, as in surge.
 
 Each entry sets every one of the fields below, with empty text where a value is absent, so the field never resolves from an enclosing scope. Empty text is false in a section, so `{{#description}}…{{/description}}` shows its contents only for a description that is not empty.
 
@@ -441,7 +441,7 @@ Every link in an entry's data is relative to the page and already holds its `pat
 | `content_entries` | All | Every entry that is not a draft, newest first. A feed template receives only the newest `feed_count` entries. Use `{{#content_entries}}` to iterate through them. |
 | `generator` | All | The name and version of `sosig`, for a tag such as `<meta name="generator" content="{{generator}}">`. |
 | `path_to_root` | All | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. The output path of a content page comes from `permalink`, and the output path of an aggregate or feed template is its name. |
-| `title`, `date`, `modified`, `description`, `slug`, `url`, `absolute_url`, `body`, `tags` | Content templates, and any template inside `{{#content_entries}}` | The fields of the entry. `url` links to the entry's page, relative to the page being rendered, or absolute in a feed template. `absolute_url` is always absolute, below `base_url`, for a canonical link or a page that a host serves at any depth, such as a 404 page. Use `{{#tags}}{{.}}{{/tags}}` to iterate through the tags. |
+| `title`, `date`, `modified`, `description`, `slug`, `url`, `absolute_url`, `body_html`, `tags` | Content templates, and any template inside `{{#content_entries}}` | The fields of the entry. `url` links to the entry's page, relative to the page being rendered, or absolute in a feed template. `absolute_url` is always absolute, below `base_url`, for a canonical link or a page that a host serves at any depth, such as a 404 page. Use `{{#tags}}{{.}}{{/tags}}` to iterate through the tags. |
 
 A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_`, and `-`.
 
@@ -450,7 +450,7 @@ A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A p
 <article>
   <h1>{{title}}</h1>
   <p class="meta">{{date}} | {{#tags}}{{.}} {{/tags}}</p>
-  {{{body}}}
+  {{{body_html}}}
 </article>
 {{> footer}}
 ```

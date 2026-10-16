@@ -274,9 +274,9 @@ struct Str markdown_to_html(struct Str markdown,
   // md4c documents that a dialect constant's meaning changes as it implements more of that dialect.
   // A vendor bump would then silently change how existing content renders. Raw HTML blocks and
   // spans stay enabled (no `MD_FLAG_NOHTML`) because the Markdown is first-party and the content
-  // template emits the body unescaped as `{{{body}}}`. Md4c does no sanitizing, so this is a trust
-  // decision about who authors content, not an omission. The callbacks write only the block, span
-  // and text types these extensions produce.
+  // template emits the body unescaped as `{{{body_html}}}`. Md4c does no sanitizing, so this is a
+  // trust decision about who authors content, not an omission. The callbacks write only the block,
+  // span and text types these extensions produce.
   const MD_PARSER parser = {
       .flags = MD_FLAG_COLLAPSEWHITESPACE | MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_TABLES |
                MD_FLAG_STRIKETHROUGH | MD_FLAG_TASKLISTS | MD_FLAG_LATEXMATHSPANS |

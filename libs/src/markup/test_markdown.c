@@ -242,12 +242,12 @@ static void test_renders_github_tables(void) {
 
 // Raw HTML in a body passes through verbatim. `markdown_to_html` deliberately omits
 // `MD_FLAG_NOHTML` because the Markdown is first-party and the content template emits the body
-// unescaped as `{{{body}}}`. This pins a trust decision rather than an incidental default: enabling
-// that flag would turn every author-written HTML block into visible escaped source text on the A
-// heading's id is its text as GitHub slugs it: letters in lowercase, digits, `-` and `_` kept,
-// spaces as `-`, and punctuation, entities, raw HTML and non-ASCII letters dropped, with inline
-// code counted. A repeated slug gets `-1`, `-2`, an empty one is `section`, and the anchor's label
-// escapes the text.
+// unescaped as `{{{body_html}}}`. This pins a trust decision rather than an incidental default:
+// enabling that flag would turn every author-written HTML block into visible escaped source text on
+// the A heading's id is its text as GitHub slugs it: letters in lowercase, digits, `-` and `_`
+// kept, spaces as `-`, and punctuation, entities, raw HTML and non-ASCII letters dropped, with
+// inline code counted. A repeated slug gets `-1`, `-2`, an empty one is `section`, and the anchor's
+// label escapes the text.
 static void test_gives_headings_slug_ids(void) {
   const struct Str html = render_markdown(
       "# Build & Test `cmake --build`\n\n# Build & Test `cmake --build`\n\n# Caf\xc3\xa9 "

@@ -237,10 +237,10 @@ static int out_escaped(const char* output, size_t output_len, void* renderer_dat
  * six-byte entity, so the incoming chunk length alone does not bound the growth. The overshoot is
  * one append, and an append is not necessarily small. `node_dump` hands `out_fn` a whole scalar in
  * a single call, and mustache4c hands `out_verbatim` each literal run of a template or partial
- * whole, so the largest append is the longest literal run or scalar. For `{{{body}}}` that scalar
- * is an entry's entire rendered HTML. The Markdown and Org renderers are not on this path at all.
- * They fill `markdown.c`'s and `org.c`'s own buffers and never reach these callbacks. A non-zero
- * return aborts `mustache_process`.
+ * whole, so the largest append is the longest literal run or scalar. For `{{{body_html}}}` that
+ * scalar is an entry's entire rendered HTML. The Markdown and Org renderers are not on this path at
+ * all. They fill `markdown.c`'s and `org.c`'s own buffers and never reach these callbacks. A
+ * non-zero return aborts `mustache_process`.
  *
  * @param render_output Render destination whose buffer length is checked. Must not be `NULL`.
  * @return `0` when the render may continue, or `-1` once the limit is passed.
@@ -1024,7 +1024,7 @@ static struct Node* resolve_entry(struct ProviderData* provider_data,
   if (str_eq(name, S("absolute_url"))) {
     return node_scalar_url_absolute(provider_data, str_tail(entry->url_path, 1));
   }
-  if (str_eq(name, S("body"))) {
+  if (str_eq(name, S("body_html"))) {
     return node_scalar(provider_data, entry->body_html);
   }
   if (str_eq(name, S("tags"))) {

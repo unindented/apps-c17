@@ -48,7 +48,7 @@ static const char* const SITE_CONFIG =
     "feed_templates = []\n";
 
 /** Minimal content template, which renders a page as its body alone. */
-static const char* const CONTENT_TEMPLATE = "{{{body}}}\n";
+static const char* const CONTENT_TEMPLATE = "{{{body_html}}}\n";
 
 /** One published content entry whose body renders as `<p>Body</p>`. */
 static const char* const HELLO_ENTRY =
@@ -351,7 +351,7 @@ static void build_in_tiny_arena(void* userdata) {
 static void test_honors_configured_content_template(void) {
   struct Os* os = site_fixture("content_template = \"content-entry.html\"\n");
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);
-  os_memory_write(os, "templates/content-entry.html", "<main>{{title}} {{{body}}}</main>\n");
+  os_memory_write(os, "templates/content-entry.html", "<main>{{title}} {{{body_html}}}</main>\n");
 
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == 0);
@@ -833,7 +833,7 @@ static void test_page_reading_the_entry_list_follows_every_entry(void) {
   struct Os* os = site_fixture("content_template = \"listing.html\"\n");
   struct Arena arena = test_arena();
   os_memory_write(os, "templates/listing.html",
-                  "{{{body}}}{{#content_entries}}{{title}};{{/content_entries}}\n");
+                  "{{{body_html}}}{{#content_entries}}{{title}};{{/content_entries}}\n");
   os_memory_write(os, "content/a.md", HELLO_ENTRY);
   os_memory_write(os, "content/b.md", HELLO_ENTRY);
   os_memory_write(os, "content/c.md",
@@ -929,7 +929,7 @@ static void test_page_linking_an_asset_is_made_every_build(void) {
 static void test_changed_partial_makes_every_page(void) {
   struct Os* os = site_fixture(NULL);
   struct Arena arena = test_arena();
-  os_memory_write(os, "templates/content.html", "{{{body}}}{{>footer}}\n");
+  os_memory_write(os, "templates/content.html", "{{{body_html}}}{{>footer}}\n");
   os_memory_write(os, "templates/partials/footer.html", "footer");
   os_memory_write(os, "content/a.md", HELLO_ENTRY);
   os_memory_write(os, "content/b.md", HELLO_ENTRY);
