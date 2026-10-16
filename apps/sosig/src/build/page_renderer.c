@@ -247,9 +247,9 @@ static int render_content_page_write(const struct OutputWriter* writer,
                                      struct Arena scratch,
                                      struct Log* log) {
   // The operation names the source, and the write names the output path or the directory it could
-  // not create, so a failure reads `failed to write output for '<source>': <cause> ('<path>')`.
+  // not create, so a failure reads `failed to write page for '<source>': <cause> ('<path>')`.
   struct Buf operation = {.arena = &scratch};
-  buf_printf(&operation, "failed to write output for '%.*s'", STR_FMT(entry->source_path));
+  buf_printf(&operation, "failed to write page for '%.*s'", STR_FMT(entry->source_path));
   return output_writer_write(writer, entry->output_path, (struct OsSource){.bytes = rendered_html},
                              buf_str(&operation), log);
 }

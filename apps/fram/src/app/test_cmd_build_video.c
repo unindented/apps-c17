@@ -14,6 +14,7 @@
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
+#include "domain/gallery_config.h"
 #include "os/os.h"
 #include "os/os_posix.h"
 #include "runtime/job.h"
@@ -77,8 +78,8 @@ static int write_fake_video_tools(const char* root_dir, struct Str script, struc
 /**
  * @brief Executes a build in a fixture directory and collects its errors.
  *
- * The build resolves `fram.toml` from the working directory, so this changes into the fixture and
- * restores the previous directory before returning.
+ * The build resolves its config path from the working directory, so this changes into the fixture
+ * and restores the previous directory before returning.
  *
  * @param options  Build options passed to `cmd_build_execute`, whose worker count `0` stands for
  *                 the CPU count, as on the command line. Must not be `NULL`.
@@ -121,7 +122,8 @@ static const char* build_and_take_tool_runs(const char* root_dir,
                                             const char* log_path,
                                             struct Log* log,
                                             struct Arena* arena) {
-  const struct BuildOptions options = {.worker_count = 1};
+  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
+                                       .worker_count = 1};
   if (!TEST_CHECK(execute_build_in(&options, root_dir, log) == 0)) {
     return NULL;
   }
@@ -207,7 +209,8 @@ static void test_reports_many_failed_children(void) {
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
-  const struct BuildOptions options = {.worker_count = 1};
+  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
+                                       .worker_count = 1};
   struct Arena arena = test_arena();
   struct Buf script = {.arena = &arena};
   buf_printf(&script,

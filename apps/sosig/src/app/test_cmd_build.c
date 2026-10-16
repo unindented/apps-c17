@@ -15,6 +15,7 @@
 #include "core/path_list.h"
 #include "core/str.h"
 #include "domain/build_cache.h"
+#include "domain/site_config.h"
 #include "formats/toml.h"
 #include "os/os.h"
 #include "os/os_memory.h"
@@ -23,7 +24,7 @@
 #include "testing/test_support.h"
 
 // Every build here runs against the in-memory host, whose root is the working directory the build
-// resolves `sosig.toml` from, and which keeps what the build prints. The golden sites build the
+// resolves the config path from, and which keeps what the build prints. The golden sites build the
 // real executable on the real filesystem.
 
 /**
@@ -131,7 +132,8 @@ static struct Os* every_output_kind_fixture(void) {
  * @brief Executes a build with `options` in test arenas and collects its errors.
  *
  * @param options Build options passed to `cmd_build_execute`, whose worker count `0` stands for the
- *                CPU count, as on the command line. Must not be `NULL`.
+ *                CPU count and whose empty config path stands for `SITE_CONFIG_PATH_DEFAULT`, as on
+ *                the command line. Must not be `NULL`.
  * @param os      Host the build runs against. Must not be `NULL`.
  * @param log     Log that receives every build error. Its arena must be none of the arenas the
  *                build allocates from, as `cmd_build_execute` requires. Must not be `NULL`.
@@ -139,6 +141,9 @@ static struct Os* every_output_kind_fixture(void) {
  */
 static int execute_build_with(const struct BuildOptions* options, struct Os* os, struct Log* log) {
   struct BuildOptions resolved = *options;
+  if (resolved.config_path.len == 0) {
+    resolved.config_path = SITE_CONFIG_PATH_DEFAULT;
+  }
   if (resolved.worker_count == 0) {
     resolved.worker_count = pool_resolve_worker_count();
   }
@@ -343,7 +348,7 @@ static void build_in_tiny_arena(void* userdata) {
   struct JobArenas worker_arenas[1] = {
       {.perm = arena_split(&rest, sizeof(memory) / 4), .scratch = rest}};
   struct Log log = test_log();
-  const struct BuildOptions options = {.worker_count = 1};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .worker_count = 1};
   (void)cmd_build_execute(&options, worker_arenas, userdata, perm, scratch, &log);
 }
 
@@ -382,6 +387,27 @@ static void test_tolerates_trailing_slash_on_content_dir(void) {
   TEST_CHECK(test_log_is_empty(&log));
   static const char* const expected[] = {"public/_sosig/v1-build-cache.tsv", "public/post.html"};
   TEST_CHECK(is_file_list(os, "public", expected, 2));
+}
+
+// A config that `-c` names in another directory reads and writes each directory next to it, its
+// defaults included, so the site builds from a working directory that holds none of it, and the
+// build writes nothing outside that directory.
+static void test_builds_site_of_config_in_another_dir(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "sub/sosig.toml", SITE_CONFIG);
+  os_memory_write(os, "sub/templates/content.html", CONTENT_TEMPLATE);
+  os_memory_write(os, "sub/content/hello.md", HELLO_ENTRY);
+  os_memory_write(os, "sub/static/robots.txt", "User-agent: *\n");
+
+  const struct BuildOptions options = {.config_path = S("sub/sosig.toml")};
+  struct Log log = test_log();
+  TEST_CHECK(execute_build_with(&options, os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  static const char* const expected[] = {"sub/public/_sosig/v1-build-cache.tsv",
+                                         "sub/public/hello.html", "sub/public/robots.txt"};
+  TEST_CHECK(is_file_list(os, "sub/public", expected, 3));
+  TEST_CHECK(os_memory_is_file(os, "sub/public/hello.html", HELLO_PAGE));
+  TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
 // A site that ships no `static` directory builds. `static_dir` is optional with a default, so an
@@ -1004,8 +1030,8 @@ static void test_failed_build_leaves_no_trusted_cache(void) {
                   "feed_templates = [\"feed.xml\"]\n");
   os_memory_fail(os, OS_MEMORY_OP_WRITE, "public/index.html", EACCES);
   TEST_CHECK(execute_build(os, &log) == -1);
-  TEST_CHECK(test_log_is(&log, "failed to write template output: %s ('public/index.html')\n",
-                         strerror(EACCES)));
+  TEST_CHECK(
+      test_log_is(&log, "failed to write page: %s ('public/index.html')\n", strerror(EACCES)));
   TEST_CHECK(os_memory_is_file(os, "public/_sosig/v1-build-cache.tsv", ""));
   os_memory_fail(os, OS_MEMORY_OP_WRITE, "public/index.html", 0);
   os_memory_write(os, "sosig.toml", config_text);
@@ -1094,7 +1120,11 @@ static void test_honors_requested_worker_count(void) {
     for (ptrdiff_t j = 0; j < 3; j++) {
       os_memory_write(os, source_paths[j], HELLO_ENTRY);
     }
-    const struct BuildOptions options = {.worker_count = worker_counts[i], .is_verbose = true};
+    const struct BuildOptions options = {
+        .config_path = SITE_CONFIG_PATH_DEFAULT,
+        .worker_count = worker_counts[i],
+        .is_verbose = true,
+    };
     TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
     TEST_CHECK(os_memory_is_printed(os, 1, ""));
     struct Arena arena = test_arena();
@@ -1116,7 +1146,11 @@ static void test_honors_requested_worker_count(void) {
 static void test_caps_the_worker_count_at_four_per_cpu(void) {
   struct Os* os = site_fixture(NULL);
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);
-  const struct BuildOptions options = {.worker_count = 100000, .is_verbose = true};
+  const struct BuildOptions options = {
+      .config_path = SITE_CONFIG_PATH_DEFAULT,
+      .worker_count = 100000,
+      .is_verbose = true,
+  };
   TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
   struct Arena arena = test_arena();
   struct Buf parse_line = {.arena = &arena};
@@ -1143,7 +1177,11 @@ static void test_cuts_workers_before_arenas_under_limit(void) {
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
     struct Os* os = site_fixture(NULL);
     os_memory_write(os, "content/hello.md", HELLO_ENTRY);
-    const struct BuildOptions options = {.worker_count = 4, .is_verbose = true};
+    const struct BuildOptions options = {
+        .config_path = SITE_CONFIG_PATH_DEFAULT,
+        .worker_count = 4,
+        .is_verbose = true,
+    };
     arena_reserve_len_max = cases[i].len_max;
     TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
     arena_reserve_len_max = PTRDIFF_MAX;
@@ -1163,7 +1201,11 @@ static void test_skips_empty_phases_in_verbose_output(void) {
   struct Os* os = site_fixture(NULL);
   // A file that is not a source keeps `content_dir` present while the site holds no sources.
   os_memory_write(os, "content/notes.txt", "not a source\n");
-  const struct BuildOptions options = {.worker_count = 3, .is_verbose = true};
+  const struct BuildOptions options = {
+      .config_path = SITE_CONFIG_PATH_DEFAULT,
+      .worker_count = 3,
+      .is_verbose = true,
+  };
 
   TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
@@ -1203,7 +1245,7 @@ static void test_leaves_log_empty_on_success(void) {
 static void test_run_prints_diagnostic_once_and_fails(void) {
   // No `sosig.toml`, the earliest failure, so the diagnostic is a single known line.
   struct Os* os = os_memory();
-  const struct BuildOptions options = {0};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT};
 
   TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_FAILURE);
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
@@ -1365,7 +1407,7 @@ static void test_reports_dangling_output_dir_symlink(void) {
 static void test_rejects_output_dir_inside_content_dir(void) {
   struct Os* os = site_fixture("output_dir = \"content/generated/site\"\n");
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);
-  const struct BuildOptions options = {.is_verbose = true};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .is_verbose = true};
 
   TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_FAILURE);
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
@@ -1383,7 +1425,7 @@ static void test_rejects_output_dir_inside_content_dir(void) {
 static void test_rejects_output_dir_holding_content_dir(void) {
   struct Os* os = site_fixture("output_dir = \".\"\n");
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);
-  const struct BuildOptions options = {.is_verbose = true};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .is_verbose = true};
 
   TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_FAILURE);
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
@@ -1394,6 +1436,27 @@ static void test_rejects_output_dir_holding_content_dir(void) {
   static const char* const expected[] = {"./content/hello.md", "./sosig.toml",
                                          "./templates/content.html"};
   TEST_CHECK(is_file_list(os, ".", expected, 3));
+}
+
+// The config that `-c` names is the one the build protects: an `output_dir` that holds its
+// directory is refused, while every input root lies outside it.
+static void test_rejects_output_dir_holding_config_in_another_dir(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "site/sosig.toml",
+                  "content_dir = \"../content\"\n"
+                  "templates_dir = \"../templates\"\n"
+                  "output_dir = \".\"\n"
+                  "title = \"Site\"\n"
+                  "description = \"Example notes\"\n"
+                  "author = \"Author\"\n"
+                  "base_url = \"https://example.com\"\n");
+  os_memory_write(os, "templates/content.html", CONTENT_TEMPLATE);
+  os_memory_write(os, "content/hello.md", HELLO_ENTRY);
+
+  const struct BuildOptions options = {.config_path = S("site/sosig.toml")};
+  struct Log log = test_log();
+  TEST_CHECK(execute_build_with(&options, os, &log) == -1);
+  TEST_CHECK(test_log_is_one(&log, "output directory would hold the config: 'site/.'"));
 }
 
 // Slugging is lossy, so two different source names can claim one output path. The manifest reports
@@ -1545,8 +1608,8 @@ static void test_reports_unwritable_output(void) {
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "failed to write output for 'content/a.md': %s ('public/a.html')\nfailed "
-                         "to write output for 'content/c.md': %s ('public/c.html')\n",
+                         "failed to write page for 'content/a.md': %s ('public/a.html')\nfailed "
+                         "to write page for 'content/c.md': %s ('public/c.html')\n",
                          strerror(EISDIR), strerror(EACCES)));
   TEST_CHECK(os_memory_is_file(os, "public/b.html", HELLO_PAGE));
 }
@@ -1793,6 +1856,7 @@ TEST_LIST = {
     {"honors configured content template", test_honors_configured_content_template},
     {"writes exactly manifest outputs", test_writes_exactly_manifest_outputs},
     {"tolerates trailing slash on content_dir", test_tolerates_trailing_slash_on_content_dir},
+    {"builds site of config in another dir", test_builds_site_of_config_in_another_dir},
     {"builds with no static dir", test_builds_with_no_static_dir},
     {"copies static files when present", test_copies_static_files_when_present},
     {"copies assets beside content", test_copies_assets_beside_content},
@@ -1848,6 +1912,8 @@ TEST_LIST = {
     {"reports dangling output dir symlink", test_reports_dangling_output_dir_symlink},
     {"rejects output dir inside content dir", test_rejects_output_dir_inside_content_dir},
     {"rejects output dir holding content dir", test_rejects_output_dir_holding_content_dir},
+    {"rejects output dir holding config in another dir",
+     test_rejects_output_dir_holding_config_in_another_dir},
     {"rejects colliding source names", test_rejects_colliding_source_names},
     {"rejects static file colliding with content page",
      test_rejects_static_file_colliding_with_content_page},

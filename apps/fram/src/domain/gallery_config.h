@@ -11,13 +11,8 @@ struct Log;
 struct Os;
 
 /**
- * Path every command loads its gallery configuration from, relative to the working directory.
- *
- * It is declared here rather than inside a command, because two commands need it and must agree on
- * it. `cmd_config_run` reads it, and `cmd_build_run` both reads it and claims it as a build input,
- * so no output path can overwrite it. `gallery_config_load` still takes the path as an argument,
- * because tests load fixtures from elsewhere. This is the default the commands pass, not a bound on
- * the loader.
+ * Path every command loads its configuration from when `-c` names none, relative to the working
+ * directory. `cmd_config_run` and `cmd_build_run` both use it, so it is declared once here.
  *
  * It is `extern`, with the definition in `gallery_config.c`, rather than a `static` initializer in
  * this header. Every translation unit then shares one object instead of getting a copy of its own
@@ -142,14 +137,15 @@ struct GalleryConfig {
 void gallery_config_init(struct GalleryConfig* gallery_config) __attribute__((nonnull(1)));
 
 /**
- * @brief Loads `fram.toml` configuration into `gallery_config`.
+ * @brief Loads `config_path` into `gallery_config`.
  *
  * Reads and parses the file, rejects a key outside the schema, validates required keys, template
  * names, derivative recipes, and sort orders, and copies values into `perm` over the defaults from
  * `gallery_config_init`.
  *
  * @param gallery_config Initialized config that receives the loaded values. Must not be `NULL`.
- * @param config_path    Path to the TOML configuration file.
+ * @param config_path    Path of the TOML file. Relative paths in the file, and the default
+ *                       directories, resolve against its directory.
  * @param os             Host the file is read from. Must not be `NULL`.
  * @param perm           Arena that owns the loaded values for as long as the config is used. Must
  *                       not be `NULL`.
@@ -172,8 +168,8 @@ int gallery_config_load(struct GalleryConfig* gallery_config,
 /**
  * @brief Writes the effective configuration to standard output as valid TOML.
  *
- * The output round-trips. Reloading it through `gallery_config_load` yields the same values. The
- * text is formatted whole in `scratch` and printed in one `os_print` call.
+ * Every path is printed resolved, so the text loads back to the same values from the working
+ * directory. The text is formatted whole in `scratch` and printed in one `os_print` call.
  *
  * @param gallery_config Config to serialize. Must be fully populated (as after a successful
  *                       `gallery_config_load`). Must not be `NULL`.

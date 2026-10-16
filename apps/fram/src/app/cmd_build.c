@@ -129,6 +129,9 @@ struct BuildState {
    */
   struct JobArenas* worker_arenas;
 
+  /** Config file the build reads. */
+  struct Str config_path;
+
   /** Loaded gallery configuration. Its values live in `perm`. */
   struct GalleryConfig gallery_config;
 
@@ -232,7 +235,7 @@ static void build_state_init(struct BuildState* state,
                              struct Arena scratch) __attribute__((nonnull(1, 2, 3, 4)));
 
 /**
- * @brief Loads `fram.toml`, rejects an `output_dir` inside an input tree, and discovers media and
+ * @brief Loads the config, rejects an `output_dir` inside an input tree, and discovers media and
  *        static files.
  *
  * The `output_dir` check runs before either walk, and both walks leave `output_dir` out, so a file
@@ -562,6 +565,7 @@ static void build_state_init(struct BuildState* state,
       .perm = perm,
       .scratch = scratch,
       .worker_arenas = worker_arenas,
+      .config_path = options->config_path,
       .writer =
           {
               .manifest = &state->manifest,
@@ -578,8 +582,8 @@ static void build_state_init(struct BuildState* state,
 
 static int load_build_inputs(struct BuildState* state, struct Log* log) {
   build_verbose(state, "loading config");
-  if (gallery_config_load(&state->gallery_config, GALLERY_CONFIG_PATH_DEFAULT, state->os,
-                          &state->perm, state->scratch, log) != 0) {
+  if (gallery_config_load(&state->gallery_config, state->config_path, state->os, &state->perm,
+                          state->scratch, log) != 0) {
     return -1;
   }
   // A rejected directory key holds a default the user never chose, so the build stops before the
@@ -590,8 +594,8 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
       gallery_config->is_templates_dir_rejected || gallery_config->is_static_dir_rejected) {
     return -1;
   }
-  if (manifest_builder_check_output_dir(&state->gallery_config, GALLERY_CONFIG_PATH_DEFAULT,
-                                        state->os, state->scratch, log) != 0) {
+  if (manifest_builder_check_output_dir(&state->gallery_config, state->config_path, state->os,
+                                        state->scratch, log) != 0) {
     return -1;
   }
 
@@ -815,10 +819,10 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log) {
   // this file. It only adds `const`, at both levels, and the deep `const` is a thread-safety
   // requirement. A `TemplateContext` with only `const` pointers keeps one render job from writing
   // an album another job is reading.
-  return manifest_builder_populate(
-      &state->manifest, &state->gallery_config, GALLERY_CONFIG_PATH_DEFAULT, &state->source_paths,
-      &state->static_paths, (const struct Album* const*)state->albums, state->album_count,
-      state->os, &state->perm, state->scratch, log);
+  return manifest_builder_populate(&state->manifest, &state->gallery_config, state->config_path,
+                                   &state->source_paths, &state->static_paths,
+                                   (const struct Album* const*)state->albums, state->album_count,
+                                   state->os, &state->perm, state->scratch, log);
 }
 
 static int prepare_output_dir(const struct BuildState* state, struct Log* log) {

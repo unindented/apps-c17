@@ -4,7 +4,7 @@
 
 <h1 align="center"><code>sosig</code> /ˈsɔsɪdʒ/</h1>
 
-`sosig` is a small static site generator written in C17. It uses Mustache templates to convert Markdown and Org files into HTML pages.
+`sosig` is a static site generator, written in C17. It uses Mustache templates to convert Markdown and Org files into HTML pages.
 
 ## LLM disclosure
 
@@ -22,11 +22,12 @@ Download a prebuilt binary from a `sosig-v` release on the [Releases](https://gi
 `sosig` has two commands:
 
 - `sosig build`: Generate the site in `output_dir`. This command has these flags:
+  - `-c, --config PATH`: Read the configuration from `PATH`. The default is `sosig.toml` in the working directory.
   - `-w, --workers N`: Set the maximum number of worker threads for the build. `N` must be a positive integer. The default is the number of CPUs that `sosig` detects. The build never runs more workers than the number of content files, and never more than four workers for each online CPU.
   - `-n, --dry-run`: Report the changes that the build would make, but do not make them. See [Dry run](#dry-run).
   - `--force`: Ignore the [build cache](#build-cache) for this build.
   - `-v, --verbose`: Print build progress to `stderr`.
-- `sosig config`: Print the resolved project configuration as TOML.
+- `sosig config`: Print the resolved configuration as TOML. It also takes `-c, --config PATH`.
 
 There's also these options:
 
@@ -38,7 +39,7 @@ A command exits with status 0 when it succeeds, 1 when it fails, and 2 when it r
 
 ### Project layout
 
-Run `sosig` from a directory that has this layout. The example uses the default directory names:
+Run `sosig` from a directory that has this layout, or name its config with `-c`. The example uses the default directory names:
 
 ```text
 content/
@@ -96,8 +97,8 @@ This table lists every key that the config file can contain. `sosig` rejects any
 | `author` | Required | The name of the site's author, `site.author` in templates. |
 | `base_url` | Required | The absolute URL of the site, for the links of feeds and the `absolute_url` of each entry. It must be an `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. `sosig` removes any trailing `/`, so a template can join it with a path that starts with `/` and not produce `//`. |
 | `permalink` | `"/{section}/{slug}.html"` | The pattern for the URL and output path of each entry. See [URLs and slugs](#urls-and-slugs). |
-| `output_dir` | `"public"` | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
 | `content_dir` | `"content"` | The directory that contains the content files. |
+| `output_dir` | `"public"` | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
 | `templates_dir` | `"templates"` | The directory that contains the templates and partials. |
 | `static_dir` | `"static"` | The directory of files that the build copies into `output_dir` without changes. |
 | `content_template` | `"content.html"` | The template for each entry, unless the `template` field of the entry overrides it. |
@@ -106,7 +107,7 @@ This table lists every key that the config file can contain. `sosig` rejects any
 | `feed_count` | `25` | The maximum number of entries in each feed. |
 | `frontmatter_ignored_keys` | `[]` | The keys that Markdown frontmatter can contain in addition to the keys that [Markdown frontmatter](#markdown-frontmatter) lists. `sosig` accepts any value for these keys, and does not read it. For denote notes, set it to `["identifier", "signature"]`. |
 
-`sosig` removes trailing `/` characters from the values of the four directory keys. A directory value must not be empty. It can be an absolute path, or a relative path that contains `..`.
+`sosig` resolves each directory in the config, the defaults included, against the directory of the config file, so `-c sub/sosig.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from the values of the four directory keys. A directory value must not be empty. It can be an absolute path, or a relative path that contains `..`. `sosig config` prints every directory resolved.
 
 A template name in the configuration, or in the `template` field of an entry, must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.`, and `/`. It cannot contain an empty segment, or the segment `.` or `..`. The name of an aggregate or feed template is both its source path below `templates_dir` and its output path below `output_dir`. So a name that contains `/` creates the same subdirectories in `output_dir`. If `aggregate_templates` or `feed_templates` is an empty array, the build renders no templates of that kind.
 

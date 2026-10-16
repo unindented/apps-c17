@@ -144,20 +144,23 @@ static int gallery_config_load_toml(struct Str config_path,
  * @brief Copies recognized configuration keys into gallery config storage.
  *
  * Rejects a key outside `config_keys`, then applies required and optional string keys, the
- * template-name array, the derivative tables, and `video_frame_seconds`. It copies every value into
- * `perm` rather than borrowing from `table`. `gallery_config_load` calls `toml_free` as soon as
- * this returns, which releases the pool every `toml_datum_t` string points into, while the config
- * outlives the parse. The `sort` table is applied just before `video_frame_seconds`.
+ * directory keys, which resolve against `config_dir` as their defaults do, the template-name array,
+ * the derivative tables, and `video_frame_seconds`. It copies every value into `perm` rather than
+ * borrowing from `table`. `gallery_config_load` calls `toml_free` as soon as this returns, which
+ * releases the pool every `toml_datum_t` string points into, while the config outlives the parse.
+ * The `sort` table is applied just before `video_frame_seconds`.
  *
  * @param gallery_config Config that receives the values. Must not be `NULL`.
  * @param table          Parsed TOML top-level table.
+ * @param config_dir     Directory the relative paths resolve against, or empty for the working one.
  * @param perm           Arena that owns the copied values. Must not be `NULL`.
  * @param log            Log that receives every error. Must not be `NULL`.
  */
 static void gallery_config_load_fields(struct GalleryConfig* gallery_config,
                                        toml_datum_t table,
+                                       struct Str config_dir,
                                        struct Arena* perm,
-                                       struct Log* log) __attribute__((nonnull(1, 3, 4)));
+                                       struct Log* log) __attribute__((nonnull(1, 4, 5)));
 
 /**
  * @brief Copies one string key into the arena, enforcing required keys.
@@ -310,27 +313,28 @@ static void normalize_base_url(struct GalleryConfig* gallery_config, struct Log*
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Copies one optional directory key, trims its trailing `/` and rejects an empty result.
+ * @brief Copies one optional directory key, trims its trailing `/`, rejects an empty result, and
+ *        resolves it against `config_dir`.
  *
  * A trailing slash would otherwise survive into path construction, where it defeats the
  * `<media_dir>/` prefix strip that places each media item in its album. Normalizing once here keeps
  * that rule in one place and makes `gallery_config_print` round-trip the normalized form. The
  * location is not otherwise constrained. An absolute or parent-relative directory stays valid.
  *
- * @param table     Parsed TOML top-level table.
- * @param key       Config key name, used in diagnostics. Must not be `NULL`.
- * @param fallback  Default the field holds after any rejection, so later phases still have a
- *                  directory.
- * @param arena     Arena that owns the copied value. Must not be `NULL`.
- * @param value_out Config field holding the directory, which keeps its value when the key is
- *                  absent. Must not be `NULL`.
- * @param log       Log that receives the error. Must not be `NULL`.
+ * @param table      Parsed TOML top-level table.
+ * @param key        Config key name, used in diagnostics. Must not be `NULL`.
+ * @param config_dir Directory a relative path resolves against, or empty for the working one.
+ * @param arena      Arena that owns the copied value. Must not be `NULL`.
+ * @param value_out  Receives the resolved directory when the key is present and valid, and keeps
+ *                   its value otherwise, so a rejected key leaves later phases a directory. Must
+ *                   not be `NULL`.
+ * @param log        Log that receives the error. Must not be `NULL`.
  * @return `0` when the key is absent or accepted, or `-1` when it is not a string, holds a `NUL`
  *         byte, or is empty once trimmed.
  */
 static int copy_dir(toml_datum_t table,
                     const char* key,
-                    struct Str fallback,
+                    struct Str config_dir,
                     struct Arena* arena,
                     struct Str* value_out,
                     struct Log* log) __attribute__((nonnull(2, 4, 5, 6)));
@@ -449,9 +453,12 @@ int gallery_config_load(struct GalleryConfig* gallery_config,
     return -1;
   }
 
+  // A relative path in the file names a place next to the file, so the build can run from any
+  // directory.
+  const struct Str config_dir = path_file_dir(config_path);
   // A key that fails validation is in `log` already, and the load still succeeded in the sense this
   // result reports: the file was read and parsed.
-  gallery_config_load_fields(gallery_config, parsed.toptab, perm, log);
+  gallery_config_load_fields(gallery_config, parsed.toptab, config_dir, perm, log);
   toml_free(parsed);
   return 0;
 }
@@ -532,6 +539,7 @@ static int gallery_config_load_toml(struct Str config_path,
 
 static void gallery_config_load_fields(struct GalleryConfig* gallery_config,
                                        toml_datum_t table,
+                                       struct Str config_dir,
                                        struct Arena* perm,
                                        struct Log* log) {
   // Every key is checked even after one fails, so a config with several mistakes reports all of
@@ -553,15 +561,20 @@ static void gallery_config_load_fields(struct GalleryConfig* gallery_config,
   }
 
   normalize_base_url(gallery_config, log);
+  // A default directory resolves against the config's directory too, so that `-c sub/fram.toml`
+  // without `output_dir` writes `sub/public`. A key that is absent or rejected keeps it.
+  gallery_config->media_dir = path_resolve(config_dir, gallery_config->media_dir, perm);
+  gallery_config->output_dir = path_resolve(config_dir, gallery_config->output_dir, perm);
+  gallery_config->templates_dir = path_resolve(config_dir, gallery_config->templates_dir, perm);
+  gallery_config->static_dir = path_resolve(config_dir, gallery_config->static_dir, perm);
   gallery_config->is_media_dir_rejected =
-      copy_dir(table, "media_dir", MEDIA_DIR_DEFAULT, perm, &gallery_config->media_dir, log) != 0;
-  gallery_config->is_output_dir_rejected = copy_dir(table, "output_dir", OUTPUT_DIR_DEFAULT, perm,
-                                                    &gallery_config->output_dir, log) != 0;
+      copy_dir(table, "media_dir", config_dir, perm, &gallery_config->media_dir, log) != 0;
+  gallery_config->is_output_dir_rejected =
+      copy_dir(table, "output_dir", config_dir, perm, &gallery_config->output_dir, log) != 0;
   gallery_config->is_templates_dir_rejected =
-      copy_dir(table, "templates_dir", TEMPLATES_DIR_DEFAULT, perm, &gallery_config->templates_dir,
-               log) != 0;
-  gallery_config->is_static_dir_rejected = copy_dir(table, "static_dir", STATIC_DIR_DEFAULT, perm,
-                                                    &gallery_config->static_dir, log) != 0;
+      copy_dir(table, "templates_dir", config_dir, perm, &gallery_config->templates_dir, log) != 0;
+  gallery_config->is_static_dir_rejected =
+      copy_dir(table, "static_dir", config_dir, perm, &gallery_config->static_dir, log) != 0;
   (void)normalize_album_template(gallery_config, log);
   (void)copy_template_names(table, "aggregate_templates", perm,
                             &gallery_config->aggregate_templates,
@@ -878,18 +891,22 @@ static void normalize_base_url(struct GalleryConfig* gallery_config, struct Log*
 
 static int copy_dir(toml_datum_t table,
                     const char* key,
-                    struct Str fallback,
+                    struct Str config_dir,
                     struct Arena* arena,
                     struct Str* value_out,
                     struct Log* log) {
-  if (copy_string(table, key, false, arena, value_out, log) != 0) {
+  struct Str dir = {0};
+  if (copy_string(table, key, false, arena, &dir, log) != 0) {
     return -1;
   }
-  *value_out = trim_trailing_slashes(*value_out);
-  if (value_out->len == 0) {
-    *value_out = fallback;
+  if (dir.data == NULL) {
+    return 0;
+  }
+  dir = trim_trailing_slashes(dir);
+  if (dir.len == 0) {
     return log_error(log, "config key '%s' must not be empty", key);
   }
+  *value_out = path_resolve(config_dir, dir, arena);
   return 0;
 }
 

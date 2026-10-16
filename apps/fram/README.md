@@ -4,7 +4,7 @@
 
 <h1 align="center"><code>fram</code> /fɹeɪ̯m/</h1>
 
-`fram` is a small static photo and video gallery generator written in C17. It uses Mustache templates to convert a directory tree of JPEG and MP4 files into album pages, with resized WebP images of each photo and video.
+`fram` is a static photo and video gallery generator, written in C17. It uses Mustache templates to convert a directory tree of JPEG and MP4 files into album pages, with resized WebP images of each photo and video.
 
 ## LLM disclosure
 
@@ -22,11 +22,12 @@ Download a prebuilt binary from a `fram-v` release on the [Releases](https://git
 `fram` has two commands:
 
 - `fram build`: Generate the gallery in `output_dir`. This command has these flags:
+  - `-c, --config PATH`: Read the configuration from `PATH`. The default is `fram.toml` in the working directory.
   - `-w, --workers N`: Set the maximum number of worker threads for the build. `N` must be a positive integer. The default is the number of CPUs that `fram` detects. The build never runs more workers than the number of media files or the number of albums, whichever is larger, and never more than four workers for each online CPU.
   - `-n, --dry-run`: Report the changes that the build would make, but do not make them. See [Dry run](#dry-run).
   - `--force`: Ignore the [build cache](#build-cache) for this build.
   - `-v, --verbose`: Print build progress to `stderr`.
-- `fram config`: Print the resolved project configuration as TOML. It leaves out an optional string that is empty.
+- `fram config`: Print the resolved configuration as TOML. It also takes `-c, --config PATH`. It leaves out an optional string that is empty.
 
 There's also these options:
 
@@ -38,7 +39,7 @@ A command exits with status 0 when it succeeds, 1 when it fails, and 2 when it r
 
 ### Project layout
 
-Run `fram` from a directory that has this layout. The example uses the default directory names:
+Run `fram` from a directory that has this layout, or name its config with `-c`. The example uses the default directory names:
 
 ```text
 media/
@@ -90,8 +91,8 @@ This table lists every key that the config file can contain. `fram` rejects any 
 | `description` | Required | The description of the gallery, `gallery.description` in templates. |
 | `author` | Required | The name of the gallery's author, `gallery.author` in templates. |
 | `base_url` | `""` | Optional. The absolute URL where you deploy the gallery. If it is set, it must be an `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. `fram` removes any trailing `/`. If it is not set, a template can read it as an empty section. |
-| `output_dir` | `"public"` | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
 | `media_dir` | `"media"` | The directory that contains the media files. |
+| `output_dir` | `"public"` | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
 | `templates_dir` | `"templates"` | The directory that contains the templates and partials. |
 | `static_dir` | `"static"` | The directory of files that the build copies into `output_dir` without changes. |
 | `album_template` | `"album.html"` | The template for each album page. |
@@ -100,7 +101,7 @@ This table lists every key that the config file can contain. `fram` rejects any 
 | `sort` | `{ albums = "asc", media = "asc" }` | The order of the immediate child albums and the direct media items of each album, by source filename: `"asc"` or `"desc"`. |
 | `video_frame_seconds` | `1` | The preferred position of the video poster frame, in seconds. A video that is shorter than this uses its midpoint. |
 
-`fram` removes trailing `/` characters from the values of the four directory keys. A directory value must not be empty. It can be an absolute path, or a relative path that contains `..`.
+`fram` resolves each path in the config, the defaults included, against the directory of the config file, so `-c sub/fram.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from the values of the four directory keys. A directory value must not be empty. It can be an absolute path, or a relative path that contains `..`. `fram config` prints every path resolved.
 
 A template name in the configuration must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.`, and `/`. It cannot contain an empty segment, or the segment `.` or `..`. The name of an aggregate template is both its source path below `templates_dir` and its output path below `output_dir`. So a name that contains `/` creates the same subdirectories in `output_dir`. If `aggregate_templates` is an empty array, the build renders no aggregate templates.
 

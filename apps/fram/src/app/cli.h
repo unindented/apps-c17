@@ -29,10 +29,10 @@ enum CliCommand {
   /** No recognized command. Only version and help may run without one. */
   CLI_COMMAND_NONE,
 
-  /** Build the gallery in the current directory. */
+  /** Build the gallery. */
   CLI_COMMAND_BUILD,
 
-  /** Print the resolved project configuration. */
+  /** Print the resolved configuration. */
   CLI_COMMAND_CONFIG,
 };
 
@@ -43,6 +43,12 @@ struct CliOptions {
 
   /** Command the positional argument selected. It also selects the help or usage text. */
   enum CliCommand command;
+
+  /**
+   * Config file that `-c` named, as a copy in the arena `cli_parse` was given, or
+   * `GALLERY_CONFIG_PATH_DEFAULT` when `-c` was not given.
+   */
+  struct Str config_path;
 
   /**
    * Requested worker count, or `0` when `--workers` was not given. `0` is never a valid request,

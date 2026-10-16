@@ -11,13 +11,12 @@ struct Log;
 struct Os;
 
 /**
- * Path every command loads its site configuration from, relative to the working directory.
+ * Path every command loads its site configuration from when `-c` names none, relative to the
+ * working directory.
  *
- * It is declared here rather than inside a command, because two commands need it and must agree on
- * it. `cmd_config_run` reads it, and `cmd_build_run` both reads it and claims it as a build input,
- * so no output path can overwrite it. `site_config_load` still takes the path as an argument,
- * because tests load fixtures from elsewhere. This is the default the commands pass, not a bound on
- * the loader.
+ * `cli_parse` gives it to both commands when `-c` is not given, so it is declared once here. Each
+ * command loads the path it receives, and `cmd_build_run` also claims that path as a build input,
+ * so no output path can overwrite it.
  *
  * It is `extern`, with the definition in `site_config.c`, rather than a `static` initializer in
  * this header. Every translation unit then shares one object instead of getting a copy of its own
@@ -26,8 +25,8 @@ struct Os;
 extern const struct Str SITE_CONFIG_PATH_DEFAULT;
 
 /**
- * Site configuration loaded from `sosig.toml`. Every string and array it points at is either a
- * default literal or a copy in the arena `site_config_load` was given.
+ * Site configuration loaded from a config file, `sosig.toml` by default. Every string and array it
+ * points at is either a default literal or a copy in the arena `site_config_load` was given.
  */
 struct SiteConfig {
   /** Required title of the site. */
@@ -125,13 +124,15 @@ struct SiteConfig {
 void site_config_init(struct SiteConfig* site_config) __attribute__((nonnull(1)));
 
 /**
- * @brief Loads `sosig.toml` configuration into `site_config`.
+ * @brief Loads `config_path` into `site_config`.
  *
  * Reads and parses the file, rejects a key outside the schema, validates required keys and template
- * names, and copies values into `perm` over the defaults from `site_config_init`.
+ * names, and copies values into `perm` over the defaults from `site_config_init`. Each directory,
+ * the defaults included, resolves against the directory of `config_path`.
  *
  * @param site_config Initialized config that receives the loaded values. Must not be `NULL`.
- * @param config_path Path to the TOML configuration file.
+ * @param config_path Path to the TOML configuration file. Relative paths in the file resolve
+ *                    against its directory.
  * @param os          Host the file is read from. Must not be `NULL`.
  * @param perm        Arena that owns the loaded values for as long as the config is used. Must not
  *                    be `NULL`.
@@ -154,8 +155,9 @@ int site_config_load(struct SiteConfig* site_config,
 /**
  * @brief Writes the effective configuration to standard output as valid TOML.
  *
- * The output round-trips. Reloading it through `site_config_load` yields the same values. The text
- * is formatted whole in `scratch` and printed in one `os_print` call.
+ * Every directory is printed resolved, so the output round-trips: reloading it through
+ * `site_config_load` from the working directory yields the same values. The text is formatted whole
+ * in `scratch` and printed in one `os_print` call.
  *
  * @param site_config Config to serialize. Must be fully populated (as after a successful
  *                    `site_config_load`). Must not be `NULL`.

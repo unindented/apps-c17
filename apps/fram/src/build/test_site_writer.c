@@ -130,7 +130,7 @@ static void test_write_album_pages_names_root_album_in_words(void) {
   struct Log log = test_log();
 
   TEST_CHECK(site_writer_write_album_pages(&writer, albums, 1, rendered, test_arena(), &log) == -1);
-  TEST_CHECK(test_log_is(&log, "failed to write output for the root album: %s ('public')\n",
+  TEST_CHECK(test_log_is(&log, "failed to write page for the root album: %s ('public')\n",
                          strerror(EISDIR)));
 }
 
@@ -151,7 +151,7 @@ static void test_write_album_pages_quotes_sub_album_source_dir(void) {
   struct Log log = test_log();
 
   TEST_CHECK(site_writer_write_album_pages(&writer, albums, 1, rendered, test_arena(), &log) == -1);
-  TEST_CHECK(test_log_is(&log, "failed to write output for 'root album': %s ('public')\n",
+  TEST_CHECK(test_log_is(&log, "failed to write page for 'root album': %s ('public')\n",
                          strerror(EISDIR)));
 }
 
@@ -178,8 +178,7 @@ static void test_write_aggregates_reports_write_failure(void) {
 
   TEST_CHECK(site_writer_write_aggregates(&writer, &gallery_config, &root, os, test_arena(),
                                           test_arena(), &log) == -1);
-  TEST_CHECK(test_log_is(&log, "failed to write template output: %s ('public/map.xml')\n",
-                         strerror(EISDIR)));
+  TEST_CHECK(test_log_is(&log, "failed to write page: %s ('public/map.xml')\n", strerror(EISDIR)));
 }
 
 // A failed static copy names the operation and the cause, then the path that failed: the

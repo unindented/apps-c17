@@ -159,15 +159,17 @@ static int site_config_load_toml(struct Str config_path,
  *
  * @param site_config Config that receives the values. Must not be `NULL`.
  * @param table       Parsed TOML top-level table.
+ * @param config_dir  Directory a relative directory resolves against, or empty for the working one.
  * @param perm        Arena that owns the copied values. Must not be `NULL`.
  * @param scratch     Arena for validation temporaries.
  * @param log         Log that receives every error. Must not be `NULL`.
  */
 static void site_config_load_fields(struct SiteConfig* site_config,
                                     toml_datum_t table,
+                                    struct Str config_dir,
                                     struct Arena* perm,
                                     struct Arena scratch,
-                                    struct Log* log) __attribute__((nonnull(1, 3, 5)));
+                                    struct Log* log) __attribute__((nonnull(1, 4, 6)));
 
 /**
  * @brief Copies one string key into the arena, enforcing required keys.
@@ -243,7 +245,8 @@ static void normalize_base_url(struct SiteConfig* site_config, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Copies one optional directory key, trims its trailing `/` and rejects an empty result.
+ * @brief Copies one optional directory key, trims its trailing `/`, rejects an empty result, and
+ *        resolves it against `config_dir`.
  *
  * A trailing slash would otherwise survive into path construction, where it defeats the
  * `<content_dir>/` prefix strip that derives an entry's section and so leaks the content directory
@@ -251,20 +254,20 @@ static void normalize_base_url(struct SiteConfig* site_config, struct Log* log)
  * `site_config_print` round-trip the normalized form. The location is not otherwise constrained. An
  * absolute or parent-relative directory stays valid.
  *
- * @param table     Parsed TOML top-level table.
- * @param key       Config key name, used in diagnostics. Must not be `NULL`.
- * @param fallback  Default the field holds after any rejection, so later phases still have a
- *                  directory.
- * @param arena     Arena that owns the copied value. Must not be `NULL`.
- * @param value_out Config field holding the directory, which keeps its value when the key is
- *                  absent. Must not be `NULL`.
- * @param log       Log that receives the error. Must not be `NULL`.
+ * @param table      Parsed TOML top-level table.
+ * @param key        Config key name, used in diagnostics. Must not be `NULL`.
+ * @param config_dir Directory a relative directory resolves against, or empty for the working one.
+ * @param arena      Arena that owns the copied value. Must not be `NULL`.
+ * @param value_out  Receives the resolved directory when the key is present and valid, and keeps
+ *                   its value otherwise, so later phases still have a directory. Must not be
+ *                   `NULL`.
+ * @param log        Log that receives the error. Must not be `NULL`.
  * @return `0` when the key is absent or accepted, or `-1` when it is not a string, holds a `NUL`
  *         byte, or is empty once trimmed.
  */
 static int copy_dir(toml_datum_t table,
                     const char* key,
-                    struct Str fallback,
+                    struct Str config_dir,
                     struct Arena* arena,
                     struct Str* value_out,
                     struct Log* log) __attribute__((nonnull(2, 4, 5, 6)));
@@ -389,9 +392,11 @@ int site_config_load(struct SiteConfig* site_config,
     return -1;
   }
 
-  // A key that fails validation is in `log` already, and the load still succeeded in the sense this
-  // result reports: the file was read and parsed.
-  site_config_load_fields(site_config, parsed.toptab, perm, scratch, log);
+  // A relative path in the file names a place next to the file, so the build can run from any
+  // directory. A key that fails validation is in `log` already, and the load still succeeded in the
+  // sense this result reports: the file was read and parsed.
+  const struct Str config_dir = path_file_dir(config_path);
+  site_config_load_fields(site_config, parsed.toptab, config_dir, perm, scratch, log);
   toml_free(parsed);
   return 0;
 }
@@ -438,6 +443,7 @@ static int site_config_load_toml(struct Str config_path,
 
 static void site_config_load_fields(struct SiteConfig* site_config,
                                     toml_datum_t table,
+                                    struct Str config_dir,
                                     struct Arena* perm,
                                     struct Arena scratch,
                                     struct Log* log) {
@@ -474,14 +480,20 @@ static void site_config_load_fields(struct SiteConfig* site_config,
     (void)copy_string(table, optional_strings[i].key, optional_strings[i].is_required, perm,
                       optional_strings[i].field, log);
   }
-  site_config->is_content_dir_rejected = copy_dir(table, "content_dir", CONTENT_DIR_DEFAULT, perm,
-                                                  &site_config->content_dir, log) != 0;
+  // A default directory resolves against the config's directory too, so that `-c sub/sosig.toml`
+  // without `output_dir` writes `sub/public`. A key that is absent or rejected keeps it.
+  site_config->content_dir = path_resolve(config_dir, site_config->content_dir, perm);
+  site_config->output_dir = path_resolve(config_dir, site_config->output_dir, perm);
+  site_config->templates_dir = path_resolve(config_dir, site_config->templates_dir, perm);
+  site_config->static_dir = path_resolve(config_dir, site_config->static_dir, perm);
+  site_config->is_content_dir_rejected =
+      copy_dir(table, "content_dir", config_dir, perm, &site_config->content_dir, log) != 0;
   site_config->is_output_dir_rejected =
-      copy_dir(table, "output_dir", OUTPUT_DIR_DEFAULT, perm, &site_config->output_dir, log) != 0;
-  site_config->is_templates_dir_rejected = copy_dir(table, "templates_dir", TEMPLATES_DIR_DEFAULT,
-                                                    perm, &site_config->templates_dir, log) != 0;
+      copy_dir(table, "output_dir", config_dir, perm, &site_config->output_dir, log) != 0;
+  site_config->is_templates_dir_rejected =
+      copy_dir(table, "templates_dir", config_dir, perm, &site_config->templates_dir, log) != 0;
   site_config->is_static_dir_rejected =
-      copy_dir(table, "static_dir", STATIC_DIR_DEFAULT, perm, &site_config->static_dir, log) != 0;
+      copy_dir(table, "static_dir", config_dir, perm, &site_config->static_dir, log) != 0;
   if (!path_is_safe_relative(site_config->content_template)) {
     (void)log_error(log,
                     "config key 'content_template' must be a safe relative template name: '%.*s'",
@@ -654,18 +666,23 @@ static void normalize_base_url(struct SiteConfig* site_config, struct Log* log) 
 
 static int copy_dir(toml_datum_t table,
                     const char* key,
-                    struct Str fallback,
+                    struct Str config_dir,
                     struct Arena* arena,
                     struct Str* value_out,
                     struct Log* log) {
-  if (copy_string(table, key, false, arena, value_out, log) != 0) {
+  struct Str dir = {0};
+  if (copy_string(table, key, false, arena, &dir, log) != 0) {
     return -1;
   }
-  *value_out = trim_trailing_slashes(*value_out);
-  if (value_out->len == 0) {
-    *value_out = fallback;
+  // A present key is a copy that is never `NULL`, even when it is empty.
+  if (dir.data == NULL) {
+    return 0;
+  }
+  dir = trim_trailing_slashes(dir);
+  if (dir.len == 0) {
     return log_error(log, "config key '%s' must not be empty", key);
   }
+  *value_out = path_resolve(config_dir, dir, arena);
   return 0;
 }
 

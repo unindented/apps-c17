@@ -59,6 +59,7 @@ static enum ExitCode cli_dispatch_command(const struct CliOptions* options, stru
   switch (options->command) {
     case CLI_COMMAND_BUILD: {
       const struct BuildOptions build_options = {
+          .config_path = options->config_path,
           .worker_count = options->worker_count,
           .is_verbose = options->is_verbose,
           .is_dry_run = options->is_dry_run,
@@ -67,7 +68,7 @@ static enum ExitCode cli_dispatch_command(const struct CliOptions* options, stru
       return cmd_build_run(&build_options, os);
     }
     case CLI_COMMAND_CONFIG:
-      return cmd_config_run(os);
+      return cmd_config_run(options->config_path, os);
     case CLI_COMMAND_NONE:
       break;
   }

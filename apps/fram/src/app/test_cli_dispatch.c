@@ -70,7 +70,9 @@ static enum ExitCode dispatch_capturing(int argc,
  * @brief Creates and enters a minimal buildable gallery fixture with two photos.
  *
  * Both photos are in the root album, so the probe and derivative phases run two jobs and the album
- * page render runs one.
+ * page render runs one. Beside `fram.toml`, `sub/fram.toml` names the same media and templates from
+ * a subdirectory, and leaves `output_dir` and `static_dir` at their defaults, which are below
+ * `sub`.
  *
  * Cleans partial setup before returning a failure.
  *
@@ -87,11 +89,18 @@ static int enter_gallery_fixture(char root_dir[static 1], int* saved_dir_fd_out)
       "title = \"Gallery\"\n"
       "description = \"Test description\"\n"
       "author = \"Author\"\n";
+  static const char sub_config[] =
+      "title = \"Gallery\"\n"
+      "description = \"Test description\"\n"
+      "author = \"Author\"\n"
+      "media_dir = \"../media\"\n"
+      "templates_dir = \"../templates\"\n";
   static const char album_template[] = "<title>{{album.title}}</title>\n";
   struct Arena arena = test_arena();
   struct Str jpeg = {0};
   struct Log log = test_log();
   bool written = write_fixture_file(root_dir, "fram.toml", config) == 0 &&
+                 write_fixture_file(root_dir, "sub/fram.toml", sub_config) == 0 &&
                  write_fixture_file(root_dir, "templates/album.html", album_template) == 0 &&
                  test_jpeg_encode(24, 12, &arena, &jpeg) == 0;
   static const char* const photo_paths[] = {"media/a.jpg", "media/b.jpg"};
@@ -146,9 +155,10 @@ static void test_help_action_reports_ok(void) {
   TEST_CHECK(dispatch_out.stderr_out[0] == '\0');
 }
 
-// The `config` command is dispatched to `cmd_config_run`, not to a build: the resolved
-// configuration lands on `stdout` and no `public/` directory appears. Dispatching it to the wrong
-// command would otherwise still exit `0` in a valid gallery.
+// `config -c` is dispatched to `cmd_config_run` with the path it names, not to a build: the
+// configuration of `sub/fram.toml`, with every directory resolved against `sub`, lands on `stdout`,
+// and no `public/` directory appears. Dispatching it to the wrong command would otherwise still
+// exit `0` in a valid gallery, and dropping the path would print the fixture's own `fram.toml`.
 static void test_config_command_is_dispatched(void) {
   char root_dir[] = "/tmp/fram-dispatch-gallery.XXXXXX";
   int saved_dir_fd = -1;
@@ -156,17 +166,17 @@ static void test_config_command_is_dispatched(void) {
     return;
   }
 
-  char* argv[] = {"fram", "config", NULL};
+  char* argv[] = {"fram", "config", "-c", "sub/fram.toml", NULL};
   struct DispatchOutput dispatch_out;
-  TEST_CHECK(dispatch_capturing(2, argv, &dispatch_out) == EXIT_CODE_OK);
+  TEST_CHECK(dispatch_capturing(4, argv, &dispatch_out) == EXIT_CODE_OK);
   TEST_CHECK(strcmp(dispatch_out.stdout_out,
                     "title = \"Gallery\"\n"
                     "description = \"Test description\"\n"
                     "author = \"Author\"\n"
-                    "media_dir = \"media\"\n"
-                    "output_dir = \"public\"\n"
-                    "templates_dir = \"templates\"\n"
-                    "static_dir = \"static\"\n"
+                    "media_dir = \"sub/../media\"\n"
+                    "output_dir = \"sub/public\"\n"
+                    "templates_dir = \"sub/../templates\"\n"
+                    "static_dir = \"sub/static\"\n"
                     "album_template = \"album.html\"\n"
                     "aggregate_templates = []\n"
                     "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
@@ -177,18 +187,19 @@ static void test_config_command_is_dispatched(void) {
   TEST_CHECK(dispatch_out.stderr_out[0] == '\0');
   // No page was written, which is what separates `config` from `build`.
   TEST_CHECK(access("public/index.html", F_OK) != 0);
+  TEST_CHECK(access("sub/public", F_OK) != 0);
 
   leave_gallery_fixture(root_dir, saved_dir_fd);
 }
 
 // The `build` command is dispatched to `cmd_build_run` with the parsed options attached, so the
-// worker count, the verbose flag, the dry-run flag and the force flag reach the build rather than
-// being dropped on the way. A dry run prints its listing and leaves no `public/`, which only a
-// carried flag explains. The verbose phase lines naming the requested count, and the one saying the
-// build cache is ignored, are the only externally visible evidence that the other three fields were
-// carried across. The test asks for one worker, so a dropped count would show the detected count,
-// on a host with more than one core. One worker also finishes the jobs in order, so the progress
-// lines can be compared.
+// config path, the worker count, the verbose flag, the dry-run flag and the force flag reach the
+// build rather than being dropped on the way. A dry run of `sub/fram.toml` prints a listing below
+// `sub/public` and leaves no output directory, which only a carried path and flag explain. The
+// verbose phase lines naming the requested count, and the one saying the build cache is ignored,
+// are the only externally visible evidence that the other three fields were carried across. The
+// test asks for one worker, so a dropped count would show the detected count, on a host with more
+// than one core. One worker also finishes the jobs in order, so the progress lines can be compared.
 static void test_build_command_receives_parsed_options(void) {
   char root_dir[] = "/tmp/fram-dispatch-gallery.XXXXXX";
   int saved_dir_fd = -1;
@@ -196,19 +207,20 @@ static void test_build_command_receives_parsed_options(void) {
     return;
   }
 
-  char* dry_run_argv[] = {"fram", "build", "--dry-run", NULL};
+  char* dry_run_argv[] = {"fram", "build", "--dry-run", "-c", "sub/fram.toml", NULL};
   struct DispatchOutput dry_run_out;
-  TEST_CHECK(dispatch_capturing(3, dry_run_argv, &dry_run_out) == EXIT_CODE_OK);
+  TEST_CHECK(dispatch_capturing(5, dry_run_argv, &dry_run_out) == EXIT_CODE_OK);
   // The derivative lines name the recipe directory, which every change to the default derivatives
   // renames, so only the first and the last line are spelled out.
-  static const char first_line[] = "write\tpublic/index.html\n";
-  static const char last_line[] = "write\tpublic/_fram/v1-build-cache.tsv\n";
+  static const char first_line[] = "write\tsub/public/index.html\n";
+  static const char last_line[] = "write\tsub/public/_fram/v1-build-cache.tsv\n";
   const size_t stdout_len = strlen(dry_run_out.stdout_out);
   TEST_CHECK(strncmp(dry_run_out.stdout_out, first_line, sizeof(first_line) - 1) == 0);
   TEST_CHECK(stdout_len >= sizeof(last_line) - 1 &&
              strcmp(dry_run_out.stdout_out + stdout_len - (sizeof(last_line) - 1), last_line) == 0);
   TEST_MSG("stdout: '%s'", dry_run_out.stdout_out);
   TEST_CHECK(dry_run_out.stderr_out[0] == '\0');
+  TEST_CHECK(access("sub/public", F_OK) != 0);
   TEST_CHECK(access("public", F_OK) != 0);
 
   char* argv[] = {"fram", "build", "--verbose", "--workers=1", "--force", NULL};

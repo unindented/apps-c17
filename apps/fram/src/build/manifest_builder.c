@@ -683,7 +683,7 @@ static int claim_build_inputs_list_templates(struct PathList* template_paths,
   // An empty suffix matches every filename, so the walk lists the whole tree.
   static const struct Str all_suffixes[] = {STR_INIT("")};
   if (walk_files_with_suffixes(template_paths, templates_dir, output_dir, all_suffixes, 1, false,
-                               os, perm, scratch, S("failed to list template files"), log) != 0) {
+                               os, perm, scratch, S("failed to list templates"), log) != 0) {
     // The failure names the directory or entry that failed, which is more precise than the
     // configured root, so the root is not repeated here.
     return -1;

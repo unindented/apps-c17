@@ -61,6 +61,29 @@ static int load_site_config(struct SiteConfig* site_config,
 }
 
 /**
+ * @brief Loads a config from a path relative to a fixture root, with the root as the working
+ *        directory, as a command loads the path that `-c` names.
+ *
+ * @param site_config Initialized config that receives the values. Must not be `NULL`.
+ * @param root_dir    Terminated fixture root to load from. Must not be `NULL`.
+ * @param config_path Terminated path of the config, relative to `root_dir`. Must not be `NULL`.
+ * @param log         Log that receives every error the load records. Must not be `NULL`.
+ * @return The result of `load_site_config`, or `-1` when the working directory cannot be changed or
+ *         restored.
+ */
+static int load_site_config_in(struct SiteConfig* site_config,
+                               const char* root_dir,
+                               const char* config_path,
+                               struct Log* log) {
+  int saved_dir_fd = -1;
+  if (working_dir_enter(root_dir, &saved_dir_fd) != 0) {
+    return -1;
+  }
+  const int rc = load_site_config(site_config, config_path, log);
+  return working_dir_leave(saved_dir_fd) == 0 ? rc : -1;
+}
+
+/**
  * @brief Renders a site configuration into a terminated text buffer.
  *
  * `site_config_print` writes to standard output, so its descriptor is captured while it runs.
@@ -110,6 +133,24 @@ static int write_temp_config(struct TempConfig* temp_config_out, const char* tom
 }
 
 /**
+ * @brief Reports whether `dir` is `name` resolved against the fixture root of `temp_config`, the
+ *        directory its config is in.
+ *
+ * @param dir         Directory the load produced.
+ * @param temp_config Fixture whose config the load read. Must not be `NULL`.
+ * @param name        Terminated directory as the config names it, or its default. Must not be
+ *                    `NULL`.
+ * @return `true` when `dir` is `<root_dir>/<name>`.
+ */
+static bool is_fixture_dir(struct Str dir, const struct TempConfig* temp_config, const char* name) {
+  struct Arena arena = test_arena();
+  struct Buf expected = {.arena = &arena};
+  buf_printf(&expected, "%s/%s", temp_config->root_dir, name);
+  TEST_MSG("expected '%s', got '%.*s'", buf_cstr(&expected), STR_FMT(dir));
+  return str_eq(dir, buf_str(&expected));
+}
+
+/**
  * @brief Loads a config with the given extra TOML and checks it fails with one diagnostic.
  *
  * @param toml_extra Terminated TOML appended to the required keys of an otherwise valid config.
@@ -153,6 +194,7 @@ static void check_load_rejects_permalink(const char* permalink, const char* expe
 }
 
 // Loading a file with only the required keys fills the rest from `site_config_init`'s defaults.
+// Each default directory resolves against the directory of the config.
 static void test_load_applies_required_and_defaults(void) {
   const char toml[] =
       "title = \"Example Site\"\n"
@@ -174,10 +216,10 @@ static void test_load_applies_required_and_defaults(void) {
   TEST_CHECK(str_eq(config.author, S("Example Author")));
   TEST_CHECK(str_eq(config.base_url, S("https://example.com")));
   TEST_CHECK(str_eq(config.permalink, S("/{section}/{slug}.html")));
-  TEST_CHECK(str_eq(config.content_dir, S("content")));
-  TEST_CHECK(str_eq(config.output_dir, S("public")));
-  TEST_CHECK(str_eq(config.templates_dir, S("templates")));
-  TEST_CHECK(str_eq(config.static_dir, S("static")));
+  TEST_CHECK(is_fixture_dir(config.content_dir, &temp_config, "content"));
+  TEST_CHECK(is_fixture_dir(config.output_dir, &temp_config, "public"));
+  TEST_CHECK(is_fixture_dir(config.templates_dir, &temp_config, "templates"));
+  TEST_CHECK(is_fixture_dir(config.static_dir, &temp_config, "static"));
   TEST_CHECK(str_eq(config.content_template, S("content.html")));
   if (!TEST_CHECK(config.aggregate_template_count == 1)) {
     goto cleanup;
@@ -222,10 +264,10 @@ static void test_load_overrides_optional_keys(void) {
   TEST_CHECK(load_site_config(&config, temp_config.path, &log) == 0);
 
   TEST_CHECK(str_eq(config.permalink, S("/{slug}/index.html")));
-  TEST_CHECK(str_eq(config.content_dir, S("posts")));
-  TEST_CHECK(str_eq(config.output_dir, S("dist")));
-  TEST_CHECK(str_eq(config.templates_dir, S("layouts")));
-  TEST_CHECK(str_eq(config.static_dir, S("files")));
+  TEST_CHECK(is_fixture_dir(config.content_dir, &temp_config, "posts"));
+  TEST_CHECK(is_fixture_dir(config.output_dir, &temp_config, "dist"));
+  TEST_CHECK(is_fixture_dir(config.templates_dir, &temp_config, "layouts"));
+  TEST_CHECK(is_fixture_dir(config.static_dir, &temp_config, "files"));
   TEST_CHECK(str_eq(config.content_template, S("post.html")));
   if (!TEST_CHECK(config.aggregate_template_count == 2)) {
     goto cleanup;
@@ -246,8 +288,8 @@ cleanup:
 
 // Directory keys have trailing separators trimmed at load. Left in place, a trailing slash defeats
 // the `<content_dir>/` prefix strip during section derivation and leaks the content directory name
-// into every URL. The end-to-end consequence is asserted in the `cmd_build` tests. An absolute or
-// parent-relative directory survives normalization unchanged.
+// into every URL. The end-to-end consequence is asserted in the `cmd_build` tests. An absolute
+// directory survives normalization unchanged, and a parent-relative one resolves as it is written.
 static void test_load_normalizes_directory_keys(void) {
   const char toml[] =
       "title = \"Example Site\"\n"
@@ -268,12 +310,44 @@ static void test_load_normalizes_directory_keys(void) {
   struct Log log = test_log();
   TEST_CHECK(load_site_config(&config, temp_config.path, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(str_eq(config.content_dir, S("content")));
+  TEST_CHECK(is_fixture_dir(config.content_dir, &temp_config, "content"));
   TEST_CHECK(str_eq(config.output_dir, S("/srv/www")));
-  TEST_CHECK(str_eq(config.templates_dir, S("../shared/templates")));
-  TEST_CHECK(str_eq(config.static_dir, S("files")));
+  TEST_CHECK(is_fixture_dir(config.templates_dir, &temp_config, "../shared/templates"));
+  TEST_CHECK(is_fixture_dir(config.static_dir, &temp_config, "files"));
 
   remove_fixture_tree(temp_config.root_dir);
+}
+
+// A relative directory, given or default, resolves against the config's directory, and an absolute
+// one stays as it is, so `-c site/sosig.toml` reads and writes next to the config.
+static void test_load_resolves_directories_against_config_dir(void) {
+  char root_dir[] = "/tmp/sosig-site-config-sub.XXXXXX";
+  if (init_fixture_dir(root_dir) != 0) {
+    return;
+  }
+  struct SiteConfig config;
+  site_config_init(&config);
+  struct Log log = test_log();
+  if (!TEST_CHECK(write_fixture_file(root_dir, "site/sosig.toml",
+                                     "title = \"Example Site\"\n"
+                                     "description = \"Example notes\"\n"
+                                     "author = \"Example Author\"\n"
+                                     "base_url = \"https://example.com\"\n"
+                                     "content_dir = \"../posts\"\n"
+                                     "templates_dir = \"layouts/\"\n"
+                                     "static_dir = \"/srv/static\"\n") == 0)) {
+    goto cleanup;
+  }
+
+  TEST_CHECK(load_site_config_in(&config, root_dir, "site/sosig.toml", &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(str_eq(config.content_dir, S("site/../posts")));
+  TEST_CHECK(str_eq(config.output_dir, S("site/public")));
+  TEST_CHECK(str_eq(config.templates_dir, S("site/layouts")));
+  TEST_CHECK(str_eq(config.static_dir, S("/srv/static")));
+
+cleanup:
+  remove_fixture_tree(root_dir);
 }
 
 // An absolute `base_url` keeps its scheme, host, port and path, and loses only a trailing `/`,
@@ -333,8 +407,8 @@ static void test_load_leaves_directory_overlap_to_the_build(void) {
   struct Log log = test_log();
   TEST_CHECK(load_site_config(&config, temp_config.path, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(str_eq(config.content_dir, S("posts")));
-  TEST_CHECK(str_eq(config.output_dir, S("posts/generated")));
+  TEST_CHECK(is_fixture_dir(config.content_dir, &temp_config, "posts"));
+  TEST_CHECK(is_fixture_dir(config.output_dir, &temp_config, "posts/generated"));
 
   remove_fixture_tree(temp_config.root_dir);
 }
@@ -574,7 +648,8 @@ static void test_load_returns_zero_with_key_errors(void) {
 
 // A rejected value is never stored. Each rejected key keeps the default `site_config_init` gave it,
 // so later checks run against a usable config, while the valid keys around them still load. A
-// rejected directory key is marked as such.
+// rejected directory key keeps its default resolved against the config's directory, and is marked
+// as rejected.
 static void test_load_keeps_defaults_for_rejected_keys(void) {
   struct TempConfig temp_config;
   if (write_temp_config(&temp_config, TOML_KEYS_INVALID) != 0) {
@@ -585,7 +660,7 @@ static void test_load_keeps_defaults_for_rejected_keys(void) {
   site_config_init(&config);
   struct Log log = test_log();
   TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
-  TEST_CHECK(str_eq(config.content_dir, S("content")));
+  TEST_CHECK(is_fixture_dir(config.content_dir, &temp_config, "content"));
   TEST_CHECK(config.is_content_dir_rejected);
   TEST_CHECK(!config.is_output_dir_rejected);
   TEST_CHECK(!config.is_templates_dir_rejected);
@@ -1143,9 +1218,10 @@ static void test_print_escapes_strings(void) {
                     "frontmatter_ignored_keys = []\n") == 0);
 }
 
-// Printing a config and loading the printed output back yields the same field values, exercising
-// the round-trip invariant documented on `site_config_print` across escaped strings (including a
-// `U+007F` byte), a non-default permalink, and multi-element string arrays.
+// Printing a config and loading the printed output back from the working directory yields the same
+// field values, exercising the round-trip invariant documented on `site_config_print` across
+// escaped strings (including a `U+007F` byte), a non-default permalink, relative directories, and
+// multi-element string arrays.
 static void test_print_load_round_trips(void) {
   static const struct Str aggregates[] = {STR_INIT("index.html"), STR_INIT("archive.html")};
   static const struct Str feeds[] = {STR_INIT("atom.xml")};
@@ -1183,7 +1259,8 @@ static void test_print_load_round_trips(void) {
   struct SiteConfig reloaded;
   site_config_init(&reloaded);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&reloaded, temp_config.path, &log) == 0);
+  // A config in the working directory resolves a relative directory to itself.
+  TEST_CHECK(load_site_config_in(&reloaded, temp_config.root_dir, "sosig.toml", &log) == 0);
 
   TEST_CHECK(str_eq(reloaded.title, config.title));
   TEST_CHECK(str_eq(reloaded.description, config.description));
@@ -1234,7 +1311,8 @@ static void test_print_empty_template_arrays(void) {
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == 0);
+  // Loaded from the working directory, so the directories print as the config names them.
+  TEST_CHECK(load_site_config_in(&config, temp_config.root_dir, "sosig.toml", &log) == 0);
   TEST_CHECK(log.errors == 0);
   if (!TEST_CHECK(config.aggregate_template_count == 0)) {
     goto cleanup;
@@ -1300,6 +1378,8 @@ TEST_LIST = {
     {"load applies required and defaults", test_load_applies_required_and_defaults},
     {"load overrides optional keys", test_load_overrides_optional_keys},
     {"load normalizes directory keys", test_load_normalizes_directory_keys},
+    {"load resolves directories against config dir",
+     test_load_resolves_directories_against_config_dir},
     {"load normalizes base url", test_load_normalizes_base_url},
     {"load leaves directory overlap to the build", test_load_leaves_directory_overlap_to_the_build},
     {"load accepts valid permalinks", test_load_accepts_valid_permalinks},

@@ -97,6 +97,30 @@ struct Str path_basename_without_extension(struct Str file_path);
 struct Str path_parent(struct Str path);
 
 /**
+ * @brief Returns the directory that holds a file, which a relative path the file names resolves
+ *        against.
+ *
+ * It is `path_parent`, except that a file directly below the root is in `/`.
+ *
+ * @param file_path Path of the file.
+ * @return View into `file_path` of its directory, `/` for a file below the root, or an empty view
+ *         for a bare filename, which names a file in the working directory.
+ */
+struct Str path_file_dir(struct Str file_path);
+
+/**
+ * @brief Resolves a path against a directory, as a relative path in a config file resolves against
+ *        the file's directory.
+ *
+ * @param base_dir Directory to resolve against, or empty for the working directory.
+ * @param path     Path to resolve.
+ * @param arena    Arena that owns a joined path. Must not be `NULL`.
+ * @return `path` itself when it is absolute or `base_dir` is empty, otherwise the two joined.
+ */
+struct Str path_resolve(struct Str base_dir, struct Str path, struct Arena* arena)
+    __attribute__((nonnull(3)));
+
+/**
  * @brief Joins two path components into arena-owned storage.
  *
  * Inserts a single `/` between the components only when `base_path` does not already end with one.

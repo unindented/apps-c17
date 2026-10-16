@@ -45,7 +45,7 @@ These words have one meaning everywhere in this document:
 
 [main.c](src/app/main.c) defines `main`. `main` only calls `cli_dispatch` with the POSIX host, so the unit tests can link the code that maps an action to an exit code. These are the other modules in `src/app`:
 
-- [cli](src/app/cli.h): `cli_parse` parses the command line into a subcommand and one of four actions: version, help, run, or error. It never prints and never exits. `cli.c` is the only translation unit that defines `COPT_IMPL`.
+- [cli](src/app/cli.h): `cli_parse` parses the command line into a subcommand and one of four actions: version, help, run, or error. It never prints and never exits. `cli.c` is the only translation unit that defines `COPT_IMPL`. `-c`, `-h` and `-V` apply to every command, and each command lists the other flags that it accepts.
 - [cli_dispatch](src/app/cli_dispatch.h): `cli_dispatch` calls `cli_parse`. For the run action, it calls the subcommand's function. For each other action, it prints one text through `os_print`: the diagnostic for the rejected command line, the `--help` text, or the `--version` text. It formats these texts in a reservation of its own, and releases that reservation when the command or the print returns. A command reserves its own memory.
 - [cmd_build](src/app/cmd_build.h): `cmd_build_run` generates the gallery, as [Build pipeline](#build-pipeline) describes.
 - [cmd_config](src/app/cmd_config.h): `cmd_config_run` loads `fram.toml` and prints the resolved config.

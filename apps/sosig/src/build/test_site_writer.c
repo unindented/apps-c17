@@ -237,8 +237,8 @@ static void test_write_templates_reports_write_failure(void) {
   struct Log log = test_log();
   TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 1, NULL, 0, false,
                                          false, os, output, test_arena(), &log) == -1);
-  TEST_CHECK(test_log_is(&log, "failed to write template output: %s ('public/index.html')\n",
-                         strerror(EISDIR)));
+  TEST_CHECK(
+      test_log_is(&log, "failed to write page: %s ('public/index.html')\n", strerror(EISDIR)));
 }
 
 // A failed static copy names the operation and the cause, then the path that failed: the

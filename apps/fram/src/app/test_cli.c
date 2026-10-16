@@ -38,12 +38,25 @@ static void test_build_command_runs(void) {
   TEST_CHECK(options.worker_count == 0);
 }
 
-// The `config` command resolves to the run action.
+// The `config` command resolves to the run action with the default config path.
 static void test_config_command_runs(void) {
   char* argv[] = {"fram", "config", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_RUN);
   TEST_CHECK(options.command == CLI_COMMAND_CONFIG);
+  TEST_CHECK(str_eq(options.config_path, S("fram.toml")));
+}
+
+// `-c` and `--config` name the config file, before or after the command.
+static void test_config_option_sets_path(void) {
+  char* short_argv[] = {"fram", "-c", "gallery/fram.toml", "config", NULL};
+  char* long_argv[] = {"fram", "build", "--config=other.toml", NULL};
+  const struct CliOptions short_options = parse(short_argv);
+  const struct CliOptions long_options = parse(long_argv);
+  TEST_CHECK(short_options.action == CLI_ACTION_RUN);
+  TEST_CHECK(str_eq(short_options.config_path, S("gallery/fram.toml")));
+  TEST_CHECK(long_options.action == CLI_ACTION_RUN);
+  TEST_CHECK(str_eq(long_options.config_path, S("other.toml")));
 }
 
 // `--verbose` enables verbose output.
@@ -323,6 +336,22 @@ static void test_missing_worker_count_rejected(void) {
   TEST_CHECK(str_eq(options.error_message, S("option '--workers' requires a worker count")));
 }
 
+// `-c` without a path names the option.
+static void test_config_option_requires_path(void) {
+  char* argv[] = {"fram", "config", "-c", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(str_eq(options.error_message, S("option '--config' requires a path")));
+}
+
+// `--config=` gives an empty path, which names the option as a missing path does.
+static void test_config_option_rejects_empty_path(void) {
+  char* argv[] = {"fram", "config", "--config=", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(str_eq(options.error_message, S("option '--config' requires a path")));
+}
+
 // A flag that takes no value rejects an attached `=value` and names the complete token. copt
 // matches only the text before `=`. Without this check, it discards the value and enables
 // `--verbose=0`. The test covers all five flags that take no value. `--version` and `--help` clear
@@ -576,8 +605,14 @@ static void test_print_usage_names_program_and_command(void) {
     TEST_CHECK(strstr(text, cases[i].needle) != NULL);
     if (cases[i].command == CLI_COMMAND_BUILD) {
       TEST_CHECK(strstr(text, "-n, --dry-run") != NULL);
-      TEST_CHECK(strstr(text, "    --force          Ignore the build cache for this build\n") !=
+      TEST_CHECK(strstr(text, "    --force            Ignore the build cache for this build\n") !=
                  NULL);
+    }
+    // Both commands take `-c`, and name its default.
+    if (cases[i].command != CLI_COMMAND_NONE) {
+      TEST_CHECK(strstr(text,
+                        "    -c, --config PATH  Read the configuration from PATH (default: "
+                        "fram.toml)\n") != NULL);
     }
     // The command-less help substitutes the name a second time, in the trailer.
     if (cases[i].command == CLI_COMMAND_NONE) {
@@ -604,6 +639,7 @@ static void test_print_usage_reports_write_failure(void) {
 TEST_LIST = {
     {"build command runs", test_build_command_runs},
     {"config command runs", test_config_command_runs},
+    {"config option sets path", test_config_option_sets_path},
     {"verbose long flag", test_verbose_long_flag},
     {"verbose short flag", test_verbose_short_flag},
     {"dry run long flag", test_dry_run_long_flag},
@@ -633,6 +669,8 @@ TEST_LIST = {
     {"negative worker count rejected", test_negative_worker_count_rejected},
     {"large worker count accepted", test_large_worker_count_accepted},
     {"missing worker count rejected", test_missing_worker_count_rejected},
+    {"config option requires path", test_config_option_requires_path},
+    {"config option rejects empty path", test_config_option_rejects_empty_path},
     {"attached value rejected on valueless flags", test_attached_value_rejected_on_valueless_flags},
     {"attached value rejected on valueless short flags",
      test_attached_value_rejected_on_valueless_short_flags},

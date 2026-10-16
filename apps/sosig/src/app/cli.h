@@ -29,10 +29,10 @@ enum CliCommand {
   /** No recognized command. Only version and help may run without one. */
   CLI_COMMAND_NONE,
 
-  /** Build the site in the current directory. */
+  /** Build the site. */
   CLI_COMMAND_BUILD,
 
-  /** Print the resolved project configuration. */
+  /** Print the resolved configuration. */
   CLI_COMMAND_CONFIG,
 };
 
@@ -43,6 +43,12 @@ struct CliOptions {
 
   /** Command the positional argument selected. It also selects the help or usage text. */
   enum CliCommand command;
+
+  /**
+   * Config file that `-c` named, as a copy in the arena `cli_parse` was given, or
+   * `SITE_CONFIG_PATH_DEFAULT` when `-c` was not given.
+   */
+  struct Str config_path;
 
   /**
    * Requested worker count, or `0` when `--workers` was not given. `0` is never a valid request,
@@ -85,7 +91,8 @@ struct CliOptions {
  * @param options Receives the fully resolved parse result. Must not be `NULL`.
  * @param argc    Argument count.
  * @param argv    Argument vector. Elements after `argv[0]` may be reordered. Must not be `NULL`.
- * @param arena   Arena that owns `error_message`. Must not be `NULL`.
+ * @param arena   Arena that owns `error_message` and a `config_path` that `-c` named. Must not be
+ *                `NULL`.
  */
 void cli_parse(struct CliOptions* options, int argc, char** argv, struct Arena* arena)
     __attribute__((nonnull(1, 3, 4)));

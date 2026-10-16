@@ -15,6 +15,7 @@
 #include "core/buf.h"
 #include "core/error.h"
 #include "core/log.h"
+#include "core/path.h"
 #include "core/str.h"
 #include "domain/gallery_config.h"
 #include "media/image.h"
@@ -115,6 +116,25 @@ static int write_temp_config(struct TempConfig* temp_config_out, const char* tom
 }
 
 /**
+ * @brief Reports whether a loaded directory is a relative path resolved against the fixture root,
+ *        which holds the config.
+ *
+ * @param temp_config   Fixture whose root the path resolves against. Must not be `NULL`.
+ * @param dir           Directory the load produced.
+ * @param relative_path Terminated directory as the config, or its default, gives it. Must not be
+ *                      `NULL`.
+ * @return `true` when `dir` is `relative_path` joined below the fixture root, `false` otherwise.
+ */
+static bool is_resolved(const struct TempConfig* temp_config,
+                        struct Str dir,
+                        const char* relative_path) {
+  struct Arena arena = test_arena();
+  const struct Str expected =
+      path_join(str_from_cstr(temp_config->root_dir), str_from_cstr(relative_path), &arena);
+  return str_eq(dir, expected);
+}
+
+/**
  * @brief Loads a config and checks it fails with one diagnostic.
  *
  * @param toml     Terminated TOML of the whole config.
@@ -153,7 +173,8 @@ static void check_load_rejects(const char* toml_extra, const char* expected) {
   check_load_rejects_whole(toml, expected);
 }
 
-// Loading a file with only the required keys fills the rest from `gallery_config_init`'s defaults.
+// Loading a file with only the required keys fills the rest from `gallery_config_init`'s defaults,
+// each directory resolved against the config's directory.
 static void test_load_applies_required_and_defaults(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"
@@ -173,10 +194,10 @@ static void test_load_applies_required_and_defaults(void) {
   TEST_CHECK(str_eq(config.description, S("Example Description")));
   TEST_CHECK(str_eq(config.author, S("Example Author")));
   TEST_CHECK(str_eq(config.base_url, S("")));
-  TEST_CHECK(str_eq(config.media_dir, S("media")));
-  TEST_CHECK(str_eq(config.output_dir, S("public")));
-  TEST_CHECK(str_eq(config.templates_dir, S("templates")));
-  TEST_CHECK(str_eq(config.static_dir, S("static")));
+  TEST_CHECK(is_resolved(&temp_config, config.media_dir, "media"));
+  TEST_CHECK(is_resolved(&temp_config, config.output_dir, "public"));
+  TEST_CHECK(is_resolved(&temp_config, config.templates_dir, "templates"));
+  TEST_CHECK(is_resolved(&temp_config, config.static_dir, "static"));
   TEST_CHECK(str_eq(config.album_template, S("album.html")));
   TEST_CHECK(config.aggregate_templates != NULL);
   TEST_CHECK(config.aggregate_template_count == 0);
@@ -234,10 +255,10 @@ static void test_load_overrides_optional_keys(void) {
   TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
 
   TEST_CHECK(str_eq(config.base_url, S("https://example.com")));
-  TEST_CHECK(str_eq(config.media_dir, S("photos")));
-  TEST_CHECK(str_eq(config.output_dir, S("dist")));
-  TEST_CHECK(str_eq(config.templates_dir, S("layouts")));
-  TEST_CHECK(str_eq(config.static_dir, S("files")));
+  TEST_CHECK(is_resolved(&temp_config, config.media_dir, "photos"));
+  TEST_CHECK(is_resolved(&temp_config, config.output_dir, "dist"));
+  TEST_CHECK(is_resolved(&temp_config, config.templates_dir, "layouts"));
+  TEST_CHECK(is_resolved(&temp_config, config.static_dir, "files"));
   TEST_CHECK(str_eq(config.album_template, S("pages/album.html")));
   if (!TEST_CHECK(config.aggregate_template_count == 2)) {
     goto cleanup;
@@ -267,8 +288,8 @@ cleanup:
 
 // Directory keys have trailing separators trimmed at load. Left in place, a trailing slash defeats
 // the `<media_dir>/` prefix strip that places each media item in its album. The end-to-end
-// consequence is asserted in the `cmd_build` tests. An absolute or parent-relative directory
-// survives normalization unchanged.
+// consequence is asserted in the `cmd_build` tests. An absolute directory survives normalization
+// unchanged, and a relative one, parent-relative included, resolves against the config's directory.
 static void test_load_normalizes_directory_keys(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"
@@ -288,10 +309,10 @@ static void test_load_normalizes_directory_keys(void) {
   struct Log log = test_log();
   TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(str_eq(config.media_dir, S("media")));
+  TEST_CHECK(is_resolved(&temp_config, config.media_dir, "media"));
   TEST_CHECK(str_eq(config.output_dir, S("/srv/www")));
-  TEST_CHECK(str_eq(config.templates_dir, S("../shared/templates")));
-  TEST_CHECK(str_eq(config.static_dir, S("files")));
+  TEST_CHECK(is_resolved(&temp_config, config.templates_dir, "../shared/templates"));
+  TEST_CHECK(is_resolved(&temp_config, config.static_dir, "files"));
 
   remove_fixture_tree(temp_config.root_dir);
 }
@@ -374,10 +395,41 @@ static void test_load_leaves_directory_overlap_to_the_build(void) {
   struct Log log = test_log();
   TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(str_eq(config.media_dir, S("photos")));
-  TEST_CHECK(str_eq(config.output_dir, S("photos/generated")));
+  TEST_CHECK(is_resolved(&temp_config, config.media_dir, "photos"));
+  TEST_CHECK(is_resolved(&temp_config, config.output_dir, "photos/generated"));
 
   remove_fixture_tree(temp_config.root_dir);
+}
+
+// A relative directory, given or default, resolves against the config's directory, and an absolute
+// one stays as it is, so `sub/fram.toml` without `output_dir` writes `sub/public`.
+static void test_load_resolves_paths_against_config_dir(void) {
+  char root_dir[] = TEMP_CONFIG_ROOT_TEMPLATE;
+  if (init_fixture_dir(root_dir) != 0) {
+    return;
+  }
+  struct GalleryConfig config;
+  gallery_config_init(&config);
+  struct Log log = test_log();
+  int saved_dir_fd = -1;
+  if (TEST_CHECK(write_fixture_file(root_dir, "sub/fram.toml",
+                                    "title = \"Example Gallery\"\n"
+                                    "description = \"Example Description\"\n"
+                                    "author = \"Example Author\"\n"
+                                    "media_dir = \"../photos\"\n"
+                                    "templates_dir = \"tpl\"\n"
+                                    "static_dir = \"/srv/static\"\n") == 0) &&
+      working_dir_enter(root_dir, &saved_dir_fd) == 0) {
+    TEST_CHECK(load_gallery_config(&config, "sub/fram.toml", &log) == 0);
+    TEST_CHECK(working_dir_leave(saved_dir_fd) == 0);
+  }
+  remove_fixture_tree(root_dir);
+
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(str_eq(config.media_dir, S("sub/../photos")));
+  TEST_CHECK(str_eq(config.output_dir, S("sub/public")));
+  TEST_CHECK(str_eq(config.templates_dir, S("sub/tpl")));
+  TEST_CHECK(str_eq(config.static_dir, S("/srv/static")));
 }
 
 // Each `sort` key is read on its own. Each case sets the two keys to different orders, so a load
@@ -650,7 +702,7 @@ static void test_load_keeps_defaults_for_rejected_keys(void) {
   gallery_config_init(&config);
   struct Log log = test_log();
   TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
-  TEST_CHECK(str_eq(config.media_dir, S("media")));
+  TEST_CHECK(is_resolved(&temp_config, config.media_dir, "media"));
   TEST_CHECK(config.is_media_dir_rejected);
   TEST_CHECK(!config.is_output_dir_rejected);
   TEST_CHECK(!config.is_templates_dir_rejected);
@@ -1150,7 +1202,9 @@ static void test_print_escapes_strings(void) {
 // Printing a config and loading the printed output back yields the same field values, exercising
 // the round-trip invariant documented on `gallery_config_print` across escaped strings (including a
 // `U+007F` byte), multi-element template arrays, cropping and non-cropping derivatives, and two
-// different sort orders.
+// different sort orders. The printed output is loaded from the fixture root, not the working
+// directory, so its relative directories come back resolved against that root, and only the
+// absolute one comes back as it is.
 static void test_print_load_round_trips(void) {
   static const struct Str aggregates[] = {STR_INIT("sitemap.xml"), STR_INIT("about/index.html")};
   static const struct GalleryDerivative derivatives[] = {
@@ -1172,7 +1226,7 @@ static void test_print_load_round_trips(void) {
   config.media_dir = S("photos");
   config.output_dir = S("dist");
   config.templates_dir = S("layouts");
-  config.static_dir = S("files");
+  config.static_dir = S("/srv/files");
   config.album_template = S("pages/album.html");
   config.aggregate_templates = aggregates;
   config.aggregate_template_count = 2;
@@ -1199,9 +1253,9 @@ static void test_print_load_round_trips(void) {
   TEST_CHECK(str_eq(reloaded.description, config.description));
   TEST_CHECK(str_eq(reloaded.author, config.author));
   TEST_CHECK(str_eq(reloaded.base_url, config.base_url));
-  TEST_CHECK(str_eq(reloaded.media_dir, config.media_dir));
-  TEST_CHECK(str_eq(reloaded.output_dir, config.output_dir));
-  TEST_CHECK(str_eq(reloaded.templates_dir, config.templates_dir));
+  TEST_CHECK(is_resolved(&temp_config, reloaded.media_dir, "photos"));
+  TEST_CHECK(is_resolved(&temp_config, reloaded.output_dir, "dist"));
+  TEST_CHECK(is_resolved(&temp_config, reloaded.templates_dir, "layouts"));
   TEST_CHECK(str_eq(reloaded.static_dir, config.static_dir));
   TEST_CHECK(str_eq(reloaded.album_template, config.album_template));
   if (!TEST_CHECK(reloaded.aggregate_template_count == 2)) {
@@ -1245,6 +1299,26 @@ static void test_print_empty_template_array(void) {
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
+  // The directories print resolved against the fixture root, which holds the config.
+  struct Arena arena = test_arena();
+  struct Buf expected = {.arena = &arena};
+  const char* root_dir = temp_config.root_dir;
+  buf_printf(&expected,
+             "title = \"Example Gallery\"\n"
+             "description = \"Example Description\"\n"
+             "author = \"Example Author\"\n"
+             "media_dir = \"%s/media\"\n"
+             "output_dir = \"%s/public\"\n"
+             "templates_dir = \"%s/templates\"\n"
+             "static_dir = \"%s/static\"\n"
+             "album_template = \"album.html\"\n"
+             "aggregate_templates = []\n"
+             "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
+             "m = { width = 520, height = 360, quality = 80, crop = true }, "
+             "l = { width = 792, height = 594, quality = 85 } }\n"
+             "sort = { albums = \"asc\", media = \"asc\" }\n"
+             "video_frame_seconds = 1\n",
+             root_dir, root_dir, root_dir, root_dir);
   TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
   TEST_CHECK(log.errors == 0);
   if (!TEST_CHECK(config.aggregate_template_count == 0)) {
@@ -1258,21 +1332,7 @@ static void test_print_empty_template_array(void) {
     goto cleanup;
   }
   // Compared whole: an empty array must print as `[]` and must not disturb its neighbors.
-  TEST_CHECK(strcmp(config_out,
-                    "title = \"Example Gallery\"\n"
-                    "description = \"Example Description\"\n"
-                    "author = \"Example Author\"\n"
-                    "media_dir = \"media\"\n"
-                    "output_dir = \"public\"\n"
-                    "templates_dir = \"templates\"\n"
-                    "static_dir = \"static\"\n"
-                    "album_template = \"album.html\"\n"
-                    "aggregate_templates = []\n"
-                    "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
-                    "m = { width = 520, height = 360, quality = 80, crop = true }, "
-                    "l = { width = 792, height = 594, quality = 85 } }\n"
-                    "sort = { albums = \"asc\", media = \"asc\" }\n"
-                    "video_frame_seconds = 1\n") == 0);
+  TEST_CHECK(strcmp(config_out, buf_cstr(&expected)) == 0);
 
 cleanup:
   remove_fixture_tree(temp_config.root_dir);
@@ -1334,6 +1394,7 @@ TEST_LIST = {
     {"load normalizes base url", test_load_normalizes_base_url},
     {"load accepts empty base url", test_load_accepts_empty_base_url},
     {"load leaves directory overlap to the build", test_load_leaves_directory_overlap_to_the_build},
+    {"load resolves paths against config dir", test_load_resolves_paths_against_config_dir},
     {"load reads sort orders independently", test_load_reads_sort_orders_independently},
     {"load accepts empty sort table", test_load_accepts_empty_sort_table},
     {"load accepts zero video frame seconds", test_load_accepts_zero_video_frame_seconds},

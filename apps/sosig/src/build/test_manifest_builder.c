@@ -783,7 +783,7 @@ static void test_rejects_unlistable_templates_dir(void) {
   struct Log log = test_log();
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, NULL, NULL, 0, os, &log) == -1);
   TEST_CHECK(test_log_is(
-      &log, "failed to list template files: cannot open directory: %s ('site/templates-file')\n",
+      &log, "failed to list templates: cannot open directory: %s ('site/templates-file')\n",
       strerror(ENOTDIR)));
   TEST_CHECK(manifest.count == 0);
 
@@ -793,8 +793,7 @@ static void test_rejects_unlistable_templates_dir(void) {
   log = test_log();
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, NULL, NULL, 0, os, &log) == -1);
   TEST_CHECK(test_log_is(
-      &log,
-      "failed to list template files: cannot open directory: %s ('site/templates/partials')\n",
+      &log, "failed to list templates: cannot open directory: %s ('site/templates/partials')\n",
       strerror(EACCES)));
 }
 

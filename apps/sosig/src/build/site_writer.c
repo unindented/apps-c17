@@ -108,7 +108,7 @@ static int write_rendered_template(const struct OutputWriter* writer,
     return -1;
   }
   return output_writer_write(writer, output_path, (struct OsSource){.bytes = rendered_html},
-                             S("failed to write template output"), log);
+                             S("failed to write page"), log);
 }
 
 int site_writer_copy_static_files(const struct OutputWriter* writer,

@@ -72,6 +72,21 @@ struct Str path_parent(struct Str path) {
   return str_head(path, basename_len == path.len ? 0 : path.len - basename_len - 1);
 }
 
+struct Str path_file_dir(struct Str file_path) {
+  const struct Str dir = path_parent(file_path);
+  if (dir.len == 0 && str_startswith(file_path, S("/"))) {
+    return str_head(file_path, 1);
+  }
+  return dir;
+}
+
+struct Str path_resolve(struct Str base_dir, struct Str path, struct Arena* arena) {
+  if (base_dir.len == 0 || str_startswith(path, S("/"))) {
+    return path;
+  }
+  return path_join(base_dir, path, arena);
+}
+
 struct Str path_join(struct Str base_path, struct Str relative_path, struct Arena* arena) {
   struct Str joined = str_clone(base_path, arena);
   if (base_path.len > 0 && base_path.data[base_path.len - 1] != '/') {

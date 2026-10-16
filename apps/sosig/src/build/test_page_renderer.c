@@ -308,8 +308,8 @@ static void test_reports_write_failure_per_entry(void) {
   // Errors are collected in job index order, so the two lines follow `source_entries`.
   TEST_CHECK(
       test_log_is(&log,
-                  "failed to write output for 'content/older.md': %s ('public/older.html')\nfailed "
-                  "to write output for 'content/newer.md': %s ('public/newer.html')\n",
+                  "failed to write page for 'content/older.md': %s ('public/older.html')\nfailed "
+                  "to write page for 'content/newer.md': %s ('public/newer.html')\n",
                   strerror(EISDIR), strerror(EACCES)));
   TEST_CHECK(log.errors == 2);
   TEST_CHECK(os_memory_is_file(os, "public/third.html", "[Third]\n"));

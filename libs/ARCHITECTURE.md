@@ -54,7 +54,7 @@ The other modules are small primitives:
 - [error](src/core/error.h): Turns an `errno` into text, and is thread-safe. Diagnostics themselves go to `core/log.h`, as `printf` formats that the compiler checks.
 - [exit_code](src/core/exit_code.h): Every command of an app returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
 - [parse](src/core/parse.h): Parsing of text into scalar values.
-- [path](src/core/path.h): Path construction and validation, the filename and output-path limits, and `path_basename_without_extension`. `path_is_below` finds the part of a path below a root by text comparison.
+- [path](src/core/path.h): Path construction and validation, the filename and output-path limits, and `path_basename_without_extension`. `path_is_below` finds the part of a path below a root by text comparison. `path_file_dir` and `path_resolve` resolve a relative path that a config file names against the file's directory, as each app's `-c` asks.
 - [path_list](src/core/path_list.h): A growable list of path strings.
 - [text](src/core/text.h): Text normalization, matching and validation, including the slug that `text_slugify` makes and the `NUL` check `text_is_nul_free`.
 - [url](src/core/url.h): The checks of a base URL that each app's config applies: `url_is_http_with_host` asks for an `http://` or `https://` scheme in any letter case and a host, and `url_has_path_breaking_byte` finds a `?`, a `#`, a space or a control byte, which would break a path joined after the URL.

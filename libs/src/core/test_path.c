@@ -128,6 +128,25 @@ static void test_parent_takes_directory_part(void) {
   TEST_CHECK(path_parent(S("")).len == 0);
 }
 
+// A file's directory is its parent, `/` for a file below the root, and empty for a bare filename,
+// which names a file in the working directory.
+static void test_file_dir_takes_the_directory_of_a_file(void) {
+  TEST_CHECK(str_eq(path_file_dir(S("sub/site.toml")), S("sub")));
+  TEST_CHECK(str_eq(path_file_dir(S("/srv/site.toml")), S("/srv")));
+  TEST_CHECK(str_eq(path_file_dir(S("/site.toml")), S("/")));
+  TEST_CHECK(path_file_dir(S("site.toml")).len == 0);
+}
+
+// A relative path resolves below the directory, and an absolute one, or any path against the
+// working directory, stays as it is.
+static void test_resolve_joins_only_a_relative_path(void) {
+  struct Arena arena = test_arena();
+  TEST_CHECK(str_eq(path_resolve(S("sub"), S("public"), &arena), S("sub/public")));
+  TEST_CHECK(str_eq(path_resolve(S("/"), S("public"), &arena), S("/public")));
+  TEST_CHECK(str_eq(path_resolve(S("sub"), S("/srv/public"), &arena), S("/srv/public")));
+  TEST_CHECK(str_eq(path_resolve(S(""), S("public"), &arena), S("public")));
+}
+
 // `path_join` inserts exactly one `/` whether or not the directory already ends in one, and an
 // empty base adds none.
 static void test_join_inserts_separator(void) {
@@ -200,6 +219,8 @@ TEST_LIST = {
     {"basename takes final component", test_basename_takes_final_component},
     {"basename strips dirs and extension", test_basename_strips_dirs_and_extension},
     {"parent takes directory part", test_parent_takes_directory_part},
+    {"file dir takes the directory of a file", test_file_dir_takes_the_directory_of_a_file},
+    {"resolve joins only a relative path", test_resolve_joins_only_a_relative_path},
     {"join inserts separator", test_join_inserts_separator},
     {"is below returns remainder below root", test_is_below_returns_remainder_below_root},
     {"is below rejects sibling sharing prefix", test_is_below_rejects_sibling_sharing_prefix},

@@ -64,15 +64,41 @@ static enum ExitCode dispatch_capturing(int argc,
 }
 
 /**
- * @brief Creates and enters a minimal buildable site fixture with two sources.
+ * @brief Writes one file of a site below `site_dir` in a fixture root.
+ *
+ * @param root_dir Fixture root directory. Must not be `NULL`.
+ * @param site_dir Terminated directory of the site below `root_dir`, ending in `/`, or `""` for the
+ *                 root itself. Must not be `NULL`.
+ * @param name     Terminated path of the file below `site_dir`. Must not be `NULL`.
+ * @param contents Terminated text to write. Must not be `NULL`.
+ * @return `0` on success, or `-1` on test-plumbing failure.
+ */
+static int write_site_file(const char* root_dir,
+                           const char* site_dir,
+                           const char* name,
+                           const char* contents) {
+  char relative_path[256];
+  const int n = snprintf(relative_path, sizeof(relative_path), "%s%s", site_dir, name);
+  if (n < 0 || (size_t)n >= sizeof(relative_path)) {
+    return -1;
+  }
+  return write_fixture_file(root_dir, relative_path, contents);
+}
+
+/**
+ * @brief Creates and enters a fixture root that holds a minimal buildable site with two sources.
  *
  * Cleans partial setup before returning a failure.
  *
  * @param root_dir         Writable `mkdtemp` template. Receives the fixture root.
+ * @param site_dir         Terminated directory of the site below the root, ending in `/`, or `""`
+ *                         for the root itself. Must not be `NULL`.
  * @param saved_dir_fd_out Receives the saved working directory for `leave_site_fixture`.
  * @return `0` on success, or `-1` after recording a test-plumbing failure.
  */
-static int enter_site_fixture(char root_dir[static 1], int* saved_dir_fd_out) {
+static int enter_site_fixture(char root_dir[static 1],
+                              const char* site_dir,
+                              int* saved_dir_fd_out) {
   if (init_fixture_dir(root_dir) != 0) {
     return -1;
   }
@@ -91,10 +117,10 @@ static int enter_site_fixture(char root_dir[static 1], int* saved_dir_fd_out) {
       "+++\n"
       "Body\n";
   const bool written =
-      write_fixture_file(root_dir, "sosig.toml", config) == 0 &&
-      write_fixture_file(root_dir, "content/hello.md", entry) == 0 &&
-      write_fixture_file(root_dir, "content/world.md", entry) == 0 &&
-      write_fixture_file(root_dir, "templates/content.html", "{{{body_html}}}\n") == 0;
+      write_site_file(root_dir, site_dir, "sosig.toml", config) == 0 &&
+      write_site_file(root_dir, site_dir, "content/hello.md", entry) == 0 &&
+      write_site_file(root_dir, site_dir, "content/world.md", entry) == 0 &&
+      write_site_file(root_dir, site_dir, "templates/content.html", "{{{body_html}}}\n") == 0;
   TEST_CHECK(written);
   if (!written || working_dir_enter(root_dir, saved_dir_fd_out) != 0) {
     remove_fixture_tree(root_dir);
@@ -147,7 +173,7 @@ static void test_help_action_reports_ok(void) {
 static void test_config_command_is_dispatched(void) {
   char root_dir[] = "/tmp/sosig-dispatch-site.XXXXXX";
   int saved_dir_fd = -1;
-  if (enter_site_fixture(root_dir, &saved_dir_fd) != 0) {
+  if (enter_site_fixture(root_dir, "", &saved_dir_fd) != 0) {
     return;
   }
 
@@ -187,7 +213,7 @@ static void test_config_command_is_dispatched(void) {
 static void test_build_command_receives_parsed_options(void) {
   char root_dir[] = "/tmp/sosig-dispatch-site.XXXXXX";
   int saved_dir_fd = -1;
-  if (enter_site_fixture(root_dir, &saved_dir_fd) != 0) {
+  if (enter_site_fixture(root_dir, "", &saved_dir_fd) != 0) {
     return;
   }
 
@@ -227,6 +253,46 @@ static void test_build_command_receives_parsed_options(void) {
                     "build complete\n") == 0);
   TEST_CHECK(access("public/hello.html", F_OK) == 0);
   TEST_CHECK(access("public/world.html", F_OK) == 0);
+
+  leave_site_fixture(root_dir, saved_dir_fd);
+}
+
+// `-c` reaches both commands, from a working directory that holds no `sosig.toml`. `config` prints
+// each directory resolved against the config's directory, and `build` writes below it.
+static void test_config_option_reaches_both_commands(void) {
+  char root_dir[] = "/tmp/sosig-dispatch-sub.XXXXXX";
+  int saved_dir_fd = -1;
+  if (enter_site_fixture(root_dir, "sub/", &saved_dir_fd) != 0) {
+    return;
+  }
+
+  char* config_argv[] = {"sosig", "config", "-c", "sub/sosig.toml", NULL};
+  struct DispatchOutput config_out;
+  TEST_CHECK(dispatch_capturing(4, config_argv, &config_out) == EXIT_CODE_OK);
+  TEST_CHECK(strcmp(config_out.stdout_out,
+                    "title = \"Site\"\n"
+                    "description = \"Example notes\"\n"
+                    "author = \"Author\"\n"
+                    "base_url = \"https://example.com\"\n"
+                    "permalink = \"/{section}/{slug}.html\"\n"
+                    "content_dir = \"sub/content\"\n"
+                    "output_dir = \"sub/public\"\n"
+                    "templates_dir = \"sub/templates\"\n"
+                    "static_dir = \"sub/static\"\n"
+                    "content_template = \"content.html\"\n"
+                    "aggregate_templates = []\n"
+                    "feed_templates = []\n"
+                    "feed_count = 25\n"
+                    "frontmatter_ignored_keys = []\n") == 0);
+  TEST_CHECK(config_out.stderr_out[0] == '\0');
+
+  char* build_argv[] = {"sosig", "build", "--config=sub/sosig.toml", NULL};
+  struct DispatchOutput build_out;
+  TEST_CHECK(dispatch_capturing(3, build_argv, &build_out) == EXIT_CODE_OK);
+  TEST_CHECK(build_out.stderr_out[0] == '\0');
+  TEST_CHECK(access("sub/public/hello.html", F_OK) == 0);
+  TEST_CHECK(access("sub/public/world.html", F_OK) == 0);
+  TEST_CHECK(access("public", F_OK) != 0);
 
   leave_site_fixture(root_dir, saved_dir_fd);
 }
@@ -274,7 +340,7 @@ static void test_version_write_failure_reports_failure(void) {
 static void test_dry_run_print_failure_reports_failure(void) {
   char root_dir[] = "/tmp/sosig-dispatch-site.XXXXXX";
   int saved_dir_fd = -1;
-  if (enter_site_fixture(root_dir, &saved_dir_fd) != 0) {
+  if (enter_site_fixture(root_dir, "", &saved_dir_fd) != 0) {
     return;
   }
 
@@ -307,6 +373,7 @@ TEST_LIST = {
     {"help action reports ok", test_help_action_reports_ok},
     {"config command is dispatched", test_config_command_is_dispatched},
     {"build command receives parsed options", test_build_command_receives_parsed_options},
+    {"config option reaches both commands", test_config_option_reaches_both_commands},
     {"parse error reports usage code", test_parse_error_reports_usage_code},
     {"version write failure reports failure", test_version_write_failure_reports_failure},
     {"dry run print failure reports failure", test_dry_run_print_failure_reports_failure},

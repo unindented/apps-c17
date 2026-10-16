@@ -11,6 +11,7 @@
 #include "app/cmd_config.h"
 #include "core/error.h"
 #include "core/exit_code.h"
+#include "core/str.h"
 #include "os/os_posix.h"
 #include "testing/test_support.h"
 
@@ -20,6 +21,7 @@
  * Restores both streams and the working directory before returning.
  *
  * @param root_dir       Fixture directory in which to run the command.
+ * @param config_path    Terminated path of the config, relative to `root_dir`. Must not be `NULL`.
  * @param stdout_out     Buffer that receives terminated standard output.
  * @param stdout_out_len Size of `stdout_out` in bytes. Must be non-zero.
  * @param stderr_out     Buffer that receives terminated standard error.
@@ -27,6 +29,7 @@
  * @return The command exit code, or `TEST_PLUMBING_FAILED` on test-plumbing failure.
  */
 static enum ExitCode run_config_capturing(const char* root_dir,
+                                          const char* config_path,
                                           char* stdout_out,
                                           ptrdiff_t stdout_out_len,
                                           char* stderr_out,
@@ -44,7 +47,7 @@ static enum ExitCode run_config_capturing(const char* root_dir,
   struct StreamCapture stderr_capture;
   if (capture_begin(stdout, &stdout_capture) == 0) {
     if (capture_begin(stderr, &stderr_capture) == 0) {
-      rc = cmd_config_run(os_posix());
+      rc = cmd_config_run(str_from_cstr(config_path), os_posix());
       has_plumbing_failed = capture_end(&stderr_capture, stderr_out, stderr_out_len) != 0;
     }
     has_plumbing_failed =
@@ -60,11 +63,13 @@ static enum ExitCode run_config_capturing(const char* root_dir,
  * Captures the diagnostic and restores both streams and the working directory before returning.
  *
  * @param root_dir       Fixture directory in which to run the command.
+ * @param config_path    Terminated path of the config, relative to `root_dir`. Must not be `NULL`.
  * @param stderr_out     Buffer that receives terminated standard error.
  * @param stderr_out_len Size of `stderr_out` in bytes. Must be non-zero.
  * @return The command exit code, or `TEST_PLUMBING_FAILED` on test-plumbing failure.
  */
 static enum ExitCode run_config_with_unwritable_stdout(const char* root_dir,
+                                                       const char* config_path,
                                                        char* stderr_out,
                                                        ptrdiff_t stderr_out_len) {
   stderr_out[0] = '\0';
@@ -79,7 +84,7 @@ static enum ExitCode run_config_with_unwritable_stdout(const char* root_dir,
   struct StreamCapture stderr_capture;
   if (capture_begin_unwritable(stdout, &stdout_capture) == 0) {
     if (capture_begin(stderr, &stderr_capture) == 0) {
-      rc = cmd_config_run(os_posix());
+      rc = cmd_config_run(str_from_cstr(config_path), os_posix());
       has_plumbing_failed = capture_end(&stderr_capture, stderr_out, stderr_out_len) != 0;
     }
     has_plumbing_failed = capture_end(&stdout_capture, NULL, 0) != 0 || has_plumbing_failed;
@@ -103,7 +108,7 @@ static void test_prints_loaded_config(void) {
     goto cleanup;
   }
 
-  TEST_CHECK(run_config_capturing(root_dir, stdout_out, sizeof(stdout_out), stderr_out,
+  TEST_CHECK(run_config_capturing(root_dir, "fram.toml", stdout_out, sizeof(stdout_out), stderr_out,
                                   sizeof(stderr_out)) == EXIT_CODE_OK);
   // The whole capture, not two per-line searches: exact comparison catches a missing, duplicated or
   // reordered key. The empty `stderr_out` below is the routing half: the configuration goes to
@@ -149,7 +154,7 @@ static void test_prints_empty_template_array(void) {
     goto cleanup;
   }
 
-  TEST_CHECK(run_config_capturing(root_dir, stdout_out, sizeof(stdout_out), stderr_out,
+  TEST_CHECK(run_config_capturing(root_dir, "fram.toml", stdout_out, sizeof(stdout_out), stderr_out,
                                   sizeof(stderr_out)) == EXIT_CODE_OK);
   // Compared whole, and `stderr` empty, for the reasons at `test_prints_loaded_config`.
   TEST_CHECK(stderr_out[0] == '\0');
@@ -173,6 +178,75 @@ cleanup:
   remove_fixture_tree(root_dir);
 }
 
+// A config that `-c` names in a subdirectory prints every directory resolved against that
+// subdirectory, the defaults included, and an absolute one as it is.
+static void test_prints_paths_resolved_against_config_dir(void) {
+  char root_dir[] = "/tmp/fram-cmd-config-sub.XXXXXX";
+  if (init_fixture_dir(root_dir) != 0) {
+    return;
+  }
+  char stdout_out[8192];
+  char stderr_out[8192];
+  if (!TEST_CHECK(write_fixture_file(root_dir, "sub/fram.toml",
+                                     "title = \"Test Gallery\"\n"
+                                     "description = \"Test description\"\n"
+                                     "author = \"Author Name\"\n"
+                                     "media_dir = \"../photos/\"\n"
+                                     "templates_dir = \"layouts\"\n"
+                                     "static_dir = \"/srv/static\"\n") == 0)) {
+    goto cleanup;
+  }
+
+  TEST_CHECK(run_config_capturing(root_dir, "sub/fram.toml", stdout_out, sizeof(stdout_out),
+                                  stderr_out, sizeof(stderr_out)) == EXIT_CODE_OK);
+  // Compared whole, and `stderr` empty, for the reasons at `test_prints_loaded_config`.
+  TEST_CHECK(stderr_out[0] == '\0');
+  TEST_CHECK(strcmp(stdout_out,
+                    "title = \"Test Gallery\"\n"
+                    "description = \"Test description\"\n"
+                    "author = \"Author Name\"\n"
+                    "media_dir = \"sub/../photos\"\n"
+                    "output_dir = \"sub/public\"\n"
+                    "templates_dir = \"sub/layouts\"\n"
+                    "static_dir = \"/srv/static\"\n"
+                    "album_template = \"album.html\"\n"
+                    "aggregate_templates = []\n"
+                    "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
+                    "m = { width = 520, height = 360, quality = 80, crop = true }, "
+                    "l = { width = 792, height = 594, quality = 85 } }\n"
+                    "sort = { albums = \"asc\", media = \"asc\" }\n"
+                    "video_frame_seconds = 1\n") == 0);
+  TEST_MSG("stdout: '%s'", stdout_out);
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
+// A missing config is reported with the read failure that caused it, naming the path that `-c`
+// gave, so a mistyped path reads as one.
+static void test_reports_missing_config_named_by_path(void) {
+  char reason[ERROR_SYSTEM_MESSAGE_SIZE];
+  char expected[1024];
+  const int expected_len =
+      snprintf(expected, sizeof(expected), "failed to read config: %s ('sub/fram.toml')\n",
+               error_system_message(reason, sizeof(reason), ENOENT));
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
+
+  char root_dir[] = "/tmp/fram-cmd-config-sub-missing.XXXXXX";
+  if (init_fixture_dir(root_dir) != 0) {
+    return;
+  }
+
+  char stdout_out[8192];
+  char stderr_out[8192];
+  TEST_CHECK(run_config_capturing(root_dir, "sub/fram.toml", stdout_out, sizeof(stdout_out),
+                                  stderr_out, sizeof(stderr_out)) == EXIT_CODE_FAILURE);
+  TEST_CHECK(strcmp(stderr_out, expected) == 0);
+  TEST_CHECK(stdout_out[0] == '\0');
+
+  remove_fixture_tree(root_dir);
+}
+
 // A missing `fram.toml` is reported with the read failure that caused it, naming the path, so this
 // cannot pass on an unrelated failure such as a `chdir` or a template error. The reason is derived
 // from the running libc rather than hardcoded, so the assertion is the whole claim and stays
@@ -192,7 +266,7 @@ static void test_reports_missing_config(void) {
 
   char stdout_out[8192];
   char stderr_out[8192];
-  TEST_CHECK(run_config_capturing(root_dir, stdout_out, sizeof(stdout_out), stderr_out,
+  TEST_CHECK(run_config_capturing(root_dir, "fram.toml", stdout_out, sizeof(stdout_out), stderr_out,
                                   sizeof(stderr_out)) == EXIT_CODE_FAILURE);
   // The diagnostic goes to `stderr`. A failed run prints nothing on `stdout`, so a pipeline
   // redirecting `stdout` to a file does not capture the error into it.
@@ -218,7 +292,7 @@ static void test_reports_missing_required_key(void) {
     goto cleanup;
   }
 
-  TEST_CHECK(run_config_capturing(root_dir, stdout_out, sizeof(stdout_out), stderr_out,
+  TEST_CHECK(run_config_capturing(root_dir, "fram.toml", stdout_out, sizeof(stdout_out), stderr_out,
                                   sizeof(stderr_out)) == EXIT_CODE_FAILURE);
   TEST_CHECK(strcmp(stderr_out, "missing required config key 'author'\n") == 0);
   TEST_CHECK(stdout_out[0] == '\0');
@@ -246,7 +320,7 @@ static void test_reports_every_invalid_key(void) {
     goto cleanup;
   }
 
-  TEST_CHECK(run_config_capturing(root_dir, stdout_out, sizeof(stdout_out), stderr_out,
+  TEST_CHECK(run_config_capturing(root_dir, "fram.toml", stdout_out, sizeof(stdout_out), stderr_out,
                                   sizeof(stderr_out)) == EXIT_CODE_FAILURE);
   TEST_CHECK(strcmp(stderr_out,
                     "unknown config key 'colour'\n"
@@ -275,8 +349,8 @@ static void test_fails_on_unwritable_stdout(void) {
     goto cleanup;
   }
 
-  TEST_CHECK(run_config_with_unwritable_stdout(root_dir, stderr_out, sizeof(stderr_out)) ==
-             EXIT_CODE_FAILURE);
+  TEST_CHECK(run_config_with_unwritable_stdout(root_dir, "fram.toml", stderr_out,
+                                               sizeof(stderr_out)) == EXIT_CODE_FAILURE);
   TEST_CHECK(strcmp(stderr_out, "") == 0);
 
 cleanup:
@@ -286,6 +360,8 @@ cleanup:
 TEST_LIST = {
     {"prints loaded config", test_prints_loaded_config},
     {"prints empty template array", test_prints_empty_template_array},
+    {"prints paths resolved against config dir", test_prints_paths_resolved_against_config_dir},
+    {"reports missing config named by path", test_reports_missing_config_named_by_path},
     {"reports missing config", test_reports_missing_config},
     {"reports missing required key", test_reports_missing_required_key},
     {"reports every invalid key", test_reports_every_invalid_key},

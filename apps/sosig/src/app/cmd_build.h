@@ -6,6 +6,7 @@
 
 #include "core/arena.h"
 #include "core/exit_code.h"
+#include "core/str.h"
 
 struct JobArenas;
 struct Log;
@@ -13,6 +14,9 @@ struct Os;
 
 /** Caller-selected knobs for one build invocation. */
 struct BuildOptions {
+  /** Config file the build reads. */
+  struct Str config_path;
+
   /**
    * Worker threads used for parallel parsing and for rendering and writing content pages. `0` means
    * detect the CPU count. The build runs at most four per online CPU, and a phase runs at most one
@@ -34,7 +38,7 @@ struct BuildOptions {
 };
 
 /**
- * @brief Runs the `build` command for the `sosig.toml` project in the current directory.
+ * @brief Runs the `build` command for the site that `options->config_path` configures.
  *
  * This is a thin boundary over `cmd_build_execute`. It resolves the worker count, reserves the
  * build's memory in one block, the log and a perm and a scratch for the main thread and for each

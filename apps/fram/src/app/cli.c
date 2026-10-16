@@ -15,11 +15,13 @@
 #include "core/parse.h"
 #include "core/str.h"
 #include "domain/fram_version.h"
+#include "domain/gallery_config.h"
 #include "os/os.h"
 
 /**
  * Command-scoped optional flags, tracked as a bitmask so each command can declare which it accepts.
- * Global flags (`--help`, `--version`) apply to every command, so this enum does not model them.
+ * Global flags (`--help`, `--version`, `--config`) apply to every command, so this enum does not
+ * model them.
  */
 enum CliFlag {
   CLI_FLAG_VERBOSE = 1u << 0,
@@ -186,7 +188,8 @@ static void reject_unsupported_flags(struct CliOptions* options,
                                      struct Arena* arena) __attribute__((nonnull(1, 3)));
 
 void cli_parse(struct CliOptions* options, int argc, char** argv, struct Arena* arena) {
-  *options = (struct CliOptions){.action = CLI_ACTION_RUN};
+  *options =
+      (struct CliOptions){.action = CLI_ACTION_RUN, .config_path = GALLERY_CONFIG_PATH_DEFAULT};
 
   bool has_version = false;
   bool has_help = false;
@@ -222,6 +225,14 @@ void cli_parse(struct CliOptions* options, int argc, char** argv, struct Arena* 
       }
     } else if (copt_opt(&opt, "w|workers")) {
       cli_parse_workers_option(options, &opt, &flags_seen, arena);
+    } else if (copt_opt(&opt, "c|config")) {
+      const char* value = copt_arg(&opt);
+      if (value == NULL || value[0] == '\0') {
+        record_error(options, arena, "option '--config' requires a path");
+      } else {
+        // A copy, so the options hold no pointer into `argv`.
+        options->config_path = str_clone(str_from_cstr(value), arena);
+      }
     } else {
       record_error(options, arena, "unknown option '%s'", copt_curopt(&opt));
       // A value attached to an unknown option is dropped with the rest of its element, so `-x=V`
@@ -265,28 +276,31 @@ int cli_print_usage(struct Str program_name,
     case CLI_COMMAND_BUILD:
       buf_printf(
           &text,
-          "Build the gallery in the current directory.\n"
+          "Build the gallery.\n"
           "\n"
           "USAGE:\n"
           "    %.*s build [options]\n"
           "\n"
           "OPTIONS:\n"
-          "    -w, --workers N  Use at most N worker threads (default: detected CPU count)\n"
-          "    -n, --dry-run    Report what would be written, kept, or removed, changing nothing\n"
-          "    --force          Ignore the build cache for this build\n"
-          "    -v, --verbose    Print build progress to stderr\n"
-          "    -h, --help       Print this help and exit\n",
+          "    -c, --config PATH  Read the configuration from PATH (default: fram.toml)\n"
+          "    -w, --workers N    Use at most N worker threads (default: detected CPU count)\n"
+          "    -n, --dry-run      Report what would be written, kept, or removed, changing "
+          "nothing\n"
+          "    --force            Ignore the build cache for this build\n"
+          "    -v, --verbose      Print build progress to stderr\n"
+          "    -h, --help         Print this help and exit\n",
           STR_FMT(program_name));
       break;
     case CLI_COMMAND_CONFIG:
       buf_printf(&text,
-                 "Print the resolved project configuration as TOML.\n"
+                 "Print the resolved configuration as TOML.\n"
                  "\n"
                  "USAGE:\n"
                  "    %.*s config [options]\n"
                  "\n"
                  "OPTIONS:\n"
-                 "    -h, --help  Print this help and exit\n",
+                 "    -c, --config PATH  Read the configuration from PATH (default: fram.toml)\n"
+                 "    -h, --help         Print this help and exit\n",
                  STR_FMT(program_name));
       break;
     case CLI_COMMAND_NONE:
@@ -297,8 +311,8 @@ int cli_print_usage(struct Str program_name,
                  "    %.*s <command> [options]\n"
                  "\n"
                  "COMMANDS:\n"
-                 "    build   Build the gallery in the current directory\n"
-                 "    config  Print the resolved project configuration\n"
+                 "    build   Build the gallery\n"
+                 "    config  Print the resolved configuration\n"
                  "\n"
                  "OPTIONS:\n"
                  "    -h, --help     Print this help and exit\n"

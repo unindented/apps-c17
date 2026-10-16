@@ -15,7 +15,7 @@
  */
 enum { CMD_CONFIG_RESERVE_LEN = 16 * 1024 * 1024 };
 
-enum ExitCode cmd_config_run(struct Os* os) {
+enum ExitCode cmd_config_run(struct Str config_path, struct Os* os) {
   struct Arena block;
   const int shift = arena_reserve_halving(CMD_CONFIG_RESERVE_LEN, &block);
   struct Arena scratch = block;
@@ -29,7 +29,7 @@ enum ExitCode cmd_config_run(struct Os* os) {
   enum ExitCode rc = EXIT_CODE_FAILURE;
   // A load that read the file still reports every bad key, and none of them may be printed as the
   // resolved config.
-  if (site_config_load(&site_config, SITE_CONFIG_PATH_DEFAULT, os, &perm, scratch, &log) != 0 ||
+  if (site_config_load(&site_config, config_path, os, &perm, scratch, &log) != 0 ||
       log.errors > 0) {
     (void)os_print(os, 2, buf_str(&log.buf));
     goto cleanup;

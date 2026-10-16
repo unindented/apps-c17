@@ -59,14 +59,14 @@ int site_writer_write_album_pages(const struct OutputWriter* writer,
   for (ptrdiff_t i = 0; i < album_count; i++) {
     oom_set_job(albums[i]->output_path, NULL);
     // The operation names the album, and the write names the output path or the directory it could
-    // not create, so a failure reads `failed to write output for '<album>': <cause> ('<path>')`.
-    // Each page's operation lives in a copy of `scratch`, which the next page reuses.
+    // not create, so a failure reads `failed to write page for '<album>': <cause> ('<path>')`. Each
+    // page's operation lives in a copy of `scratch`, which the next page reuses.
     struct Arena page_scratch = scratch;
     struct Buf operation = {.arena = &page_scratch};
     if (album_is_root(albums[i])) {
-      buf_printf(&operation, "failed to write output for the root album");
+      buf_printf(&operation, "failed to write page for the root album");
     } else {
-      buf_printf(&operation, "failed to write output for '%.*s'", STR_FMT(albums[i]->source_dir));
+      buf_printf(&operation, "failed to write page for '%.*s'", STR_FMT(albums[i]->source_dir));
     }
     if (output_writer_write(writer, albums[i]->output_path,
                             (struct OsSource){.bytes = rendered_pages[i].html}, buf_str(&operation),
@@ -142,5 +142,5 @@ static int write_rendered_template(const struct OutputWriter* writer,
   // The render has returned, so its temporaries in `scratch` are dead and the path can reuse them.
   const struct Str output_path = path_join(gallery_config->output_dir, template_name, &scratch);
   return output_writer_write(writer, output_path, (struct OsSource){.bytes = rendered_html},
-                             S("failed to write template output"), log);
+                             S("failed to write page"), log);
 }

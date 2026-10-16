@@ -138,6 +138,9 @@ struct BuildState {
    */
   struct JobArenas* worker_arenas;
 
+  /** Config file the build reads, which it also claims as a build input. */
+  struct Str config_path;
+
   /** Loaded site configuration. Its values live in `perm`. */
   struct SiteConfig site_config;
 
@@ -261,7 +264,7 @@ static void build_state_init(struct BuildState* state,
                              struct Arena scratch) __attribute__((nonnull(1, 2, 3, 4)));
 
 /**
- * @brief Loads `sosig.toml`, rejects an `output_dir` inside an input tree, and discovers content
+ * @brief Loads the config, rejects an `output_dir` inside an input tree, and discovers content
  *        entry sources, the assets next to them, and static files.
  *
  * The `output_dir` check runs before either walk, and both walks leave `output_dir` out, so a file
@@ -659,6 +662,7 @@ static void build_state_init(struct BuildState* state,
       .perm = perm,
       .scratch = scratch,
       .worker_arenas = worker_arenas,
+      .config_path = options->config_path,
       .writer =
           {
               .manifest = &state->manifest,
@@ -675,7 +679,7 @@ static void build_state_init(struct BuildState* state,
 
 static int load_build_inputs(struct BuildState* state, struct Log* log) {
   build_verbose(state, "loading config");
-  if (site_config_load(&state->site_config, SITE_CONFIG_PATH_DEFAULT, state->os, &state->perm,
+  if (site_config_load(&state->site_config, state->config_path, state->os, &state->perm,
                        state->scratch, log) != 0) {
     return -1;
   }
@@ -689,7 +693,7 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
       site_config->is_output_key_rejected) {
     return -1;
   }
-  if (manifest_builder_check_output_dir(&state->site_config, SITE_CONFIG_PATH_DEFAULT, state->os,
+  if (manifest_builder_check_output_dir(&state->site_config, state->config_path, state->os,
                                         state->scratch, log) != 0) {
     return -1;
   }
@@ -877,7 +881,7 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log) {
   // adds `const`, at both levels, and the deep `const` is a thread-safety requirement. A
   // `TemplateContext` with only `const` pointers keeps one render job from writing an entry another
   // job is reading.
-  return manifest_builder_populate(&state->manifest, &state->site_config, SITE_CONFIG_PATH_DEFAULT,
+  return manifest_builder_populate(&state->manifest, &state->site_config, state->config_path,
                                    &state->source_paths, &state->static_paths, &state->asset_paths,
                                    (const struct ContentEntry* const*)state->content_entries,
                                    state->content_entry_count, state->os, &state->perm,

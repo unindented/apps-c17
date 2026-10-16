@@ -30,6 +30,24 @@ static struct CliOptions parse(char** argv) {
   return options;
 }
 
+/**
+ * @brief Prints the usage text of `command` for the program `sosig`, capturing standard output.
+ *
+ * @param command      Command whose help to print.
+ * @param text_out     Buffer that receives the terminated text.
+ * @param text_out_len Size of `text_out` in bytes. Must be non-zero.
+ * @return `true` when the text was printed and captured, or `false` after recording a failure.
+ */
+static bool print_usage_capturing(enum CliCommand command, char* text_out, ptrdiff_t text_out_len) {
+  struct StreamCapture capture;
+  if (capture_begin(stdout, &capture) != 0) {
+    return false;
+  }
+  const int rc = cli_print_usage(S("sosig"), command, os_posix(), test_arena());
+  const bool is_captured = capture_end(&capture, text_out, text_out_len) == 0;
+  return TEST_CHECK(rc == 0) && TEST_CHECK(is_captured);
+}
+
 // The `build` command resolves to the run action with no worker override.
 static void test_build_command_runs(void) {
   char* argv[] = {"sosig", "build", NULL};
@@ -39,12 +57,30 @@ static void test_build_command_runs(void) {
   TEST_CHECK(options.worker_count == 0);
 }
 
-// The `config` command resolves to the run action.
+// The `config` command resolves to the run action with the default config path.
 static void test_config_command_runs(void) {
   char* argv[] = {"sosig", "config", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_RUN);
   TEST_CHECK(options.command == CLI_COMMAND_CONFIG);
+  TEST_CHECK(str_eq(options.config_path, S("sosig.toml")));
+}
+
+// `-c` and `--config` name the config file, before or after the command, for both commands.
+static void test_config_option_sets_path(void) {
+  char* short_argv[] = {"sosig", "-c", "site/sosig.toml", "config", NULL};
+  char* long_argv[] = {"sosig", "config", "--config=other.toml", NULL};
+  char* build_argv[] = {"sosig", "build", "--config", "sub/sosig.toml", NULL};
+  struct CliOptions short_options = parse(short_argv);
+  struct CliOptions long_options = parse(long_argv);
+  struct CliOptions build_options = parse(build_argv);
+  TEST_CHECK(short_options.action == CLI_ACTION_RUN);
+  TEST_CHECK(str_eq(short_options.config_path, S("site/sosig.toml")));
+  TEST_CHECK(long_options.action == CLI_ACTION_RUN);
+  TEST_CHECK(str_eq(long_options.config_path, S("other.toml")));
+  TEST_CHECK(build_options.action == CLI_ACTION_RUN);
+  TEST_CHECK(build_options.command == CLI_COMMAND_BUILD);
+  TEST_CHECK(str_eq(build_options.config_path, S("sub/sosig.toml")));
 }
 
 // `--verbose` enables verbose output.
@@ -422,6 +458,22 @@ static void test_unknown_long_option(void) {
   TEST_CHECK(str_eq(options.error_message, S("unknown option '--frobnicate'")));
 }
 
+// `-c` with no path is rejected with a diagnostic that names the option by its long spelling.
+static void test_config_option_requires_path(void) {
+  char* argv[] = {"sosig", "config", "-c", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(str_eq(options.error_message, S("option '--config' requires a path")));
+}
+
+// `--config=` gives an empty path, which names the option as a missing path does.
+static void test_config_option_rejects_empty_path(void) {
+  char* argv[] = {"sosig", "config", "--config=", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_ERROR);
+  TEST_CHECK(str_eq(options.error_message, S("option '--config' requires a path")));
+}
+
 // No arguments at all are reported as an error with a diagnostic message.
 static void test_no_args_rejected(void) {
   char* argv[] = {"sosig", NULL};
@@ -580,7 +632,7 @@ static void test_print_usage_names_program_and_command(void) {
     TEST_CHECK(strstr(text, cases[i].needle) != NULL);
     if (cases[i].command == CLI_COMMAND_BUILD) {
       TEST_CHECK(strstr(text, "-n, --dry-run") != NULL);
-      TEST_CHECK(strstr(text, "    --force          Ignore the build cache for this build\n") !=
+      TEST_CHECK(strstr(text, "    --force            Ignore the build cache for this build\n") !=
                  NULL);
     }
     // The command-less help substitutes the name a second time, in the trailer.
@@ -588,6 +640,47 @@ static void test_print_usage_names_program_and_command(void) {
       TEST_CHECK(strstr(text, "Use '/opt/bin/mysosig <command> --help'") != NULL);
     }
   }
+}
+
+// The help of `config` names its option, compared whole.
+static void test_print_usage_names_config_option(void) {
+  char text[4096];
+  if (!print_usage_capturing(CLI_COMMAND_CONFIG, text, sizeof(text))) {
+    return;
+  }
+  TEST_CHECK(
+      strcmp(text,
+             "Print the resolved configuration as TOML.\n"
+             "\n"
+             "USAGE:\n"
+             "    sosig config [options]\n"
+             "\n"
+             "OPTIONS:\n"
+             "    -c, --config PATH  Read the configuration from PATH (default: sosig.toml)\n"
+             "    -h, --help         Print this help and exit\n") == 0);
+}
+
+// The help of `build` names each of its options, compared whole.
+static void test_print_usage_names_build_options(void) {
+  char text[4096];
+  if (!print_usage_capturing(CLI_COMMAND_BUILD, text, sizeof(text))) {
+    return;
+  }
+  TEST_CHECK(
+      strcmp(text,
+             "Build the site.\n"
+             "\n"
+             "USAGE:\n"
+             "    sosig build [options]\n"
+             "\n"
+             "OPTIONS:\n"
+             "    -c, --config PATH  Read the configuration from PATH (default: sosig.toml)\n"
+             "    -w, --workers N    Use at most N worker threads (default: detected CPU count)\n"
+             "    -n, --dry-run      Report what would be written, kept, or removed, changing "
+             "nothing\n"
+             "    --force            Ignore the build cache for this build\n"
+             "    -v, --verbose      Print build progress to stderr\n"
+             "    -h, --help         Print this help and exit\n") == 0);
 }
 
 // `cli_print_usage` reports a failed write the same way, so neither informational action can exit
@@ -608,6 +701,7 @@ static void test_print_usage_reports_write_failure(void) {
 TEST_LIST = {
     {"build command runs", test_build_command_runs},
     {"config command runs", test_config_command_runs},
+    {"config option sets path", test_config_option_sets_path},
     {"verbose long flag", test_verbose_long_flag},
     {"verbose short flag", test_verbose_short_flag},
     {"dry run long flag", test_dry_run_long_flag},
@@ -645,6 +739,8 @@ TEST_LIST = {
     {"unknown short option", test_unknown_short_option},
     {"unknown short option value ends cluster", test_unknown_short_option_value_ends_cluster},
     {"unknown long option", test_unknown_long_option},
+    {"config option requires path", test_config_option_requires_path},
+    {"config option rejects empty path", test_config_option_rejects_empty_path},
     {"no args rejected", test_no_args_rejected},
     {"config command rejects verbose", test_config_command_rejects_verbose},
     {"config command rejects workers", test_config_command_rejects_workers},
@@ -658,6 +754,8 @@ TEST_LIST = {
     {"print version writes version and grammars", test_print_version_writes_version_and_grammars},
     {"print version reports write failure", test_print_version_reports_write_failure},
     {"print usage names program and command", test_print_usage_names_program_and_command},
+    {"print usage names config option", test_print_usage_names_config_option},
+    {"print usage names build options", test_print_usage_names_build_options},
     {"print usage reports write failure", test_print_usage_reports_write_failure},
     {NULL, NULL},
 };
