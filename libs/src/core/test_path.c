@@ -137,14 +137,31 @@ static void test_file_dir_takes_the_directory_of_a_file(void) {
   TEST_CHECK(path_file_dir(S("site.toml")).len == 0);
 }
 
+// Only the trailing run of `/` goes, however long it is, and the result is a view into the input. A
+// path of only `/` trims to empty, which is what lets a loader reject `/` as an empty directory.
+static void test_trim_trailing_slashes_drops_only_the_trailing_run(void) {
+  const struct Str path = S("a//b///");
+  const struct Str trimmed = path_trim_trailing_slashes(path);
+  TEST_CHECK(str_eq(trimmed, S("a//b")));
+  TEST_CHECK(trimmed.data == path.data);
+  TEST_CHECK(str_eq(path_trim_trailing_slashes(S("/srv/public/")), S("/srv/public")));
+  TEST_CHECK(str_eq(path_trim_trailing_slashes(S("public")), S("public")));
+  TEST_CHECK(path_trim_trailing_slashes(S("/")).len == 0);
+  TEST_CHECK(path_trim_trailing_slashes(S("///")).len == 0);
+  TEST_CHECK(path_trim_trailing_slashes(S("")).len == 0);
+}
+
 // A relative path resolves below the directory, and an absolute one, or any path against the
-// working directory, stays as it is.
+// working directory, stays as it is, without a `.` that adds nothing.
 static void test_resolve_joins_only_a_relative_path(void) {
   struct Arena arena = test_arena();
   TEST_CHECK(str_eq(path_resolve(S("sub"), S("public"), &arena), S("sub/public")));
   TEST_CHECK(str_eq(path_resolve(S("/"), S("public"), &arena), S("/public")));
   TEST_CHECK(str_eq(path_resolve(S("sub"), S("/srv/public"), &arena), S("/srv/public")));
   TEST_CHECK(str_eq(path_resolve(S(""), S("public"), &arena), S("public")));
+  // `.` as either part adds nothing to the result.
+  TEST_CHECK(str_eq(path_resolve(S("."), S("public"), &arena), S("public")));
+  TEST_CHECK(str_eq(path_resolve(S("sub"), S("."), &arena), S("sub")));
 }
 
 // `path_join` inserts exactly one `/` whether or not the directory already ends in one, and an
@@ -220,6 +237,8 @@ TEST_LIST = {
     {"basename strips dirs and extension", test_basename_strips_dirs_and_extension},
     {"parent takes directory part", test_parent_takes_directory_part},
     {"file dir takes the directory of a file", test_file_dir_takes_the_directory_of_a_file},
+    {"trim trailing slashes drops only the trailing run",
+     test_trim_trailing_slashes_drops_only_the_trailing_run},
     {"resolve joins only a relative path", test_resolve_joins_only_a_relative_path},
     {"join inserts separator", test_join_inserts_separator},
     {"is below returns remainder below root", test_is_below_returns_remainder_below_root},

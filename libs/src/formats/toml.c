@@ -1,15 +1,19 @@
 #include "formats/toml.h"
 
 #include <assert.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "core/arena.h"
+#include "core/buf.h"
 #include "core/log.h"
+#include "core/path.h"
 #include "core/str.h"
 #include "core/text.h"
 
@@ -188,6 +192,232 @@ int toml_require_known_keys(toml_datum_t table,
     }
   }
   return rc;
+}
+
+int toml_copy_string(toml_datum_t table,
+                     struct Str key_prefix,
+                     const char* key,
+                     bool is_required,
+                     struct Arena* arena,
+                     struct Str* value_out,
+                     struct Log* log) {
+  const toml_datum_t value = toml_get(table, key);
+  if (value.type == TOML_UNKNOWN) {
+    if (is_required) {
+      return log_error(log, "missing required config key '%.*s%s'", STR_FMT(key_prefix), key);
+    }
+    return 0;
+  }
+  if (value.type != TOML_STRING) {
+    return log_error(log, "config key '%.*s%s' must be a string", STR_FMT(key_prefix), key);
+  }
+  if (!toml_datum_is_text(value)) {
+    return log_error(log, "config key '%.*s%s' must not contain a NUL byte", STR_FMT(key_prefix),
+                     key);
+  }
+  *value_out = str_clone(toml_datum_str(value), arena);
+  return 0;
+}
+
+int toml_copy_dir(toml_datum_t table,
+                  struct Str key_prefix,
+                  const char* key,
+                  bool is_required,
+                  struct Str config_dir,
+                  struct Arena* arena,
+                  struct Str* value_out,
+                  struct Log* log) {
+  struct Str dir = {0};
+  if (toml_copy_string(table, key_prefix, key, is_required, arena, &dir, log) != 0) {
+    return -1;
+  }
+  // A present key is a copy that is never `NULL`, even when it is empty.
+  if (dir.data == NULL) {
+    return 0;
+  }
+  dir = path_trim_trailing_slashes(dir);
+  if (dir.len == 0) {
+    return log_error(log, "config key '%.*s%s' must not be empty", STR_FMT(key_prefix), key);
+  }
+  *value_out = path_resolve(config_dir, dir, arena);
+  return 0;
+}
+
+int toml_copy_bool(toml_datum_t table,
+                   struct Str key_prefix,
+                   const char* key,
+                   bool* value_out,
+                   struct Log* log) {
+  const toml_datum_t value = toml_get(table, key);
+  if (value.type == TOML_UNKNOWN) {
+    return 0;
+  }
+  if (value.type != TOML_BOOLEAN) {
+    return log_error(log, "config key '%.*s%s' must be a boolean", STR_FMT(key_prefix), key);
+  }
+  *value_out = value.u.boolean;
+  return 0;
+}
+
+int toml_copy_strings(toml_datum_t table,
+                      struct Str key_prefix,
+                      const char* key,
+                      bool is_template_names,
+                      struct Arena* arena,
+                      const struct Str** items_out,
+                      ptrdiff_t* item_count_out,
+                      struct Log* log) {
+  const toml_datum_t value = toml_get(table, key);
+  if (value.type == TOML_UNKNOWN) {
+    return 0;
+  }
+  if (value.type != TOML_ARRAY) {
+    return log_error(log, "config key '%.*s%s' must be an array", STR_FMT(key_prefix), key);
+  }
+
+  const ptrdiff_t item_count = value.u.arr.size;
+  // A zero-count allocation still returns a pointer, so a list copied from the file is never
+  // `NULL`.
+  struct Str* items = arena_new(arena, item_count, struct Str);
+  int rc = 0;
+  bool is_type_reported = false;
+  bool is_nul_reported = false;
+  for (ptrdiff_t i = 0; i < item_count; i++) {
+    const toml_datum_t item = value.u.arr.elem[i];
+    if (item.type != TOML_STRING) {
+      if (!is_type_reported) {
+        rc = log_error(log, "config key '%.*s%s' must contain only strings", STR_FMT(key_prefix),
+                       key);
+        is_type_reported = true;
+      }
+      continue;
+    }
+    if (!toml_datum_is_text(item)) {
+      if (!is_nul_reported) {
+        rc = log_error(log, "config key '%.*s%s' must not contain a NUL byte", STR_FMT(key_prefix),
+                       key);
+        is_nul_reported = true;
+      }
+      continue;
+    }
+    const struct Str text = toml_datum_str(item);
+    if (is_template_names && !path_is_safe_relative(text)) {
+      rc = log_error(log,
+                     "config key '%.*s%s' must contain only safe relative template names: '%.*s'",
+                     STR_FMT(key_prefix), key, STR_FMT(text));
+      continue;
+    }
+    items[i] = str_clone(text, arena);
+  }
+  if (rc != 0) {
+    return -1;
+  }
+  // The list is filled through a mutable local and published as `const`, so a caller that shares
+  // the config with other threads cannot write it.
+  *items_out = items;
+  *item_count_out = item_count;
+  return 0;
+}
+
+int toml_copy_size(toml_datum_t table,
+                   struct Str key_prefix,
+                   const struct TomlSizeKey* spec,
+                   struct Log* log) {
+  const toml_datum_t value = toml_get(table, spec->key);
+  if (value.type == TOML_UNKNOWN) {
+    if (spec->is_required) {
+      return log_error(log, "missing required config key '%.*s%s'", STR_FMT(key_prefix), spec->key);
+    }
+    return 0;
+  }
+  if (value.type != TOML_INT64) {
+    return log_error(log, "config key '%.*s%s' must be an integer", STR_FMT(key_prefix), spec->key);
+  }
+  if (value.u.int64 < spec->value_min) {
+    return log_error(log, "config key '%.*s%s' must be at least %td: %" PRId64, STR_FMT(key_prefix),
+                     spec->key, spec->value_min, value.u.int64);
+  }
+  // The ceiling also guards the conversion below. `value_max` is a `ptrdiff_t`, so a value that
+  // these checks accept fits `ptrdiff_t` on every target.
+  if (value.u.int64 > spec->value_max && spec->is_len) {
+    return log_error(log, "config key '%.*s%s' exceeds max %s (%td bytes) at %" PRId64 " bytes",
+                     STR_FMT(key_prefix), spec->key, spec->limit_name, spec->value_max,
+                     value.u.int64);
+  }
+  if (value.u.int64 > spec->value_max) {
+    return log_error(log, "config key '%.*s%s' exceeds max %s (%td) at %" PRId64,
+                     STR_FMT(key_prefix), spec->key, spec->limit_name, spec->value_max,
+                     value.u.int64);
+  }
+  *spec->field = (ptrdiff_t)value.u.int64;
+  return 0;
+}
+
+void toml_print_key_string(struct Buf* buffer, const char* key, struct Str value) {
+  buf_printf(buffer, "%s = ", key);
+  toml_print_string(buffer, value);
+  buf_append_char(buffer, '\n');
+}
+
+void toml_print_key_string_optional(struct Buf* buffer, const char* key, struct Str value) {
+  if (value.len > 0) {
+    toml_print_key_string(buffer, key, value);
+  }
+}
+
+void toml_print_key_string_array(struct Buf* buffer,
+                                 const char* key,
+                                 const struct Str* items,
+                                 ptrdiff_t item_count) {
+  buf_printf(buffer, "%s = [", key);
+  for (ptrdiff_t i = 0; i < item_count; i++) {
+    if (i > 0) {
+      buf_append(buffer, S(", "));
+    }
+    toml_print_string(buffer, items[i]);
+  }
+  buf_append(buffer, S("]\n"));
+}
+
+void toml_print_string(struct Buf* buffer, struct Str text) {
+  buf_append_char(buffer, '"');
+  // Walk the bytes as `unsigned char`. Where `char` is signed, every byte of a multi-byte UTF-8
+  // sequence is negative, so the `< 0x20` test below would treat it as a control byte, and passing
+  // a negative `int` to the `%04X` conversion is undefined.
+  for (ptrdiff_t i = 0; i < text.len; i++) {
+    const unsigned char c = (unsigned char)text.data[i];
+    switch (c) {
+      case '"':
+        buf_append(buffer, S("\\\""));
+        break;
+      case '\\':
+        buf_append(buffer, S("\\\\"));
+        break;
+      case '\b':
+        buf_append(buffer, S("\\b"));
+        break;
+      case '\t':
+        buf_append(buffer, S("\\t"));
+        break;
+      case '\n':
+        buf_append(buffer, S("\\n"));
+        break;
+      case '\f':
+        buf_append(buffer, S("\\f"));
+        break;
+      case '\r':
+        buf_append(buffer, S("\\r"));
+        break;
+      default:
+        if (c < 0x20 || c == 0x7F) {
+          buf_printf(buffer, "\\u%04X", c);
+        } else {
+          buf_append_char(buffer, (char)c);
+        }
+        break;
+    }
+  }
+  buf_append_char(buffer, '"');
 }
 
 static void toml_parse_document_install_allocator(void) {

@@ -45,10 +45,10 @@ struct Log;
 // Every operation below that can fail and takes a `log` also takes the caller's `operation`, such
 // as `failed to read config`, and records one error in `log` that leads with it and then gives the
 // cause, as in `failed to read config: No such file or directory ('app.toml')`. The caller owns the
-// operation and its attribution, because one failed `os_write` can be
-// `failed to write template output` from one caller and name the page it writes from another, while
-// only the implementation knows which path failed: the file itself, or a directory partway through
-// a `mkdir -p`. First-party causes are lowercase. Operating-system messages keep their spelling.
+// operation and its attribution, because one failed `os_write` can be `failed to write page` from
+// one caller and name the page it writes from another, while only the implementation knows which
+// path failed: the file itself, or a directory partway through a `mkdir -p`. First-party causes are
+// lowercase. Operating-system messages keep their spelling.
 
 /** The host an app runs against. Each implementation defines it. */
 struct Os;

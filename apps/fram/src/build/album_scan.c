@@ -1,4 +1,4 @@
-#include "build/album_scanner.h"
+#include "build/album_scan.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -406,15 +406,15 @@ static int probe_frame(struct Str source_path,
                        struct Str operation,
                        struct Log* log) __attribute__((nonnull(3, 5, 6, 8)));
 
-int album_scanner_build_skeleton(const struct GalleryConfig* gallery_config,
-                                 const struct PathList* source_paths,
-                                 struct Arena* perm,
-                                 struct Arena scratch,
-                                 struct Album*** albums_out,
-                                 ptrdiff_t* album_count_out,
-                                 struct MediaItem*** media_out,
-                                 ptrdiff_t* media_count_out,
-                                 struct Log* log) {
+int album_scan_build_skeleton(const struct GalleryConfig* gallery_config,
+                              const struct PathList* source_paths,
+                              struct Arena* perm,
+                              struct Arena scratch,
+                              struct Album*** albums_out,
+                              ptrdiff_t* album_count_out,
+                              struct MediaItem*** media_out,
+                              ptrdiff_t* media_count_out,
+                              struct Log* log) {
   struct SkeletonState state = {.perm = *perm, .media_count = source_paths->count};
   state.media = arena_new(&state.perm, state.media_count, struct MediaItem*);
   state.media_albums = arena_new(&scratch, state.media_count, struct Album*);
@@ -456,18 +456,18 @@ int album_scanner_build_skeleton(const struct GalleryConfig* gallery_config,
   return 0;
 }
 
-int album_scanner_probe_media(const struct GalleryConfig* gallery_config,
-                              struct MediaItem* const* media,
-                              ptrdiff_t media_count,
-                              const struct BuildCache* build_cache,
-                              struct VideoFrame* video_frames,
-                              ptrdiff_t worker_count,
-                              struct JobArenas* worker_arenas,
-                              bool is_verbose,
-                              struct Os* os,
-                              struct Arena scratch,
-                              struct OsStat* source_stats,
-                              struct Log* log) {
+int album_scan_probe_media(const struct GalleryConfig* gallery_config,
+                           struct MediaItem* const* media,
+                           ptrdiff_t media_count,
+                           const struct BuildCache* build_cache,
+                           struct VideoFrame* video_frames,
+                           ptrdiff_t worker_count,
+                           struct JobArenas* worker_arenas,
+                           bool is_verbose,
+                           struct Os* os,
+                           struct Arena scratch,
+                           struct OsStat* source_stats,
+                           struct Log* log) {
   struct ProbeContext context = {
       .gallery_config = gallery_config,
       .media = media,
@@ -480,7 +480,7 @@ int album_scanner_probe_media(const struct GalleryConfig* gallery_config,
                  S("probing media"), (struct Str){0}, is_verbose, os, scratch, log);
 }
 
-void album_scanner_remove_video_frames(struct VideoFrame* video_frames, ptrdiff_t media_count) {
+void album_scan_remove_video_frames(struct VideoFrame* video_frames, ptrdiff_t media_count) {
   for (ptrdiff_t i = 0; i < media_count; i++) {
     video_frame_remove(&video_frames[i]);
   }

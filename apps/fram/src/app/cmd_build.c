@@ -8,7 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "build/album_scanner.h"
+#include "build/album_scan.h"
 #include "build/derivative_renderer.h"
 #include "build/manifest_builder.h"
 #include "build/page_renderer.h"
@@ -744,15 +744,15 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
   rc = 0;
 
 cleanup:
-  album_scanner_remove_video_frames(state->video_frames, state->media_count);
+  album_scan_remove_video_frames(state->video_frames, state->media_count);
   return rc;
 }
 
 static int build_album_skeleton(struct BuildState* state, struct Log* log) {
   build_verbose(state, "planning albums");
-  if (album_scanner_build_skeleton(&state->gallery_config, &state->source_paths, &state->perm,
-                                   state->scratch, &state->albums, &state->album_count,
-                                   &state->media, &state->media_count, log) != 0) {
+  if (album_scan_build_skeleton(&state->gallery_config, &state->source_paths, &state->perm,
+                                state->scratch, &state->albums, &state->album_count, &state->media,
+                                &state->media_count, log) != 0) {
     return -1;
   }
   // The slots are allocated here, on the main thread, before either phase that uses them, so a job
@@ -788,7 +788,7 @@ static void load_build_cache(struct BuildState* state) {
   struct Arena log_arena = state->scratch;
   struct Log cache_log = {.buf = {.arena = &log_arena}};
   struct Str text = {0};
-  if (os_read(state->os, state->build_cache_path, BUILD_CACHE_FILE_LEN_MAX, OS_READ_BYTES,
+  if (os_read(state->os, state->build_cache_path, BUILD_CACHE_FILE_LEN_MAX, OS_READ_TEXT,
               &state->perm, &text, S("failed to read build cache"), &cache_log) != 0 ||
       build_cache_parse(text, &state->perm, &state->build_cache, &cache_log) != 0) {
     const struct Str logged = buf_str(&cache_log.buf);
@@ -802,10 +802,10 @@ static int probe_media(struct BuildState* state, struct Log* log) {
     return 0;
   }
   build_verbose(state, "probing media, workers: %td", state->worker_count);
-  return album_scanner_probe_media(&state->gallery_config, state->media, state->media_count,
-                                   &state->build_cache, state->video_frames, state->worker_count,
-                                   state->worker_arenas, state->is_verbose, state->os,
-                                   state->scratch, state->source_stats, log);
+  return album_scan_probe_media(&state->gallery_config, state->media, state->media_count,
+                                &state->build_cache, state->video_frames, state->worker_count,
+                                state->worker_arenas, state->is_verbose, state->os, state->scratch,
+                                state->source_stats, log);
 }
 
 static int populate_output_manifest(struct BuildState* state, struct Log* log) {

@@ -566,10 +566,10 @@ int manifest_builder_check_output_dir(const struct GalleryConfig* gallery_config
                        STR_FMT(held_root->config_key), STR_FMT(gallery_config->output_dir));
     }
   }
-  // `path_parent` is empty for a file in the working directory or directly below `/`.
-  struct Str config_dir = path_parent(config_path);
+  // A config in the working directory has no directory of its own, so it is `.` here.
+  struct Str config_dir = path_file_dir(config_path);
   if (config_dir.len == 0) {
-    config_dir = str_startswith(config_path, S("/")) ? S("/") : S(".");
+    config_dir = S(".");
   }
   if (is_held_by_output_dir(config_dir, &output_identity, os, scratch)) {
     return log_error(log, "output directory would hold the config: '%.*s'",
@@ -886,8 +886,8 @@ static int register_template_output(struct Manifest* manifest,
                                     struct Arena scratch,
                                     struct Log* log) {
   // This is checked against the same limits as an album or media output path. All are generated
-  // output paths joined onto `output_dir`, and all land in this manifest. `album_scanner` checks
-  // the paths it generates, so no producer reaches the manifest with an unbounded output path.
+  // output paths joined onto `output_dir`, and all land in this manifest. `album_scan` checks the
+  // paths it generates, so no producer reaches the manifest with an unbounded output path.
   if (output_path_check_limits(template_name, source_label, log) != 0) {
     return -1;
   }

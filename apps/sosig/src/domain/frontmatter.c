@@ -535,15 +535,6 @@ static int parse_org_timestamp_time(toml_datum_t* datum, struct Str word)
 static bool is_org_day_name(struct Str word);
 
 /**
- * @brief Reports whether text equals a lowercase name, folding the case of ASCII letters.
- *
- * @param text Text to compare.
- * @param name Lowercase name.
- * @return `true` when they match, `false` otherwise.
- */
-static bool is_equal_folded(struct Str text, struct Str name);
-
-/**
  * @brief Drops the blanks at both ends of a string.
  *
  * @param text Text to trim.
@@ -1072,7 +1063,7 @@ static struct OrgKeyword find_org_keyword(struct Str org, struct Str key) {
     }
     // A drawer is skipped wherever it sits in the run. One that is not the file's first element
     // renders as text, but Emacs reads keywords anywhere, so the keywords after it count.
-    if (is_equal_folded(trimmed, S(":properties:"))) {
+    if (str_eq_folded(trimmed, S(":properties:"))) {
       const struct StrCut drawer = cut_org_drawer(rest);
       if (!drawer.is_found) {
         break;
@@ -1084,7 +1075,7 @@ static struct OrgKeyword find_org_keyword(struct Str org, struct Str key) {
     if (!keyword.is_found) {
       break;
     }
-    if (is_equal_folded(keyword.head, key)) {
+    if (str_eq_folded(keyword.head, key)) {
       return (struct OrgKeyword){.value = keyword.tail, .rest = rest, .is_found = true};
     }
   }
@@ -1095,7 +1086,7 @@ static struct StrCut cut_org_drawer(struct Str rest) {
   struct Str lines = rest;
   while (lines.len > 0) {
     const struct StrCut line = str_cut(lines, '\n');
-    if (is_equal_folded(trim_org_blanks(line.head), S(":end:"))) {
+    if (str_eq_folded(trim_org_blanks(line.head), S(":end:"))) {
       return (struct StrCut){.tail = line.tail, .is_found = true};
     }
     lines = line.tail;
@@ -1205,18 +1196,6 @@ static int parse_org_timestamp_time(toml_datum_t* datum, struct Str word) {
 static bool is_org_day_name(struct Str word) {
   for (ptrdiff_t i = 0; i < word.len; i++) {
     if (ascii_is_digit((unsigned char)word.data[i]) || is_byte_in(word.data[i], S("+-]>"))) {
-      return false;
-    }
-  }
-  return true;
-}
-
-static bool is_equal_folded(struct Str text, struct Str name) {
-  if (text.len != name.len) {
-    return false;
-  }
-  for (ptrdiff_t i = 0; i < text.len; i++) {
-    if (ascii_to_lower((unsigned char)text.data[i]) != (unsigned char)name.data[i]) {
       return false;
     }
   }

@@ -32,27 +32,6 @@ struct GalleryConfigStringKey {
   bool is_required;
 };
 
-/** Integer-valued gallery config key policy. */
-struct GalleryConfigIntKey {
-  /** TOML key name. */
-  const char* key;
-
-  /** Address of the `GalleryConfig` field this key fills. */
-  ptrdiff_t* field;
-
-  /** Smallest accepted value, named in the `must be at least` rejection. */
-  ptrdiff_t value_min;
-
-  /** Largest accepted value. A larger one is rejected as exceeding `limit_name`. */
-  ptrdiff_t value_max;
-
-  /** Prose name of `value_max` in the overflow diagnostic: `exceeds max video frame seconds`. */
-  const char* limit_name;
-
-  /** Whether absence is a load error rather than leaving the field's current value. */
-  bool is_required;
-};
-
 const struct Str GALLERY_CONFIG_PATH_DEFAULT = STR_INIT("fram.toml");
 
 #define MEDIA_DIR_DEFAULT S("media")
@@ -163,48 +142,6 @@ static void gallery_config_load_fields(struct GalleryConfig* gallery_config,
                                        struct Log* log) __attribute__((nonnull(1, 4, 5)));
 
 /**
- * @brief Copies one string key into the arena, enforcing required keys.
- *
- * @param table       Parsed TOML table.
- * @param key         Key to read. Must not be `NULL`.
- * @param is_required Whether absence is an error. When `false`, absence leaves `*value_out`
- *                    untouched.
- * @param arena       Arena that owns the copied value. Must not be `NULL`.
- * @param value_out   Receives the copied string when the key is present. Must not be `NULL`.
- * @param log         Log that receives every error. Must not be `NULL`.
- * @return `0` on success, or `-1` if a required key is missing or mistyped.
- */
-static int copy_string(toml_datum_t table,
-                       const char* key,
-                       bool is_required,
-                       struct Arena* arena,
-                       struct Str* value_out,
-                       struct Log* log) __attribute__((nonnull(2, 4, 5, 6)));
-
-/**
- * @brief Copies one optional template-name array key and validates each name.
- *
- * When the key is absent, this leaves the outputs untouched and keeps the defaults from
- * `gallery_config_init`.
- *
- * @param table                   Parsed TOML table.
- * @param key                     Array key to read. Must not be `NULL`.
- * @param arena                   Arena that owns the copied names. Must not be `NULL`.
- * @param template_names_out      Receives the copied name array when the key is present. Must not
- *                                be `NULL`.
- * @param template_name_count_out Receives the number of names when the key is present. Must not be
- *                                `NULL`.
- * @param log                     Log that receives every error. Must not be `NULL`.
- * @return `0` on success or when absent, or `-1` on a wrong type, a `NUL` byte, or an unsafe name.
- */
-static int copy_template_names(toml_datum_t table,
-                               const char* key,
-                               struct Arena* arena,
-                               const struct Str** template_names_out,
-                               ptrdiff_t* template_name_count_out,
-                               struct Log* log) __attribute__((nonnull(2, 3, 4, 5, 6)));
-
-/**
  * @brief Copies and validates the optional named-derivative table.
  *
  * When the key is absent, this leaves `derivatives` untouched and keeps the defaults from
@@ -253,22 +190,6 @@ static int copy_derivatives_entry(struct Str name,
 static bool is_derivative_name(struct Str name);
 
 /**
- * @brief Validates and copies one bounded non-negative integer key into `spec->field`.
- *
- * @param table      Parsed TOML table holding `spec->key`.
- * @param key_prefix Dotted path of `table` that diagnostics put before `spec->key`, such as
- *                   `derivatives.tiny.`, or `""` for the top-level table.
- * @param spec       Key policy and target field. Must not be `NULL`.
- * @param log        Log that receives every error. Must not be `NULL`.
- * @return `0` on success or when an optional key is absent, or `-1` on a missing required key, a
- *         wrong type, a value below `spec->value_min`, or a value exceeding `spec->value_max`.
- */
-static int copy_size(toml_datum_t table,
-                     struct Str key_prefix,
-                     const struct GalleryConfigIntKey* spec,
-                     struct Log* log) __attribute__((nonnull(3, 4)));
-
-/**
  * @brief Copies and validates the optional `sort` table.
  *
  * When the key is absent, this leaves both orders untouched and keeps the defaults from
@@ -313,42 +234,6 @@ static void normalize_base_url(struct GalleryConfig* gallery_config, struct Log*
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Copies one optional directory key, trims its trailing `/`, rejects an empty result, and
- *        resolves it against `config_dir`.
- *
- * A trailing slash would otherwise survive into path construction, where it defeats the
- * `<media_dir>/` prefix strip that places each media item in its album. Normalizing once here keeps
- * that rule in one place and makes `gallery_config_print` round-trip the normalized form. The
- * location is not otherwise constrained. An absolute or parent-relative directory stays valid.
- *
- * @param table      Parsed TOML top-level table.
- * @param key        Config key name, used in diagnostics. Must not be `NULL`.
- * @param config_dir Directory a relative path resolves against, or empty for the working one.
- * @param arena      Arena that owns the copied value. Must not be `NULL`.
- * @param value_out  Receives the resolved directory when the key is present and valid, and keeps
- *                   its value otherwise, so a rejected key leaves later phases a directory. Must
- *                   not be `NULL`.
- * @param log        Log that receives the error. Must not be `NULL`.
- * @return `0` when the key is absent or accepted, or `-1` when it is not a string, holds a `NUL`
- *         byte, or is empty once trimmed.
- */
-static int copy_dir(toml_datum_t table,
-                    const char* key,
-                    struct Str config_dir,
-                    struct Arena* arena,
-                    struct Str* value_out,
-                    struct Log* log) __attribute__((nonnull(2, 4, 5, 6)));
-
-/**
- * @brief Returns `value` with any trailing `/` bytes excluded.
- *
- * @param value Value to trim.
- * @return View of `value` up to the first byte of its trailing `/` run, empty when `value` is
- *         entirely `/`.
- */
-static struct Str trim_trailing_slashes(struct Str value);
-
-/**
  * @brief Rejects an `album_template` that is not a safe relative template name.
  *
  * A rejected name is reset to the default, so the render still has a template to look for.
@@ -373,34 +258,6 @@ static int require_derivative_bounds(const struct GalleryDerivative* derivatives
                                      struct Log* log) __attribute__((nonnull(1, 3)));
 
 /**
- * @brief Writes one `key = "value"` line, escaping the value as a TOML basic string.
- *
- * Delegates to `print_string` so a scalar value quotes exactly like array items.
- *
- * @param buffer Buffer the line is appended to. Must not be `NULL`.
- * @param key    Terminated key name to write. Must not be `NULL`.
- * @param value  Value to quote and write.
- */
-static void gallery_config_print_key_string(struct Buf* buffer, const char* key, struct Str value)
-    __attribute__((nonnull(1, 2)));
-
-/**
- * @brief Writes one `key = [...]` line of TOML basic strings.
- *
- * Delegates to `print_string` so array items quote exactly like scalar values.
- *
- * @param buffer     Buffer the line is appended to. Must not be `NULL`.
- * @param key        Terminated key name to write. Must not be `NULL`.
- * @param items      Array of `item_count` strings. Must not be `NULL`.
- * @param item_count Number of items in `items`.
- */
-static void gallery_config_print_string_array(struct Buf* buffer,
-                                              const char* key,
-                                              const struct Str* items,
-                                              ptrdiff_t item_count)
-    __attribute__((nonnull(1, 2, 3)));
-
-/**
  * @brief Writes the `sort = { ... }` line, naming both orders even at their defaults.
  *
  * The table is inline, so a key printed after it still belongs to the top-level table.
@@ -411,16 +268,6 @@ static void gallery_config_print_string_array(struct Buf* buffer,
 static void gallery_config_print_sort(struct Buf* buffer,
                                       const struct GalleryConfig* gallery_config)
     __attribute__((nonnull(1, 2)));
-
-/**
- * @brief Writes `text` as a quoted TOML basic string, escaping delimiters and control bytes.
- *
- * TOML basic strings forbid raw control bytes, so this escapes them alongside `"` and `\`.
- *
- * @param buffer Buffer the quoted string is appended to. Must not be `NULL`.
- * @param text   Text to quote and escape.
- */
-static void print_string(struct Buf* buffer, struct Str text) __attribute__((nonnull(1)));
 
 void gallery_config_init(struct GalleryConfig* gallery_config) {
   // This is one literal naming only the non-zero defaults, so a key added to `GalleryConfig` cannot
@@ -467,22 +314,18 @@ int gallery_config_print(const struct GalleryConfig* gallery_config,
                          struct Os* os,
                          struct Arena scratch) {
   struct Buf text = {.arena = &scratch};
-  gallery_config_print_key_string(&text, "title", gallery_config->title);
-  gallery_config_print_key_string(&text, "description", gallery_config->description);
-  gallery_config_print_key_string(&text, "author", gallery_config->author);
-  // An empty `base_url` is an absent key, so it is left out, as surge leaves out an empty optional
-  // string.
-  if (gallery_config->base_url.len > 0) {
-    gallery_config_print_key_string(&text, "base_url", gallery_config->base_url);
-  }
-  gallery_config_print_key_string(&text, "media_dir", gallery_config->media_dir);
-  gallery_config_print_key_string(&text, "output_dir", gallery_config->output_dir);
-  gallery_config_print_key_string(&text, "templates_dir", gallery_config->templates_dir);
-  gallery_config_print_key_string(&text, "static_dir", gallery_config->static_dir);
-  gallery_config_print_key_string(&text, "album_template", gallery_config->album_template);
-  gallery_config_print_string_array(&text, "aggregate_templates",
-                                    gallery_config->aggregate_templates,
-                                    gallery_config->aggregate_template_count);
+  toml_print_key_string(&text, "title", gallery_config->title);
+  toml_print_key_string(&text, "description", gallery_config->description);
+  toml_print_key_string(&text, "author", gallery_config->author);
+  // An empty `base_url` is an absent key, so it is left out.
+  toml_print_key_string_optional(&text, "base_url", gallery_config->base_url);
+  toml_print_key_string(&text, "media_dir", gallery_config->media_dir);
+  toml_print_key_string(&text, "output_dir", gallery_config->output_dir);
+  toml_print_key_string(&text, "templates_dir", gallery_config->templates_dir);
+  toml_print_key_string(&text, "static_dir", gallery_config->static_dir);
+  toml_print_key_string(&text, "album_template", gallery_config->album_template);
+  toml_print_key_string_array(&text, "aggregate_templates", gallery_config->aggregate_templates,
+                              gallery_config->aggregate_template_count);
   buf_append(&text, S("derivatives = { "));
   for (ptrdiff_t i = 0; i < gallery_config->derivative_count; i++) {
     const struct GalleryDerivative* derivative = &gallery_config->derivatives[i];
@@ -522,14 +365,9 @@ static int gallery_config_load_toml(struct Str config_path,
                                     toml_result_t* parsed_out,
                                     struct Log* log) {
   struct Str config_data = {0};
-  if (os_read(os, config_path, CONFIG_FILE_LEN_MAX, OS_READ_BYTES, &scratch, &config_data,
+  if (os_read(os, config_path, CONFIG_FILE_LEN_MAX, OS_READ_TEXT, &scratch, &config_data,
               S("failed to read config"), log) != 0) {
     return -1;
-  }
-
-  if (!text_is_nul_free(config_data)) {
-    return log_error(log, "failed to read config: contains an embedded NUL byte ('%.*s')",
-                     STR_FMT(config_path));
   }
   // tomlc17 copies the input, so the bytes can stay in `scratch`. The read bounds the length at
   // `CONFIG_FILE_LEN_MAX`, which fits an `int`.
@@ -557,7 +395,8 @@ static void gallery_config_load_fields(struct GalleryConfig* gallery_config,
       {"album_template", &gallery_config->album_template, false},
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(strings) / sizeof(strings[0])); i++) {
-    (void)copy_string(table, strings[i].key, strings[i].is_required, perm, strings[i].field, log);
+    (void)toml_copy_string(table, S(""), strings[i].key, strings[i].is_required, perm,
+                           strings[i].field, log);
   }
 
   normalize_base_url(gallery_config, log);
@@ -568,113 +407,31 @@ static void gallery_config_load_fields(struct GalleryConfig* gallery_config,
   gallery_config->templates_dir = path_resolve(config_dir, gallery_config->templates_dir, perm);
   gallery_config->static_dir = path_resolve(config_dir, gallery_config->static_dir, perm);
   gallery_config->is_media_dir_rejected =
-      copy_dir(table, "media_dir", config_dir, perm, &gallery_config->media_dir, log) != 0;
+      toml_copy_dir(table, S(""), "media_dir", false, config_dir, perm, &gallery_config->media_dir,
+                    log) != 0;
   gallery_config->is_output_dir_rejected =
-      copy_dir(table, "output_dir", config_dir, perm, &gallery_config->output_dir, log) != 0;
+      toml_copy_dir(table, S(""), "output_dir", false, config_dir, perm,
+                    &gallery_config->output_dir, log) != 0;
   gallery_config->is_templates_dir_rejected =
-      copy_dir(table, "templates_dir", config_dir, perm, &gallery_config->templates_dir, log) != 0;
+      toml_copy_dir(table, S(""), "templates_dir", false, config_dir, perm,
+                    &gallery_config->templates_dir, log) != 0;
   gallery_config->is_static_dir_rejected =
-      copy_dir(table, "static_dir", config_dir, perm, &gallery_config->static_dir, log) != 0;
+      toml_copy_dir(table, S(""), "static_dir", false, config_dir, perm,
+                    &gallery_config->static_dir, log) != 0;
   (void)normalize_album_template(gallery_config, log);
-  (void)copy_template_names(table, "aggregate_templates", perm,
-                            &gallery_config->aggregate_templates,
-                            &gallery_config->aggregate_template_count, log);
+  (void)toml_copy_strings(table, S(""), "aggregate_templates", true, perm,
+                          &gallery_config->aggregate_templates,
+                          &gallery_config->aggregate_template_count, log);
   (void)copy_derivatives(gallery_config, table, perm, log);
   (void)copy_sort(gallery_config, table, log);
 
-  const struct GalleryConfigIntKey video_frame_seconds = {
+  const struct TomlSizeKey video_frame_seconds = {
       .key = "video_frame_seconds",
       .field = &gallery_config->video_frame_seconds,
       .value_max = VIDEO_FRAME_SECONDS_MAX,
       .limit_name = "video frame seconds",
   };
-  (void)copy_size(table, S(""), &video_frame_seconds, log);
-}
-
-static int copy_string(toml_datum_t table,
-                       const char* key,
-                       bool is_required,
-                       struct Arena* arena,
-                       struct Str* value_out,
-                       struct Log* log) {
-  const toml_datum_t value = toml_get(table, key);
-  if (value.type == TOML_UNKNOWN) {
-    if (is_required) {
-      return log_error(log, "missing required config key '%s'", key);
-    }
-    return 0;
-  }
-  if (value.type != TOML_STRING) {
-    return log_error(log, "config key '%s' must be a string", key);
-  }
-  if (!toml_datum_is_text(value)) {
-    return log_error(log, "config key '%s' must not contain a NUL byte", key);
-  }
-  *value_out = str_clone(toml_datum_str(value), arena);
-  return 0;
-}
-
-static int copy_template_names(toml_datum_t table,
-                               const char* key,
-                               struct Arena* arena,
-                               const struct Str** template_names_out,
-                               ptrdiff_t* template_name_count_out,
-                               struct Log* log) {
-  const toml_datum_t value = toml_get(table, key);
-  if (value.type == TOML_UNKNOWN) {
-    return 0;
-  }
-  if (value.type != TOML_ARRAY) {
-    return log_error(log, "config key '%s' must be an array", key);
-  }
-
-  const ptrdiff_t item_count = value.u.arr.size;
-  // This allocates even for an empty array, rather than leaving it `NULL`. A zero-count allocation
-  // still returns a pointer. Every consumer of the published array is declared `nonnull` on it. If
-  // left `NULL`, `aggregate_templates = []` would reach `gallery_config_print_string_array` as a
-  // null pointer and abort.
-  struct Str* items = arena_new(arena, item_count, struct Str);
-
-  // Every element is checked even after one fails, so each unsafe name is reported. A wrong type or
-  // a `NUL` byte is reported once, since its message names no element and a repeat would add
-  // nothing.
-  int rc = 0;
-  bool is_type_reported = false;
-  bool is_nul_reported = false;
-  for (ptrdiff_t i = 0; i < item_count; i++) {
-    const toml_datum_t item = value.u.arr.elem[i];
-    if (item.type != TOML_STRING) {
-      if (!is_type_reported) {
-        rc = log_error(log, "config key '%s' must contain only strings", key);
-        is_type_reported = true;
-      }
-      continue;
-    }
-    if (!toml_datum_is_text(item)) {
-      if (!is_nul_reported) {
-        rc = log_error(log, "config key '%s' must not contain a NUL byte", key);
-        is_nul_reported = true;
-      }
-      continue;
-    }
-    const struct Str name = toml_datum_str(item);
-    if (!path_is_safe_relative(name)) {
-      rc = log_error(log, "config key '%s' must contain only safe relative template names: '%.*s'",
-                     key, STR_FMT(name));
-      continue;
-    }
-    items[i] = str_clone(name, arena);
-  }
-  if (rc != 0) {
-    return -1;
-  }
-
-  // The code fills these through a mutable local and publishes them as `const struct Str*`. The
-  // elements have to be writable while it builds the arena copy, but must not be once the config
-  // shares them with the render workers.
-  *template_names_out = items;
-  *template_name_count_out = item_count;
-  return 0;
+  (void)toml_copy_size(table, S(""), &video_frame_seconds, log);
 }
 
 static int copy_derivatives(struct GalleryConfig* gallery_config,
@@ -749,24 +506,42 @@ static int copy_derivatives_entry(struct Str name,
                               key_prefix, (struct Str){0}, log) != 0) {
     rc = -1;
   }
-  const struct GalleryConfigIntKey integers[] = {
-      {"width", &derivative_out->width_px, 1, IMAGE_ENCODED_DIMENSION_MAX, "WebP dimension", true},
-      {"height", &derivative_out->height_px, 1, IMAGE_ENCODED_DIMENSION_MAX, "WebP dimension",
-       true},
-      {"quality", &derivative_out->quality, 1, 100, "WebP quality", true},
+  const struct TomlSizeKey integers[] = {
+      {
+          .key = "width",
+          .field = &derivative_out->width_px,
+          .value_min = 1,
+          .value_max = IMAGE_ENCODED_DIMENSION_MAX,
+          .limit_name = "WebP dimension",
+          .is_required = true,
+      },
+      {
+          .key = "height",
+          .field = &derivative_out->height_px,
+          .value_min = 1,
+          .value_max = IMAGE_ENCODED_DIMENSION_MAX,
+          .limit_name = "WebP dimension",
+          .is_required = true,
+      },
+      {
+          .key = "quality",
+          .field = &derivative_out->quality,
+          .value_min = 1,
+          .value_max = 100,
+          .limit_name = "WebP quality",
+          .is_required = true,
+      },
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(integers) / sizeof(integers[0])); i++) {
-    if (copy_size(entry_table, key_prefix, &integers[i], log) != 0) {
+    if (toml_copy_size(entry_table, key_prefix, &integers[i], log) != 0) {
       rc = -1;
     }
   }
 
-  const toml_datum_t crop = toml_get(entry_table, "crop");
-  if (crop.type != TOML_UNKNOWN && crop.type != TOML_BOOLEAN) {
-    rc = log_error(log, "config key 'derivatives.%.*s.crop' must be a boolean",
-                   STR_FMT(derivative_out->name));
+  derivative_out->is_crop = false;
+  if (toml_copy_bool(entry_table, key_prefix, "crop", &derivative_out->is_crop, log) != 0) {
+    rc = -1;
   }
-  derivative_out->is_crop = crop.type == TOML_BOOLEAN && crop.u.boolean;
   return rc;
 }
 
@@ -782,35 +557,6 @@ static bool is_derivative_name(struct Str name) {
     }
   }
   return true;
-}
-
-static int copy_size(toml_datum_t table,
-                     struct Str key_prefix,
-                     const struct GalleryConfigIntKey* spec,
-                     struct Log* log) {
-  const toml_datum_t value = toml_get(table, spec->key);
-  if (value.type == TOML_UNKNOWN) {
-    if (spec->is_required) {
-      return log_error(log, "missing required config key '%.*s%s'", STR_FMT(key_prefix), spec->key);
-    }
-    return 0;
-  }
-  if (value.type != TOML_INT64) {
-    return log_error(log, "config key '%.*s%s' must be an integer", STR_FMT(key_prefix), spec->key);
-  }
-  if (value.u.int64 < spec->value_min) {
-    return log_error(log, "config key '%.*s%s' must be at least %td: %" PRId64, STR_FMT(key_prefix),
-                     spec->key, spec->value_min, value.u.int64);
-  }
-  // One comparison covers both the configured ceiling and the conversion below. `value_max` is a
-  // `ptrdiff_t`, so a value this check accepts fits `ptrdiff_t` on every target.
-  if (value.u.int64 > spec->value_max) {
-    return log_error(log, "config key '%.*s%s' exceeds max %s (%td) at %" PRId64,
-                     STR_FMT(key_prefix), spec->key, spec->limit_name, spec->value_max,
-                     value.u.int64);
-  }
-  *spec->field = (ptrdiff_t)value.u.int64;
-  return 0;
 }
 
 static int copy_sort(struct GalleryConfig* gallery_config, toml_datum_t table, struct Log* log) {
@@ -886,35 +632,7 @@ static void normalize_base_url(struct GalleryConfig* gallery_config, struct Log*
     return;
   }
   // Every link joins `base_url` with a path that starts with `/`, so the trailing `/` goes.
-  gallery_config->base_url = trim_trailing_slashes(gallery_config->base_url);
-}
-
-static int copy_dir(toml_datum_t table,
-                    const char* key,
-                    struct Str config_dir,
-                    struct Arena* arena,
-                    struct Str* value_out,
-                    struct Log* log) {
-  struct Str dir = {0};
-  if (copy_string(table, key, false, arena, &dir, log) != 0) {
-    return -1;
-  }
-  if (dir.data == NULL) {
-    return 0;
-  }
-  dir = trim_trailing_slashes(dir);
-  if (dir.len == 0) {
-    return log_error(log, "config key '%s' must not be empty", key);
-  }
-  *value_out = path_resolve(config_dir, dir, arena);
-  return 0;
-}
-
-static struct Str trim_trailing_slashes(struct Str value) {
-  while (str_endswith(value, S("/"))) {
-    value = str_head(value, value.len - 1);
-  }
-  return value;
+  gallery_config->base_url = path_trim_trailing_slashes(gallery_config->base_url);
 }
 
 static int normalize_album_template(struct GalleryConfig* gallery_config, struct Log* log) {
@@ -945,70 +663,9 @@ static int require_derivative_bounds(const struct GalleryDerivative* derivatives
   return rc;
 }
 
-static void gallery_config_print_key_string(struct Buf* buffer, const char* key, struct Str value) {
-  buf_printf(buffer, "%s = ", key);
-  print_string(buffer, value);
-  buf_append_char(buffer, '\n');
-}
-
-static void gallery_config_print_string_array(struct Buf* buffer,
-                                              const char* key,
-                                              const struct Str* items,
-                                              ptrdiff_t item_count) {
-  buf_printf(buffer, "%s = [", key);
-  for (ptrdiff_t i = 0; i < item_count; i++) {
-    if (i > 0) {
-      buf_append(buffer, S(", "));
-    }
-    print_string(buffer, items[i]);
-  }
-  buf_append(buffer, S("]\n"));
-}
-
 static void gallery_config_print_sort(struct Buf* buffer,
                                       const struct GalleryConfig* gallery_config) {
   buf_printf(buffer, "sort = { albums = \"%s\", media = \"%s\" }\n",
              gallery_config->album_sort_order == GALLERY_SORT_DESC ? "desc" : "asc",
              gallery_config->media_sort_order == GALLERY_SORT_DESC ? "desc" : "asc");
-}
-
-static void print_string(struct Buf* buffer, struct Str text) {
-  buf_append_char(buffer, '"');
-  // Walk the bytes as `unsigned char`. Where `char` is signed, every byte of a multi-byte UTF-8
-  // sequence is negative, so the `< 0x20` test below would treat it as a control byte, and passing
-  // a negative `int` to the `%04X` conversion is undefined.
-  for (ptrdiff_t i = 0; i < text.len; i++) {
-    const unsigned char c = (unsigned char)text.data[i];
-    switch (c) {
-      case '"':
-        buf_append(buffer, S("\\\""));
-        break;
-      case '\\':
-        buf_append(buffer, S("\\\\"));
-        break;
-      case '\b':
-        buf_append(buffer, S("\\b"));
-        break;
-      case '\t':
-        buf_append(buffer, S("\\t"));
-        break;
-      case '\n':
-        buf_append(buffer, S("\\n"));
-        break;
-      case '\f':
-        buf_append(buffer, S("\\f"));
-        break;
-      case '\r':
-        buf_append(buffer, S("\\r"));
-        break;
-      default:
-        if (c < 0x20 || c == 0x7F) {
-          buf_printf(buffer, "\\u%04X", c);
-        } else {
-          buf_append_char(buffer, (char)c);
-        }
-        break;
-    }
-  }
-  buf_append_char(buffer, '"');
 }

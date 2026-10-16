@@ -275,15 +275,6 @@ static bool highlight_grammar_find_load(struct HighlightGrammar* grammar)
     __attribute__((nonnull(1)));
 
 /**
- * @brief Reports whether two names are equal once the first is folded to lowercase in ASCII.
- *
- * @param text Text to compare.
- * @param name Lowercase name.
- * @return `true` when they match, `false` otherwise.
- */
-static bool is_equal_folded(struct Str text, struct Str name);
-
-/**
  * @brief Reports whether every predicate of a query is one the writer evaluates: `#match?` or
  *        `#not-match?` with a capture and a pattern of `patterns`, `#eq?` or `#not-eq?` with a
  *        capture and a string, `#any-of?` or `#not-any-of?` with a capture and one or more strings,
@@ -571,7 +562,7 @@ const struct HighlightGrammar* highlight_grammar_find(struct Str language) {
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(grammars) / sizeof(grammars[0])); i++) {
     struct HighlightGrammar* grammar = &grammars[i];
     for (ptrdiff_t j = 0; j < grammar->name_count; j++) {
-      if (is_equal_folded(language, grammar->names[j])) {
+      if (str_eq_folded(language, grammar->names[j])) {
         return highlight_grammar_find_load(grammar) ? grammar : NULL;
       }
     }
@@ -697,18 +688,6 @@ static bool highlight_grammar_find_load(struct HighlightGrammar* grammar) {
   const bool is_loaded = grammar->query != NULL;
   (void)pthread_mutex_unlock(&grammar_lock);
   return is_loaded;
-}
-
-static bool is_equal_folded(struct Str text, struct Str name) {
-  if (text.len != name.len) {
-    return false;
-  }
-  for (ptrdiff_t i = 0; i < text.len; i++) {
-    if (ascii_to_lower((unsigned char)text.data[i]) != (unsigned char)name.data[i]) {
-      return false;
-    }
-  }
-  return true;
 }
 
 static bool is_query_supported(const TSQuery* query) {

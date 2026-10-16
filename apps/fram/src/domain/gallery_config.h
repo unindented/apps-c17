@@ -11,8 +11,12 @@ struct Log;
 struct Os;
 
 /**
- * Path every command loads its configuration from when `-c` names none, relative to the working
- * directory. `cmd_config_run` and `cmd_build_run` both use it, so it is declared once here.
+ * Path every command loads its gallery configuration from when `-c` names none, relative to the
+ * working directory.
+ *
+ * `cli_parse` gives it to both commands when `-c` is not given, so it is declared once here. Each
+ * command loads the path it receives, and `cmd_build_run` also claims that path as a build input,
+ * so no output path can overwrite it.
  *
  * It is `extern`, with the definition in `gallery_config.c`, rather than a `static` initializer in
  * this header. Every translation unit then shares one object instead of getting a copy of its own
@@ -55,8 +59,8 @@ enum GallerySortOrder {
 };
 
 /**
- * Gallery configuration loaded from `fram.toml`. Every string and array it points at is either a
- * default literal or a copy in the arena `gallery_config_load` was given.
+ * Gallery configuration loaded from a config file, `fram.toml` by default. Every string and array
+ * it points at is either a default literal or a copy in the arena `gallery_config_load` was given.
  */
 struct GalleryConfig {
   /** Required title of the gallery, also the root album's title. */

@@ -55,6 +55,17 @@ static void test_eq_compares_length_and_bytes(void) {
   TEST_CHECK(str_eq((struct Str){NULL, 0}, S("")));
 }
 
+// Folded equality ignores the case of ASCII letters only: a length or another byte still differs,
+// and a byte above 0x7F matches only itself.
+static void test_eq_folded_ignores_only_ascii_case(void) {
+  TEST_CHECK(str_eq_folded(S("README.md"), S("readme.MD")));
+  TEST_CHECK(str_eq_folded(S("a-Z_9"), S("A-z_9")));
+  TEST_CHECK(!str_eq_folded(S("abc"), S("ab")));
+  TEST_CHECK(!str_eq_folded(S("a-b"), S("a_b")));
+  TEST_CHECK(!str_eq_folded(S("\xc3\xa9"), S("\xc3\x89")));
+  TEST_CHECK(str_eq_folded((struct Str){NULL, 0}, S("")));
+}
+
 // Comparison orders unsigned bytes, a prefix before its extensions, and equal strings as `0`.
 static void test_compare_orders_bytes_then_length(void) {
   TEST_CHECK(str_compare(S("abc"), S("abd")) < 0);
@@ -178,6 +189,7 @@ static void test_clone_past_arena_is_oom(void) {
 TEST_LIST = {
     {"literal and cstr lengths", test_literal_and_cstr_lengths},
     {"eq compares length and bytes", test_eq_compares_length_and_bytes},
+    {"eq folded ignores only ascii case", test_eq_folded_ignores_only_ascii_case},
     {"compare orders bytes then length", test_compare_orders_bytes_then_length},
     {"startswith and endswith", test_startswith_and_endswith},
     {"head and tail split views", test_head_and_tail_split_views},

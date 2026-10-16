@@ -80,9 +80,20 @@ struct Str path_file_dir(struct Str file_path) {
   return dir;
 }
 
+struct Str path_trim_trailing_slashes(struct Str path) {
+  while (str_endswith(path, S("/"))) {
+    path = str_head(path, path.len - 1);
+  }
+  return path;
+}
+
 struct Str path_resolve(struct Str base_dir, struct Str path, struct Arena* arena) {
-  if (base_dir.len == 0 || str_startswith(path, S("/"))) {
+  // `.` as either part adds nothing, so the result reads as the user would write it.
+  if (base_dir.len == 0 || str_eq(base_dir, S(".")) || str_startswith(path, S("/"))) {
     return path;
+  }
+  if (str_eq(path, S("."))) {
+    return base_dir;
   }
   return path_join(base_dir, path, arena);
 }

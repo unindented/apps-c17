@@ -789,7 +789,7 @@ static void test_rejects_oversize_template_segment(void) {
 
 // The writing this module guards lives in `site_writer` and `derivative_renderer`, and is tested in
 // `src/build/test_site_writer.c` and `src/build/test_derivative_renderer.c`. Album and media output
-// paths are planned in `album_scanner` and are tested in `src/build/test_album_scanner.c`.
+// paths are planned in `album_scan` and are tested in `src/build/test_album_scan.c`.
 
 TEST_LIST = {
     {"registers complete output set", test_registers_complete_output_set},

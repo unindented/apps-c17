@@ -1,4 +1,5 @@
 #include <acutest.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -6,6 +7,7 @@
 #include <tomlc17.h>
 
 #include "core/arena.h"
+#include "core/buf.h"
 #include "core/log.h"
 #include "core/str.h"
 #include "formats/toml.h"
@@ -26,6 +28,34 @@ static toml_datum_t parse_value(const char* value, toml_result_t* result_out) {
   TEST_ASSERT(toml_parse_document((struct Str){doc, n}, S("test.toml"), result_out,
                                   S("failed to parse test"), &log) == 0);
   return toml_get(result_out->toptab, "x");
+}
+
+/**
+ * @brief Parses a whole TOML document.
+ *
+ * @param document   Terminated TOML document text. Must not be `NULL`.
+ * @param result_out Parse result the caller must release with `toml_free`. Must not be `NULL`.
+ * @return The top-level table, borrowing storage from `result_out`.
+ */
+static toml_datum_t parse_table(const char* document, toml_result_t* result_out) {
+  struct Log log = test_log();
+  TEST_ASSERT(toml_parse_document(str_from_cstr(document), S("test.toml"), result_out,
+                                  S("failed to parse test"), &log) == 0);
+  return result_out->toptab;
+}
+
+/**
+ * @brief Reports whether `toml_print_string` writes `text` as exactly `expected`.
+ *
+ * @param text     Text to quote.
+ * @param expected Terminated text the quoted string must be. Must not be `NULL`.
+ * @return `true` when the written text is `expected`.
+ */
+static bool is_printed_as(struct Str text, const char* expected) {
+  struct Arena arena = test_arena();
+  struct Buf buffer = {.arena = &arena};
+  toml_print_string(&buffer, text);
+  return test_text_is(buf_str(&buffer), "%s", expected);
 }
 
 // A parse error is logged once against the file, after the caller's operation and before tomlc17's
@@ -358,6 +388,307 @@ static void test_require_known_keys_reports_every_unknown_key(void) {
   toml_free(result);
 }
 
+// A present string is copied into the arena, so it outlives the parse, and an empty one is a copy
+// whose `data` is not `NULL`, which tells it apart from an absent key. An absent optional key
+// leaves the value as it was.
+static void test_copy_string_copies_present_and_keeps_absent(void) {
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  toml_result_t result;
+  const toml_datum_t table = parse_table("title = \"Code\"\nempty = \"\"\n", &result);
+  struct Str title = {0};
+  struct Str empty = {0};
+  struct Str absent = S("kept");
+  TEST_CHECK(toml_copy_string(table, S(""), "title", true, &arena, &title, &log) == 0);
+  TEST_CHECK(toml_copy_string(table, S(""), "empty", true, &arena, &empty, &log) == 0);
+  TEST_CHECK(toml_copy_string(table, S(""), "absent", false, &arena, &absent, &log) == 0);
+  toml_free(result);
+  TEST_CHECK(str_eq(title, S("Code")));
+  TEST_CHECK(empty.data != NULL && empty.len == 0);
+  TEST_CHECK(str_eq(absent, S("kept")));
+  TEST_CHECK(test_log_is_empty(&log));
+}
+
+// A missing required key, a value of another type and a value with a `NUL` byte each fail with
+// their own message, which names the key after the table's prefix, and none stores a value.
+static void test_copy_string_rejects_missing_mistyped_and_nul(void) {
+  static const char* const cases[][3] = {
+      {"", "", "missing required config key 'title'\n"},
+      {"", "repo[0].", "missing required config key 'repo[0].title'\n"},
+      {"title = 7\n", "", "config key 'title' must be a string\n"},
+      {"title = 7\n", "repo[0].", "config key 'repo[0].title' must be a string\n"},
+      {"title = \"a\\u0000b\"\n", "", "config key 'title' must not contain a NUL byte\n"},
+      {"title = \"a\\u0000b\"\n", "repo[0].",
+       "config key 'repo[0].title' must not contain a NUL byte\n"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    struct Arena arena = test_arena();
+    struct Log log = test_log();
+    toml_result_t result;
+    struct Str value = S("kept");
+    TEST_CHECK(toml_copy_string(parse_table(cases[i][0], &result), str_from_cstr(cases[i][1]),
+                                "title", true, &arena, &value, &log) == -1);
+    TEST_CHECK(test_log_is(&log, "%s", cases[i][2]));
+    TEST_CHECK(str_eq(value, S("kept")));
+    TEST_MSG("case %td", i);
+    toml_free(result);
+  }
+}
+
+// A directory loses its trailing `/` run and resolves against the config's directory, unless it is
+// absolute or the config is in the working directory. An absent optional key keeps the value.
+static void test_copy_dir_trims_and_resolves(void) {
+  static const char* const cases[][3] = {
+      {"dir = \"public/\"\n", "sub", "sub/public"},
+      {"dir = \"out//\"\n", "", "out"},
+      {"dir = \"../site\"\n", "sub", "sub/../site"},
+      {"dir = \"/srv/public/\"\n", "sub", "/srv/public"},
+      {"dir = \"public\"\n", "/", "/public"},
+      {"dir = \"public\"\n", ".", "public"},
+      {"", "sub", "kept"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    struct Arena arena = test_arena();
+    struct Log log = test_log();
+    toml_result_t result;
+    struct Str dir = S("kept");
+    TEST_CHECK(toml_copy_dir(parse_table(cases[i][0], &result), S(""), "dir", false,
+                             str_from_cstr(cases[i][1]), &arena, &dir, &log) == 0);
+    toml_free(result);
+    TEST_CHECK(test_text_is(dir, "%s", cases[i][2]));
+    TEST_CHECK(test_log_is_empty(&log));
+    TEST_MSG("case %td", i);
+  }
+}
+
+// An empty directory, and one that is only `/`, trims to empty and is rejected, as are a missing
+// required key and a value that `toml_copy_string` rejects. Each message names the key after the
+// table's prefix, and a rejected key keeps the value it had.
+static void test_copy_dir_rejects_empty_and_missing(void) {
+  static const char* const cases[][2] = {
+      {"dir = \"\"\n", "config key 'repo[0].dir' must not be empty\n"},
+      {"dir = \"/\"\n", "config key 'repo[0].dir' must not be empty\n"},
+      {"dir = \"///\"\n", "config key 'repo[0].dir' must not be empty\n"},
+      {"", "missing required config key 'repo[0].dir'\n"},
+      {"dir = true\n", "config key 'repo[0].dir' must be a string\n"},
+      {"dir = \"a\\u0000\"\n", "config key 'repo[0].dir' must not contain a NUL byte\n"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    struct Arena arena = test_arena();
+    struct Log log = test_log();
+    toml_result_t result;
+    struct Str dir = S("kept");
+    TEST_CHECK(toml_copy_dir(parse_table(cases[i][0], &result), S("repo[0]."), "dir", true,
+                             S("sub"), &arena, &dir, &log) == -1);
+    toml_free(result);
+    TEST_CHECK(test_log_is(&log, "%s", cases[i][1]));
+    TEST_CHECK(str_eq(dir, S("kept")));
+    TEST_MSG("case %td", i);
+  }
+}
+
+// A boolean is copied, an absent key keeps its value, and a value of another type is rejected,
+// named after the table's prefix, and keeps the value too.
+static void test_copy_bool_copies_or_rejects(void) {
+  struct Log log = test_log();
+  toml_result_t result;
+  bool value = false;
+  TEST_CHECK(toml_copy_bool(parse_table("flag = true\n", &result), S(""), "flag", &value, &log) ==
+             0);
+  toml_free(result);
+  TEST_CHECK(value);
+  TEST_CHECK(toml_copy_bool(parse_table("", &result), S(""), "flag", &value, &log) == 0);
+  toml_free(result);
+  TEST_CHECK(value);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(toml_copy_bool(parse_table("flag = 1\n", &result), S("t."), "flag", &value, &log) ==
+             -1);
+  toml_free(result);
+  TEST_CHECK(value);
+  TEST_CHECK(test_log_is(&log, "config key 't.flag' must be a boolean\n"));
+}
+
+// An array of strings is copied in order, empty included, an absent key keeps the list it had, and
+// a list of template names accepts only safe relative names.
+static void test_copy_strings_copies_each_string(void) {
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  toml_result_t result;
+  const struct Str kept[] = {STR_INIT("kept")};
+  const struct Str* items = kept;
+  ptrdiff_t item_count = 1;
+  TEST_CHECK(toml_copy_strings(parse_table("names = [\"a.html\", \"b/c.html\"]\n", &result), S(""),
+                               "names", true, &arena, &items, &item_count, &log) == 0);
+  toml_free(result);
+  TEST_ASSERT(item_count == 2);
+  TEST_CHECK(test_text_is(items[0], "a.html"));
+  TEST_CHECK(test_text_is(items[1], "b/c.html"));
+  TEST_CHECK(toml_copy_strings(parse_table("names = []\n", &result), S(""), "names", true, &arena,
+                               &items, &item_count, &log) == 0);
+  toml_free(result);
+  TEST_CHECK(items != NULL && item_count == 0);
+  items = kept;
+  item_count = 1;
+  TEST_CHECK(toml_copy_strings(parse_table("", &result), S(""), "names", true, &arena, &items,
+                               &item_count, &log) == 0);
+  toml_free(result);
+  TEST_CHECK(items == kept && item_count == 1);
+  TEST_CHECK(toml_copy_strings(parse_table("keys = [\"../x\"]\n", &result), S(""), "keys", false,
+                               &arena, &items, &item_count, &log) == 0);
+  toml_free(result);
+  TEST_CHECK(item_count == 1 && test_text_is(items[0], "../x"));
+  TEST_CHECK(test_log_is_empty(&log));
+}
+
+// A value that is not an array, an element that is not a string or holds a `NUL`, and an unsafe
+// template name are rejected. A wrong type or a `NUL` is reported once, each unsafe name once,
+// every message names the key after the table's prefix, and a rejected key keeps the list it had.
+static void test_copy_strings_rejects_bad_elements(void) {
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  toml_result_t result;
+  const struct Str* items = NULL;
+  ptrdiff_t item_count = 0;
+  TEST_CHECK(toml_copy_strings(parse_table("names = \"a\"\n", &result), S("t."), "names", true,
+                               &arena, &items, &item_count, &log) == -1);
+  toml_free(result);
+  TEST_CHECK(
+      toml_copy_strings(
+          parse_table("names = [1, 2, \"a\\u0000b\", \"c\\u0000\", \"../x\", \"/y\"]\n", &result),
+          S("t."), "names", true, &arena, &items, &item_count, &log) == -1);
+  toml_free(result);
+  TEST_CHECK(items == NULL && item_count == 0);
+  TEST_CHECK(test_log_is(&log,
+                         "config key 't.names' must be an array\n"
+                         "config key 't.names' must contain only strings\n"
+                         "config key 't.names' must not contain a NUL byte\n"
+                         "config key 't.names' must contain only safe relative template names: "
+                         "'../x'\n"
+                         "config key 't.names' must contain only safe relative template names: "
+                         "'/y'\n"));
+}
+
+// A value at either bound is accepted, and an absent optional key leaves the field as it was.
+static void test_copy_size_accepts_bounds_and_keeps_absent(void) {
+  struct Log log = test_log();
+  toml_result_t result;
+  const toml_datum_t table = parse_table("low = 1\nhigh = 10\n", &result);
+  ptrdiff_t low = 0;
+  ptrdiff_t high = 0;
+  ptrdiff_t absent = 5;
+  const struct TomlSizeKey specs[] = {
+      {.key = "low", .field = &low, .value_min = 1, .value_max = 10, .limit_name = "count"},
+      {.key = "high", .field = &high, .value_min = 1, .value_max = 10, .limit_name = "count"},
+      {.key = "absent", .field = &absent, .value_min = 1, .value_max = 10, .limit_name = "count"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(specs) / sizeof(specs[0])); i++) {
+    TEST_CHECK(toml_copy_size(table, S(""), &specs[i], &log) == 0);
+  }
+  toml_free(result);
+  TEST_CHECK(low == 1);
+  TEST_CHECK(high == 10);
+  TEST_CHECK(absent == 5);
+  TEST_CHECK(test_log_is_empty(&log));
+}
+
+// Each rejection has its own message, which names the key after the table's prefix, and a length
+// names its bound and its value in bytes. A rejected value leaves the field as it was.
+static void test_copy_size_rejects_out_of_bounds(void) {
+  static const struct {
+    const char* document;
+    bool is_required;
+    bool is_len;
+    const char* expected;
+  } cases[] = {
+      {"", true, false, "missing required config key 'limits.size'\n"},
+      {"size = \"7\"\n", false, false, "config key 'limits.size' must be an integer\n"},
+      {"size = 1.5\n", false, false, "config key 'limits.size' must be an integer\n"},
+      {"size = 1\n", false, false, "config key 'limits.size' must be at least 2: 1\n"},
+      {"size = -1\n", false, true, "config key 'limits.size' must be at least 2: -1\n"},
+      {"size = 11\n", false, false, "config key 'limits.size' exceeds max size limit (10) at 11\n"},
+      {"size = 11\n", false, true,
+       "config key 'limits.size' exceeds max size limit (10 bytes) at 11 bytes\n"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    struct Log log = test_log();
+    toml_result_t result;
+    ptrdiff_t size = 5;
+    const struct TomlSizeKey spec = {
+        .key = "size",
+        .field = &size,
+        .value_min = 2,
+        .value_max = 10,
+        .limit_name = "size limit",
+        .is_required = cases[i].is_required,
+        .is_len = cases[i].is_len,
+    };
+    TEST_CHECK(toml_copy_size(parse_table(cases[i].document, &result), S("limits."), &spec, &log) ==
+               -1);
+    toml_free(result);
+    TEST_CHECK(test_log_is(&log, "%s", cases[i].expected));
+    TEST_CHECK(size == 5);
+    TEST_MSG("case %td", i);
+  }
+}
+
+// Plain text and UTF-8 pass through inside the quotes, while `"` and `\` are escaped.
+static void test_print_string_quotes_and_escapes_delimiters(void) {
+  TEST_CHECK(is_printed_as(S(""), "\"\""));
+  TEST_CHECK(is_printed_as(S("caf\xc3\xa9 ok"), "\"caf\xc3\xa9 ok\""));
+  TEST_CHECK(is_printed_as(S("a\"b\\c"), "\"a\\\"b\\\\c\""));
+}
+
+// A control byte with a short TOML escape takes it, and every other control byte below `0x20`, and
+// `0x7F`, takes `\uXXXX`, so the printed string is valid TOML for any bytes a config held.
+static void test_print_string_escapes_control_bytes(void) {
+  TEST_CHECK(is_printed_as(S("\b\t\n\f\r"), "\"\\b\\t\\n\\f\\r\""));
+  TEST_CHECK(is_printed_as(S("\x01\x1f\x7f"), "\"\\u0001\\u001F\\u007F\""));
+  TEST_CHECK(is_printed_as(S("a\0b"), "\"a\\u0000b\""));
+}
+
+// Every control byte below `0x20`, and `0x7F`, prints as an escape that tomlc17 reads back as the
+// same byte, so a printed config loads to the value it held.
+static void test_print_string_round_trips_every_control_byte(void) {
+  for (int byte = 0; byte <= 0x7F; byte++) {
+    if (byte >= 0x20 && byte < 0x7F) {
+      continue;
+    }
+    struct Arena arena = test_arena();
+    struct Buf buffer = {.arena = &arena};
+    const char text[] = {'a', (char)byte, 'b'};
+    buf_append(&buffer, S("value = "));
+    toml_print_string(&buffer, (struct Str){text, 3});
+    buf_append_char(&buffer, '\n');
+    toml_result_t result;
+    const toml_datum_t table = parse_table(buf_cstr(&buffer), &result);
+    const toml_datum_t value = toml_get(table, "value");
+    TEST_CHECK(value.type == TOML_STRING && value.u.str.len == 3 &&
+               memcmp(value.u.str.ptr, text, 3) == 0);
+    TEST_MSG("byte %d", byte);
+    toml_free(result);
+  }
+}
+
+// A key line quotes its value, an optional one writes nothing for an empty value, and an array line
+// quotes each item the same way, including an empty array with no items.
+static void test_print_key_lines(void) {
+  static const struct Str items[] = {STR_INIT("index.html"), STR_INIT("a\"b")};
+  struct Arena arena = test_arena();
+  struct Buf buffer = {.arena = &arena};
+  toml_print_key_string(&buffer, "title", S("Code\tbase"));
+  toml_print_key_string(&buffer, "empty", S(""));
+  toml_print_key_string_optional(&buffer, "absent", S(""));
+  toml_print_key_string_optional(&buffer, "present", S("x"));
+  toml_print_key_string_array(&buffer, "items", items, sizeof(items) / sizeof(items[0]));
+  toml_print_key_string_array(&buffer, "none", NULL, 0);
+  TEST_CHECK(test_text_is(buf_str(&buffer), "%s",
+                          "title = \"Code\\tbase\"\n"
+                          "empty = \"\"\n"
+                          "present = \"x\"\n"
+                          "items = [\"index.html\", \"a\\\"b\"]\n"
+                          "none = []\n"));
+}
+
 TEST_LIST = {
     {"parse document logs parse error", test_parse_document_logs_parse_error},
     {"is text rejects embedded nul", test_is_text_rejects_embedded_nul},
@@ -376,5 +707,21 @@ TEST_LIST = {
     {"require known keys names table of nul key", test_require_known_keys_names_table_of_nul_key},
     {"require known keys reports every unknown key",
      test_require_known_keys_reports_every_unknown_key},
+    {"copy string copies present and keeps absent",
+     test_copy_string_copies_present_and_keeps_absent},
+    {"copy string rejects missing mistyped and nul",
+     test_copy_string_rejects_missing_mistyped_and_nul},
+    {"copy dir trims and resolves", test_copy_dir_trims_and_resolves},
+    {"copy dir rejects empty and missing", test_copy_dir_rejects_empty_and_missing},
+    {"copy bool copies or rejects", test_copy_bool_copies_or_rejects},
+    {"copy strings copies each string", test_copy_strings_copies_each_string},
+    {"copy strings rejects bad elements", test_copy_strings_rejects_bad_elements},
+    {"copy size accepts bounds and keeps absent", test_copy_size_accepts_bounds_and_keeps_absent},
+    {"copy size rejects out of bounds", test_copy_size_rejects_out_of_bounds},
+    {"print string quotes and escapes delimiters", test_print_string_quotes_and_escapes_delimiters},
+    {"print string escapes control bytes", test_print_string_escapes_control_bytes},
+    {"print string round trips every control byte",
+     test_print_string_round_trips_every_control_byte},
+    {"print key lines", test_print_key_lines},
     {NULL, NULL},
 };

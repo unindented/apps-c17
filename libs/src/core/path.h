@@ -109,13 +109,25 @@ struct Str path_parent(struct Str path);
 struct Str path_file_dir(struct Str file_path);
 
 /**
+ * @brief Returns a path without its trailing `/` bytes.
+ *
+ * A config loader trims a directory or a URL this way, so a value that names the same place with
+ * and without a trailing `/` reaches the rest of the program in one spelling.
+ *
+ * @param path Path to trim.
+ * @return View into `path` before its trailing `/` run, or an empty view when `path` is all `/`.
+ */
+struct Str path_trim_trailing_slashes(struct Str path);
+
+/**
  * @brief Resolves a path against a directory, as a relative path in a config file resolves against
  *        the file's directory.
  *
- * @param base_dir Directory to resolve against, or empty for the working directory.
+ * @param base_dir Directory to resolve against, or empty or `.` for the working directory.
  * @param path     Path to resolve.
  * @param arena    Arena that owns a joined path. Must not be `NULL`.
- * @return `path` itself when it is absolute or `base_dir` is empty, otherwise the two joined.
+ * @return `path` itself when it is absolute or `base_dir` names the working directory, `base_dir`
+ *         when `path` is `.`, and otherwise the two joined.
  */
 struct Str path_resolve(struct Str base_dir, struct Str path, struct Arena* arena)
     __attribute__((nonnull(3)));

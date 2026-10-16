@@ -1281,10 +1281,9 @@ cleanup:
   remove_fixture_tree(temp_config.root_dir);
 }
 
-// An empty template array survives a load followed by a print. Neither operation alone tests this
-// sequence. If `copy_template_names` stored `NULL` for `[]`, it would pass that value to the
-// `nonnull` function `gallery_config_print_string_array`. Then `fram config` would abort for a
-// config that the loader accepted.
+// An empty template array survives a load followed by a print, and prints as `[]`. Neither
+// operation alone tests this sequence, which `fram config` runs on a config that the loader
+// accepted.
 static void test_print_empty_template_array(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"

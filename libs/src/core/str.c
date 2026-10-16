@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "core/arena.h"
+#include "core/ascii.h"
 
 struct Str str_from_cstr(const char* cstr) {
   return (struct Str){cstr, (ptrdiff_t)strlen(cstr)};
@@ -14,6 +15,18 @@ struct Str str_from_cstr(const char* cstr) {
 bool str_eq(struct Str a, struct Str b) {
   // `memcmp` requires valid pointers even for zero bytes, and an empty string may hold `NULL`.
   return a.len == b.len && (a.len == 0 || memcmp(a.data, b.data, (size_t)a.len) == 0);
+}
+
+bool str_eq_folded(struct Str a, struct Str b) {
+  if (a.len != b.len) {
+    return false;
+  }
+  for (ptrdiff_t i = 0; i < a.len; i++) {
+    if (ascii_to_lower((unsigned char)a.data[i]) != ascii_to_lower((unsigned char)b.data[i])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 int str_compare(struct Str a, struct Str b) {

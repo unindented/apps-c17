@@ -9,7 +9,34 @@
 #include "core/str.h"
 
 struct Arena;
+struct Buf;
 struct Log;
+
+/** Policy of one bounded size key that `toml_copy_size` reads, and the field it fills. */
+struct TomlSizeKey {
+  /** Terminated key name. */
+  const char* key;
+
+  /** Field the accepted value is written to. */
+  ptrdiff_t* field;
+
+  /** Smallest accepted value, named in the `must be at least` rejection. */
+  ptrdiff_t value_min;
+
+  /** Largest accepted value. A larger one is rejected as exceeding `limit_name`. */
+  ptrdiff_t value_max;
+
+  /** Prose name of `value_max` in the overflow diagnostic, such as `feed count`. */
+  const char* limit_name;
+
+  /** Whether absence is an error rather than leaving `field` as it is. */
+  bool is_required;
+
+  /**
+   * Whether the value is a length in bytes, which the overflow diagnostic says after each number.
+   */
+  bool is_len;
+};
 
 // Every function here, and every caller that threads a datum onward, takes `toml_datum_t` by value
 // rather than by pointer, against the general rule that a non-trivial struct is passed by pointer.
@@ -132,5 +159,188 @@ int toml_require_known_keys(toml_datum_t table,
                             struct Str key_prefix,
                             struct Str file_path,
                             struct Log* log) __attribute__((nonnull(7)));
+
+/**
+ * @brief Copies one string key of a config table into the arena.
+ *
+ * Each diagnostic names the key as `<key_prefix><key>`: `missing required config key '<key>'`,
+ * `config key '<key>' must be a string`, or `config key '<key>' must not contain a NUL byte`. A
+ * rejected value is never stored.
+ *
+ * @param table       Parsed table that holds `key`. Must be a `TOML_TABLE` datum.
+ * @param key_prefix  Dotted path of `table` with a trailing `.`, such as `limits.`, or empty for
+ *                    the top-level table. It qualifies the key in each diagnostic.
+ * @param key         Terminated key to read. Must not be `NULL`.
+ * @param is_required Whether absence is an error. When `false`, absence leaves `*value_out` as it
+ *                    is.
+ * @param arena       Arena that owns the copied value. Must not be `NULL`.
+ * @param value_out   Receives the copy when the key holds a string without a `NUL` byte. A present
+ *                    key gives a copy whose `data` is never `NULL`, even when it is empty. Must not
+ *                    be `NULL`.
+ * @param log         Log that receives every error. Must not be `NULL`.
+ * @return `0` on success or when an optional key is absent, or `-1` when a required key is missing
+ *         or the value is not a string without a `NUL` byte.
+ */
+int toml_copy_string(toml_datum_t table,
+                     struct Str key_prefix,
+                     const char* key,
+                     bool is_required,
+                     struct Arena* arena,
+                     struct Str* value_out,
+                     struct Log* log) __attribute__((nonnull(3, 5, 6, 7)));
+
+/**
+ * @brief Copies one directory key of a config table, trims its trailing `/`, rejects an empty
+ *        result, and resolves it against the config's directory.
+ *
+ * A trailing `/` would otherwise survive into path construction, where it defeats a prefix strip of
+ * `<dir>/`, so the value is trimmed once here, and a printed config shows the trimmed form. A value
+ * that trims to empty, `/` included, is rejected as `config key '<key>' must not be empty`, with
+ * the key named as `toml_copy_string` names it. The location is not otherwise constrained, so an
+ * absolute or parent-relative directory stays valid.
+ *
+ * @param table       Parsed table that holds `key`. Must be a `TOML_TABLE` datum.
+ * @param key_prefix  Dotted path of `table` with a trailing `.`, or empty for the top-level table.
+ * @param key         Terminated key to read. Must not be `NULL`.
+ * @param is_required Whether absence is an error.
+ * @param config_dir  Directory a relative value resolves against, or empty for the working one.
+ * @param arena       Arena that owns the copied value. Must not be `NULL`.
+ * @param value_out   Receives the resolved directory when the key is present and valid, and keeps
+ *                    its value otherwise, so a rejected key leaves later phases a directory. Must
+ *                    not be `NULL`.
+ * @param log         Log that receives every error. Must not be `NULL`.
+ * @return `0` when the key is accepted or an optional key is absent, or `-1` when a required key is
+ *         missing, or the value is not a string, holds a `NUL` byte, or is empty once trimmed.
+ */
+int toml_copy_dir(toml_datum_t table,
+                  struct Str key_prefix,
+                  const char* key,
+                  bool is_required,
+                  struct Str config_dir,
+                  struct Arena* arena,
+                  struct Str* value_out,
+                  struct Log* log) __attribute__((nonnull(3, 6, 7, 8)));
+
+/**
+ * @brief Copies one optional boolean key of a config table.
+ *
+ * A value of another type is `config key '<key>' must be a boolean`, with the key named as
+ * `toml_copy_string` names it.
+ *
+ * @param table      Parsed table that holds `key`. Must be a `TOML_TABLE` datum.
+ * @param key_prefix Dotted path of `table` with a trailing `.`, or empty for the top-level table.
+ * @param key        Terminated key to read. Must not be `NULL`.
+ * @param value_out  Receives the value when the key is present and a boolean, and keeps its value
+ *                   otherwise. Must not be `NULL`.
+ * @param log        Log that receives the error. Must not be `NULL`.
+ * @return `0` when the key is accepted or absent, or `-1` when it is not a boolean.
+ */
+int toml_copy_bool(toml_datum_t table,
+                   struct Str key_prefix,
+                   const char* key,
+                   bool* value_out,
+                   struct Log* log) __attribute__((nonnull(3, 4, 5)));
+
+/**
+ * @brief Copies one optional array-of-strings key of a config table, and validates each string as a
+ *        safe relative template name when it names templates.
+ *
+ * Every element is checked even after one fails, so each unsafe name is reported. A wrong type or a
+ * `NUL` byte is reported once, since its message names no element. Each diagnostic names the key as
+ * `toml_copy_string` names it. A copied list is never `NULL`, even when it is empty.
+ *
+ * @param table             Parsed table that holds `key`. Must be a `TOML_TABLE` datum.
+ * @param key_prefix        Dotted path of `table` with a trailing `.`, or empty for the top-level
+ *                          table.
+ * @param key               Terminated key to read. Must not be `NULL`.
+ * @param is_template_names Whether each string must be a safe relative template name.
+ * @param arena             Arena that owns the copied strings. Must not be `NULL`.
+ * @param items_out         Receives the copied strings when the key is present and valid, and keeps
+ *                          its value otherwise. Must not be `NULL`.
+ * @param item_count_out    Receives the number of strings, as `items_out` does. Must not be `NULL`.
+ * @param log               Log that receives every error. Must not be `NULL`.
+ * @return `0` when the key is accepted or absent, or `-1` on a wrong type, a `NUL` byte, or an
+ *         unsafe template name.
+ */
+int toml_copy_strings(toml_datum_t table,
+                      struct Str key_prefix,
+                      const char* key,
+                      bool is_template_names,
+                      struct Arena* arena,
+                      const struct Str** items_out,
+                      ptrdiff_t* item_count_out,
+                      struct Log* log) __attribute__((nonnull(3, 5, 6, 7, 8)));
+
+/**
+ * @brief Validates one bounded integer key of a config table and copies it into `spec->field`.
+ *
+ * Each diagnostic names the key as `toml_copy_string` names it. A missing required key is
+ * `missing required config key '<key>'`, a value of another type
+ * `config key '<key>' must be an integer`, a value below the bound
+ * `config key '<key>' must be at least <value_min>: <value>`, and a value above it
+ * `config key '<key>' exceeds max <limit_name> (<value_max>) at <value>`, or
+ * `... (<value_max> bytes) at <value> bytes` for a length.
+ *
+ * @param table      Parsed table that holds `spec->key`. Must be a `TOML_TABLE` datum.
+ * @param key_prefix Dotted path of `table` with a trailing `.`, such as `limits.`, or empty for the
+ *                   top-level table.
+ * @param spec       Key policy and target field. Must not be `NULL`.
+ * @param log        Log that receives every error. Must not be `NULL`.
+ * @return `0` on success or when an optional key is absent, or `-1` on a missing required key, a
+ *         wrong type, or a value out of bounds, which leaves the field as it was.
+ */
+int toml_copy_size(toml_datum_t table,
+                   struct Str key_prefix,
+                   const struct TomlSizeKey* spec,
+                   struct Log* log) __attribute__((nonnull(3, 4)));
+
+/**
+ * @brief Writes one `key = "value"` line, quoting the value with `toml_print_string`.
+ *
+ * @param buffer Buffer the line is appended to. Must not be `NULL`.
+ * @param key    Terminated key name, written as it is. Must not be `NULL`.
+ * @param value  Value to quote.
+ */
+void toml_print_key_string(struct Buf* buffer, const char* key, struct Str value)
+    __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Writes one `key = "value"` line when `value` is not empty, and nothing otherwise.
+ *
+ * A config prints an empty optional string this way, because its loader reads an absent key as the
+ * empty value.
+ *
+ * @param buffer Buffer the line is appended to. Must not be `NULL`.
+ * @param key    Terminated key name, written as it is. Must not be `NULL`.
+ * @param value  Value to quote, or empty to write nothing.
+ */
+void toml_print_key_string_optional(struct Buf* buffer, const char* key, struct Str value)
+    __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Writes one `key = [...]` line of strings, each quoted with `toml_print_string`.
+ *
+ * @param buffer     Buffer the line is appended to. Must not be `NULL`.
+ * @param key        Terminated key name, written as it is. Must not be `NULL`.
+ * @param items      Array of `item_count` strings. May be `NULL` only when `item_count` is 0.
+ * @param item_count Number of items in `items`.
+ */
+void toml_print_key_string_array(struct Buf* buffer,
+                                 const char* key,
+                                 const struct Str* items,
+                                 ptrdiff_t item_count) __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Writes `text` as a quoted TOML basic string.
+ *
+ * TOML basic strings forbid raw control bytes, so this escapes them alongside `"` and `\`. It
+ * writes the short escapes `\b`, `\t`, `\n`, `\f` and `\r`, and `\uXXXX` for every other control
+ * byte below `0x20` and for `0x7F`. It copies every other byte as it is, so UTF-8 text stays as it
+ * was.
+ *
+ * @param buffer Buffer the quoted string is appended to. Must not be `NULL`.
+ * @param text   Text to quote.
+ */
+void toml_print_string(struct Buf* buffer, struct Str text) __attribute__((nonnull(1)));
 
 #endif

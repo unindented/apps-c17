@@ -285,7 +285,7 @@ The libwebp target compiles the encoder, the decoder, the DSP sources and utilit
 
 The tests registered without `OS memory` link the POSIX host. These tests are:
 
-- the tests that need the real host: `proc`, `video`, `album_scanner_video`, `cmd_build_video` and `derivative_renderer_video`, which run processes or decode video
+- the tests that need the real host: `proc`, `video`, `album_scan_video`, `cmd_build_video` and `derivative_renderer_video`, which run processes or decode video
 - the suites that are not yet converted to the in-memory host, which create their fixtures in a real temporary directory: `cli`, `cli_dispatch`, `cmd_config`, `gallery_config` and `template`
 - the tests that use no host
 

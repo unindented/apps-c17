@@ -1241,7 +1241,7 @@ static void test_rejects_output_dir_holding_config_named_by_path(void) {
   const struct BuildOptions options = {.config_path = S("sub/fram.toml")};
 
   TEST_CHECK(execute_build_with_options(&options, os, &log) == -1);
-  TEST_CHECK(test_log_is(&log, "output directory would hold the config: 'sub/.'\n"));
+  TEST_CHECK(test_log_is(&log, "output directory would hold the config: 'sub'\n"));
   // The config, the template, and the source.
   TEST_CHECK(os_memory_files(os, ".").count == 3);
 }

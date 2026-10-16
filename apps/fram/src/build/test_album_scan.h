@@ -1,5 +1,5 @@
-#ifndef FRAM_TEST_ALBUM_SCANNER_H
-#define FRAM_TEST_ALBUM_SCANNER_H
+#ifndef FRAM_TEST_ALBUM_SCAN_H
+#define FRAM_TEST_ALBUM_SCAN_H
 
 #include "core/str.h"
 #include "domain/gallery_config.h"
@@ -8,17 +8,17 @@
 // phase, two executables, share one configuration without a separate test library to link.
 
 /**
- * @brief Initializes the minimal fixed configuration the scanner tests share.
+ * @brief Initializes the minimal fixed configuration the scan tests share.
  *
  * Every string is a borrowed literal, so the caller releases nothing beyond what
  * `gallery_config_init` itself requires.
  *
  * @param gallery_config Configuration to initialize. Must not be `NULL`.
  */
-static inline void test_album_scanner_init_config(struct GalleryConfig* gallery_config)
+static inline void test_album_scan_init_config(struct GalleryConfig* gallery_config)
     __attribute__((nonnull(1)));
 
-static inline void test_album_scanner_init_config(struct GalleryConfig* gallery_config) {
+static inline void test_album_scan_init_config(struct GalleryConfig* gallery_config) {
   gallery_config_init(gallery_config);
   gallery_config->title = S("Gallery");
   gallery_config->description = S("Description");

@@ -9,8 +9,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "build/album_scanner.h"
-#include "build/test_album_scanner.h"
+#include "build/album_scan.h"
+#include "build/test_album_scan.h"
 #include "build/test_job_arenas.h"
 #include "core/arena.h"
 #include "core/buf.h"
@@ -138,7 +138,7 @@ static int build_sort_fixture(enum GallerySortOrder album_sort_order,
                               struct Album*** albums_out,
                               struct MediaItem*** media_out) {
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   config.album_sort_order = album_sort_order;
   config.media_sort_order = media_sort_order;
   struct Str items[] = {
@@ -152,8 +152,8 @@ static int build_sort_fixture(enum GallerySortOrder album_sort_order,
   ptrdiff_t album_count = 0;
   ptrdiff_t media_count = 0;
   struct Log log = test_log();
-  if (!TEST_CHECK(album_scanner_build_skeleton(&config, &paths, perm, test_arena(), albums_out,
-                                               &album_count, media_out, &media_count, &log) == 0)) {
+  if (!TEST_CHECK(album_scan_build_skeleton(&config, &paths, perm, test_arena(), albums_out,
+                                            &album_count, media_out, &media_count, &log) == 0)) {
     return -1;
   }
   TEST_CHECK(test_log_is_empty(&log));
@@ -163,7 +163,7 @@ static int build_sort_fixture(enum GallerySortOrder album_sort_order,
 // An empty source tree still produces the root page and no media.
 static void test_build_skeleton_synthesizes_empty_root(void) {
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct Arena perm = test_arena();
   const struct PathList paths = {0};
   struct Album** albums = NULL;
@@ -171,8 +171,8 @@ static void test_build_skeleton_synthesizes_empty_root(void) {
   struct MediaItem** media = NULL;
   ptrdiff_t media_count = 0;
   struct Log log = test_log();
-  TEST_ASSERT(album_scanner_build_skeleton(&config, &paths, &perm, test_arena(), &albums,
-                                           &album_count, &media, &media_count, &log) == 0);
+  TEST_ASSERT(album_scan_build_skeleton(&config, &paths, &perm, test_arena(), &albums, &album_count,
+                                        &media, &media_count, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(album_count == 1);
   TEST_CHECK(media_count == 0);
@@ -187,7 +187,7 @@ static void test_build_skeleton_synthesizes_empty_root(void) {
 // Sorted paths form a deterministic recursive tree with recipe paths, URLs, covers, and totals.
 static void test_build_skeleton_derives_nested_gallery(void) {
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct Arena perm = test_arena();
   struct Str items[] = {
       S("/photos/2024/Japan/a #.JPG"),
@@ -201,8 +201,8 @@ static void test_build_skeleton_derives_nested_gallery(void) {
   struct MediaItem** media = NULL;
   ptrdiff_t media_count = 0;
   struct Log log = test_log();
-  TEST_ASSERT(album_scanner_build_skeleton(&config, &paths, &perm, test_arena(), &albums,
-                                           &album_count, &media, &media_count, &log) == 0);
+  TEST_ASSERT(album_scan_build_skeleton(&config, &paths, &perm, test_arena(), &albums, &album_count,
+                                        &media, &media_count, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(album_count == 3);
   TEST_CHECK(media_count == 4);
@@ -245,7 +245,7 @@ static void test_build_skeleton_derives_nested_gallery(void) {
 // binary lookup and reverse child aggregation stay valid.
 static void test_build_skeleton_sorts_late_ancestors(void) {
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct Arena perm = test_arena();
   struct Str items[] = {
       S("/photos/a-c/file.jpg"),
@@ -257,8 +257,8 @@ static void test_build_skeleton_sorts_late_ancestors(void) {
   struct MediaItem** media = NULL;
   ptrdiff_t media_count = 0;
   struct Log log = test_log();
-  TEST_ASSERT(album_scanner_build_skeleton(&config, &paths, &perm, test_arena(), &albums,
-                                           &album_count, &media, &media_count, &log) == 0);
+  TEST_ASSERT(album_scan_build_skeleton(&config, &paths, &perm, test_arena(), &albums, &album_count,
+                                        &media, &media_count, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(album_count == 4);
   TEST_CHECK(str_eq(albums[0]->source_dir, S("")));
@@ -277,7 +277,7 @@ static void test_build_skeleton_sorts_late_ancestors(void) {
 // from the end of the index, and every later lookup still finds it and its siblings.
 static void test_build_skeleton_inserts_late_album_before_siblings(void) {
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct Arena perm = test_arena();
   struct Str items[] = {
       S("/photos/a-1/file.jpg"), S("/photos/a-2/file.jpg"), S("/photos/a-3/file.jpg"),
@@ -290,8 +290,8 @@ static void test_build_skeleton_inserts_late_album_before_siblings(void) {
   struct MediaItem** media = NULL;
   ptrdiff_t media_count = 0;
   struct Log log = test_log();
-  TEST_ASSERT(album_scanner_build_skeleton(&config, &paths, &perm, test_arena(), &albums,
-                                           &album_count, &media, &media_count, &log) == 0);
+  TEST_ASSERT(album_scan_build_skeleton(&config, &paths, &perm, test_arena(), &albums, &album_count,
+                                        &media, &media_count, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   static const struct Str source_dirs[] = {
       STR_INIT(""),    STR_INIT("a"),   STR_INIT("a-1"), STR_INIT("a-2"), STR_INIT("a-3"),
@@ -315,7 +315,7 @@ static void test_build_skeleton_inserts_late_album_before_siblings(void) {
 // Source names remain literal while generated paths are slugged and display titles expose spaces.
 static void test_build_skeleton_humanizes_album_title(void) {
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct Arena perm = test_arena();
   struct Str items[] = {S("/photos/John_White_Alexander/My_Photo.JPG")};
   const struct PathList paths = {.items = items, .count = 1, .capacity = 1};
@@ -324,8 +324,8 @@ static void test_build_skeleton_humanizes_album_title(void) {
   struct MediaItem** media = NULL;
   ptrdiff_t media_count = 0;
   struct Log log = test_log();
-  TEST_ASSERT(album_scanner_build_skeleton(&config, &paths, &perm, test_arena(), &albums,
-                                           &album_count, &media, &media_count, &log) == 0);
+  TEST_ASSERT(album_scan_build_skeleton(&config, &paths, &perm, test_arena(), &albums, &album_count,
+                                        &media, &media_count, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(album_count == 2);
   TEST_CHECK(str_eq(albums[1]->source_dir, S("John_White_Alexander")));
@@ -341,7 +341,7 @@ static void test_build_skeleton_humanizes_album_title(void) {
 // Slugging keeps a source named `_fram` separate from the internal `_fram` output namespace.
 static void test_build_skeleton_slugs_internal_namespace_source(void) {
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct Arena perm = test_arena();
   struct Str items[] = {S("/photos/_FrAm/x.jpg")};
   const struct PathList paths = {.items = items, .count = 1, .capacity = 1};
@@ -350,8 +350,8 @@ static void test_build_skeleton_slugs_internal_namespace_source(void) {
   struct MediaItem** media = NULL;
   ptrdiff_t media_count = 0;
   struct Log log = test_log();
-  TEST_ASSERT(album_scanner_build_skeleton(&config, &paths, &perm, test_arena(), &albums,
-                                           &album_count, &media, &media_count, &log) == 0);
+  TEST_ASSERT(album_scan_build_skeleton(&config, &paths, &perm, test_arena(), &albums, &album_count,
+                                        &media, &media_count, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(album_count == 2);
   TEST_CHECK(media_count == 1);
@@ -462,7 +462,7 @@ static void test_build_skeleton_keeps_flat_arrays_in_source_order(void) {
 // the original copy is that first output.
 static void test_build_skeleton_rejects_overlong_derivative_name(void) {
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct Arena perm = test_arena();
   struct Arena arena = test_arena();
   enum { STEM_LEN = FILENAME_LEN_MAX - 4 };
@@ -475,8 +475,8 @@ static void test_build_skeleton_rejects_overlong_derivative_name(void) {
   struct MediaItem** media = NULL;
   ptrdiff_t media_count = 0;
   struct Log log = test_log();
-  TEST_CHECK(album_scanner_build_skeleton(&config, &paths, &perm, test_arena(), &albums,
-                                          &album_count, &media, &media_count, &log) == -1);
+  TEST_CHECK(album_scan_build_skeleton(&config, &paths, &perm, test_arena(), &albums, &album_count,
+                                       &media, &media_count, &log) == -1);
   const int derivative_len = STEM_LEN + (int)(sizeof("-jpg-s.webp") - 1);
   const int original_len = STEM_LEN + (int)(sizeof("-jpg.jpg") - 1);
   TEST_CHECK(test_log_is(&log,
@@ -489,8 +489,8 @@ static void test_build_skeleton_rejects_overlong_derivative_name(void) {
 
   config.derivative_count = 0;
   log = test_log();
-  TEST_CHECK(album_scanner_build_skeleton(&config, &paths, &perm, test_arena(), &albums,
-                                          &album_count, &media, &media_count, &log) == -1);
+  TEST_CHECK(album_scan_build_skeleton(&config, &paths, &perm, test_arena(), &albums, &album_count,
+                                       &media, &media_count, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "output path segment for '%.*s' exceeds max filename length (%d bytes) "
                          "at %d bytes: '%.*s-jpg.jpg'\n",
@@ -504,7 +504,7 @@ static void test_build_skeleton_rejects_overlong_derivative_name(void) {
 // byte past the limit are both reported in one run, and no skeleton is published.
 static void test_build_skeleton_reports_every_path_limit_failure(void) {
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   const struct GalleryDerivative configured = {
       .name = S("s"), .width_px = 120, .height_px = 120, .quality = 70, .is_crop = true};
   config.derivatives = &configured;
@@ -525,8 +525,8 @@ static void test_build_skeleton_reports_every_path_limit_failure(void) {
   struct MediaItem** media = NULL;
   ptrdiff_t media_count = 0;
   struct Log log = test_log();
-  TEST_CHECK(album_scanner_build_skeleton(&config, &paths, &perm, test_arena(), &albums,
-                                          &album_count, &media, &media_count, &log) == -1);
+  TEST_CHECK(album_scan_build_skeleton(&config, &paths, &perm, test_arena(), &albums, &album_count,
+                                       &media, &media_count, &log) == -1);
   const int segment_len = STEM_LEN + (int)(sizeof("-jpg-s.webp") - 1);
   TEST_CHECK(test_log_is(&log,
                          "output path segment for '%.*s' exceeds max filename length (%d bytes) "
@@ -548,7 +548,7 @@ static void test_build_skeleton_reports_every_path_limit_failure(void) {
 // adds a line of its own.
 static void test_build_skeleton_rejects_overlong_album_path(void) {
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct Arena perm = test_arena();
   struct Arena arena = test_arena();
   enum { SEGMENT_LEN = 200, DEPTH = 6 };
@@ -573,8 +573,8 @@ static void test_build_skeleton_rejects_overlong_album_path(void) {
   struct MediaItem** media = NULL;
   ptrdiff_t media_count = 0;
   struct Log log = test_log();
-  TEST_CHECK(album_scanner_build_skeleton(&config, &paths, &perm, test_arena(), &albums,
-                                          &album_count, &media, &media_count, &log) == -1);
+  TEST_CHECK(album_scan_build_skeleton(&config, &paths, &perm, test_arena(), &albums, &album_count,
+                                       &media, &media_count, &log) == -1);
 
   // The album directory, below `/photos/`, is also the album's slug path, because `a` slugs to
   // itself.
@@ -601,7 +601,7 @@ static void test_probe_media_orients_image_dimensions(void) {
   struct Str jpeg = {0};
   struct Str oriented = {0};
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct MediaDerivative derivatives[3] = {0};
   struct MediaItem item = {.source_path = image_path,
                            .kind = MEDIA_KIND_IMAGE,
@@ -621,8 +621,8 @@ static void test_probe_media_orients_image_dimensions(void) {
   os_memory_write_bytes(os, image_path, oriented);
 
   worker_arenas = test_job_arenas(2, &arena);
-  TEST_CHECK(album_scanner_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 2, worker_arenas,
-                                       false, os, arena, stats, &log) == 0);
+  TEST_CHECK(album_scan_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 2, worker_arenas,
+                                    false, os, arena, stats, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(item.orientation == IMAGE_ORIENTATION_RIGHT_TOP);
   TEST_CHECK(item.width_px == 3);
@@ -643,7 +643,7 @@ static void test_probe_media_sizes_cropped_derivative_exactly(void) {
   const struct Str image_path = S("photos/wide.jpg");
   struct Str jpeg = {0};
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   const struct GalleryDerivative configured = {
       .name = S("m"), .width_px = 520, .height_px = 360, .quality = 80, .is_crop = true};
   config.derivatives = &configured;
@@ -664,8 +664,8 @@ static void test_probe_media_sizes_cropped_derivative_exactly(void) {
   os_memory_write_bytes(os, image_path, jpeg);
 
   worker_arenas = test_job_arenas(1, &arena);
-  TEST_CHECK(album_scanner_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 1, worker_arenas,
-                                       false, os, arena, stats, &log) == 0);
+  TEST_CHECK(album_scan_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 1, worker_arenas,
+                                    false, os, arena, stats, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(derivative.width_px == 520);
   TEST_CHECK(derivative.height_px == 360);
@@ -678,15 +678,15 @@ static void test_probe_media_collects_failure(void) {
   const struct Str path = S("photos/bad.jpg");
   os_memory_write(os, "photos/bad.jpg", "not jpeg");
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct MediaItem item = {.source_path = path, .kind = MEDIA_KIND_IMAGE};
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct OsStat stats[1] = {0};
   struct Log log = test_log();
   struct JobArenas* worker_arenas = test_job_arenas(1, &arena);
-  TEST_CHECK(album_scanner_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 1, worker_arenas,
-                                       false, os, arena, stats, &log) == -1);
+  TEST_CHECK(album_scan_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 1, worker_arenas,
+                                    false, os, arena, stats, &log) == -1);
   const struct Str errors = buf_str(&log.buf);
   TEST_CHECK(str_startswith(errors, S("failed to probe media: failed to probe JPEG: ")));
   TEST_CHECK(
@@ -703,7 +703,7 @@ static void test_probe_media_reuses_matching_row(void) {
   struct Arena arena = test_arena();
   os_memory_write(os, "photos/a.jpg", "not jpeg");
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct MediaDerivative derivatives[3] = {0};
   struct MediaItem item = {.source_path = S("/photos/a.jpg"),
                            .kind = MEDIA_KIND_IMAGE,
@@ -725,8 +725,8 @@ static void test_probe_media_reuses_matching_row(void) {
   struct Log log = test_log();
   struct JobArenas* worker_arenas = test_job_arenas(1, &arena);
 
-  TEST_CHECK(album_scanner_probe_media(&config, media, 1, &cache, frames, 1, worker_arenas, false,
-                                       os, arena, stats, &log) == 0);
+  TEST_CHECK(album_scan_probe_media(&config, media, 1, &cache, frames, 1, worker_arenas, false, os,
+                                    arena, stats, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(item.orientation == IMAGE_ORIENTATION_RIGHT_TOP);
   TEST_CHECK(item.width_px == 3 && item.height_px == 2);
@@ -742,7 +742,7 @@ static void test_probe_media_probes_changed_source(void) {
   struct Arena arena = test_arena();
   os_memory_write(os, "photos/a.jpg", "not jpeg");
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct MediaItem item = {.source_path = S("/photos/a.jpg"), .kind = MEDIA_KIND_IMAGE};
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {{0}};
@@ -763,8 +763,8 @@ static void test_probe_media_probes_changed_source(void) {
   for (ptrdiff_t i = 0; i < 2; i++) {
     const struct BuildCache cache = {.entries = &entries[i], .count = 1};
     struct Log log = test_log();
-    TEST_CHECK(album_scanner_probe_media(&config, media, 1, &cache, frames, 1, worker_arenas, false,
-                                         os, arena, stats, &log) == -1);
+    TEST_CHECK(album_scan_probe_media(&config, media, 1, &cache, frames, 1, worker_arenas, false,
+                                      os, arena, stats, &log) == -1);
     const struct Str errors = buf_str(&log.buf);
     TEST_CHECK_(str_startswith(errors, S("failed to probe media: failed to probe JPEG: ")),
                 "row %td", i);
@@ -780,7 +780,7 @@ static void test_probe_media_rejects_oversize_source(void) {
   struct Arena arena = test_arena();
   const ptrdiff_t source_len = (ptrdiff_t)IMAGE_INPUT_LEN_MAX + 1;
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct MediaItem item = {.source_path = S("photos/huge.jpg"), .kind = MEDIA_KIND_IMAGE};
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
@@ -789,8 +789,8 @@ static void test_probe_media_rejects_oversize_source(void) {
   os_memory_write(os, "photos/huge.jpg", "");
   os_memory_truncate(os, "photos/huge.jpg", source_len);
   struct JobArenas* worker_arenas = test_job_arenas(1, &arena);
-  TEST_CHECK(album_scanner_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 1, worker_arenas,
-                                       false, os, arena, stats, &log) == -1);
+  TEST_CHECK(album_scan_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 1, worker_arenas,
+                                    false, os, arena, stats, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "failed to probe media: exceeds max file size (%d bytes) at %td bytes "
                          "('photos/huge.jpg')\n",

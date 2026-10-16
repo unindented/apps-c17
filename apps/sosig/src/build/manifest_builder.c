@@ -509,10 +509,10 @@ int manifest_builder_check_output_dir(const struct SiteConfig* site_config,
                        STR_FMT(held_root->config_key), STR_FMT(site_config->output_dir));
     }
   }
-  // `path_parent` is empty for a file in the working directory or directly below `/`.
-  struct Str config_dir = path_parent(config_path);
+  // A config in the working directory has no directory of its own, so it is `.` here.
+  struct Str config_dir = path_file_dir(config_path);
   if (config_dir.len == 0) {
-    config_dir = str_startswith(config_path, S("/")) ? S("/") : S(".");
+    config_dir = S(".");
   }
   if (is_held_by_output_dir(config_dir, &output_identity, os, scratch)) {
     return log_error(log, "output directory would hold the config: '%.*s'",

@@ -1,5 +1,5 @@
-#ifndef FRAM_ALBUM_SCANNER_H
-#define FRAM_ALBUM_SCANNER_H
+#ifndef FRAM_ALBUM_SCAN_H
+#define FRAM_ALBUM_SCAN_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -39,15 +39,15 @@ struct VideoFrame;
  * @param log             Log that receives every error. Must not be `NULL`.
  * @return `0` on success, or `-1` on invalid paths or output limits.
  */
-int album_scanner_build_skeleton(const struct GalleryConfig* gallery_config,
-                                 const struct PathList* source_paths,
-                                 struct Arena* perm,
-                                 struct Arena scratch,
-                                 struct Album*** albums_out,
-                                 ptrdiff_t* album_count_out,
-                                 struct MediaItem*** media_out,
-                                 ptrdiff_t* media_count_out,
-                                 struct Log* log) __attribute__((nonnull(1, 2, 3, 5, 6, 7, 8, 9)));
+int album_scan_build_skeleton(const struct GalleryConfig* gallery_config,
+                              const struct PathList* source_paths,
+                              struct Arena* perm,
+                              struct Arena scratch,
+                              struct Album*** albums_out,
+                              ptrdiff_t* album_count_out,
+                              struct MediaItem*** media_out,
+                              ptrdiff_t* media_count_out,
+                              struct Log* log) __attribute__((nonnull(1, 2, 3, 5, 6, 7, 8, 9)));
 
 /**
  * @brief Probes media in parallel and fills only its scalar probe fields.
@@ -61,7 +61,7 @@ int album_scanner_build_skeleton(const struct GalleryConfig* gallery_config,
  * `video_frames` holds one slot per item, prepared with `video_frame_init` for a video. Each video
  * job that probes creates its slot's frame file, and one the build cache answered for leaves its
  * slot unused. Successful video jobs may have created theirs even when the phase fails, so the
- * caller must eventually consume them or call `album_scanner_remove_video_frames`. A job reads its
+ * caller must eventually consume them or call `album_scan_remove_video_frames`. A job reads its
  * source into a copy of its worker's scratch and allocates nothing that outlives it.
  *
  * Each finished job reports progress when `is_verbose`. Failing jobs' errors go to `log` in media
@@ -86,18 +86,18 @@ int album_scanner_build_skeleton(const struct GalleryConfig* gallery_config,
  * @return `0` when every job succeeded, or `-1` when a probe job failed or the worker pool could
  *         not start.
  */
-int album_scanner_probe_media(const struct GalleryConfig* gallery_config,
-                              struct MediaItem* const* media,
-                              ptrdiff_t media_count,
-                              const struct BuildCache* build_cache,
-                              struct VideoFrame* video_frames,
-                              ptrdiff_t worker_count,
-                              struct JobArenas* worker_arenas,
-                              bool is_verbose,
-                              struct Os* os,
-                              struct Arena scratch,
-                              struct OsStat* source_stats,
-                              struct Log* log) __attribute__((nonnull(1, 2, 4, 5, 7, 9, 11, 12)));
+int album_scan_probe_media(const struct GalleryConfig* gallery_config,
+                           struct MediaItem* const* media,
+                           ptrdiff_t media_count,
+                           const struct BuildCache* build_cache,
+                           struct VideoFrame* video_frames,
+                           ptrdiff_t worker_count,
+                           struct JobArenas* worker_arenas,
+                           bool is_verbose,
+                           struct Os* os,
+                           struct Arena scratch,
+                           struct OsStat* source_stats,
+                           struct Log* log) __attribute__((nonnull(1, 2, 4, 5, 7, 9, 11, 12)));
 
 /**
  * @brief Removes every frame a slot still marks as created, best effort.
@@ -109,6 +109,6 @@ int album_scanner_probe_media(const struct GalleryConfig* gallery_config,
  * @param video_frames Frame slots. May be `NULL` only when `media_count` is zero.
  * @param media_count  Number of slots.
  */
-void album_scanner_remove_video_frames(struct VideoFrame* video_frames, ptrdiff_t media_count);
+void album_scan_remove_video_frames(struct VideoFrame* video_frames, ptrdiff_t media_count);
 
 #endif

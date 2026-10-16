@@ -666,13 +666,8 @@ int template_render_file_limited(struct Str templates_dir,
   int rc = -1;
 
   const struct Str template_path = path_join(templates_dir, template_name, &scratch);
-  if (os_read(os, template_path, TEMPLATE_FILE_LEN_MAX, OS_READ_BYTES, &scratch, &template_data,
+  if (os_read(os, template_path, TEMPLATE_FILE_LEN_MAX, OS_READ_TEXT, &scratch, &template_data,
               S("failed to read template"), &render_log) != 0) {
-    goto cleanup;
-  }
-  if (!text_is_nul_free(template_data)) {
-    (void)log_error(&render_log, "failed to read template: contains an embedded NUL byte ('%.*s')",
-                    STR_FMT(template_path));
     goto cleanup;
   }
 
@@ -951,16 +946,10 @@ static int node_get_partial_compile(struct ProviderData* provider_data,
   struct Str partial_data = {0};
   // The read logs its own failure, which is this render's first, because a failed render resolves
   // no partials.
-  if (os_read(provider_data->os, partial_path, TEMPLATE_FILE_LEN_MAX, OS_READ_BYTES,
+  if (os_read(provider_data->os, partial_path, TEMPLATE_FILE_LEN_MAX, OS_READ_TEXT,
               &partial_scratch, &partial_data, S("failed to read partial"),
               provider_data->log) != 0) {
     provider_data->has_failed = true;
-    return -1;
-  }
-  if (!text_is_nul_free(partial_data)) {
-    render_fail(provider_data, (struct Str){0},
-                "failed to read partial: contains an embedded NUL byte ('%.*s')",
-                STR_FMT(partial_path));
     return -1;
   }
 

@@ -954,15 +954,6 @@ static bool find_header_argument(const ORG_ATTRIBUTE* params,
 static bool is_image_path(const ORG_ATTRIBUTE* path) __attribute__((nonnull(1)));
 
 /**
- * @brief Reports whether text equals a lowercase name, folding the case of ASCII letters.
- *
- * @param text Text to compare.
- * @param name Lowercase name.
- * @return `true` when they match, `false` otherwise.
- */
-static bool is_equal_folded(struct Str text, struct Str name);
-
-/**
  * @brief Reports whether a byte is a blank: a space or a tab.
  *
  * @param c Byte to check.
@@ -1072,7 +1063,7 @@ static void apply_in_buffer_options(struct Str org,
       line = str_tail(line, 1);
     }
     const struct Str keyword = S("#+options:");
-    if (line.len >= keyword.len && is_equal_folded(str_head(line, keyword.len), keyword)) {
+    if (line.len >= keyword.len && str_eq_folded(str_head(line, keyword.len), keyword)) {
       const struct Str options = str_tail(line, keyword.len);
       for (struct StrCut option = cut_word(options); option.is_found;
            option = cut_word(option.tail)) {
@@ -2400,7 +2391,7 @@ static struct Str attribute_text(const ORG_ATTRIBUTE* attribute) {
 }
 
 static bool is_attribute_named(const ORG_ATTRIBUTE* attribute, struct Str name) {
-  return is_equal_folded(attribute_text(attribute), name);
+  return str_eq_folded(attribute_text(attribute), name);
 }
 
 static bool find_header_argument(const ORG_ATTRIBUTE* params,
@@ -2430,18 +2421,6 @@ static bool is_image_path(const ORG_ATTRIBUTE* path) {
     }
   }
   return false;
-}
-
-static bool is_equal_folded(struct Str text, struct Str name) {
-  if (text.len != name.len) {
-    return false;
-  }
-  for (ptrdiff_t i = 0; i < text.len; i++) {
-    if (ascii_to_lower((unsigned char)text.data[i]) != (unsigned char)name.data[i]) {
-      return false;
-    }
-  }
-  return true;
 }
 
 static bool is_blank(char c) {
@@ -2481,7 +2460,7 @@ static struct Str find_custom_id(struct Str properties) {
       rest = str_tail(rest, 1);
     }
     const struct Str key = S(":custom_id:");
-    if (rest.len < key.len || !is_equal_folded(str_head(rest, key.len), key)) {
+    if (rest.len < key.len || !str_eq_folded(str_head(rest, key.len), key)) {
       continue;
     }
     struct Str value = str_tail(rest, key.len);

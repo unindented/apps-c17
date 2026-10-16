@@ -113,6 +113,19 @@ struct Str str_from_cstr(const char* cstr) __attribute__((nonnull(1)));
 bool str_eq(struct Str a, struct Str b);
 
 /**
+ * @brief Reports whether two strings hold the same bytes once ASCII letters are folded to lower
+ *        case.
+ *
+ * Only ASCII letters fold, whatever the locale, so a byte above 0x7F matches only itself.
+ *
+ * @param a First string.
+ * @param b Second string.
+ * @return `true` when the lengths match and the bytes differ at most in ASCII case, `false`
+ *         otherwise.
+ */
+bool str_eq_folded(struct Str a, struct Str b);
+
+/**
  * @brief Orders two strings byte-wise, as unsigned bytes, a prefix first.
  *
  * @param a First string.

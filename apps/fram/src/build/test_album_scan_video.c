@@ -10,8 +10,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "build/album_scanner.h"
-#include "build/test_album_scanner.h"
+#include "build/album_scan.h"
+#include "build/test_album_scan.h"
 #include "build/test_job_arenas.h"
 #include "core/arena.h"
 #include "core/buf.h"
@@ -31,7 +31,7 @@
 
 // The video cases of the probe phase. `ffprobe` and `ffmpeg` are fake scripts on `PATH`, and the
 // frame they write is a file on the real host, so these run against the POSIX one. The other probe
-// and skeleton cases are in `test_album_scanner.c`, on the in-memory host.
+// and skeleton cases are in `test_album_scan.c`, on the in-memory host.
 
 /** A build cache with no rows, for a probe that reads every source. */
 static const struct BuildCache NO_BUILD_CACHE = {0};
@@ -167,7 +167,7 @@ static void fake_video_env_leave(const struct FakeVideoEnv* env) {
 // A short video seeks to its midpoint and leaves one auto-rotated frame in its slot, which the
 // cleanup removes.
 static void test_probe_media_retains_clamped_video_frame(void) {
-  char root_dir[] = "/tmp/fram-scanner-video.XXXXXX";
+  char root_dir[] = "/tmp/fram-scan-video.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -178,7 +178,7 @@ static void test_probe_media_retains_clamped_video_frame(void) {
   struct FakeVideoEnv env;
   fake_video_env_enter(root_dir, frame_fixture, log_path, &arena, &env);
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   struct MediaDerivative derivatives[3] = {0};
   struct MediaItem item = {.source_path = S("short.mp4"),
                            .kind = MEDIA_KIND_VIDEO,
@@ -202,8 +202,8 @@ static void test_probe_media_retains_clamped_video_frame(void) {
   video_frame_init(&frames[0], &arena);
 
   worker_arenas = test_job_arenas(1, &arena);
-  TEST_CHECK(album_scanner_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 1, worker_arenas,
-                                       false, os_posix(), arena, stats, &log) == 0);
+  TEST_CHECK(album_scan_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 1, worker_arenas,
+                                    false, os_posix(), arena, stats, &log) == 0);
   TEST_CHECK(item.duration_ms == 400);
   TEST_CHECK(item.orientation == IMAGE_ORIENTATION_TOP_LEFT);
   TEST_CHECK(item.width_px == 2);
@@ -223,12 +223,12 @@ static void test_probe_media_retains_clamped_video_frame(void) {
   TEST_CHECK(os_read(os_posix(), log_path, TEST_FILE_LEN_MAX, OS_READ_BYTES, &arena, &logged,
                      S("failed to read fixture"), &read_log) == 0);
   TEST_CHECK(str_eq(logged, S("0.200")));
-  album_scanner_remove_video_frames(frames, 1);
+  album_scan_remove_video_frames(frames, 1);
   TEST_CHECK(!frames[0].is_created);
   TEST_CHECK(access(frames[0].path, F_OK) != 0);
 
 cleanup:
-  album_scanner_remove_video_frames(frames, 1);
+  album_scan_remove_video_frames(frames, 1);
   fake_video_env_leave(&env);
   remove_fixture_tree(root_dir);
 }
@@ -236,7 +236,7 @@ cleanup:
 // A frame that is not a JPEG fails its video's probe, and the failure names the video rather than
 // the temporary frame, which is gone once the build ends.
 static void test_probe_media_names_video_of_invalid_frame(void) {
-  char root_dir[] = "/tmp/fram-scanner-frame-invalid.XXXXXX";
+  char root_dir[] = "/tmp/fram-scan-frame-invalid.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -246,7 +246,7 @@ static void test_probe_media_names_video_of_invalid_frame(void) {
   struct FakeVideoEnv env;
   fake_video_env_enter(root_dir, frame_fixture, log_path, &arena, &env);
   struct GalleryConfig config;
-  test_album_scanner_init_config(&config);
+  test_album_scan_init_config(&config);
   config.derivative_count = 0;
   struct MediaItem item = {.source_path = S("short.mp4"), .kind = MEDIA_KIND_VIDEO};
   struct MediaItem* media[] = {&item};
@@ -262,15 +262,15 @@ static void test_probe_media_names_video_of_invalid_frame(void) {
   video_frame_init(&frames[0], &arena);
 
   worker_arenas = test_job_arenas(1, &arena);
-  TEST_CHECK(album_scanner_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 1, worker_arenas,
-                                       false, os_posix(), arena, stats, &log) == -1);
+  TEST_CHECK(album_scan_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 1, worker_arenas,
+                                    false, os_posix(), arena, stats, &log) == -1);
   TEST_CHECK(str_startswith(buf_str(&log.buf), S("failed to probe media: failed to probe JPEG: ")));
   TEST_CHECK(str_endswith(buf_str(&log.buf), S(" ('short.mp4')\n")));
   TEST_CHECK(log.errors == 1);
   TEST_MSG("log: '%s'", buf_cstr(&log.buf));
 
 cleanup:
-  album_scanner_remove_video_frames(frames, 1);
+  album_scan_remove_video_frames(frames, 1);
   fake_video_env_leave(&env);
   remove_fixture_tree(root_dir);
 }
@@ -279,7 +279,7 @@ cleanup:
 // whose frame was never created, whose template may name another file, and a slot whose frame the
 // derivative job already removed, whose name another process may have reused.
 static void test_remove_video_frames_unlinks_only_created(void) {
-  char root_dir[] = "/tmp/fram-scanner-frames.XXXXXX";
+  char root_dir[] = "/tmp/fram-scan-frames.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
@@ -295,7 +295,7 @@ static void test_remove_video_frames_unlinks_only_created(void) {
     TEST_CHECK(write_fixture_bytes(str_from_cstr(frames[i].path), S("x")) == 0);
   }
 
-  album_scanner_remove_video_frames(frames, (ptrdiff_t)(sizeof(frames) / sizeof(frames[0])));
+  album_scan_remove_video_frames(frames, (ptrdiff_t)(sizeof(frames) / sizeof(frames[0])));
 
   TEST_CHECK(!frames[0].is_created);
   TEST_CHECK(access(frames[0].path, F_OK) != 0);

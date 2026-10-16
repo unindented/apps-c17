@@ -1456,7 +1456,7 @@ static void test_rejects_output_dir_holding_config_in_another_dir(void) {
   const struct BuildOptions options = {.config_path = S("site/sosig.toml")};
   struct Log log = test_log();
   TEST_CHECK(execute_build_with(&options, os, &log) == -1);
-  TEST_CHECK(test_log_is_one(&log, "output directory would hold the config: 'site/.'"));
+  TEST_CHECK(test_log_is_one(&log, "output directory would hold the config: 'site'"));
 }
 
 // Slugging is lossy, so two different source names can claim one output path. The manifest reports

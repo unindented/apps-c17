@@ -29,6 +29,24 @@ static struct CliOptions parse(char** argv) {
   return options;
 }
 
+/**
+ * @brief Prints the usage text of `command` for the program `fram`, capturing standard output.
+ *
+ * @param command      Command whose help to print.
+ * @param text_out     Buffer that receives the terminated text.
+ * @param text_out_len Size of `text_out` in bytes. Must be non-zero.
+ * @return `true` when the text was printed and captured, or `false` after recording a failure.
+ */
+static bool print_usage_capturing(enum CliCommand command, char* text_out, ptrdiff_t text_out_len) {
+  struct StreamCapture capture;
+  if (capture_begin(stdout, &capture) != 0) {
+    return false;
+  }
+  const int rc = cli_print_usage(S("fram"), command, os_posix(), test_arena());
+  const bool is_captured = capture_end(&capture, text_out, text_out_len) == 0;
+  return TEST_CHECK(rc == 0) && TEST_CHECK(is_captured);
+}
+
 // The `build` command resolves to the run action with no worker override.
 static void test_build_command_runs(void) {
   char* argv[] = {"fram", "build", NULL};
@@ -576,8 +594,7 @@ static void test_print_version_reports_write_failure(void) {
 // here is deliberately *not* `"fram"`. With the real program name the assertion passes just as well
 // against a hard-coded usage line, so it would prove nothing about substitution. `cli_dispatch`
 // passes `argv[0]`, so a user invoking `/usr/local/bin/fram build --help` has to see that path
-// back. The full help text is prose and is deliberately not asserted whole. The usage line is the
-// part callers copy.
+// back. The whole texts are asserted below.
 static void test_print_usage_names_program_and_command(void) {
   static const struct Str prog_name = STR_INIT("/opt/bin/myfram");
   const struct {
@@ -622,6 +639,46 @@ static void test_print_usage_names_program_and_command(void) {
 }
 
 // `cli_print_usage` reports a failed write the same way, so neither informational action can exit
+// The help of `config` names its option, compared whole.
+static void test_print_usage_names_config_option(void) {
+  char text[4096];
+  if (!print_usage_capturing(CLI_COMMAND_CONFIG, text, sizeof(text))) {
+    return;
+  }
+  TEST_CHECK(strcmp(text,
+                    "Print the resolved configuration as TOML.\n"
+                    "\n"
+                    "USAGE:\n"
+                    "    fram config [options]\n"
+                    "\n"
+                    "OPTIONS:\n"
+                    "    -c, --config PATH  Read the configuration from PATH (default: fram.toml)\n"
+                    "    -h, --help         Print this help and exit\n") == 0);
+}
+
+// The help of `build` names each of its options, compared whole.
+static void test_print_usage_names_build_options(void) {
+  char text[4096];
+  if (!print_usage_capturing(CLI_COMMAND_BUILD, text, sizeof(text))) {
+    return;
+  }
+  TEST_CHECK(
+      strcmp(text,
+             "Build the gallery.\n"
+             "\n"
+             "USAGE:\n"
+             "    fram build [options]\n"
+             "\n"
+             "OPTIONS:\n"
+             "    -c, --config PATH  Read the configuration from PATH (default: fram.toml)\n"
+             "    -w, --workers N    Use at most N worker threads (default: detected CPU count)\n"
+             "    -n, --dry-run      Report what would be written, kept, or removed, changing "
+             "nothing\n"
+             "    --force            Ignore the build cache for this build\n"
+             "    -v, --verbose      Print build progress to stderr\n"
+             "    -h, --help         Print this help and exit\n") == 0);
+}
+
 // non-zero without a reason.
 static void test_print_usage_reports_write_failure(void) {
   struct StreamCapture capture;
@@ -692,6 +749,8 @@ TEST_LIST = {
     {"print version writes version line", test_print_version_writes_version_line},
     {"print version reports write failure", test_print_version_reports_write_failure},
     {"print usage names program and command", test_print_usage_names_program_and_command},
+    {"print usage names config option", test_print_usage_names_config_option},
+    {"print usage names build options", test_print_usage_names_build_options},
     {"print usage reports write failure", test_print_usage_reports_write_failure},
     {NULL, NULL},
 };

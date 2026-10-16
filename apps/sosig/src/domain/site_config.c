@@ -1,6 +1,5 @@
 #include "domain/site_config.h"
 
-#include <inttypes.h>
 #include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -27,27 +26,6 @@ struct SiteConfigStringKey {
   struct Str* field;
 
   /** Whether absence is a load error rather than leaving the initialized default. */
-  bool is_required;
-};
-
-/** Integer-valued site config key policy. */
-struct SiteConfigIntKey {
-  /** TOML key name. */
-  const char* key;
-
-  /** Address of the `SiteConfig` field this key fills. */
-  ptrdiff_t* field;
-
-  /** Smallest accepted value, named in the `must be at least` rejection. */
-  ptrdiff_t value_min;
-
-  /** Largest accepted value. A larger one is rejected as exceeding `limit_name`. */
-  ptrdiff_t value_max;
-
-  /** Prose name of `value_max` in the overflow diagnostic: `exceeds max feed count`. */
-  const char* limit_name;
-
-  /** Whether absence is a load error rather than leaving the field's current value. */
   bool is_required;
 };
 
@@ -172,68 +150,6 @@ static void site_config_load_fields(struct SiteConfig* site_config,
                                     struct Log* log) __attribute__((nonnull(1, 4, 6)));
 
 /**
- * @brief Copies one string key into the arena, enforcing required keys.
- *
- * @param table       Parsed TOML table.
- * @param key         Key to read. Must not be `NULL`.
- * @param is_required Whether absence is an error. When `false`, absence leaves `*value_out`
- *                    untouched.
- * @param arena       Arena that owns the copied value. Must not be `NULL`.
- * @param value_out   Receives the copied string when the key is present. Must not be `NULL`.
- * @param log         Log that receives every error. Must not be `NULL`.
- * @return `0` on success, or `-1` if a required key is missing or mistyped.
- */
-static int copy_string(toml_datum_t table,
-                       const char* key,
-                       bool is_required,
-                       struct Arena* arena,
-                       struct Str* value_out,
-                       struct Log* log) __attribute__((nonnull(2, 4, 5, 6)));
-
-/**
- * @brief Copies one optional array-of-strings key, and validates each string as a template name
- *        when it names templates.
- *
- * When the key is absent, this leaves the outputs untouched and keeps the defaults from
- * `site_config_init`.
- *
- * @param table             Parsed TOML table.
- * @param key               Array key to read. Must not be `NULL`.
- * @param is_template_names Whether each string must be a safe relative template name.
- * @param arena             Arena that owns the copied strings. Must not be `NULL`.
- * @param items_out         Receives the copied string array when the key is present. Must not be
- *                          `NULL`.
- * @param item_count_out    Receives the number of strings when the key is present. Must not be
- *                          `NULL`.
- * @param log               Log that receives every error. Must not be `NULL`.
- * @return `0` on success or when absent, or `-1` on a wrong type, a `NUL` byte, or an unsafe
- *         template name.
- */
-static int copy_strings(toml_datum_t table,
-                        const char* key,
-                        bool is_template_names,
-                        struct Arena* arena,
-                        const struct Str** items_out,
-                        ptrdiff_t* item_count_out,
-                        struct Log* log) __attribute__((nonnull(2, 4, 5, 6, 7)));
-
-/**
- * @brief Validates and copies one bounded non-negative integer key into `spec->field`.
- *
- * @param table      Parsed TOML table holding `spec->key`.
- * @param key_prefix Dotted path of `table` that diagnostics put before `spec->key`, or `""` for the
- *                   top-level table.
- * @param spec       Key policy and target field. Must not be `NULL`.
- * @param log        Log that receives every error. Must not be `NULL`.
- * @return `0` on success or when an optional key is absent, or `-1` on a missing required key, a
- *         wrong type, a value below `spec->value_min`, or a value exceeding `spec->value_max`.
- */
-static int copy_size(toml_datum_t table,
-                     struct Str key_prefix,
-                     const struct SiteConfigIntKey* spec,
-                     struct Log* log) __attribute__((nonnull(3, 4)));
-
-/**
  * @brief Validates `base_url` as an absolute HTTP(S) URL with a host, and with no byte that a link
  *        below it could not hold as written, and trims any trailing `/`.
  *
@@ -243,43 +159,6 @@ static int copy_size(toml_datum_t table,
  */
 static void normalize_base_url(struct SiteConfig* site_config, struct Log* log)
     __attribute__((nonnull(1, 2)));
-
-/**
- * @brief Copies one optional directory key, trims its trailing `/`, rejects an empty result, and
- *        resolves it against `config_dir`.
- *
- * A trailing slash would otherwise survive into path construction, where it defeats the
- * `<content_dir>/` prefix strip that derives an entry's section and so leaks the content directory
- * name into every URL. Normalizing once here keeps that rule in one place and makes
- * `site_config_print` round-trip the normalized form. The location is not otherwise constrained. An
- * absolute or parent-relative directory stays valid.
- *
- * @param table      Parsed TOML top-level table.
- * @param key        Config key name, used in diagnostics. Must not be `NULL`.
- * @param config_dir Directory a relative directory resolves against, or empty for the working one.
- * @param arena      Arena that owns the copied value. Must not be `NULL`.
- * @param value_out  Receives the resolved directory when the key is present and valid, and keeps
- *                   its value otherwise, so later phases still have a directory. Must not be
- *                   `NULL`.
- * @param log        Log that receives the error. Must not be `NULL`.
- * @return `0` when the key is absent or accepted, or `-1` when it is not a string, holds a `NUL`
- *         byte, or is empty once trimmed.
- */
-static int copy_dir(toml_datum_t table,
-                    const char* key,
-                    struct Str config_dir,
-                    struct Arena* arena,
-                    struct Str* value_out,
-                    struct Log* log) __attribute__((nonnull(2, 4, 5, 6)));
-
-/**
- * @brief Returns `value` with any trailing `/` bytes excluded.
- *
- * @param value Value to trim.
- * @return View of `value` up to the first byte of its trailing `/` run, empty when `value` is
- *         entirely `/`.
- */
-static struct Str trim_trailing_slashes(struct Str value);
 
 /**
  * @brief Validates the `permalink` key, translating each verdict into its diagnostic.
@@ -321,43 +200,6 @@ static enum PermalinkVerdict check_permalink(struct Str pattern, struct Arena sc
  */
 static enum PermalinkVerdict check_permalink_expansions(
     struct Str urls[SECTION_SAMPLE_COUNT][SLUG_SAMPLE_COUNT]) __attribute__((nonnull(1)));
-
-/**
- * @brief Writes one `key = "value"` line, escaping the value as a TOML basic string.
- *
- * Delegates to `print_string` so a scalar value quotes exactly like array items.
- *
- * @param buffer Buffer the line is appended to. Must not be `NULL`.
- * @param key    Terminated key name to write. Must not be `NULL`.
- * @param value  Value to quote and write.
- */
-static void site_config_print_key_string(struct Buf* buffer, const char* key, struct Str value)
-    __attribute__((nonnull(1, 2)));
-
-/**
- * @brief Writes one `key = [...]` line of TOML basic strings.
- *
- * Delegates to `print_string` so array items quote exactly like scalar values.
- *
- * @param buffer     Buffer the line is appended to. Must not be `NULL`.
- * @param key        Terminated key name to write. Must not be `NULL`.
- * @param items      Array of `item_count` strings. May be `NULL` only when `item_count` is 0.
- * @param item_count Number of items in `items`.
- */
-static void site_config_print_string_array(struct Buf* buffer,
-                                           const char* key,
-                                           const struct Str* items,
-                                           ptrdiff_t item_count) __attribute__((nonnull(1, 2)));
-
-/**
- * @brief Writes `text` as a quoted TOML basic string, escaping delimiters and control bytes.
- *
- * TOML basic strings forbid raw control bytes, so this escapes them alongside `"` and `\`.
- *
- * @param buffer Buffer the quoted string is appended to. Must not be `NULL`.
- * @param text   Text to quote and escape.
- */
-static void print_string(struct Buf* buffer, struct Str text) __attribute__((nonnull(1)));
 
 void site_config_init(struct SiteConfig* site_config) {
   // This is one literal naming only the non-zero defaults, so a key added to `SiteConfig` cannot be
@@ -403,24 +245,24 @@ int site_config_load(struct SiteConfig* site_config,
 
 int site_config_print(const struct SiteConfig* site_config, struct Os* os, struct Arena scratch) {
   struct Buf text = {.arena = &scratch};
-  site_config_print_key_string(&text, "title", site_config->title);
-  site_config_print_key_string(&text, "description", site_config->description);
-  site_config_print_key_string(&text, "author", site_config->author);
-  site_config_print_key_string(&text, "base_url", site_config->base_url);
-  site_config_print_key_string(&text, "permalink", site_config->permalink);
-  site_config_print_key_string(&text, "content_dir", site_config->content_dir);
-  site_config_print_key_string(&text, "output_dir", site_config->output_dir);
-  site_config_print_key_string(&text, "templates_dir", site_config->templates_dir);
-  site_config_print_key_string(&text, "static_dir", site_config->static_dir);
-  site_config_print_key_string(&text, "content_template", site_config->content_template);
-  site_config_print_string_array(&text, "aggregate_templates", site_config->aggregate_templates,
-                                 site_config->aggregate_template_count);
-  site_config_print_string_array(&text, "feed_templates", site_config->feed_templates,
-                                 site_config->feed_template_count);
+  toml_print_key_string(&text, "title", site_config->title);
+  toml_print_key_string(&text, "description", site_config->description);
+  toml_print_key_string(&text, "author", site_config->author);
+  toml_print_key_string(&text, "base_url", site_config->base_url);
+  toml_print_key_string(&text, "permalink", site_config->permalink);
+  toml_print_key_string(&text, "content_dir", site_config->content_dir);
+  toml_print_key_string(&text, "output_dir", site_config->output_dir);
+  toml_print_key_string(&text, "templates_dir", site_config->templates_dir);
+  toml_print_key_string(&text, "static_dir", site_config->static_dir);
+  toml_print_key_string(&text, "content_template", site_config->content_template);
+  toml_print_key_string_array(&text, "aggregate_templates", site_config->aggregate_templates,
+                              site_config->aggregate_template_count);
+  toml_print_key_string_array(&text, "feed_templates", site_config->feed_templates,
+                              site_config->feed_template_count);
   buf_printf(&text, "feed_count = %td\n", site_config->feed_count);
-  site_config_print_string_array(&text, "frontmatter_ignored_keys",
-                                 site_config->frontmatter_ignored_keys,
-                                 site_config->frontmatter_ignored_key_count);
+  toml_print_key_string_array(&text, "frontmatter_ignored_keys",
+                              site_config->frontmatter_ignored_keys,
+                              site_config->frontmatter_ignored_key_count);
   return os_print(os, 1, buf_str(&text));
 }
 
@@ -462,12 +304,12 @@ static void site_config_load_fields(struct SiteConfig* site_config,
       {"author", &site_config->author, true},
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(site_strings) / sizeof(site_strings[0])); i++) {
-    (void)copy_string(table, site_strings[i].key, site_strings[i].is_required, perm,
-                      site_strings[i].field, log);
+    (void)toml_copy_string(table, S(""), site_strings[i].key, site_strings[i].is_required, perm,
+                           site_strings[i].field, log);
   }
   // A `base_url` that is missing or mistyped is already reported, so its empty value is not judged
   // a second time.
-  if (copy_string(table, "base_url", true, perm, &site_config->base_url, log) == 0) {
+  if (toml_copy_string(table, S(""), "base_url", true, perm, &site_config->base_url, log) == 0) {
     normalize_base_url(site_config, log);
   }
 
@@ -477,8 +319,8 @@ static void site_config_load_fields(struct SiteConfig* site_config,
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(optional_strings) / sizeof(optional_strings[0]));
        i++) {
-    (void)copy_string(table, optional_strings[i].key, optional_strings[i].is_required, perm,
-                      optional_strings[i].field, log);
+    (void)toml_copy_string(table, S(""), optional_strings[i].key, optional_strings[i].is_required,
+                           perm, optional_strings[i].field, log);
   }
   // A default directory resolves against the config's directory too, so that `-c sub/sosig.toml`
   // without `output_dir` writes `sub/public`. A key that is absent or rejected keeps it.
@@ -487,13 +329,15 @@ static void site_config_load_fields(struct SiteConfig* site_config,
   site_config->templates_dir = path_resolve(config_dir, site_config->templates_dir, perm);
   site_config->static_dir = path_resolve(config_dir, site_config->static_dir, perm);
   site_config->is_content_dir_rejected =
-      copy_dir(table, "content_dir", config_dir, perm, &site_config->content_dir, log) != 0;
-  site_config->is_output_dir_rejected =
-      copy_dir(table, "output_dir", config_dir, perm, &site_config->output_dir, log) != 0;
+      toml_copy_dir(table, S(""), "content_dir", false, config_dir, perm, &site_config->content_dir,
+                    log) != 0;
+  site_config->is_output_dir_rejected = toml_copy_dir(table, S(""), "output_dir", false, config_dir,
+                                                      perm, &site_config->output_dir, log) != 0;
   site_config->is_templates_dir_rejected =
-      copy_dir(table, "templates_dir", config_dir, perm, &site_config->templates_dir, log) != 0;
-  site_config->is_static_dir_rejected =
-      copy_dir(table, "static_dir", config_dir, perm, &site_config->static_dir, log) != 0;
+      toml_copy_dir(table, S(""), "templates_dir", false, config_dir, perm,
+                    &site_config->templates_dir, log) != 0;
+  site_config->is_static_dir_rejected = toml_copy_dir(table, S(""), "static_dir", false, config_dir,
+                                                      perm, &site_config->static_dir, log) != 0;
   if (!path_is_safe_relative(site_config->content_template)) {
     (void)log_error(log,
                     "config key 'content_template' must be a safe relative template name: '%.*s'",
@@ -504,16 +348,17 @@ static void site_config_load_fields(struct SiteConfig* site_config,
     site_config->permalink = PERMALINK_DEFAULT;
     site_config->is_output_key_rejected = true;
   }
-  if (copy_strings(table, "aggregate_templates", true, perm, &site_config->aggregate_templates,
-                   &site_config->aggregate_template_count, log) != 0) {
+  if (toml_copy_strings(table, S(""), "aggregate_templates", true, perm,
+                        &site_config->aggregate_templates, &site_config->aggregate_template_count,
+                        log) != 0) {
     site_config->is_output_key_rejected = true;
   }
-  if (copy_strings(table, "feed_templates", true, perm, &site_config->feed_templates,
-                   &site_config->feed_template_count, log) != 0) {
+  if (toml_copy_strings(table, S(""), "feed_templates", true, perm, &site_config->feed_templates,
+                        &site_config->feed_template_count, log) != 0) {
     site_config->is_output_key_rejected = true;
   }
 
-  const struct SiteConfigIntKey feed_count = {
+  const struct TomlSizeKey feed_count = {
       .key = "feed_count",
       .field = &site_config->feed_count,
       // `PTRDIFF_MAX` binds only where `ptrdiff_t` is narrower than `int64_t`, as on a 32-bit
@@ -521,124 +366,10 @@ static void site_config_load_fields(struct SiteConfig* site_config,
       .value_max = PTRDIFF_MAX,
       .limit_name = "feed count",
   };
-  (void)copy_size(table, S(""), &feed_count, log);
-  (void)copy_strings(table, "frontmatter_ignored_keys", false, perm,
-                     &site_config->frontmatter_ignored_keys,
-                     &site_config->frontmatter_ignored_key_count, log);
-}
-
-static int copy_string(toml_datum_t table,
-                       const char* key,
-                       bool is_required,
-                       struct Arena* arena,
-                       struct Str* value_out,
-                       struct Log* log) {
-  const toml_datum_t value = toml_get(table, key);
-  if (value.type == TOML_UNKNOWN) {
-    if (is_required) {
-      return log_error(log, "missing required config key '%s'", key);
-    }
-    return 0;
-  }
-  if (value.type != TOML_STRING) {
-    return log_error(log, "config key '%s' must be a string", key);
-  }
-  if (!toml_datum_is_text(value)) {
-    return log_error(log, "config key '%s' must not contain a NUL byte", key);
-  }
-  *value_out = str_clone(toml_datum_str(value), arena);
-  return 0;
-}
-
-static int copy_strings(toml_datum_t table,
-                        const char* key,
-                        bool is_template_names,
-                        struct Arena* arena,
-                        const struct Str** items_out,
-                        ptrdiff_t* item_count_out,
-                        struct Log* log) {
-  const toml_datum_t value = toml_get(table, key);
-  if (value.type == TOML_UNKNOWN) {
-    return 0;
-  }
-  if (value.type != TOML_ARRAY) {
-    return log_error(log, "config key '%s' must be an array", key);
-  }
-
-  const ptrdiff_t item_count = value.u.arr.size;
-  // This allocates even for an empty array. A zero-count allocation still returns a pointer, so a
-  // list copied from the file is never `NULL`.
-  struct Str* items = arena_new(arena, item_count, struct Str);
-
-  // Every element is checked even after one fails, so each unsafe template name is reported. A
-  // wrong type or a `NUL` byte is reported once, since its message names no element and a repeat
-  // would add nothing.
-  int rc = 0;
-  bool is_type_reported = false;
-  bool is_nul_reported = false;
-  for (ptrdiff_t i = 0; i < item_count; i++) {
-    const toml_datum_t item = value.u.arr.elem[i];
-    if (item.type != TOML_STRING) {
-      if (!is_type_reported) {
-        rc = log_error(log, "config key '%s' must contain only strings", key);
-        is_type_reported = true;
-      }
-      continue;
-    }
-    if (!toml_datum_is_text(item)) {
-      if (!is_nul_reported) {
-        rc = log_error(log, "config key '%s' must not contain a NUL byte", key);
-        is_nul_reported = true;
-      }
-      continue;
-    }
-    const struct Str text = toml_datum_str(item);
-    if (is_template_names && !path_is_safe_relative(text)) {
-      rc = log_error(log, "config key '%s' must contain only safe relative template names: '%.*s'",
-                     key, STR_FMT(text));
-      continue;
-    }
-    items[i] = str_clone(text, arena);
-  }
-  if (rc != 0) {
-    return -1;
-  }
-
-  // The code fills these through a mutable local and publishes them as `const struct Str*`. The
-  // elements have to be writable while it builds the arena copy, but must not be once the config
-  // shares them with the render workers.
-  *items_out = items;
-  *item_count_out = item_count;
-  return 0;
-}
-
-static int copy_size(toml_datum_t table,
-                     struct Str key_prefix,
-                     const struct SiteConfigIntKey* spec,
-                     struct Log* log) {
-  const toml_datum_t value = toml_get(table, spec->key);
-  if (value.type == TOML_UNKNOWN) {
-    if (spec->is_required) {
-      return log_error(log, "missing required config key '%.*s%s'", STR_FMT(key_prefix), spec->key);
-    }
-    return 0;
-  }
-  if (value.type != TOML_INT64) {
-    return log_error(log, "config key '%.*s%s' must be an integer", STR_FMT(key_prefix), spec->key);
-  }
-  if (value.u.int64 < spec->value_min) {
-    return log_error(log, "config key '%.*s%s' must be at least %td: %" PRId64, STR_FMT(key_prefix),
-                     spec->key, spec->value_min, value.u.int64);
-  }
-  // One comparison covers both the configured ceiling and the conversion below. `value_max` is a
-  // `ptrdiff_t`, so a value this check accepts fits `ptrdiff_t` on every target.
-  if (value.u.int64 > spec->value_max) {
-    return log_error(log, "config key '%.*s%s' exceeds max %s (%td) at %" PRId64,
-                     STR_FMT(key_prefix), spec->key, spec->limit_name, spec->value_max,
-                     value.u.int64);
-  }
-  *spec->field = (ptrdiff_t)value.u.int64;
-  return 0;
+  (void)toml_copy_size(table, S(""), &feed_count, log);
+  (void)toml_copy_strings(table, S(""), "frontmatter_ignored_keys", false, perm,
+                          &site_config->frontmatter_ignored_keys,
+                          &site_config->frontmatter_ignored_key_count, log);
 }
 
 static void normalize_base_url(struct SiteConfig* site_config, struct Log* log) {
@@ -661,36 +392,7 @@ static void normalize_base_url(struct SiteConfig* site_config, struct Log* log) 
     return;
   }
   // Every link joins `base_url` with a path that starts with `/`, so the trailing `/` goes.
-  site_config->base_url = trim_trailing_slashes(site_config->base_url);
-}
-
-static int copy_dir(toml_datum_t table,
-                    const char* key,
-                    struct Str config_dir,
-                    struct Arena* arena,
-                    struct Str* value_out,
-                    struct Log* log) {
-  struct Str dir = {0};
-  if (copy_string(table, key, false, arena, &dir, log) != 0) {
-    return -1;
-  }
-  // A present key is a copy that is never `NULL`, even when it is empty.
-  if (dir.data == NULL) {
-    return 0;
-  }
-  dir = trim_trailing_slashes(dir);
-  if (dir.len == 0) {
-    return log_error(log, "config key '%s' must not be empty", key);
-  }
-  *value_out = path_resolve(config_dir, dir, arena);
-  return 0;
-}
-
-static struct Str trim_trailing_slashes(struct Str value) {
-  while (str_endswith(value, S("/"))) {
-    value = str_head(value, value.len - 1);
-  }
-  return value;
+  site_config->base_url = path_trim_trailing_slashes(site_config->base_url);
 }
 
 static int require_valid_permalink(struct Str pattern, struct Arena scratch, struct Log* log) {
@@ -744,65 +446,4 @@ static enum PermalinkVerdict check_permalink_expansions(
     }
   }
   return PERMALINK_VALID;
-}
-
-static void site_config_print_key_string(struct Buf* buffer, const char* key, struct Str value) {
-  buf_printf(buffer, "%s = ", key);
-  print_string(buffer, value);
-  buf_append_char(buffer, '\n');
-}
-
-static void site_config_print_string_array(struct Buf* buffer,
-                                           const char* key,
-                                           const struct Str* items,
-                                           ptrdiff_t item_count) {
-  buf_printf(buffer, "%s = [", key);
-  for (ptrdiff_t i = 0; i < item_count; i++) {
-    if (i > 0) {
-      buf_append(buffer, S(", "));
-    }
-    print_string(buffer, items[i]);
-  }
-  buf_append(buffer, S("]\n"));
-}
-
-static void print_string(struct Buf* buffer, struct Str text) {
-  buf_append_char(buffer, '"');
-  // Walk the bytes as `unsigned char`. Where `char` is signed, every byte of a multi-byte UTF-8
-  // sequence is negative, so the `< 0x20` test below would treat it as a control byte, and passing
-  // a negative `int` to the `%04X` conversion is undefined.
-  for (ptrdiff_t i = 0; i < text.len; i++) {
-    const unsigned char c = (unsigned char)text.data[i];
-    switch (c) {
-      case '"':
-        buf_append(buffer, S("\\\""));
-        break;
-      case '\\':
-        buf_append(buffer, S("\\\\"));
-        break;
-      case '\b':
-        buf_append(buffer, S("\\b"));
-        break;
-      case '\t':
-        buf_append(buffer, S("\\t"));
-        break;
-      case '\n':
-        buf_append(buffer, S("\\n"));
-        break;
-      case '\f':
-        buf_append(buffer, S("\\f"));
-        break;
-      case '\r':
-        buf_append(buffer, S("\\r"));
-        break;
-      default:
-        if (c < 0x20 || c == 0x7F) {
-          buf_printf(buffer, "\\u%04X", c);
-        } else {
-          buf_append_char(buffer, (char)c);
-        }
-        break;
-    }
-  }
-  buf_append_char(buffer, '"');
 }
