@@ -76,7 +76,7 @@ These options control the wrapping and the output mode:
 - `-i, --in-place`: Write the result over each input file that the rewrap changes.
 - `-c, --check`: Do not write any file. Exit with status 1 if the rewrap would change any input.
 
-There's also these options:
+It also has these options:
 
 - `cwrap --version` (or `-V`): Print the version.
 - `cwrap --help` (or `-h`): Print the usage and the list of options.

@@ -749,9 +749,9 @@ static int node_dump(void* node_ptr,
   // the renderer's unescaped-output callback for a triple-brace or ampersand tag and names the tag
   // kind nowhere else. Only HTML that fram made itself, under a key that ends in `_html`, is
   // written unescaped, so a value it did not make, such as an album title or a file name, cannot
-  // put markup in the page. fram makes no HTML for a template, so it has no such key and every
-  // unescaped tag fails. The check comes before the kind check, so a tag fails whatever kind its
-  // value has, and `{{{parent}}}` fails on the root album as on any other.
+  // put markup in the page. fram makes no HTML for a template, so it has no such key and an
+  // unescaped tag of any value fails. The check comes before the kind check, so a tag fails
+  // whatever kind its value has, and `{{{parent}}}` fails on the root album as on any other.
   if (out_fn != out_escaped) {
     struct ProviderData* provider_data = provider_data_ptr;
     render_fail(

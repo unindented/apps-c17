@@ -29,7 +29,7 @@ Download a prebuilt binary from a `sosig-v` release on the [Releases](https://gi
   - `-v, --verbose`: Print build progress to `stderr`.
 - `sosig config`: Print the resolved configuration as TOML. It also takes `-c, --config PATH`.
 
-There's also these options:
+It also has these options:
 
 - `sosig --version` (or `-V`): Print the version, and the grammars that the binary includes for [syntax highlighting](#syntax-highlighting).
 - `sosig --help` (or `-h`): Print the list of commands.
@@ -37,7 +37,7 @@ There's also these options:
 
 A command exits with status 0 when it succeeds, 1 when it fails, and 2 when it rejects the command line.
 
-### Project layout
+### Site layout
 
 Run `sosig` from a directory that has this layout, or name its config with `-c`. The example uses the default directory names:
 
@@ -96,7 +96,7 @@ This table lists every key that the config file can contain. `sosig` rejects any
 | `description` | Required | A string | The description of the site, `site.description` in templates. |
 | `author` | Required | A string | The name of the site's author, `site.author` in templates. |
 | `base_url` | Required | An `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. | The absolute URL of the site, for the links of feeds and the `absolute_url` of each entry. `sosig` removes any trailing `/`, so a template can join it with a path that starts with `/` and not produce `//`. |
-| `permalink` | `"/{section}/{slug}.html"` | A pattern with `{slug}` | The pattern for the URL and output path of each entry. See [URLs and slugs](#urls-and-slugs). |
+| `permalink` | `"/{section}/{slug}.html"` | A pattern with `{slug}` that expands to a safe relative path | The pattern for the URL and output path of each entry. See [URLs and slugs](#urls-and-slugs). |
 | `content_dir` | `"content"` | Must be a directory | The directory that contains the content files. |
 | `output_dir` | `"public"` | Not empty | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
 | `templates_dir` | `"templates"` | Must be a directory | The directory that contains the templates and partials. |
@@ -107,7 +107,7 @@ This table lists every key that the config file can contain. `sosig` rejects any
 | `feed_count` | `25` | 0 or more | The maximum number of entries in each feed. |
 | `frontmatter_ignored_keys` | `[]` | An array of strings | The keys that Markdown frontmatter can contain in addition to the keys that [Markdown frontmatter](#markdown-frontmatter) lists. `sosig` accepts any value for these keys, and does not read it. For denote notes, set it to `["identifier", "signature"]`. |
 
-`sosig` resolves each directory in the config, the defaults included, against the directory of the config file, so `-c sub/sosig.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from the values of the four directory keys. A directory value must not be empty. It can be an absolute path, or a relative path that contains `..`. `sosig config` prints every directory resolved.
+`sosig` resolves each directory in the config, the defaults included, against the directory of the config file, so `-c sub/sosig.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from each directory value, and rejects a value that is then empty, `/` included. A directory can be an absolute path, or a relative path that contains `..`. `sosig config` prints every directory resolved.
 
 A template name in the configuration, or in the `template` field of an entry, must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.`, and `/`. It cannot contain an empty segment, or the segment `.` or `..`. The name of an aggregate or feed template is both its source path below `templates_dir` and its output path below `output_dir`. So a name that contains `/` creates the same subdirectories in `output_dir`. If `aggregate_templates` or `feed_templates` is an empty array, the build renders no templates of that kind.
 
@@ -431,13 +431,15 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 | Aggregate | `aggregate_templates` | Once, to the same relative path below `output_dir`. The fields of an entry are not available at the top level. |
 | Feed | `feed_templates` | In the same way as an aggregate template, but with only the newest `feed_count` entries. |
 
-`{{value}}` escapes its output for HTML, and `{{{value}}}` writes its output without escaping. Use `{{{body_html}}}` to write the rendered body. A value that holds HTML that `sosig` made, such as the body, has a name that ends in `_html`, as in surge.
+`{{value}}` escapes its output for HTML. `{{{value}}}` and `{{& value}}` write it without escaping, and work only for a key that ends in `_html`, which holds HTML that `sosig` made itself. Any other key that the data holds fails the render, so a value that it did not make, such as a title, cannot add markup to a page. A name that the data does not hold writes nothing, as with `{{value}}`. Use `{{{body_html}}}` to write the rendered body.
 
 Each entry sets every one of the fields below, with empty text where a value is absent, so the field never resolves from an enclosing scope. Empty text is false in a section, so `{{#description}}…{{/description}}` shows its contents only for a description that is not empty.
 
 Every link in an entry's data is relative to the page and already holds its `path_to_root`, except in the feed templates, where every link is absolute, below `base_url`.
 
-| Variable | Templates | Value |
+The templates get these keys:
+
+| Key | Templates | Value |
 | --- | --- | --- |
 | `site.title`, `site.description`, `site.author`, `site.base_url` | All | The values from the configuration. |
 | `feed` | Feed templates | `id` and `url` (the feed's own URL), `html_url` (the site's home), `modified` (the newest change among the feed's entries, or `1970-01-01T00:00:00Z` for a feed without entries). |
@@ -468,7 +470,7 @@ An Atom feed template can use `feed.modified` for the `<updated>` element of the
 
 ```xml
 <id>{{feed.id}}</id>
-<link rel="self" href="{{feed.url}}"/>
+<link rel="self" type="application/atom+xml" href="{{feed.url}}"/>
 <link rel="alternate" type="text/html" href="{{feed.html_url}}"/>
 <updated>{{feed.modified}}</updated>
 {{#content_entries}}
@@ -476,9 +478,12 @@ An Atom feed template can use `feed.modified` for the `<updated>` element of the
   <id>{{url}}</id>
   <title>{{title}}</title>
   <updated>{{modified}}</updated>
+  <content type="html" xml:base="{{url}}">{{body_html}}</content>
 </entry>
 {{/content_entries}}
 ```
+
+A link in `body_html` to another content file or an asset is relative to the entry's own page, so `body_html` works on that page and in a feed whose `<content>` sets `xml:base` to the entry's `url`, as above, which a feed reader then resolves the links against. On a page at another depth, such as an aggregate in a subdirectory, its links would not resolve.
 
 ## Development
 

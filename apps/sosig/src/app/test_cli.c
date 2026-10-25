@@ -603,8 +603,7 @@ static void test_print_version_reports_write_failure(void) {
 // here is deliberately *not* `"sosig"`. With the real program name the assertion passes just as
 // well against a hard-coded usage line, so it would prove nothing about substitution.
 // `cli_dispatch` passes `argv[0]`, so a user invoking `/usr/local/bin/sosig build --help` has to
-// see that path back. The full help text is prose and is deliberately not asserted whole. The usage
-// line is the part callers copy.
+// see that path back. The whole texts are asserted below.
 static void test_print_usage_names_program_and_command(void) {
   static const struct Str prog_name = STR_INIT("/opt/bin/mysosig");
   const struct {

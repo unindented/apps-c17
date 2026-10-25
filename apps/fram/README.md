@@ -27,9 +27,9 @@ Download a prebuilt binary from a `fram-v` release on the [Releases](https://git
   - `-n, --dry-run`: Report the changes that the build would make, but do not make them. See [Dry run](#dry-run).
   - `--force`: Ignore the [build cache](#build-cache) for this build.
   - `-v, --verbose`: Print build progress to `stderr`.
-- `fram config`: Print the resolved configuration as TOML. It also takes `-c, --config PATH`. It leaves out an optional string that is empty.
+- `fram config`: Print the resolved configuration as TOML. It also takes `-c, --config PATH`.
 
-There's also these options:
+It also has these options:
 
 - `fram --version` (or `-V`): Print the version.
 - `fram --help` (or `-h`): Print the list of commands.
@@ -37,7 +37,7 @@ There's also these options:
 
 A command exits with status 0 when it succeeds, 1 when it fails, and 2 when it rejects the command line.
 
-### Project layout
+### Gallery layout
 
 Run `fram` from a directory that has this layout, or name its config with `-c`. The example uses the default directory names:
 
@@ -101,7 +101,7 @@ This table lists every key that the config file can contain. `fram` rejects any 
 | `sort` | `{ albums = "asc", media = "asc" }` | `"asc"` or `"desc"` for each | The order of the immediate child albums and the direct media items of each album, by source filename. |
 | `video_frame_seconds` | `1` | 0 to 86400 | The preferred position of the video poster frame, in seconds. A video that is shorter than this uses its midpoint. |
 
-`fram` resolves each path in the config, the defaults included, against the directory of the config file, so `-c sub/fram.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from the values of the four directory keys. A directory value must not be empty. It can be an absolute path, or a relative path that contains `..`. `fram config` prints every path resolved.
+`fram` resolves each directory in the config, the defaults included, against the directory of the config file, so `-c sub/fram.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from each directory value, and rejects a value that is then empty, `/` included. A directory can be an absolute path, or a relative path that contains `..`. `fram config` prints every directory resolved, and leaves out an optional string that is empty.
 
 A template name in the configuration must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.`, and `/`. It cannot contain an empty segment, or the segment `.` or `..`. The name of an aggregate template is both its source path below `templates_dir` and its output path below `output_dir`. So a name that contains `/` creates the same subdirectories in `output_dir`. If `aggregate_templates` is an empty array, the build renders no aggregate templates.
 
@@ -240,11 +240,13 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 | Album | `album_template` | Once for each album, to the `index.html` of the album. The fields, direct media, immediate child albums, and breadcrumbs of the album are available. |
 | Aggregate | `aggregate_templates` | Once, with the context of the root album, to the same relative path below `output_dir`. |
 
-`{{value}}` escapes its output for HTML. `fram` rejects triple-brace and ampersand interpolation, so it escapes every scalar that it renders.
+`{{value}}` escapes its output for HTML. `{{{value}}}` and `{{& value}}` write it without escaping, and work only for a key that ends in `_html`, which holds HTML that `fram` made itself. Any other key that the data holds fails the render, so a value that it did not make, such as a title, cannot add markup to a page. A name that the data does not hold writes nothing, as with `{{value}}`. `fram` makes no HTML of its own, so it has no such key and escapes every value.
 
-Every template can use these variables. Each album, media item and derivative sets every one of its fields, and an absent value or a false flag is empty, so a section over it is skipped, and the field never resolves from an enclosing album. A name that the album, item or derivative does not have is looked up in the enclosing scopes, as Mustache does:
+Each album, media item and derivative sets every one of its fields, and an absent value or a false flag is empty, so a section over it is skipped, and the field never resolves from an enclosing album. A name that the album, item or derivative does not have is looked up in the enclosing scopes, as Mustache does.
 
-| Variable | Value |
+Every template gets these keys:
+
+| Key | Value |
 | --- | --- |
 | `gallery.title`, `gallery.description`, `gallery.author`, `gallery.base_url` | The values from the configuration. |
 | `album.title`, `album.url`, `album.media_count_total`, `album.cover`, `album.has_media`, `album.has_sub_albums`, `album.parent` | The fields of the current album. They are also available at the top level. `album.media_count_total` counts the media items of the album and of every album below it. `album.cover` is a media value, so its named derivatives are available in the same way as for `media`. It is empty for an album with no media below it. `album.parent` is empty for the root album. |

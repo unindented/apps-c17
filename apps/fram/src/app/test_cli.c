@@ -638,7 +638,6 @@ static void test_print_usage_names_program_and_command(void) {
   }
 }
 
-// `cli_print_usage` reports a failed write the same way, so neither informational action can exit
 // The help of `config` names its option, compared whole.
 static void test_print_usage_names_config_option(void) {
   char text[4096];
@@ -679,6 +678,7 @@ static void test_print_usage_names_build_options(void) {
              "    -h, --help         Print this help and exit\n") == 0);
 }
 
+// `cli_print_usage` reports a failed write the same way, so neither informational action can exit
 // non-zero without a reason.
 static void test_print_usage_reports_write_failure(void) {
   struct StreamCapture capture;
