@@ -90,22 +90,22 @@ base_url = "https://www.example.com"
 
 This table lists every key that the config file can contain. `sosig` rejects any other key. For example, if the file contains the misspelled key `ouput_dir`, `sosig` cannot load the file. It does not ignore the key and use the default value of `output_dir`.
 
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `title` | Required | The title of the site, `site.title` in templates. |
-| `description` | Required | The description of the site, `site.description` in templates. |
-| `author` | Required | The name of the site's author, `site.author` in templates. |
-| `base_url` | Required | The absolute URL of the site, for the links of feeds and the `absolute_url` of each entry. It must be an `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. `sosig` removes any trailing `/`, so a template can join it with a path that starts with `/` and not produce `//`. |
-| `permalink` | `"/{section}/{slug}.html"` | The pattern for the URL and output path of each entry. See [URLs and slugs](#urls-and-slugs). |
-| `content_dir` | `"content"` | The directory that contains the content files. |
-| `output_dir` | `"public"` | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
-| `templates_dir` | `"templates"` | The directory that contains the templates and partials. |
-| `static_dir` | `"static"` | The directory of files that the build copies into `output_dir` without changes. |
-| `content_template` | `"content.html"` | The template for each entry, unless the `template` field of the entry overrides it. |
-| `aggregate_templates` | `["index.html"]` | The templates that the build renders once, with every entry that is not a draft. |
-| `feed_templates` | `["atom.xml"]` | The templates that the build renders once, with the newest `feed_count` entries. |
-| `feed_count` | `25` | The maximum number of entries in each feed. |
-| `frontmatter_ignored_keys` | `[]` | The keys that Markdown frontmatter can contain in addition to the keys that [Markdown frontmatter](#markdown-frontmatter) lists. `sosig` accepts any value for these keys, and does not read it. For denote notes, set it to `["identifier", "signature"]`. |
+| Key | Default | Bounds | Meaning |
+| --- | --- | --- | --- |
+| `title` | Required | A string | The title of the site, `site.title` in templates. |
+| `description` | Required | A string | The description of the site, `site.description` in templates. |
+| `author` | Required | A string | The name of the site's author, `site.author` in templates. |
+| `base_url` | Required | An `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. | The absolute URL of the site, for the links of feeds and the `absolute_url` of each entry. `sosig` removes any trailing `/`, so a template can join it with a path that starts with `/` and not produce `//`. |
+| `permalink` | `"/{section}/{slug}.html"` | A pattern with `{slug}` | The pattern for the URL and output path of each entry. See [URLs and slugs](#urls-and-slugs). |
+| `content_dir` | `"content"` | Must be a directory | The directory that contains the content files. |
+| `output_dir` | `"public"` | Not empty | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
+| `templates_dir` | `"templates"` | Must be a directory | The directory that contains the templates and partials. |
+| `static_dir` | `"static"` | A directory, if it exists | The directory of files that the build copies into `output_dir` without changes. A build skips it when it does not exist. |
+| `content_template` | `"content.html"` | A safe relative template name | The template for each entry, unless the `template` field of the entry overrides it. |
+| `aggregate_templates` | `["index.html"]` | An array of safe relative template names | The templates that the build renders once, with every entry that is not a draft. |
+| `feed_templates` | `["atom.xml"]` | An array of safe relative template names | The templates that the build renders once, with the newest `feed_count` entries. |
+| `feed_count` | `25` | 0 or more | The maximum number of entries in each feed. |
+| `frontmatter_ignored_keys` | `[]` | An array of strings | The keys that Markdown frontmatter can contain in addition to the keys that [Markdown frontmatter](#markdown-frontmatter) lists. `sosig` accepts any value for these keys, and does not read it. For denote notes, set it to `["identifier", "signature"]`. |
 
 `sosig` resolves each directory in the config, the defaults included, against the directory of the config file, so `-c sub/sosig.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from the values of the four directory keys. A directory value must not be empty. It can be an absolute path, or a relative path that contains `..`. `sosig config` prints every directory resolved.
 
@@ -192,11 +192,13 @@ When you publish `output_dir`, you also publish the build cache. Its output path
 
 The build rejects an input file that is too large before it reads the file. The error message gives the limit and the file size.
 
-| File                | Limit   |
-| ------------------- | ------- |
-| Content file        | 256 MiB |
-| Config file         | 1 MiB   |
-| Template or partial | 4 MiB   |
+| Input | Limit |
+| --- | --- |
+| Content file | 256 MiB |
+| Config file | 1 MiB |
+| Template or partial | 4 MiB |
+
+A rendered page can be at most 256 MiB, a render can use at most 64 distinct partials and 300,000 partial expansions, and a render that passes a limit fails. A build cache over 64 MiB is not read, and the build makes every output again.
 
 The build reserves its memory once, when it starts, in fixed sizes that come from these limits. Reserved memory that the build does not use takes address space but no memory. An address-space limit (`ulimit -v`) can refuse the full reservation. When that happens, the build runs fewer workers, down to one. If the reservation still does not fit, the build makes it smaller until it fits, so the build has less room for its data. [ARCHITECTURE.md](ARCHITECTURE.md#memory-reserve-then-commit-on-demand) describes this process. Because the build runs fewer workers before it makes its reservation smaller, the address-space limit that a build needs does not increase with `-w`:
 

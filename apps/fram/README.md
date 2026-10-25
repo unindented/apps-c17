@@ -85,21 +85,21 @@ author = "Daniel Perez Alvarez"
 
 This table lists every key that the config file can contain. `fram` rejects any other key, including a key inside a derivative table. For example, if the file contains the misspelled key `ouput_dir`, `fram` cannot load the file. It does not ignore the key and use the default value of `output_dir`.
 
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `title` | Required | The title of the gallery, `gallery.title` in templates. The root album also uses this title. |
-| `description` | Required | The description of the gallery, `gallery.description` in templates. |
-| `author` | Required | The name of the gallery's author, `gallery.author` in templates. |
-| `base_url` | `""` | Optional. The absolute URL where you deploy the gallery. If it is set, it must be an `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. `fram` removes any trailing `/`. If it is not set, a template can read it as an empty section. |
-| `media_dir` | `"media"` | The directory that contains the media files. |
-| `output_dir` | `"public"` | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
-| `templates_dir` | `"templates"` | The directory that contains the templates and partials. |
-| `static_dir` | `"static"` | The directory of files that the build copies into `output_dir` without changes. |
-| `album_template` | `"album.html"` | The template for each album page. |
-| `aggregate_templates` | `[]` | The templates that the build renders once, with the context of the root album. |
-| `derivatives` | `s`, `m`, and `l` | The named derivatives. See [Derivatives](#derivatives). |
-| `sort` | `{ albums = "asc", media = "asc" }` | The order of the immediate child albums and the direct media items of each album, by source filename: `"asc"` or `"desc"`. |
-| `video_frame_seconds` | `1` | The preferred position of the video poster frame, in seconds. A video that is shorter than this uses its midpoint. |
+| Key | Default | Bounds | Meaning |
+| --- | --- | --- | --- |
+| `title` | Required | A string | The title of the gallery, `gallery.title` in templates. The root album also uses this title. |
+| `description` | Required | A string | The description of the gallery, `gallery.description` in templates. |
+| `author` | Required | A string | The name of the gallery's author, `gallery.author` in templates. |
+| `base_url` | `""` | Empty, which is the same as absent, or an `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. | The absolute URL where you deploy the gallery. `fram` removes any trailing `/`. If it is not set, a template can read it as an empty section. |
+| `media_dir` | `"media"` | Must be a directory | The directory that contains the media files. |
+| `output_dir` | `"public"` | Not empty | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
+| `templates_dir` | `"templates"` | Must be a directory | The directory that contains the templates and partials. |
+| `static_dir` | `"static"` | A directory, if it exists | The directory of files that the build copies into `output_dir` without changes. A build skips it when it does not exist. |
+| `album_template` | `"album.html"` | A safe relative template name | The template for each album page. |
+| `aggregate_templates` | `[]` | An array of safe relative template names | The templates that the build renders once, with the context of the root album. |
+| `derivatives` | `s`, `m`, and `l` | One to six derivatives | The named derivatives. See [Derivatives](#derivatives). |
+| `sort` | `{ albums = "asc", media = "asc" }` | `"asc"` or `"desc"` for each | The order of the immediate child albums and the direct media items of each album, by source filename. |
+| `video_frame_seconds` | `1` | 0 to 86400 | The preferred position of the video poster frame, in seconds. A video that is shorter than this uses its midpoint. |
 
 `fram` resolves each path in the config, the defaults included, against the directory of the config file, so `-c sub/fram.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from the values of the four directory keys. A directory value must not be empty. It can be an absolute path, or a relative path that contains `..`. `fram config` prints every path resolved.
 
@@ -176,13 +176,13 @@ When you publish `output_dir`, you also publish the build cache. It contains the
 
 The build rejects an input file that is too large before it reads the file. The error message gives the limit and the file size.
 
-| File                              | Limit                                 |
-| --------------------------------- | ------------------------------------- |
+| Input | Limit |
+| --- | --- |
 | JPEG source or video poster frame | 2,147,483,647 bytes, just under 2 GiB |
-| Config file                       | 1 MiB                                 |
-| Template or partial               | 4 MiB                                 |
+| Config file | 1 MiB |
+| Template or partial | 4 MiB |
 
-A source image can have at most 100 million pixels.
+A source image can have at most 100 million pixels. A rendered page can be at most 256 MiB, a render can use at most 64 distinct partials and 300,000 partial expansions, and a render that passes a limit fails. A build cache over 64 MiB is not read, and the build probes every media file again.
 
 The build reserves its memory once, when it starts, in fixed sizes that come from these limits. Reserved memory that the build does not use takes address space but no memory. Decoded images are not part of the reservation. An address-space limit (`ulimit -v`) can refuse the full reservation. When that happens, the build runs fewer workers, down to one. If the reservation still does not fit, the build makes it smaller until it fits, so the build has less room for its data. The smaller reservation leaves room for the memory that the build does not reserve, such as decoded images. [ARCHITECTURE.md](ARCHITECTURE.md#memory-reserve-then-commit-on-demand) describes this process. Because the build runs fewer workers before it makes its reservation smaller, the address-space limit that a build needs does not increase with `-w`:
 
