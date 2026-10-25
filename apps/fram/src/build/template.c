@@ -747,13 +747,16 @@ static int node_dump(void* node_ptr,
                      void* provider_data_ptr) {
   // The callback identity is what distinguishes `{{{value}}}` from `{{value}}`. mustache4c passes
   // the renderer's unescaped-output callback for a triple-brace or ampersand tag and names the tag
-  // kind nowhere else, so comparing against `out_escaped` is how this render refuses to emit a
-  // value unescaped. It comes before the kind check, so a tag fails whatever kind its value has,
-  // and `{{{parent}}}` fails on the root album as on any other.
+  // kind nowhere else. Only HTML that fram made itself, under a key that ends in `_html`, is
+  // written unescaped, so a value it did not make, such as an album title or a file name, cannot
+  // put markup in the page. fram makes no HTML for a template, so it has no such key and every
+  // unescaped tag fails. The check comes before the kind check, so a tag fails whatever kind its
+  // value has, and `{{{parent}}}` fails on the root album as on any other.
   if (out_fn != out_escaped) {
     struct ProviderData* provider_data = provider_data_ptr;
-    render_fail(provider_data, provider_data->template_name,
-                "unescaped Mustache interpolation is not supported");
+    render_fail(
+        provider_data, provider_data->template_name,
+        "unescaped Mustache interpolation is supported only for a key that ends in '_html'");
     return -1;
   }
   const struct Node* node = node_ptr;

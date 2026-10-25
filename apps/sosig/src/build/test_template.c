@@ -31,6 +31,13 @@
 enum { EXPECTED_SIZE = 1024 };
 
 /**
+ * Failure of an unescaped interpolation of a key that does not end in `_html`, which a test follows
+ * with the `(in '<template>')` of the template being rendered.
+ */
+#define UNESCAPED_FAILURE \
+  "unescaped Mustache interpolation is supported only for a key that ends in '_html'"
+
+/**
  * @brief Initializes shared site metadata for template tests.
  *
  * The assigned fields are string literals.
@@ -369,11 +376,12 @@ cleanup:
   remove_fixture_tree(root_dir);
 }
 
-// Double-brace variables are escaped and triple-brace variables stay raw.
-static void test_escapes_double_brace_and_leaves_triple_brace_raw(void) {
+// Double-brace variables are escaped, and a key that ends in `_html` stays raw in both a
+// triple-brace and an ampersand tag. An empty one writes nothing and does not fail.
+static void test_escapes_double_brace_and_leaves_html_key_raw(void) {
   struct Arena perm = test_arena();
   char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{title}} {{{title}}}\n") != 0) {
+  if (write_template_fixture(root_dir, "{{title}} [{{{body_html}}}|{{& body_html}}]\n") != 0) {
     return;
   }
 
@@ -388,7 +396,13 @@ static void test_escapes_double_brace_and_leaves_triple_brace_raw(void) {
   if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
     goto cleanup;
   }
-  TEST_CHECK(strcmp(rendered_html, "Content Entry &lt;One&gt; Content Entry <One>\n") == 0);
+  TEST_CHECK(strcmp(rendered_html, "Content Entry &lt;One&gt; [<p>raw</p>|<p>raw</p>]\n") == 0);
+
+  entry.body_html = S("");
+  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(rendered_html, "Content Entry &lt;One&gt; [|]\n") == 0);
 
 cleanup:
   remove_fixture_tree(root_dir);
@@ -673,6 +687,33 @@ static void test_unknown_variable_renders_empty(void) {
   struct Arena perm = test_arena();
   char root_dir[] = "/tmp/sosig-template-XXXXXX";
   if (write_template_fixture(root_dir, "[{{typo}}|{{site.typo}}]\n") != 0) {
+    return;
+  }
+
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
+  struct ContentEntry entry;
+  const struct TemplateContext context = {.site_config = &site_config,
+                                          .content_entry_current = &entry};
+  char* rendered_html = NULL;
+  init_test_content_entry(&entry);
+  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(rendered_html, "[|]\n") == 0);
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
+// An unescaped tag of a name the data does not hold renders nothing and does not fail, whatever the
+// name ends in. mustache4c calls `node_dump`, which enforces the `_html` rule, only for a name that
+// resolves, so the rule applies to the values the data holds, and a misspelled name shows as an
+// empty value, as it does in an escaped tag.
+static void test_unescaped_unknown_name_renders_empty(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/sosig-template-XXXXXX";
+  if (write_template_fixture(root_dir, "[{{{typo_html}}}|{{& site.typo}}]\n") != 0) {
     return;
   }
 
@@ -994,6 +1035,53 @@ static void test_rejects_unsafe_partial_name_in_partial(void) {
   TEST_CHECK(is_log_one_failure(
       &log, &entry,
       "partial name must contain only letters, digits, '_' and '-': 'a/b' (in 'index.html')"));
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
+// Triple braces and the ampersand tag fail for any key that does not end in `_html`, whatever kind
+// of value it holds: text, an empty field, the `site` subtree or the `content_entries` list. A
+// partial cannot bypass the rule either, and its failure is attributed to the template being
+// rendered.
+static void test_rejects_unescaped_interpolation_of_other_keys(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/sosig-template-XXXXXX";
+  if (write_template_fixture(root_dir, "{{{title}}}") != 0) {
+    return;
+  }
+
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
+  struct ContentEntry entry;
+  const struct TemplateContext context = {.site_config = &site_config,
+                                          .content_entry_current = &entry};
+  init_test_content_entry(&entry);
+  entry.description = S("");
+  static const struct {
+    const char* template_name;
+    const char* text;
+    const char* expected;
+  } cases[] = {
+      {"index.html", "{{{title}}}", UNESCAPED_FAILURE " (in 'index.html')"},
+      {"ampersand.html", "{{& title}}", UNESCAPED_FAILURE " (in 'ampersand.html')"},
+      {"empty.html", "{{{description}}}", UNESCAPED_FAILURE " (in 'empty.html')"},
+      {"site.html", "{{{site}}}", UNESCAPED_FAILURE " (in 'site.html')"},
+      {"list.html", "{{{content_entries}}}", UNESCAPED_FAILURE " (in 'list.html')"},
+      {"outer.html", "{{>raw}}", UNESCAPED_FAILURE " (in 'outer.html')"},
+  };
+  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/raw.html", "{{{site.title}}}") == 0)) {
+    goto cleanup;
+  }
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    if (!TEST_CHECK(write_fixture_file(root_dir, cases[i].template_name, cases[i].text) == 0)) {
+      goto cleanup;
+    }
+    struct Log log = test_log();
+    TEST_CHECK(render(root_dir, cases[i].template_name, &context, &perm, NULL, &log) == -1);
+    TEST_CHECK(is_log_one_failure(&log, &entry, cases[i].expected));
+    TEST_MSG("template: %s", cases[i].template_name);
+  }
 
 cleanup:
   remove_fixture_tree(root_dir);
@@ -1593,8 +1681,8 @@ TEST_LIST = {
     {"iterates content entries and tags", test_iterates_content_entries_and_tags},
     {"empty tag does not truncate tag list", test_empty_tag_does_not_truncate_tag_list},
     {"nested section reiterates content entries", test_nested_section_reiterates_content_entries},
-    {"escapes double brace and leaves triple brace raw",
-     test_escapes_double_brace_and_leaves_triple_brace_raw},
+    {"escapes double brace and leaves html key raw",
+     test_escapes_double_brace_and_leaves_html_key_raw},
     {"renders atom feed", test_renders_atom_feed},
     {"renders generator", test_renders_generator},
     {"renders site fields", test_renders_site_fields},
@@ -1606,6 +1694,7 @@ TEST_LIST = {
      test_repeated_partial_stays_under_distinct_limit},
     {"empty template yields empty string", test_empty_template_yields_empty_string},
     {"unknown variable renders empty", test_unknown_variable_renders_empty},
+    {"unescaped unknown name renders empty", test_unescaped_unknown_name_renders_empty},
     {"inverted section renders when list empty", test_inverted_section_renders_when_list_empty},
     {"empty field is falsey as section", test_empty_field_is_falsey_as_section},
     {"renders modified with date fallback", test_renders_modified_with_date_fallback},
@@ -1613,6 +1702,8 @@ TEST_LIST = {
     {"output bound applies per call", test_output_bound_applies_per_call},
     {"rejects unsafe partial name", test_rejects_unsafe_partial_name},
     {"rejects unsafe partial name in partial", test_rejects_unsafe_partial_name_in_partial},
+    {"rejects unescaped interpolation of other keys",
+     test_rejects_unescaped_interpolation_of_other_keys},
     {"rejects unreadable partial", test_rejects_unreadable_partial},
     {"rejects template with NUL byte", test_rejects_template_with_nul_byte},
     {"rejects partial with NUL byte", test_rejects_partial_with_nul_byte},

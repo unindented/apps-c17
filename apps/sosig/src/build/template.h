@@ -100,7 +100,8 @@ struct TemplateContext {
  *                               `content_entries`, whose value depends on every entry and not just
  *                               the current one. Ignored when `NULL`.
  * @param log                    Log that receives the render's first failure: an unreadable
- *                               template or partial, a syntax error, or an exceeded limit. A page
+ *                               template or partial, an unescaped interpolation of a key that does
+ *                               not end in `_html`, a syntax error, or an exceeded limit. A page
  *                               render, one with `content_entry_current` set, ends the message with
  *                               `(while rendering '<source>')`, because the template is shared by
  *                               every page. The log's arena must not overlap `perm` or `scratch`.

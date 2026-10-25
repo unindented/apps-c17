@@ -31,6 +31,13 @@
 enum { EXPECTED_SIZE = 1024 };
 
 /**
+ * Failure of an unescaped interpolation, which a test follows with the `(in '<template>')` of the
+ * template being rendered.
+ */
+#define UNESCAPED_FAILURE \
+  "unescaped Mustache interpolation is supported only for a key that ends in '_html'"
+
+/**
  * @brief Initializes shared gallery metadata for template tests.
  *
  * The assigned fields are string literals.
@@ -570,6 +577,32 @@ static void test_unknown_variable_renders_empty(void) {
   struct Arena perm = test_arena();
   char root_dir[] = "/tmp/fram-template-XXXXXX";
   if (write_template_fixture(root_dir, "[{{typo}}|{{gallery.typo}}]\n") != 0) {
+    return;
+  }
+
+  struct GalleryConfig gallery_config;
+  init_test_gallery_config(&gallery_config);
+  struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
+  const struct TemplateContext context = {.gallery_config = &gallery_config,
+                                          .album_current = &root};
+  char* rendered_html = NULL;
+  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
+    goto cleanup;
+  }
+  TEST_CHECK(strcmp(rendered_html, "[|]\n") == 0);
+
+cleanup:
+  remove_fixture_tree(root_dir);
+}
+
+// An unescaped tag of a name the data does not hold renders nothing and does not fail, whatever the
+// name ends in. mustache4c calls `node_dump`, which enforces the `_html` rule, only for a name that
+// resolves, so the rule applies to the values the data holds, and a misspelled name shows as an
+// empty value, as it does in an escaped tag.
+static void test_unescaped_unknown_name_renders_empty(void) {
+  struct Arena perm = test_arena();
+  char root_dir[] = "/tmp/fram-template-XXXXXX";
+  if (write_template_fixture(root_dir, "[{{{typo_html}}}|{{& gallery.typo}}]\n") != 0) {
     return;
   }
 
@@ -1549,9 +1582,9 @@ static void test_rejects_unescaped_interpolation(void) {
     const char* template_name;
     const char* expected;
   } cases[] = {
-      {"album.html", "unescaped Mustache interpolation is not supported (in 'album.html')"},
-      {"ampersand.html", "unescaped Mustache interpolation is not supported (in 'ampersand.html')"},
-      {"outer.html", "unescaped Mustache interpolation is not supported (in 'outer.html')"},
+      {"album.html", UNESCAPED_FAILURE " (in 'album.html')"},
+      {"ampersand.html", UNESCAPED_FAILURE " (in 'ampersand.html')"},
+      {"outer.html", UNESCAPED_FAILURE " (in 'outer.html')"},
   };
   if (!TEST_CHECK(write_fixture_file(root_dir, "ampersand.html", "{{& gallery.title}}") == 0)) {
     goto cleanup;
@@ -1596,8 +1629,7 @@ static void test_rejects_unescaped_interpolation_of_any_value(void) {
                                             .album_current = albums[i]};
     struct Log log = test_log();
     TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
-    TEST_CHECK(test_log_is_one(
-        &log, "unescaped Mustache interpolation is not supported (in 'album.html')"));
+    TEST_CHECK(test_log_is_one(&log, UNESCAPED_FAILURE " (in 'album.html')"));
     TEST_MSG("album: %.*s", STR_FMT(albums[i]->title));
   }
 
@@ -1619,6 +1651,7 @@ TEST_LIST = {
      test_repeated_partial_stays_under_distinct_limit},
     {"empty template yields empty string", test_empty_template_yields_empty_string},
     {"unknown variable renders empty", test_unknown_variable_renders_empty},
+    {"unescaped unknown name renders empty", test_unescaped_unknown_name_renders_empty},
     {"inverted section renders when list empty", test_inverted_section_renders_when_list_empty},
     {"empty field is falsey as section", test_empty_field_is_falsey_as_section},
     {"absent value does not resolve from enclosing album",

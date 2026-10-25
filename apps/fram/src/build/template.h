@@ -84,7 +84,7 @@ struct TemplateContext {
  *                      overlap `perm`.
  * @param html_out      Receives the HTML, owned by `perm`, on success. Must not be `NULL`.
  * @param log           Log that receives the render's first failure: an unreadable template or
- *                      partial, a triple-brace interpolation, a syntax error, or an exceeded limit.
+ *                      partial, an unescaped interpolation, a syntax error, or an exceeded limit.
  *                      An album page render, one with `is_album_page` set, ends the message with
  *                      `(while rendering album '<source_dir>')`, because the template is shared by
  *                      every page. The log's arena must not overlap `perm` or `scratch`. Must not

@@ -118,6 +118,14 @@ struct Node {
    * `node_get_child_by_index` makes an empty scalar falsey as a section.
    */
   struct Str scalar;
+
+  /**
+   * Set for a `NODE_SCALAR` under a key that ends in `_html`, which a template may write unescaped.
+   * The text is HTML that sosig made itself, and a render fails a `{{{x}}}` or `{{& x}}` of any
+   * other node, so a value sosig did not make, such as a title or a tag, cannot put markup in a
+   * page.
+   */
+  bool is_html;
 };
 
 /** State threaded through the Mustache parser and data-provider callbacks. */
@@ -185,7 +193,8 @@ struct ProviderData {
   /**
    * `render_fail` sets this on the first failure in any callback, and
    * `template_render_file_limited` checks it once processing returns. That failure is an exceeded
-   * limit, an unsafe partial name, or an unreadable or uncompilable partial.
+   * limit, an unescaped interpolation of a key that does not end in `_html`, an unsafe partial
+   * name, or an unreadable or uncompilable partial.
    */
   bool has_failed;
 };
@@ -209,7 +218,9 @@ struct RenderOutput {
 /**
  * @brief Appends output text verbatim to the render buffer.
  *
- * This is installed in `renderer` as mustache4c's unescaped-output callback.
+ * This is installed in `renderer` as mustache4c's unescaped-output callback. `node_dump` writes
+ * only a scalar under a key that ends in `_html` through it, so the rest of what reaches this
+ * callback is literal template text.
  *
  * @param output        Rendered bytes to append.
  * @param output_len    Number of bytes in `output`.
@@ -248,16 +259,21 @@ static int out_escaped(const char* output, size_t output_len, void* renderer_dat
 static int check_output_size(const struct RenderOutput* render_output) __attribute__((nonnull(1)));
 
 /**
- * @brief Writes a node's terminal text through `out_fn`.
+ * @brief Writes a node's terminal text through `out_fn`, rejecting unescaped interpolation of a
+ *        node that is not HTML.
  *
- * This is installed in `provider` as the value-rendering callback. Only scalar nodes produce text.
- * Other node kinds write nothing.
+ * This is installed in `provider` as the value-rendering callback. Only scalar nodes produce text,
+ * and other node kinds write nothing. A value the renderer asked to write unescaped fails the
+ * render unless it is a scalar under a key that ends in `_html`, so no template can put unescaped
+ * text that sosig did not make in the page.
  *
  * @param node_ptr          Node to dump, as a `struct Node*`.
  * @param out_fn            Output callback supplied by the renderer.
  * @param renderer_data     Renderer state forwarded to `out_fn`.
- * @param provider_data_ptr Unused provider state.
- * @return The result of `out_fn`, or `0` for a non-scalar node.
+ * @param provider_data_ptr Pointer to the render's `struct ProviderData`, which receives the
+ *                          diagnostic for an unescaped interpolation.
+ * @return The result of `out_fn`, `0` for a non-scalar node, or `-1` for an unescaped interpolation
+ *         of a node that is not HTML.
  */
 static int node_dump(void* node_ptr,
                      int (*out_fn)(const char*, size_t, void*),
@@ -410,6 +426,17 @@ static struct Node* node_alloc(struct ProviderData* provider_data, enum NodeKind
  * @return A scalar node.
  */
 static struct Node* node_scalar(struct ProviderData* provider_data, struct Str value)
+    __attribute__((nonnull(1)));
+
+/**
+ * @brief Returns a scalar node wrapping HTML that sosig made itself, which a template may write
+ *        unescaped.
+ *
+ * @param provider_data Render provider state owning the node arena. Must not be `NULL`.
+ * @param html          HTML to wrap, which may be empty, borrowed for the rest of the render.
+ * @return A scalar node with `is_html` set.
+ */
+static struct Node* node_scalar_html(struct ProviderData* provider_data, struct Str html)
     __attribute__((nonnull(1)));
 
 /**
@@ -684,8 +711,19 @@ static int node_dump(void* node_ptr,
                      int (*out_fn)(const char*, size_t, void*),
                      void* renderer_data,
                      void* provider_data_ptr) {
-  (void)provider_data_ptr;
   const struct Node* node = node_ptr;
+  // The callback identity is what distinguishes `{{{value}}}` from `{{value}}`. mustache4c passes
+  // the renderer's unescaped-output callback for a triple-brace or ampersand tag and names the tag
+  // kind nowhere else. Only HTML that sosig made itself, under a key that ends in `_html`, is
+  // written unescaped, so a value it did not make, such as a title or a tag, cannot put markup in
+  // the page. The check comes before the kind check, so a tag fails whatever kind its value has.
+  if (out_fn != out_escaped && !node->is_html) {
+    struct ProviderData* provider_data = provider_data_ptr;
+    render_fail(
+        provider_data, provider_data->template_name,
+        "unescaped Mustache interpolation is supported only for a key that ends in '_html'");
+    return -1;
+  }
   if (node->kind != NODE_SCALAR) {
     return 0;
   }
@@ -943,6 +981,12 @@ static struct Node* node_scalar(struct ProviderData* provider_data, struct Str v
   return node;
 }
 
+static struct Node* node_scalar_html(struct ProviderData* provider_data, struct Str html) {
+  struct Node* node = node_scalar(provider_data, html);
+  node->is_html = true;
+  return node;
+}
+
 static struct Node* node_scalar_url(struct ProviderData* provider_data,
                                     struct Str root_relative_url) {
   const struct TemplateContext* context = provider_data->context;
@@ -1025,7 +1069,7 @@ static struct Node* resolve_entry(struct ProviderData* provider_data,
     return node_scalar_url_absolute(provider_data, str_tail(entry->url_path, 1));
   }
   if (str_eq(name, S("body_html"))) {
-    return node_scalar(provider_data, entry->body_html);
+    return node_scalar_html(provider_data, entry->body_html);
   }
   if (str_eq(name, S("tags"))) {
     // An empty list is a present field too, so the lookup stops here, and the list is falsey
