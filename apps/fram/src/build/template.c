@@ -14,6 +14,7 @@
 #include "core/path.h"
 #include "core/str.h"
 #include "core/text.h"
+#include "core/utf8.h"
 #include "domain/album.h"
 #include "domain/fram_version.h"
 #include "domain/gallery_config.h"
@@ -235,7 +236,8 @@ struct RenderOutput {
 };
 
 /**
- * @brief Appends output text verbatim to the render buffer.
+ * @brief Appends output text verbatim to the render buffer, repaired as `utf8_repair_for_xml`
+ *        repairs it.
  *
  * This is installed in `renderer` as mustache4c's unescaped-output callback. `node_dump` refuses to
  * write a value through it, so only literal template text reaches this callback.
@@ -248,7 +250,8 @@ struct RenderOutput {
 static int out_verbatim(const char* output, size_t output_len, void* renderer_data);
 
 /**
- * @brief Appends output text HTML-escaped to the render buffer.
+ * @brief Appends output text to the render buffer, repaired as `utf8_repair_for_xml` repairs it,
+ *        and HTML-escaped.
  *
  * This is installed in `renderer` as mustache4c's escaped-output callback, and is the only callback
  * a template value is written through.
@@ -720,13 +723,19 @@ cleanup:
 
 static int out_verbatim(const char* output, size_t output_len, void* renderer_data) {
   struct RenderOutput* render_output = renderer_data;
-  buf_append(render_output->buffer, (struct Str){output, (ptrdiff_t)output_len});
+  // mustache4c hands over a value or a literal run whole, so a repair never splits a character, and
+  // the repaired copy goes with this callback's scratch.
+  struct Arena scratch = *render_output->provider_data->arena;
+  const struct Str text = {output, (ptrdiff_t)output_len};
+  buf_append(render_output->buffer, utf8_repair_for_xml(text, &scratch));
   return check_output_size(render_output);
 }
 
 static int out_escaped(const char* output, size_t output_len, void* renderer_data) {
   struct RenderOutput* render_output = renderer_data;
-  html_escape_append(render_output->buffer, (struct Str){output, (ptrdiff_t)output_len});
+  struct Arena scratch = *render_output->provider_data->arena;
+  const struct Str text = {output, (ptrdiff_t)output_len};
+  html_escape_append(render_output->buffer, utf8_repair_for_xml(text, &scratch));
   return check_output_size(render_output);
 }
 

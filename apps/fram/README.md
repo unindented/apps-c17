@@ -242,6 +242,8 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 
 `{{value}}` escapes its output for HTML. `{{{value}}}` and `{{& value}}` write it without escaping, and work only for a key that ends in `_html`, which holds HTML that `fram` made itself. Any other key that the data holds fails the render, so a value that it did not make, such as a title, cannot add markup to a page. A name that the data does not hold writes nothing, as with `{{value}}`. `fram` makes no HTML of its own, so it has no such key and escapes every value.
 
+Every page and aggregate that `fram` renders is valid UTF-8 without the characters that XML 1.0 forbids, so a browser and a feed reader accept it. `fram` replaces each invalid sequence in a value or a template with U+FFFD, and drops the C0 control characters but tab, line feed and carriage return, and U+FFFE and U+FFFF.
+
 Each album, media item and derivative sets every one of its fields, and an absent value or a false flag is empty, so a section over it is skipped, and the field never resolves from an enclosing album. A name that the album, item or derivative does not have is looked up in the enclosing scopes, as Mustache does.
 
 Every template gets these keys:

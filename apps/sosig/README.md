@@ -433,6 +433,8 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 
 `{{value}}` escapes its output for HTML. `{{{value}}}` and `{{& value}}` write it without escaping, and work only for a key that ends in `_html`, which holds HTML that `sosig` made itself. Any other key that the data holds fails the render, so a value that it did not make, such as a title, cannot add markup to a page. A name that the data does not hold writes nothing, as with `{{value}}`. Use `{{{body_html}}}` to write the rendered body.
 
+Every page and feed that `sosig` renders is valid UTF-8 without the characters that XML 1.0 forbids, so a browser and a feed reader accept it. `sosig` replaces each invalid sequence in a value or a template with U+FFFD, and drops the C0 control characters but tab, line feed and carriage return, and U+FFFE and U+FFFF.
+
 Each entry sets every one of the fields below, with empty text where a value is absent, so the field never resolves from an enclosing scope. Empty text is false in a section, so `{{#description}}…{{/description}}` shows its contents only for a description that is not empty.
 
 Every link in an entry's data is relative to the page and already holds its `path_to_root`, except in the feed templates, where every link is absolute, below `base_url`.

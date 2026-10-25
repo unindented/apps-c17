@@ -337,6 +337,30 @@ static void test_escapes_double_brace_and_leaves_html_key_raw(void) {
   TEST_CHECK(strcmp(rendered_html, "Content Entry &lt;One&gt; [|]\n") == 0);
 }
 
+// Every text a render writes is valid UTF-8 without what XML 1.0 forbids, whatever the value: an
+// invalid byte becomes U+FFFD and a control character is dropped, in an entry's field, a `site.*`
+// field, `body_html`, and the literal text of the template.
+static void test_repairs_every_text(void) {
+  struct Arena perm = test_arena();
+  struct Os* os = template_host("{{title}}|{{site.author}}|{{{body_html}}}|a\x0c");
+
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
+  site_config.author =
+      S("A\x0c"
+        "b");
+  struct ContentEntry entry;
+  init_test_content_entry(&entry);
+  entry.title = S("caf\xe9\x01");
+  entry.body_html = S("<b>\xff\xef\xbf\xbf</b>");
+  const struct TemplateContext context = {.site_config = &site_config,
+                                          .content_entry_current = &entry};
+  char* rendered_html = NULL;
+  TEST_ASSERT(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0);
+  TEST_CHECK(strcmp(rendered_html, "caf\xef\xbf\xbd|Ab|<b>\xef\xbf\xbd</b>|a") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
+}
+
 // `generator` names the tool and its version, at the root and inside a section.
 static void test_renders_generator(void) {
   struct Arena perm = test_arena();
@@ -1305,6 +1329,7 @@ TEST_LIST = {
     {"nested section reiterates content entries", test_nested_section_reiterates_content_entries},
     {"escapes double brace and leaves html key raw",
      test_escapes_double_brace_and_leaves_html_key_raw},
+    {"repairs every text", test_repairs_every_text},
     {"renders generator", test_renders_generator},
     {"renders site fields", test_renders_site_fields},
     {"renders path to root", test_renders_path_to_root},

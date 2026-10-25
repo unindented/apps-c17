@@ -79,6 +79,10 @@ struct TemplateContext {
  * render allocates goes into `scratch`, except mustache4c's compiled templates, which it releases
  * before returning.
  *
+ * Every text the render writes, literal template text included, is repaired with
+ * `utf8_repair_for_xml` first, so a page or a feed is valid UTF-8 without the characters that XML
+ * 1.0 forbids, whatever bytes a value holds.
+ *
  * Templates are trusted input. The render limits terminate a partial that includes itself, bound
  * the output buffer, and bound the compiled-partial cache. They do not bound the render's total
  * memory: a template's own nested sections allocate in proportion to the iterations they ask for.

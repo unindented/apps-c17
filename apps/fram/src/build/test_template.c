@@ -200,6 +200,29 @@ static void test_renders_gallery_fields(void) {
                     "Gallery|Photos &lt;&amp; videos&gt;|Ada|https://example.com/gallery") == 0);
 }
 
+// Every text a render writes is valid UTF-8 without what XML 1.0 forbids, whatever the value: an
+// invalid byte becomes U+FFFD and a control character is dropped, in an album's field, a
+// `gallery.*` field, and the literal text of the template.
+static void test_repairs_every_text(void) {
+  struct Arena perm = test_arena();
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{album.title}}|{{gallery.author}}|a\x0c");
+
+  struct GalleryConfig gallery_config;
+  init_test_gallery_config(&gallery_config);
+  gallery_config.author =
+      S("A\x0c"
+        "b");
+  struct Album root = {
+      .title = S("caf\xe9\x01"), .url_path = S("index.html"), .path_to_root = S("")};
+  const struct TemplateContext context = {.gallery_config = &gallery_config,
+                                          .album_current = &root};
+  char* rendered_html = NULL;
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
+  TEST_CHECK(strcmp(rendered_html, "caf\xef\xbf\xbd|Ab|a") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
+}
+
 // Sub-album links and inherited covers are materialized relative to the page being rendered.
 static void test_renders_sub_album_cover(void) {
   struct Arena perm = test_arena();
@@ -1257,6 +1280,7 @@ TEST_LIST = {
     {"renders gallery tree with page-relative URLs",
      test_renders_gallery_tree_with_page_relative_urls},
     {"renders gallery fields", test_renders_gallery_fields},
+    {"repairs every text", test_repairs_every_text},
     {"renders sub-album cover", test_renders_sub_album_cover},
     {"path to root is the page prefix in every context",
      test_path_to_root_is_the_page_prefix_in_every_context},
