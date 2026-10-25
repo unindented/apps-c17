@@ -1,5 +1,6 @@
 Lowercases the error messages of mustache.c and drops their trailing periods, as STYLE.md asks of
-every diagnostic.
+every diagnostic, and passes no empty tag name, which the parser already reports as missing, to
+`mustache_validate_tagname`, which would read the byte before it.
 
 --- a/mustache.c
 +++ b/mustache.c
@@ -32,3 +33,13 @@ every diagnostic.
  };
  
  /* For the given template, we construct list of MUSTACHE_TAGINFO structures.
+@@ -588,7 +588,8 @@
+             }
+ 
+             if(current_tag.type != MUSTACHE_TAGTYPE_COMMENT) {
+-                if(mustache_validate_tagname(templ_data + current_tag.name_beg,
++                if(current_tag.name_end > current_tag.name_beg  &&
++                        mustache_validate_tagname(templ_data + current_tag.name_beg,
+                             current_tag.name_end - current_tag.name_beg) != 0) {
+                     parser->parse_error(MUSTACHE_ERR_INVALIDTAGNAME,
+                             mustache_err_messages[MUSTACHE_ERR_INVALIDTAGNAME],

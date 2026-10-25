@@ -588,7 +588,8 @@ mustache_parse(const char* templ_data, size_t templ_size,
             }
 
             if(current_tag.type != MUSTACHE_TAGTYPE_COMMENT) {
-                if(mustache_validate_tagname(templ_data + current_tag.name_beg,
+                if(current_tag.name_end > current_tag.name_beg  &&
+                        mustache_validate_tagname(templ_data + current_tag.name_beg,
                             current_tag.name_end - current_tag.name_beg) != 0) {
                     parser->parse_error(MUSTACHE_ERR_INVALIDTAGNAME,
                             mustache_err_messages[MUSTACHE_ERR_INVALIDTAGNAME],

@@ -62,7 +62,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### mustache4c (https://github.com/mity/mustache4c)
 
-Vendored at commit `0d068c1e0f8d59fda302ef49c26f42c7a6553b3e`, with the error messages in `mustache.c` lowercased and without their trailing periods.
+Vendored at commit `0d068c1e0f8d59fda302ef49c26f42c7a6553b3e`, with the error messages in `mustache.c` lowercased and without their trailing periods, and an empty tag name kept from `mustache_validate_tagname`, which would read the byte before it.
 
 Copyright (c) 2017 Martin Mitáš
 

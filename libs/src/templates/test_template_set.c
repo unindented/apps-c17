@@ -531,12 +531,14 @@ static void test_load_reports_every_broken_template(void) {
   TEST_MSG("log: '%s'", buf_cstr(&log.buf));
 }
 
-// A section closed by another name fails the load with mustache4c's cause, at its line and column.
-static void test_load_reports_a_mismatched_section(void) {
+// A tag with no name, or a section closed by another name, fails the load with mustache4c's cause,
+// at its line and column.
+static void test_load_reports_malformed_tags(void) {
   static const struct {
     const char* page;
     const char* expected;
   } cases[] = {
+      {"{{}}", "tag has no name at line 1, column 1 (in 'page.html')\n"},
       {"{{#a}}{{/b}}",
        "name of section-closing tag does not match corresponding section-opening tag at line 1, "
        "column 7 (in 'page.html')\n"},
@@ -630,7 +632,7 @@ TEST_LIST = {
      test_render_stops_a_partial_that_includes_itself},
     {"render limits output", test_render_limits_output},
     {"load reports every broken template", test_load_reports_every_broken_template},
-    {"load reports a mismatched section", test_load_reports_a_mismatched_section},
+    {"load reports malformed tags", test_load_reports_malformed_tags},
     {"load reports a partial that cannot be inspected",
      test_load_reports_a_partial_that_cannot_be_inspected},
     {"load names the owner of a missing page", test_load_names_the_owner_of_a_missing_page},
