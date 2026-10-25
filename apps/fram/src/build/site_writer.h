@@ -9,10 +9,10 @@
 struct Album;
 struct Log;
 struct GalleryConfig;
-struct Os;
 struct OutputWriter;
 struct PathList;
 struct RenderedPage;
+struct TemplateSet;
 
 // These are declared in the order `cmd_build` runs them. The manifest phase in `manifest_builder`
 // claims every intended output path before this module writes anything.
@@ -49,10 +49,10 @@ int site_writer_write_album_pages(const struct OutputWriter* writer,
  * the aggregate is written to.
  *
  * @param writer         Writer every output is written through. Must not be `NULL`.
- * @param gallery_config Configuration supplying `output_dir`, `templates_dir`, and the aggregate
- *                       template list. Must not be `NULL`.
+ * @param gallery_config Configuration supplying `output_dir` and the aggregate template list. Must
+ *                       not be `NULL`.
+ * @param template_set   Templates the aggregates render from. Must not be `NULL`.
  * @param root_album     Root album whose data every aggregate renders against. Must not be `NULL`.
- * @param os             Host the templates are read from. Must not be `NULL`.
  * @param output         Arena whose free space holds each rendered output until it is written.
  *                       Nothing in it outlives the call. Must not overlap `scratch`.
  * @param scratch        Arena for each render's temporaries.
@@ -63,8 +63,8 @@ int site_writer_write_album_pages(const struct OutputWriter* writer,
  */
 int site_writer_write_aggregates(const struct OutputWriter* writer,
                                  const struct GalleryConfig* gallery_config,
+                                 const struct TemplateSet* template_set,
                                  const struct Album* root_album,
-                                 struct Os* os,
                                  struct Arena output,
                                  struct Arena scratch,
                                  struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 7)));

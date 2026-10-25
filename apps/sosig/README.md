@@ -198,7 +198,7 @@ The build rejects an input file that is too large before it reads the file. The 
 | Config file | 1 MiB |
 | Template or partial | 4 MiB |
 
-A rendered page can be at most 256 MiB, a render can use at most 64 distinct partials and 300,000 partial expansions, and a render that passes a limit fails. A build cache over 64 MiB is not read, and the build makes every output again.
+A site can have at most 64 partials in the `partials/` directory of `templates_dir`. A rendered page can be at most 256 MiB, a render can use at most 300,000 partial expansions, and a render that passes a limit fails. A build cache over 64 MiB is not read, and the build makes every output again.
 
 The build reserves its memory once, when it starts, in fixed sizes that come from these limits. Reserved memory that the build does not use takes address space but no memory. An address-space limit (`ulimit -v`) can refuse the full reservation. When that happens, the build runs fewer workers, down to one. If the reservation still does not fit, the build makes it smaller until it fits, so the build has less room for its data. [ARCHITECTURE.md](ARCHITECTURE.md#memory-reserve-then-commit-on-demand) describes this process. Because the build runs fewer workers before it makes its reservation smaller, the address-space limit that a build needs does not increase with `-w`:
 
@@ -450,7 +450,7 @@ The templates get these keys:
 | `path_to_root` | All | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. The output path of a content page comes from `permalink`, and the output path of an aggregate or feed template is its name. |
 | `title`, `date`, `modified`, `description`, `slug`, `url`, `absolute_url`, `body_html`, `tags` | Content templates, and any template inside `{{#content_entries}}` | The fields of the entry. `url` links to the entry's page, relative to the page being rendered, or absolute in a feed template. `absolute_url` is always absolute, below `base_url`, for a canonical link or a page that a host serves at any depth, such as a 404 page. Use `{{#tags}}{{.}}{{/tags}}` to iterate through the tags. |
 
-A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_`, and `-`.
+A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_` and `-`. A reference to another name fails the build, and `sosig` ignores the other files of `partials/` and its subdirectories. The build compiles every template that it renders and every partial once, before it writes anything, and reports every template that cannot be read or does not compile in one run. The feed templates also use the `.html` partials.
 
 ```html
 {{> header}}

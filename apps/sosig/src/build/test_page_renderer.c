@@ -17,10 +17,11 @@
 #include "output/manifest.h"
 #include "output/output_writer.h"
 #include "runtime/job.h"
+#include "templates/template_set.h"
 #include "testing/test_support.h"
 
-// Every test here runs against the in-memory host: the page phase reads templates and writes pages
-// only through `runtime/os.h`.
+// Every test here runs against the in-memory host: the page phase writes pages only through
+// `os/os.h`, from templates that each test loads first.
 
 /**
  * @brief Initializes a parsed, non-draft content entry the page phase can render.
@@ -119,12 +120,19 @@ static int render_entry_slots(struct ContentEntry* const* source_entries,
 
   struct SiteConfig site_config;
   site_config_init(&site_config);
+  struct TemplateSet* template_set = NULL;
+  if (template_set_load(site_config.templates_dir, &site_config.content_template, NULL, 1, os,
+                        &perm, test_arena(), &template_set, log) != 0) {
+    return -1;
+  }
   const struct OutputWriter writer = {.manifest = &manifest, .os = os};
   bool* entry_list_flags = arena_new(&perm, source_entry_count > 0 ? source_entry_count : 1, bool);
-  return page_renderer_render_pages(
-      &writer, &site_config, (const struct ContentEntry* const*)source_entries, source_entry_count,
-      (const struct ContentEntry* const*)entries, entry_count, NULL, worker_count, worker_arenas,
-      false, os, test_arena(), entry_list_flags, log);
+  const int rc = page_renderer_render_pages(
+      &writer, &site_config, template_set, (const struct ContentEntry* const*)source_entries,
+      source_entry_count, (const struct ContentEntry* const*)entries, entry_count, NULL,
+      worker_count, worker_arenas, false, os, test_arena(), entry_list_flags, log);
+  template_set_release(template_set);
+  return rc;
 }
 
 // Each entry's page renders with that entry's fields, and the `NULL` slot a draft leaves writes no
@@ -259,17 +267,22 @@ static void test_accepts_empty_entry_set(void) {
   struct Os* os = os_memory();
   const struct OutputWriter writer = {.manifest = &manifest, .os = os};
 
+  struct TemplateSet* template_set = NULL;
+  TEST_ASSERT(template_set_load(site_config.templates_dir, NULL, NULL, 0, os, &arena, test_arena(),
+                                &template_set, &log) == 0);
   bool entry_list_flag = false;
-  TEST_CHECK(page_renderer_render_pages(&writer, &site_config, NULL, 0, NULL, 0, NULL, 1,
-                                        &worker_arenas, false, os, test_arena(), &entry_list_flag,
-                                        &log) == 0);
+  TEST_CHECK(page_renderer_render_pages(&writer, &site_config, template_set, NULL, 0, NULL, 0, NULL,
+                                        1, &worker_arenas, false, os, test_arena(),
+                                        &entry_list_flag, &log) == 0);
+  template_set_release(template_set);
   TEST_CHECK(test_log_is_empty(&log));
 }
 
-// A missing content template surfaces a per-entry error in the collected log. The diagnostic names
-// the failing entry, the template file that could not be read, and why.
-static void test_reports_missing_template(void) {
+// A render failure is the failing entry's error in the collected log, and names the template it is
+// in and the page it was for.
+static void test_reports_render_failure_per_entry(void) {
   struct Os* os = os_memory();
+  os_memory_write(os, "templates/content.html", "{{{title}}}");
   struct ContentEntry entry;
   struct ContentEntry* source_entries[] = {&entry};
   struct Arena arena = test_arena();
@@ -281,9 +294,8 @@ static void test_reports_missing_template(void) {
   // Exact, not by substring: a substring check would also pass for this message with something
   // appended to it.
   TEST_CHECK(test_log_is(&log,
-                         "failed to read template: %s ('templates/content.html') (while rendering "
-                         "'content/hello.md')\n",
-                         strerror(ENOENT)));
+                         "unescaped Mustache interpolation is supported only for a key that ends "
+                         "in '_html' (in 'content.html') (while rendering 'hello.html')\n"));
 }
 
 // A page that cannot be written fails only its own job. Its error is one line of the phase's
@@ -323,7 +335,7 @@ TEST_LIST = {
     {"renders path to root per page", test_renders_path_to_root_per_page},
     {"writes pages sharing parents concurrently", test_writes_pages_sharing_parents_concurrently},
     {"accepts empty entry set", test_accepts_empty_entry_set},
-    {"reports missing template", test_reports_missing_template},
+    {"reports render failure per entry", test_reports_render_failure_per_entry},
     {"reports write failure per entry", test_reports_write_failure_per_entry},
     {NULL, NULL},
 };

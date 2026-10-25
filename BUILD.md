@@ -73,7 +73,7 @@ Both hosts are object libraries, because `<app>_app` refers to them and a single
 
 ### Vendored dependencies
 
-The sources of each vendored project are in the root [vendor/](vendor/) directory, and each app's `vendor.cmake` compiles the sources that the app uses. An app that links `markup` includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake) for the vendored projects of that library. Each vendored project has its own target, `vendor_<lib>`: the header-only projects, acutest and copt, are interface libraries, and the other vendored projects are static libraries. The targets have the same names in every app, because the libraries of `libs/` link the app's `vendor_acutest` and `vendor_tomlc17`.
+The sources of each vendored project are in the root [vendor/](vendor/) directory, and each app's `vendor.cmake` compiles the sources that the app uses. An app that links `markup` includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake) for the vendored projects of that library. Each vendored project has its own target, `vendor_<lib>`: the header-only projects, acutest and copt, are interface libraries, and the other vendored projects are static libraries. The targets have the same names in every app, because the libraries of `libs/` link the app's `vendor_acutest`, `vendor_mustache` and `vendor_tomlc17`.
 
 [vendor/vendor.toml](vendor/vendor.toml) pins each vendored project: its upstream repository, its release when it has one, and its commit. It also lists the upstream files that the directory of the project holds, the patches that this repository applies to them, and the files that this repository writes, such as the configuration headers of libjpeg-turbo. The `THIRD_PARTY_NOTICES.md` of each app and of `libs/` records the pin of each project that it lists. Renovate reads the releases in the manifest and opens a pull request for each new release. [vendor/vendor.py](vendor/vendor.py), which needs Python 3.11 or later, uses the manifest:
 
@@ -107,7 +107,7 @@ To bump a project, change its `release`, or its `commit` when it has no release,
 - `EXCLUDE_FROM_ALL` builds a library only when a target of the app links it.
 - Each library links `apps_build_project` of the app, so it compiles with the app's warnings and sanitizer options.
 - `SYSTEM` makes the include directories of the libraries system directories for the app, so the analysis of the app checks only the app's own code.
-- The libraries use the vendored targets of the app. The project adds `formats` only when the target `vendor_tomlc17` exists, so cwrap, which vendors no tomlc17, builds without it. It adds `markup` only when `formats` and the targets of `libs/src/markup/vendor.cmake` exist, so fram and cwrap build without it.
+- The libraries use the vendored targets of the app. The project adds `formats` only when the target `vendor_tomlc17` exists, so cwrap, which vendors no tomlc17, builds without it. It adds `markup` only when `formats` and the targets of `libs/src/markup/vendor.cmake` exist, so fram and cwrap build without it. It adds `templates` only when `formats` and the target `vendor_mustache` exist, so cwrap builds without it.
 - An app never builds the tests of the libraries.
 
 Configured on its own, from `libs/`, the project defines the vendored targets that the libraries need in [libs/vendor.cmake](libs/vendor.cmake), and builds every library, its analysis, its lint and its tests. `libs_add_unit_test(<lib> <module>)` registers the test `<lib>.<module>`, which links the library, `apps_build_tests`, acutest and the libraries in `LIBRARIES`. With `OS posix` or `OS memory`, the test also links `os_posix` or `os_memory`, and with `OS memory` it compiles with `APPS_TEST_OS_MEMORY` set to 1. Each library test has the labels `<lib>` and `unit`, and the same timeouts as the tests of an app. Each library appends its sources to the global property `apps_libs_lint_sources`, and the project creates its `format` and `lint` targets from that list.
@@ -231,8 +231,8 @@ The source archive, `<app>-<version>-source.tar.gz`, holds the whole repository 
 - [apps/sosig/CMakeLists.txt](apps/sosig/CMakeLists.txt) also finds the thread library.
 - [apps/sosig/vendor.cmake](apps/sosig/vendor.cmake) also includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake), as [Grammars](#grammars) describes.
 - [apps/sosig/CMakePresets.json](apps/sosig/CMakePresets.json) adds the `grammars` presets, which build `sosig` with only the TypeScript grammar.
-- `sosig` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `markup` and `output`, and for the unit tests `testing` and the in-memory host `os_memory`.
-- `sosig_app` links `vendor_tomlc17`, `core`, `formats`, `markup`, `os`, `output` and `runtime` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+- `sosig` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `markup`, `output` and `templates`, and for the unit tests `testing` and the in-memory host `os_memory`.
+- `sosig_app` links `vendor_tomlc17`, `core`, `formats`, `markup`, `os`, `output`, `runtime` and `templates` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 - `src/build/` links the vendored dependencies that only its own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 - The version template is [apps/sosig/src/domain/sosig_version.c.in](apps/sosig/src/domain/sosig_version.c.in). The file that CMake generates from it also defines `sosig_generator_string()`.
 
@@ -240,10 +240,8 @@ The source archive, `<app>-<version>-source.tar.gz`, holds the whole repository 
 
 The golden tests highlight code blocks, so they need every tree-sitter grammar, as [Grammars](#grammars) describes. The tests registered without `OS memory` link the POSIX host. These tests are:
 
-- `template_posix`, which renders the templates of the golden site `site_file_permalink` from `tests/fixtures/`
+- `template_context_posix`, which renders the templates of the golden site `site_file_permalink` from `tests/fixtures/`
 - the tests that use no host
-
-The production render limit is 256 MiB, and a failure test at that limit uses too much memory. Thus the template test passes a 64 KiB limit to `template_render_file_limited`, and does not compile the template code again with a smaller limit.
 
 `sosig_fixture_sites` in [apps/sosig/tests/CMakeLists.txt](apps/sosig/tests/CMakeLists.txt) lists the fixture sites in `tests/fixtures/`. Each fixture site is the golden test `sosig.golden.<site>`. [apps/sosig/cmake/sosig_run_golden.cmake](apps/sosig/cmake/sosig_run_golden.cmake) does these steps:
 
@@ -263,8 +261,8 @@ The script finds the expected files and the actual files with globs after `sosig
 ### fram files and targets
 
 - [apps/fram/CMakeLists.txt](apps/fram/CMakeLists.txt) also finds the thread library.
-- `fram` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats` and `output`, and for the unit tests `testing` and the in-memory host `os_memory`.
-- `fram_app` links `vendor_tomlc17`, `core`, `formats`, `os`, `output` and `runtime` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+- `fram` links the libraries `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `output` and `templates`, and for the unit tests `testing` and the in-memory host `os_memory`.
+- `fram_app` links `vendor_tomlc17`, `core`, `formats`, `os`, `output`, `runtime` and `templates` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 - `src/build/` and `src/media/` link the vendored dependencies that only their own code uses, and `src/CMakeLists.txt` links the other vendored dependencies.
 - The version template is [apps/fram/src/domain/fram_version.c.in](apps/fram/src/domain/fram_version.c.in). The file that CMake generates from it also defines `fram_generator_string()`.
 
@@ -288,7 +286,7 @@ The tests registered without `OS memory` link the POSIX host. These tests are:
 - the tests that need the real host: `proc`, `video`, `album_scan_video`, `cmd_build_video` and `derivative_renderer_video`, which run processes or decode video
 - the tests that use no host
 
-The production render limit is 256 MiB, and a failure test at that limit uses too much memory. Thus the template test passes a 64 KiB limit to `template_render_file_limited`, and does not compile the template code again with a smaller limit. The derivative renderer exports `derivative_renderer_decode_scale`, which returns the scale that its jobs select, so its test checks this selection directly and not through the decoded output.
+The derivative renderer exports `derivative_renderer_decode_scale`, which returns the scale that its jobs select, so its test checks this selection directly and not through the decoded output.
 
 The golden test `fram.golden` builds the fixture gallery in `tests/fixtures/gallery`, which mixes JPEG and MP4 sources in the default `media/` directory. `tests/CMakeLists.txt` defines this test only when the configure step finds both `ffmpeg` and `ffprobe`. [apps/fram/cmake/fram_run_golden.cmake](apps/fram/cmake/fram_run_golden.cmake) does these steps:
 

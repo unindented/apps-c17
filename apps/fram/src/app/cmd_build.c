@@ -13,7 +13,6 @@
 #include "build/manifest_builder.h"
 #include "build/page_renderer.h"
 #include "build/site_writer.h"
-#include "build/template.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/error.h"
@@ -36,6 +35,7 @@
 #include "runtime/job.h"
 #include "runtime/pool.h"
 #include "runtime/walk.h"
+#include "templates/template_set.h"
 
 /** Bytes in a mebibyte, the unit of the sizes below. */
 #define BUILD_MIB ((ptrdiff_t)1024 * 1024)
@@ -54,9 +54,9 @@ _Static_assert(PTRDIFF_MAX > 0xffffffff, "the arenas below need a 64-bit address
 /**
  * Bytes of each thread's perm, which holds the main thread's paths, skeleton, frame slots and
  * manifest, or every album page a worker renders until the write phase, eight pages at
- * `RENDER_OUTPUT_LEN_MAX` in buffers of up to twice their length.
+ * `TEMPLATE_RENDER_OUTPUT_LEN_MAX` in buffers of up to twice their length.
  */
-#define BUILD_PERM_LEN (16 * (ptrdiff_t)RENDER_OUTPUT_LEN_MAX)
+#define BUILD_PERM_LEN (16 * (ptrdiff_t)TEMPLATE_RENDER_OUTPUT_LEN_MAX)
 
 /**
  * Bytes of each thread's scratch, which holds one job's temporaries, at most a source of up to
@@ -134,6 +134,9 @@ struct BuildState {
 
   /** Loaded gallery configuration. Its values live in `perm`. */
   struct GalleryConfig gallery_config;
+
+  /** Compiled templates, released when the build ends, or `NULL` until they load. */
+  struct TemplateSet* template_set;
 
   /** Discovered media source paths below `media_dir`, sorted by the walk that produced them. */
   struct PathList source_paths;
@@ -326,6 +329,28 @@ static int run_build_phases(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
+ * @brief Reads and compiles the album template, every aggregate template and every partial, and
+ *        reports every one that cannot be read or does not compile.
+ *
+ * @param state Build state that receives the set. Must not be `NULL`.
+ * @param log   Log that receives every error. Must not be `NULL`.
+ * @return `0` on success, or `-1` when a template fails.
+ */
+static int load_templates(struct BuildState* state, struct Log* log) __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Adds `name` to the template names of a load, unless it is there already, as when an
+ *        aggregate is also the album template.
+ *
+ * @param names      Names so far, with room for one more. Must not be `NULL`.
+ * @param name_count Number of entries in `names`, which this increments when it adds one. Must not
+ *                   be `NULL`.
+ * @param name       Template name to add.
+ */
+static void load_templates_add(struct Str* names, ptrdiff_t* name_count, struct Str name)
+    __attribute__((nonnull(1, 2)));
+
+/**
  * @brief Builds the album and media skeleton and allocates one result slot per media item and per
  *        album.
  *
@@ -509,10 +534,12 @@ int cmd_build_execute(const struct BuildOptions* options,
   // every output collision. Only a failure that leaves nothing to check stops early: a config that
   // cannot be read, a root that cannot be walked, a missing video tool, and a skeleton error, a
   // path-limit failure included, because the later phases read the skeleton.
-  if (load_build_inputs(&state, log) != 0) {
-    return -1;
+  int rc = -1;
+  if (load_build_inputs(&state, log) == 0) {
+    rc = run_build_phases(&state, log);
   }
-  return run_build_phases(&state, log);
+  template_set_release(state.template_set);
+  return rc;
 }
 
 static ptrdiff_t cmd_build_run_worker_count(ptrdiff_t count_requested) {
@@ -714,6 +741,7 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
   // before any derivative is generated or any page is rendered. Output paths do not depend on
   // probed dimensions, because a derivative path names the recipe and not the size, so the manifest
   // checks every output even after a probe failed.
+  (void)load_templates(state, log);
   if (build_album_skeleton(state, log) != 0) {
     return -1;
   }
@@ -746,6 +774,31 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
 cleanup:
   album_scan_remove_video_frames(state->video_frames, state->media_count);
   return rc;
+}
+
+static int load_templates(struct BuildState* state, struct Log* log) {
+  build_verbose(state, "compiling templates");
+  const struct GalleryConfig* gallery_config = &state->gallery_config;
+  const ptrdiff_t name_count_max = 1 + gallery_config->aggregate_template_count;
+  struct Arena scratch = state->scratch;
+  struct Str* names = arena_new(&scratch, name_count_max, struct Str);
+  ptrdiff_t name_count = 0;
+  load_templates_add(names, &name_count, gallery_config->album_template);
+  for (ptrdiff_t i = 0; i < gallery_config->aggregate_template_count; i++) {
+    load_templates_add(names, &name_count, gallery_config->aggregate_templates[i]);
+  }
+  return template_set_load(gallery_config->templates_dir, names, NULL, name_count, state->os,
+                           &state->perm, scratch, &state->template_set, log);
+}
+
+static void load_templates_add(struct Str* names, ptrdiff_t* name_count, struct Str name) {
+  for (ptrdiff_t i = 0; i < *name_count; i++) {
+    if (str_eq(names[i], name)) {
+      return;
+    }
+  }
+  names[*name_count] = name;
+  (*name_count)++;
 }
 
 static int build_album_skeleton(struct BuildState* state, struct Log* log) {
@@ -872,7 +925,7 @@ static int generate_derivatives(struct BuildState* state, struct Log* log) {
 
 static int render_album_pages(struct BuildState* state, struct Log* log) {
   build_verbose(state, "rendering albums, workers: %td", state->worker_count);
-  return page_renderer_render_pages(&state->gallery_config,
+  return page_renderer_render_pages(&state->gallery_config, state->template_set,
                                     (const struct Album* const*)state->albums, state->album_count,
                                     state->worker_count, state->worker_arenas, state->is_verbose,
                                     state->os, state->scratch, state->rendered_pages, log);
@@ -886,8 +939,8 @@ static int write_generated_site(struct BuildState* state, struct Log* log) {
     return -1;
   }
   build_verbose(state, "rendering aggregate templates");
-  if (site_writer_write_aggregates(&state->writer, &state->gallery_config, state->albums[0],
-                                   state->os, state->perm, state->scratch, log) != 0) {
+  if (site_writer_write_aggregates(&state->writer, &state->gallery_config, state->template_set,
+                                   state->albums[0], state->perm, state->scratch, log) != 0) {
     return -1;
   }
   build_verbose(state, "copying static files");

@@ -11,13 +11,13 @@ struct LinkTargets;
 /**
  * Upper bound on Markdown input passed to `markdown_to_html`, in bytes.
  *
- * `RENDER_OUTPUT_LEN_MAX` is 256 MiB because an aggregate of 10,000 entries at ~6.7 KB is 64 MB.
- * That bound sits four times above it. HTML is not smaller than the Markdown that produced it, so a
- * body at that render cap already fills the budget before the template adds a byte. An aggregate or
- * feed that embeds the body could then reach the render limit. At that point, this function has
- * already parsed and retained the HTML. The same 256 MiB cap, applied by `entry_renderer` to the
- * whole source file at the read, rejects that body before conversion and reports the limit. This
- * prevents the body from dominating RSS before a generic render error.
+ * `TEMPLATE_RENDER_OUTPUT_LEN_MAX` is 256 MiB because an aggregate of 10,000 entries at ~6.7 KB is
+ * 64 MB. That bound sits four times above it. HTML is not smaller than the Markdown that produced
+ * it, so a body at that render cap already fills the budget before the template adds a byte. An
+ * aggregate or feed that embeds the body could then reach the render limit. At that point, this
+ * function has already parsed and retained the HTML. The same 256 MiB cap, applied by
+ * `entry_renderer` to the whole source file at the read, rejects that body before conversion and
+ * reports the limit. This prevents the body from dominating RSS before a generic render error.
  *
  * `entry_renderer` reads each content file with this as its size limit, so a source too large to
  * hold such a body is rejected from its size before it is loaded.

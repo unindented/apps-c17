@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "build/template.h"
+#include "build/template_context.h"
 #include "core/arena.h"
 #include "core/path.h"
 #include "core/str.h"
@@ -11,20 +11,21 @@
 #include "domain/gallery_config.h"
 #include "os/oom.h"
 #include "runtime/job.h"
+#include "templates/template_set.h"
 
 /**
  * Worker context shared by all album page render jobs. Every field is read-only to a job, except
  * `rendered_pages`, where each job writes its own slot.
  */
 struct PageRenderContext {
-  /** Configuration supplying the template directory and the album template name. */
+  /** Configuration supplying the album template name. */
   const struct GalleryConfig* gallery_config;
+
+  /** Templates every job renders from, read by every worker at once. */
+  const struct TemplateSet* template_set;
 
   /** Albums to render, one per job index. No album is written during the run. */
   const struct Album* const* albums;
-
-  /** Host every job reads its templates from. */
-  struct Os* os;
 
   /** One rendered-page slot per album. A job writes only `rendered_pages[index]`. */
   struct RenderedPage* rendered_pages;
@@ -50,6 +51,7 @@ static int render_album_page_job(ptrdiff_t index,
                                  void* userdata) __attribute__((nonnull(2, 3, 4)));
 
 int page_renderer_render_pages(const struct GalleryConfig* gallery_config,
+                               const struct TemplateSet* template_set,
                                const struct Album* const* albums,
                                ptrdiff_t album_count,
                                ptrdiff_t worker_count,
@@ -61,8 +63,8 @@ int page_renderer_render_pages(const struct GalleryConfig* gallery_config,
                                struct Log* log) {
   struct PageRenderContext context = {
       .gallery_config = gallery_config,
+      .template_set = template_set,
       .albums = albums,
-      .os = os,
       .rendered_pages = rendered_pages,
   };
   return job_run(album_count, worker_count, worker_arenas, render_album_page_job, &context,
@@ -91,10 +93,10 @@ static int render_album_page_job(ptrdiff_t index,
   // The page renders into a copy of the worker's `perm`, which is committed only when the render
   // succeeds, so a failed render leaves nothing behind for the write phase.
   struct Arena perm = arenas->perm;
-  // The render names the album in its failure, because `is_album_page` is set.
-  if (template_render_file(context->gallery_config->templates_dir,
-                           context->gallery_config->album_template, &template_context, context->os,
-                           &perm, scratch, &page->html, log) != 0) {
+  // The page's path below `output_dir`, which a failure names, is its URL.
+  if (template_context_render(context->template_set, context->gallery_config->album_template,
+                              &template_context, album->url_path, &perm, scratch, &page->html,
+                              log) != 0) {
     return -1;
   }
   arenas->perm = perm;

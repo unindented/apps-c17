@@ -14,6 +14,7 @@ struct Log;
 struct Os;
 struct OutputWriter;
 struct SiteConfig;
+struct TemplateSet;
 
 /**
  * @brief Renders each parsed content entry through its content template and writes its page.
@@ -39,8 +40,10 @@ struct SiteConfig;
  *
  * @param writer              Writer every page is written through, by every worker at once. Must
  *                            not be `NULL`.
- * @param site_config         Site configuration supplying `templates_dir` and the default content
- *                            template. Must not be `NULL`.
+ * @param site_config         Site configuration supplying the default content template. Must not be
+ *                            `NULL`.
+ * @param template_set        Templates every page renders from, read by every worker at once. Must
+ *                            not be `NULL`.
  * @param source_entries      Slot array filled by `entry_renderer_parse_entries`, one slot per
  *                            source path, where a draft or a failed source left `NULL`. Read-only
  *                            during the run. May be `NULL` only when `source_entry_count` is 0.
@@ -55,7 +58,7 @@ struct SiteConfig;
  * @param worker_arenas       One `JobArenas` per requested worker, as for `job_run`. Must not be
  *                            `NULL`.
  * @param is_verbose          Whether progress is printed to `stderr`.
- * @param os                  Host the templates are read from and progress printed on, by every
+ * @param os                  Host the outputs are inspected on and progress printed on, by every
  *                            worker at once. Must not be `NULL`.
  * @param scratch             Arena for the phase's own bookkeeping, as for `job_run`.
  * @param entry_list_flags    One slot per source, which receives whether the page read the entry
@@ -68,6 +71,7 @@ struct SiteConfig;
  */
 int page_renderer_render_pages(const struct OutputWriter* writer,
                                const struct SiteConfig* site_config,
+                               const struct TemplateSet* template_set,
                                const struct ContentEntry* const* source_entries,
                                ptrdiff_t source_entry_count,
                                const struct ContentEntry* const* content_entries,
@@ -79,6 +83,6 @@ int page_renderer_render_pages(const struct OutputWriter* writer,
                                struct Os* os,
                                struct Arena scratch,
                                bool* entry_list_flags,
-                               struct Log* log) __attribute__((nonnull(1, 2, 9, 11, 13, 14)));
+                               struct Log* log) __attribute__((nonnull(1, 2, 3, 10, 12, 14, 15)));
 
 #endif

@@ -20,6 +20,7 @@
 #include "output/manifest.h"
 #include "output/output_writer.h"
 #include "runtime/job.h"
+#include "templates/template_set.h"
 #include "testing/test_support.h"
 
 // Every test here runs against the in-memory host, whose root is the working directory the phases
@@ -114,12 +115,20 @@ static int render_pages(const struct SiteConfig* site_config,
     }
   }
   content_entry_sort(entries, entry_count);
+  struct Arena template_arena = test_arena();
+  struct TemplateSet* template_set = NULL;
+  if (template_set_load(site_config->templates_dir, &site_config->content_template, NULL, 1, os,
+                        &template_arena, test_arena(), &template_set, log) != 0) {
+    return -1;
+  }
   const struct OutputWriter writer = {.manifest = &manifest, .os = os};
   bool* entry_list_flags = arena_new(log->buf.arena, source_entry_count, bool);
-  return page_renderer_render_pages(
-      &writer, site_config, (const struct ContentEntry* const*)source_entries, source_entry_count,
-      (const struct ContentEntry* const*)entries, entry_count, NULL, worker_count, worker_arenas,
-      false, os, test_arena(), entry_list_flags, log);
+  const int rc = page_renderer_render_pages(
+      &writer, site_config, template_set, (const struct ContentEntry* const*)source_entries,
+      source_entry_count, (const struct ContentEntry* const*)entries, entry_count, NULL,
+      worker_count, worker_arenas, false, os, test_arena(), entry_list_flags, log);
+  template_set_release(template_set);
+  return rc;
 }
 
 /**

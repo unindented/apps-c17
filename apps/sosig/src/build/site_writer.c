@@ -2,7 +2,7 @@
 
 #include <stddef.h>
 
-#include "build/template.h"
+#include "build/template_context.h"
 #include "core/arena.h"
 #include "core/path.h"
 #include "core/path_list.h"
@@ -24,7 +24,7 @@
  *        existing output whose inputs are fresh.
  *
  * @param writer          Writer the output is written or kept through. Must not be `NULL`.
- * @param templates_dir   Template directory root.
+ * @param template_set    Templates the output renders from. Must not be `NULL`.
  * @param output_dir      Output directory the template name is rooted under.
  * @param template_name   Safe relative template name to render. `manifest_builder_populate` already
  *                        checked it against the output-path limits, because every call site runs
@@ -34,8 +34,7 @@
  * @param context         Template context for this render, whose `path_to_root` this function sets
  *                        for `template_name` in its own copy. Must not be `NULL`.
  * @param is_inputs_fresh Whether an existing output may be kept.
- * @param os              Host the template is read from and the output inspected on. Must not be
- *                        `NULL`.
+ * @param os              Host the output is inspected on. Must not be `NULL`.
  * @param output          Arena that holds the rendered output until it is written.
  * @param scratch         Arena for the render's temporaries and the output path.
  * @param log             Log that receives the first failure. Its arena must be none of the others.
@@ -43,7 +42,7 @@
  * @return `0` on success, or `-1` on a render or write failure.
  */
 static int write_rendered_template(const struct OutputWriter* writer,
-                                   struct Str templates_dir,
+                                   const struct TemplateSet* template_set,
                                    struct Str output_dir,
                                    struct Str template_name,
                                    const struct TemplateContext* context,
@@ -51,10 +50,11 @@ static int write_rendered_template(const struct OutputWriter* writer,
                                    struct Os* os,
                                    struct Arena output,
                                    struct Arena scratch,
-                                   struct Log* log) __attribute__((nonnull(1, 5, 7, 10)));
+                                   struct Log* log) __attribute__((nonnull(1, 2, 5, 7, 10)));
 
 int site_writer_write_templates(const struct OutputWriter* writer,
                                 const struct SiteConfig* site_config,
+                                const struct TemplateSet* template_set,
                                 const struct Str* template_names,
                                 ptrdiff_t template_count,
                                 const struct ContentEntry* const* content_entries,
@@ -73,9 +73,8 @@ int site_writer_write_templates(const struct OutputWriter* writer,
       .is_feed = is_feed,
   };
   for (ptrdiff_t i = 0; i < template_count; i++) {
-    if (write_rendered_template(writer, site_config->templates_dir, site_config->output_dir,
-                                template_names[i], &context, is_inputs_fresh, os, output, scratch,
-                                log) != 0) {
+    if (write_rendered_template(writer, template_set, site_config->output_dir, template_names[i],
+                                &context, is_inputs_fresh, os, output, scratch, log) != 0) {
       return -1;
     }
   }
@@ -83,7 +82,7 @@ int site_writer_write_templates(const struct OutputWriter* writer,
 }
 
 static int write_rendered_template(const struct OutputWriter* writer,
-                                   struct Str templates_dir,
+                                   const struct TemplateSet* template_set,
                                    struct Str output_dir,
                                    struct Str template_name,
                                    const struct TemplateContext* context,
@@ -103,8 +102,8 @@ static int write_rendered_template(const struct OutputWriter* writer,
   struct TemplateContext template_context = *context;
   template_context.path_to_root = output_path_to_root(template_name, &scratch);
   struct Str rendered_html = {0};
-  if (template_render_file(templates_dir, template_name, &template_context, os, &output, scratch,
-                           &rendered_html, NULL, log) != 0) {
+  if (template_context_render(template_set, template_name, &template_context, template_name,
+                              &output, scratch, &rendered_html, NULL, log) != 0) {
     return -1;
   }
   return output_writer_write(writer, output_path, (struct OsSource){.bytes = rendered_html},

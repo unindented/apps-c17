@@ -80,12 +80,11 @@ int manifest_builder_check_output_dir(const struct GalleryConfig* gallery_config
  * against the config path `fram.toml`. Comparing `(device, inode)` also rejects a collision created
  * by a symlink, a hard link, or a case-insensitive filesystem. It claims the config, every
  * discovered source and static file, and every file below `templates_dir`, so it still protects an
- * input that a link places outside all three roots. Claiming the whole template tree covers
- * partials even though `template_render_file` resolves them lazily from names inside template
- * bytes. The template walk leaves out `output_dir`, so a generated file that a symlink inside
- * `templates_dir` reaches is not mistaken for a template. A missing `templates_dir` claims nothing,
- * because it holds no file to overwrite. A full build never gets here with one: loading the build
- * inputs already rejects it.
+ * input that a link places outside all three roots. Claiming the whole template tree covers every
+ * partial, and every file below `partials/` that is not one. The template walk leaves out
+ * `output_dir`, so a generated file that a symlink inside `templates_dir` reaches is not mistaken
+ * for a template. A missing `templates_dir` claims nothing, because it holds no file to overwrite.
+ * A full build never gets here with one: loading the build inputs already rejects it.
  *
  * @param manifest       Manifest that receives the output paths. Must not be `NULL`.
  * @param gallery_config Configuration supplying `media_dir`, `output_dir`, `templates_dir`,

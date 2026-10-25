@@ -364,6 +364,29 @@ static void test_honors_configured_content_template(void) {
   TEST_CHECK(os_memory_is_file(os, "public/hello.html", "<main>Hello <p>Body</p>\n</main>\n"));
 }
 
+// The build loads the content template only when an entry uses it, so a missing one fails no build
+// whose every entry names its own template, nor one with no entry at all, and a draft's `template`
+// is never loaded.
+static void test_loads_the_content_template_only_when_an_entry_uses_it(void) {
+  struct Os* os = site_fixture("content_template = \"absent.html\"\n");
+  os_memory_mkdir(os, "content");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+
+  os_memory_write(os, "templates/own.html", "[{{title}}]\n");
+  os_memory_write(os, "content/hello.md",
+                  "+++\ntitle = \"Hello\"\ndate = 2026-07-01T00:00:00Z\ntemplate = \"own.html\"\n"
+                  "+++\nBody\n");
+  os_memory_write(
+      os, "content/draft.md",
+      "+++\ntitle = \"Draft\"\ndate = 2026-07-01T00:00:00Z\ntemplate = \"missing.html\"\n"
+      "draft = true\n+++\nBody\n");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_file(os, "public/hello.html", "[Hello]\n"));
+}
+
 // A build writes exactly the manifest's intended outputs: content pages, aggregate and feed
 // outputs, static files, and nothing for drafts.
 static void test_writes_exactly_manifest_outputs(void) {
@@ -787,9 +810,10 @@ static void test_dry_run_leaves_no_state(void) {
   TEST_CHECK(os_memory_is_file(os, "public/index.html", "index\n"));
 }
 
-// A build after an unchanged build renders no template, here where every template read would fail,
-// and leaves every output, the build cache included, byte for byte as the first build wrote it.
-static void test_unchanged_rebuild_renders_nothing(void) {
+// A build after an unchanged build leaves every output, the build cache included, byte for byte as
+// the first build wrote it. `test_dry_run_keeps_every_page_after_an_unchanged_build` shows that it
+// renders none of them.
+static void test_unchanged_rebuild_changes_nothing(void) {
   struct Os* os = every_output_kind_fixture();
   struct Arena arena = test_arena();
   struct Log log = test_log();
@@ -800,7 +824,6 @@ static void test_unchanged_rebuild_renders_nothing(void) {
     TEST_CHECK(os_memory_file(os, str_cstr(files.items[i], &arena), &contents[i]) == 0);
     contents[i] = str_clone(contents[i], &arena);
   }
-  os_memory_fail(os, OS_MEMORY_OP_READ, "templates", EACCES);
 
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
@@ -1214,6 +1237,7 @@ static void test_skips_empty_phases_in_verbose_output(void) {
                                   "discovering content\n"
                                   "discovering static files\n"
                                   "collecting content entries\n"
+                                  "compiling templates\n"
                                   "building output manifest\n"
                                   "loading build cache\n"
                                   "no build cache, rendering every page\n"
@@ -1494,9 +1518,8 @@ static void test_rejects_static_file_colliding_with_content_page(void) {
   TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
-// A content template that fails to parse fails the build at the page phase. The diagnostic carries
-// the parser's cause, its position and the template name, followed by the entry that was being
-// rendered, so a template error reads apart from a template that cannot be read.
+// A content template that fails to parse fails the build when the templates load, before anything
+// is written. The diagnostic carries the parser's cause, its position and the template name.
 static void test_reports_bad_template(void) {
   struct Os* os = site_fixture("content_template = \"broken.html\"\n");
   // The section never closes, so the template is read but fails to compile.
@@ -1507,12 +1530,12 @@ static void test_reports_bad_template(void) {
   TEST_CHECK(execute_build(os, &log) == -1);
   // Exact, not by substring: a substring check would also pass for this message with something
   // appended to it.
-  TEST_CHECK(test_log_is(&log,
-                         "section-opening tag has no closer at line 1, column 1 (in 'broken.html') "
-                         "(while rendering 'content/hello.md')\n"));
+  TEST_CHECK(test_log_is(
+      &log, "section-opening tag has no closer at line 1, column 1 (in 'broken.html')\n"));
+  TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
-// A dry run renders every template, so a content template that does not compile fails it with the
+// A dry run loads every template, so a content template that does not compile fails it with the
 // diagnostic a real build gives, and no listing is printed.
 static void test_dry_run_reports_bad_template(void) {
   struct Os* os = site_fixture("content_template = \"broken.html\"\n");
@@ -1521,9 +1544,8 @@ static void test_dry_run_reports_bad_template(void) {
 
   struct Log log = test_log();
   TEST_CHECK(execute_dry_run(os, &log) == -1);
-  TEST_CHECK(test_log_is(&log,
-                         "section-opening tag has no closer at line 1, column 1 (in 'broken.html') "
-                         "(while rendering 'content/hello.md')\n"));
+  TEST_CHECK(test_log_is(
+      &log, "section-opening tag has no closer at line 1, column 1 (in 'broken.html')\n"));
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
 }
 
@@ -1572,24 +1594,47 @@ static void test_reports_stale_output_that_cannot_be_removed(void) {
   TEST_CHECK(os_memory_has_path(os, "public/notes.txt"));
 }
 
-// Two content entries that fail to render through one missing template fail for one cause. The
-// report prints the first entry's line whole and counts the second, and both count as errors.
+// Two content entries that fail to render through one template fail for one cause. The report
+// prints the first entry's line whole and counts the second, and both count as errors.
 // `test_reports_unwritable_output` covers two entries that fail for different causes.
 static void test_reports_a_shared_render_failure_once(void) {
-  // No `templates/missing.html`, so the page render fails for both entries.
-  struct Os* os = site_fixture("content_template = \"missing.html\"\n");
+  // A triple mustache of `title` fails the page render of both entries.
+  struct Os* os = site_fixture("content_template = \"raw.html\"\n");
+  os_memory_write(os, "templates/raw.html", "{{{title}}}\n");
   os_memory_write(os, "content/a.md", HELLO_ENTRY);
   os_memory_write(os, "content/b.md",
                   "+++\ntitle = \"Second\"\ndate = 2026-07-02T00:00:00Z\n+++\nBody\n");
 
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == -1);
-  // Sources are walked in sorted order, so `content/a.md` is the one printed.
-  TEST_CHECK(test_log_is(&log,
-                         "failed to read template: %s ('templates/missing.html') (while rendering "
-                         "'content/a.md')\n\xE2\x80\xA6 and 1 more failures\n",
-                         strerror(ENOENT)));
+  // The page phase reports in source order, and sources are walked in sorted order, so `a.html` is
+  // the one printed.
+  TEST_CHECK(
+      test_log_is(&log,
+                  "unescaped Mustache interpolation is supported only for a key that ends "
+                  "in '_html' (in 'raw.html') (while rendering 'a.html')\n\xE2\x80\xA6 and 1 "
+                  "more failures\n"));
   TEST_CHECK(log.errors == 2);
+}
+
+// A template that only entries name, and that is missing, fails the build once, when the templates
+// load, naming the first of those entries in source order.
+static void test_reports_a_missing_entry_template_once(void) {
+  struct Os* os = site_fixture(NULL);
+  static const char* const sources[] = {"content/b.md", "content/a.md"};
+  for (ptrdiff_t i = 0; i < 2; i++) {
+    os_memory_write(os, sources[i],
+                    "+++\ntitle = \"T\"\ndate = 2026-07-01T00:00:00Z\ntemplate = \"missing.html\"\n"
+                    "+++\nBody\n");
+  }
+
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to read template: %s ('templates/missing.html') (for "
+                         "'content/a.md')\n",
+                         strerror(ENOENT)));
+  TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
 // An output path that cannot be written fails the build at the page phase, where each job writes
@@ -1854,6 +1899,8 @@ static void test_reports_static_dir_that_cannot_be_inspected(void) {
 
 TEST_LIST = {
     {"honors configured content template", test_honors_configured_content_template},
+    {"loads the content template only when an entry uses it",
+     test_loads_the_content_template_only_when_an_entry_uses_it},
     {"writes exactly manifest outputs", test_writes_exactly_manifest_outputs},
     {"tolerates trailing slash on content_dir", test_tolerates_trailing_slash_on_content_dir},
     {"builds site of config in another dir", test_builds_site_of_config_in_another_dir},
@@ -1878,7 +1925,7 @@ TEST_LIST = {
     {"dry run lists stale outputs and keeps them", test_dry_run_lists_stale_outputs_and_keeps_them},
     {"dry run attempts no change", test_dry_run_attempts_no_change},
     {"dry run leaves no state", test_dry_run_leaves_no_state},
-    {"unchanged rebuild renders nothing", test_unchanged_rebuild_renders_nothing},
+    {"unchanged rebuild changes nothing", test_unchanged_rebuild_changes_nothing},
     {"dry run keeps every page after an unchanged build",
      test_dry_run_keeps_every_page_after_an_unchanged_build},
     {"changed source makes its page and the aggregates",
@@ -1924,6 +1971,7 @@ TEST_LIST = {
     {"reports stale output that cannot be removed",
      test_reports_stale_output_that_cannot_be_removed},
     {"reports a shared render failure once", test_reports_a_shared_render_failure_once},
+    {"reports a missing entry template once", test_reports_a_missing_entry_template_once},
     {"reports unwritable output", test_reports_unwritable_output},
     {"rejects unsafe permalink", test_rejects_unsafe_permalink},
     {"stops after rejected output key", test_stops_after_rejected_output_key},

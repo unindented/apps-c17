@@ -22,6 +22,7 @@ target_link_libraries(
          os
          output
          runtime
+         templates
   PRIVATE apps_build_project
           vendor_copt
           Threads::Threads

@@ -9,6 +9,13 @@ target_include_directories(
   vendor_acutest SYSTEM INTERFACE "$<BUILD_INTERFACE:${vendor_dir}/acutest>"
 )
 
+add_library(vendor_mustache STATIC "${vendor_dir}/mustache4c/mustache.c")
+target_include_directories(
+  vendor_mustache SYSTEM PUBLIC "$<BUILD_INTERFACE:${vendor_dir}/mustache4c>"
+)
+target_compile_options(vendor_mustache PRIVATE $<$<C_COMPILER_ID:GNU,Clang,AppleClang>:-w>)
+target_link_libraries(vendor_mustache PRIVATE apps_build_vendor)
+
 add_library(vendor_tomlc17 STATIC "${vendor_dir}/tomlc17/tomlc17.c")
 target_include_directories(
   vendor_tomlc17 SYSTEM PUBLIC "$<BUILD_INTERFACE:${vendor_dir}/tomlc17>"

@@ -986,6 +986,7 @@ static void test_skips_empty_phases_in_verbose_output(void) {
                                   "loading config\n"
                                   "discovering media\n"
                                   "discovering static files\n"
+                                  "compiling templates\n"
                                   "planning albums\n"
                                   "loading build cache\n"
                                   "no build cache, probing every source\n"
@@ -1287,10 +1288,8 @@ static void test_rejects_static_file_colliding_with_album_page(void) {
   TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
-// An album template that fails to parse fails the build at the page phase. The diagnostic carries
-// the parser's cause, its position and the template name, followed by the album that was being
-// rendered, so a template error reads apart from a template that cannot be read. This and
-// `test_reports_a_shared_render_failure_once` are the tests that reach the build's page-render arm.
+// An album template that fails to parse fails the build when the templates load, before anything is
+// written. The diagnostic carries the parser's cause, its position and the template name.
 static void test_reports_bad_template(void) {
   struct Os* os = os_memory();
   struct Log log = test_log();
@@ -1302,12 +1301,12 @@ static void test_reports_bad_template(void) {
   TEST_CHECK(execute_build(os, &log) == -1);
   // Exact, not by substring: a substring check would also pass for this message with something
   // appended to it.
-  TEST_CHECK(test_log_is(&log,
-                         "section-opening tag has no closer at line 1, column 1 (in 'broken.html') "
-                         "(while rendering the root album)\n"));
+  TEST_CHECK(test_log_is(
+      &log, "section-opening tag has no closer at line 1, column 1 (in 'broken.html')\n"));
+  TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
-// A dry run renders every page, so an album template that does not compile fails it with the
+// A dry run loads every template, so an album template that does not compile fails it with the
 // diagnostic a real build gives, and no listing is printed.
 static void test_dry_run_reports_bad_template(void) {
   struct Os* os = os_memory();
@@ -1317,9 +1316,8 @@ static void test_dry_run_reports_bad_template(void) {
   write_jpeg(os, "photos/one.jpg");
 
   TEST_CHECK(execute_dry_run(os, &log) == -1);
-  TEST_CHECK(test_log_is(&log,
-                         "section-opening tag has no closer at line 1, column 1 (in 'broken.html') "
-                         "(while rendering the root album)\n"));
+  TEST_CHECK(test_log_is(
+      &log, "section-opening tag has no closer at line 1, column 1 (in 'broken.html')\n"));
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
 }
 
@@ -1373,20 +1371,23 @@ static void test_reports_stale_output_that_cannot_be_removed(void) {
   TEST_CHECK(os_memory_has_path(os, "public/notes.txt"));
 }
 
-// Two albums that fail to render through one missing template fail for one cause. The report prints
-// the first album's line whole and counts the second, and both count as errors.
+// Two albums that fail to render through one template fail for one cause. The report prints the
+// first album's line whole and counts the second, and both count as errors. This is the test that
+// reaches the build's page-render arm.
 static void test_reports_a_shared_render_failure_once(void) {
   struct Os* os = os_memory();
   struct Log log = test_log();
-  write_gallery_fixture(os, "album_template = \"missing.html\"\n");
+  write_gallery_fixture(os, "album_template = \"raw.html\"\n");
+  // A triple mustache of `album.title` fails the page render of both albums.
+  os_memory_write(os, "templates/raw.html", "{{{album.title}}}");
   write_jpeg(os, "photos/album/one.jpg");
 
   TEST_CHECK(execute_build(os, &log) == -1);
-  // Albums are sorted with the root first, so the root album is the one printed.
+  // Albums are sorted with the root first, so the root album's page is the one printed.
   TEST_CHECK(test_log_is(&log,
-                         "failed to read template: %s ('templates/missing.html') (while rendering "
-                         "the root album)\n\xE2\x80\xA6 and 1 more failures\n",
-                         strerror(ENOENT)));
+                         "unescaped Mustache interpolation is supported only for a key that ends "
+                         "in '_html' (in 'raw.html') (while rendering 'index.html')\n\xE2\x80\xA6 "
+                         "and 1 more failures\n"));
   TEST_CHECK(log.errors == 2);
 }
 

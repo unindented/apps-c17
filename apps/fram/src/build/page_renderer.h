@@ -12,6 +12,7 @@ struct JobArenas;
 struct Log;
 struct GalleryConfig;
 struct Os;
+struct TemplateSet;
 
 /** One album's rendered page, the slot `page_renderer_render_pages` fills. */
 struct RenderedPage {
@@ -32,8 +33,9 @@ struct RenderedPage {
  * reports progress when `is_verbose`. Failing jobs' errors go to `log` in album order, as `job_run`
  * collects them.
  *
- * @param gallery_config Configuration supplying `templates_dir` and the album template name. Must
- *                       not be `NULL`.
+ * @param gallery_config Configuration supplying the album template name. Must not be `NULL`.
+ * @param template_set   Templates every page renders from, read by every worker at once. Must not
+ *                       be `NULL`.
  * @param albums         Albums to render, one job per element. Read-only during the run. Must not
  *                       be `NULL`.
  * @param album_count    Number of albums in `albums`, and of slots in `rendered_pages`.
@@ -42,8 +44,7 @@ struct RenderedPage {
  *                       `perm` receives the pages it renders, so it must outlive the pages' write.
  *                       Must not be `NULL`.
  * @param is_verbose     Whether progress is printed to `stderr`.
- * @param os             Host the templates are read from and progress printed on, by every worker
- *                       at once. Must not be `NULL`.
+ * @param os             Host progress is printed on, by every worker at once. Must not be `NULL`.
  * @param scratch        Arena for the phase's own bookkeeping, as for `job_run`.
  * @param rendered_pages One slot per album, each zero-initialized by the caller. A successful job
  *                       stores its page there. A failed job leaves its slot's `html` empty. Must
@@ -54,6 +55,7 @@ struct RenderedPage {
  *         not start.
  */
 int page_renderer_render_pages(const struct GalleryConfig* gallery_config,
+                               const struct TemplateSet* template_set,
                                const struct Album* const* albums,
                                ptrdiff_t album_count,
                                ptrdiff_t worker_count,
@@ -62,6 +64,6 @@ int page_renderer_render_pages(const struct GalleryConfig* gallery_config,
                                struct Os* os,
                                struct Arena scratch,
                                struct RenderedPage* rendered_pages,
-                               struct Log* log) __attribute__((nonnull(1, 2, 5, 7, 9, 10)));
+                               struct Log* log) __attribute__((nonnull(1, 2, 3, 6, 8, 10, 11)));
 
 #endif

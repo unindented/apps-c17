@@ -12,7 +12,6 @@
 #include "build/manifest_builder.h"
 #include "build/page_renderer.h"
 #include "build/site_writer.h"
-#include "build/template.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/error.h"
@@ -33,6 +32,7 @@
 #include "runtime/job.h"
 #include "runtime/pool.h"
 #include "runtime/walk.h"
+#include "templates/template_set.h"
 
 /** Bytes in a mebibyte, the unit of the sizes below. */
 #define BUILD_MIB ((ptrdiff_t)1024 * 1024)
@@ -51,9 +51,9 @@ _Static_assert(PTRDIFF_MAX > 0xffffffff, "the arenas below need a 64-bit address
 /**
  * Bytes of each thread's perm, which holds the main thread's paths, entry arrays and manifest, or a
  * worker's parsed entries with their sources and the bodies it converted, beside one render's
- * buffer of up to twice `RENDER_OUTPUT_LEN_MAX`.
+ * buffer of up to twice `TEMPLATE_RENDER_OUTPUT_LEN_MAX`.
  */
-#define BUILD_PERM_LEN (16 * (ptrdiff_t)RENDER_OUTPUT_LEN_MAX)
+#define BUILD_PERM_LEN (16 * (ptrdiff_t)TEMPLATE_RENDER_OUTPUT_LEN_MAX)
 
 /**
  * Bytes of each thread's scratch, which holds one job's temporaries: what a converter holds, and
@@ -143,6 +143,9 @@ struct BuildState {
 
   /** Loaded site configuration. Its values live in `perm`. */
   struct SiteConfig site_config;
+
+  /** Compiled templates, released when the build ends, or `NULL` until they load. */
+  struct TemplateSet* template_set;
 
   /**
    * Discovered content entry source paths below `content_dir`, the files that end in `.md` or
@@ -373,6 +376,37 @@ static void collect_content_entries(struct BuildState* state) __attribute__((non
  *              `NULL`.
  */
 static void collect_content_entries_compact(struct BuildState* state) __attribute__((nonnull(1)));
+
+/**
+ * @brief Reads and compiles every template the build renders and every partial, and reports every
+ *        one that cannot be read or does not compile.
+ *
+ * The templates are the aggregate and feed templates, each entry's `template`, and the content
+ * template when an entry uses it. A template that only entries name names the first of them, in
+ * source order, when it cannot be read.
+ *
+ * @param state Build state holding the parsed entries, which receives the set. Must not be `NULL`.
+ * @param log   Log that receives every error. Must not be `NULL`.
+ * @return `0` on success, or `-1` when a template fails.
+ */
+static int load_templates(struct BuildState* state, struct Log* log) __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Adds `name` to the template names of a load, with the source that names it, unless it is
+ *        there already.
+ *
+ * @param names      Names so far, with room for one more. Must not be `NULL`.
+ * @param owners     Sources parallel to `names`. Must not be `NULL`.
+ * @param name_count Number of entries in `names`, which this increments when it adds one. Must not
+ *                   be `NULL`.
+ * @param name       Template name to add.
+ * @param owner      Source that names it, or empty for the configuration.
+ */
+static void load_templates_add(struct Str* names,
+                               struct Str* owners,
+                               ptrdiff_t* name_count,
+                               struct Str name,
+                               struct Str owner) __attribute__((nonnull(1, 2, 3)));
 
 /**
  * @brief Records every intended output path, rejecting a collision before anything is written.
@@ -606,10 +640,12 @@ int cmd_build_execute(const struct BuildOptions* options,
   // something to check, so one run reports a bad config key, every source that does not parse, and
   // every output collision together. Only a failure that leaves nothing to check stops early: a
   // config that cannot be read and a root that cannot be walked.
-  if (load_build_inputs(&state, log) != 0) {
-    return -1;
+  int rc = -1;
+  if (load_build_inputs(&state, log) == 0) {
+    rc = run_build_phases(&state, log);
   }
-  return run_build_phases(&state, log);
+  template_set_release(state.template_set);
+  return rc;
 }
 
 static ptrdiff_t cmd_build_run_worker_count(ptrdiff_t count_requested) {
@@ -803,6 +839,7 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
   // conversion check the rest.
   (void)parse_content_entries(state, log);
   collect_content_entries(state);
+  (void)load_templates(state, log);
   (void)populate_output_manifest(state, log);
   if (load_build_cache(state, log) != 0) {
     return -1;
@@ -869,6 +906,58 @@ static void collect_content_entries_compact(struct BuildState* state) {
       state->content_entries[j++] = state->source_entries[i];
     }
   }
+}
+
+static int load_templates(struct BuildState* state, struct Log* log) {
+  build_verbose(state, "compiling templates");
+  const struct SiteConfig* site_config = &state->site_config;
+  const ptrdiff_t name_count_max = 1 + site_config->aggregate_template_count +
+                                   site_config->feed_template_count + state->content_entry_count;
+  struct Arena scratch = state->scratch;
+  struct Str* names = arena_new(&scratch, name_count_max, struct Str);
+  struct Str* owners = arena_new(&scratch, name_count_max, struct Str);
+  ptrdiff_t name_count = 0;
+  bool is_content_template_used = false;
+  for (ptrdiff_t i = 0; i < site_config->aggregate_template_count; i++) {
+    load_templates_add(names, owners, &name_count, site_config->aggregate_templates[i],
+                       (struct Str){0});
+  }
+  for (ptrdiff_t i = 0; i < site_config->feed_template_count; i++) {
+    load_templates_add(names, owners, &name_count, site_config->feed_templates[i], (struct Str){0});
+  }
+  // The entries go in source order, so a template that only entries name names the first of them. A
+  // site whose every entry names its own template needs no content template.
+  for (ptrdiff_t i = 0; i < state->source_paths.count; i++) {
+    const struct ContentEntry* entry = state->source_entries[i];
+    if (entry == NULL) {
+      continue;
+    }
+    if (entry->template.len == 0) {
+      is_content_template_used = true;
+    } else {
+      load_templates_add(names, owners, &name_count, entry->template, entry->source_path);
+    }
+  }
+  if (is_content_template_used) {
+    load_templates_add(names, owners, &name_count, site_config->content_template, (struct Str){0});
+  }
+  return template_set_load(site_config->templates_dir, names, owners, name_count, state->os,
+                           &state->perm, scratch, &state->template_set, log);
+}
+
+static void load_templates_add(struct Str* names,
+                               struct Str* owners,
+                               ptrdiff_t* name_count,
+                               struct Str name,
+                               struct Str owner) {
+  for (ptrdiff_t i = 0; i < *name_count; i++) {
+    if (str_eq(names[i], name)) {
+      return;
+    }
+  }
+  names[*name_count] = name;
+  owners[*name_count] = owner;
+  (*name_count)++;
 }
 
 static int populate_output_manifest(struct BuildState* state, struct Log* log) {
@@ -1050,11 +1139,12 @@ static int render_content_pages(struct BuildState* state, struct Log* log) {
   }
   build_verbose(state, "rendering content, workers: %td", state->worker_count);
   return page_renderer_render_pages(
-      &state->writer, &state->site_config, (const struct ContentEntry* const*)state->source_entries,
-      state->source_paths.count, (const struct ContentEntry* const*)state->content_entries,
-      state->content_entry_count, (const struct BuildCacheEntry* const*)state->fresh_rows,
-      state->worker_count, state->worker_arenas, state->is_verbose, state->os, state->scratch,
-      state->entry_list_flags, log);
+      &state->writer, &state->site_config, state->template_set,
+      (const struct ContentEntry* const*)state->source_entries, state->source_paths.count,
+      (const struct ContentEntry* const*)state->content_entries, state->content_entry_count,
+      (const struct BuildCacheEntry* const*)state->fresh_rows, state->worker_count,
+      state->worker_arenas, state->is_verbose, state->os, state->scratch, state->entry_list_flags,
+      log);
 }
 
 static int write_generated_site(struct BuildState* state, struct Log* log) {
@@ -1062,20 +1152,20 @@ static int write_generated_site(struct BuildState* state, struct Log* log) {
   const struct SiteConfig* site_config = &state->site_config;
   const struct ContentEntry* const* entries =
       (const struct ContentEntry* const*)state->content_entries;
-  if (site_writer_write_templates(&state->writer, site_config, site_config->aggregate_templates,
-                                  site_config->aggregate_template_count, entries,
-                                  state->content_entry_count, false, state->is_aggregates_fresh,
-                                  state->os, state->perm, state->scratch, log) != 0) {
+  if (site_writer_write_templates(
+          &state->writer, site_config, state->template_set, site_config->aggregate_templates,
+          site_config->aggregate_template_count, entries, state->content_entry_count, false,
+          state->is_aggregates_fresh, state->os, state->perm, state->scratch, log) != 0) {
     return -1;
   }
   build_verbose(state, "rendering feed templates");
   const ptrdiff_t feed_entry_count = state->content_entry_count < site_config->feed_count
                                          ? state->content_entry_count
                                          : site_config->feed_count;
-  if (site_writer_write_templates(&state->writer, site_config, site_config->feed_templates,
-                                  site_config->feed_template_count, entries, feed_entry_count, true,
-                                  state->is_aggregates_fresh, state->os, state->perm,
-                                  state->scratch, log) != 0) {
+  if (site_writer_write_templates(&state->writer, site_config, state->template_set,
+                                  site_config->feed_templates, site_config->feed_template_count,
+                                  entries, feed_entry_count, true, state->is_aggregates_fresh,
+                                  state->os, state->perm, state->scratch, log) != 0) {
     return -1;
   }
   build_verbose(state, "copying static files");

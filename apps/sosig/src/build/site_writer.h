@@ -13,6 +13,7 @@ struct Os;
 struct OutputWriter;
 struct PathList;
 struct SiteConfig;
+struct TemplateSet;
 
 // The manifest phase in `manifest_builder` claims every intended output path before this module
 // writes anything. Content pages are written earlier, by `page_renderer_render_pages`. Ordering the
@@ -27,8 +28,8 @@ struct SiteConfig;
  * is kept through `writer` instead, with no render.
  *
  * @param writer              Writer every output is written through. Must not be `NULL`.
- * @param site_config         Configuration supplying `output_dir` and `templates_dir`. Must not be
- *                            `NULL`.
+ * @param site_config         Configuration supplying `output_dir`. Must not be `NULL`.
+ * @param template_set        Templates the outputs render from. Must not be `NULL`.
  * @param template_names      Array of `template_count` safe relative template names. May be `NULL`
  *                            only when `template_count` is 0.
  * @param template_count      Number of entries in `template_names`.
@@ -38,8 +39,7 @@ struct SiteConfig;
  * @param is_feed             Whether the templates are feed templates, whose links are absolute.
  * @param is_inputs_fresh     Whether the build cache vouches that every template and every entry,
  *                            and the page recipe, are as they were when the outputs were made.
- * @param os                  Host the templates are read from and the outputs inspected on. Must
- *                            not be `NULL`.
+ * @param os                  Host the outputs are inspected on. Must not be `NULL`.
  * @param output              Arena whose free space holds each rendered output until it is written.
  *                            Nothing in it outlives the call. Must not overlap `scratch`.
  * @param scratch             Arena for each render's temporaries.
@@ -50,6 +50,7 @@ struct SiteConfig;
  */
 int site_writer_write_templates(const struct OutputWriter* writer,
                                 const struct SiteConfig* site_config,
+                                const struct TemplateSet* template_set,
                                 const struct Str* template_names,
                                 ptrdiff_t template_count,
                                 const struct ContentEntry* const* content_entries,
@@ -59,7 +60,7 @@ int site_writer_write_templates(const struct OutputWriter* writer,
                                 struct Os* os,
                                 struct Arena output,
                                 struct Arena scratch,
-                                struct Log* log) __attribute__((nonnull(1, 2, 9, 12)));
+                                struct Log* log) __attribute__((nonnull(1, 2, 3, 10, 13)));
 
 /**
  * @brief Copies every enumerated static file below `output_dir` through `writer`.

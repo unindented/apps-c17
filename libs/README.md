@@ -4,7 +4,7 @@
 
 <h1 align="center"><code>libs</code></h1>
 
-`libs/` holds the libraries that the C17 apps in this repository share: `core`, `testing`, `os`, `runtime`, `formats`, `markup` and `output`. [ARCHITECTURE.md](ARCHITECTURE.md) describes each library, its modules and its dependencies.
+`libs/` holds the libraries that the C17 apps in this repository share: `core`, `testing`, `os`, `runtime`, `formats`, `markup`, `output` and `templates`. [ARCHITECTURE.md](ARCHITECTURE.md) describes each library, its modules and its dependencies.
 
 ## LLM disclosure
 
@@ -101,6 +101,7 @@ The image contains a snapshot of the repository, including the vendored dependen
 The root [vendor/](../vendor/) directory contains these dependencies. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists their licenses.
 
 - [tomlc17](https://github.com/cktan/tomlc17): TOML parsing, for `formats`.
+- [mustache4c](https://github.com/mity/mustache4c): Mustache templates, for `templates`.
 - [md4c](https://github.com/mity/md4c) and [org4c](https://github.com/unindented/org4c): Markdown and Org parsing, for `markup`.
 - [tree-sitter](https://github.com/tree-sitter/tree-sitter): Syntax highlighting, for `markup`, with the grammars that [BUILD.md](../BUILD.md#grammars) lists.
 - [acutest](https://github.com/mity/acutest): Unit tests.

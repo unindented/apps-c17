@@ -130,6 +130,7 @@ static void test_build_command_receives_parsed_options(void) {
                                   "loading config\n"
                                   "discovering media\n"
                                   "discovering static files\n"
+                                  "compiling templates\n"
                                   "planning albums\n"
                                   "ignoring build cache, probing every source\n"
                                   "probing media, workers: 1\n"

@@ -136,6 +136,11 @@ if(TARGET formats AND TARGET vendor_tree_sitter_grammars)
   add_subdirectory(src/markup)
 endif()
 add_subdirectory(src/output)
+# `templates` needs `formats` and mustache4c. An app that vendors no mustache4c links no `templates`,
+# so its build leaves the library out.
+if(TARGET formats AND TARGET vendor_mustache)
+  add_subdirectory(src/templates)
+endif()
 
 if(PROJECT_IS_TOP_LEVEL)
   get_property(libs_lint_sources GLOBAL PROPERTY apps_libs_lint_sources)

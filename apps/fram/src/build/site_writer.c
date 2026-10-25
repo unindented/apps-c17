@@ -3,7 +3,7 @@
 #include <stddef.h>
 
 #include "build/page_renderer.h"
-#include "build/template.h"
+#include "build/template_context.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/path.h"
@@ -26,15 +26,14 @@
  *        output path.
  *
  * @param writer         Writer the output is written through. Must not be `NULL`.
- * @param gallery_config Configuration supplying `templates_dir` and `output_dir`. Must not be
- *                       `NULL`.
+ * @param gallery_config Configuration supplying `output_dir`. Must not be `NULL`.
+ * @param template_set   Templates the output renders from. Must not be `NULL`.
  * @param root_album     Root album whose data the template renders against. Must not be `NULL`.
  * @param template_name  Safe relative template name to render. `manifest_builder_populate` already
  *                       checked it against the output-path limits, because every call site runs the
  *                       manifest phase over the same configured list first. This function does not
  *                       re-check, so an overlong name reaching here fails as an opaque write error
  *                       from the OS rather than with a diagnostic naming the limit.
- * @param os             Host the template is read from. Must not be `NULL`.
  * @param output         Arena that holds the rendered output until it is written.
  * @param scratch        Arena for the render's temporaries, the URL context and the output path.
  * @param log            Log that receives the first failure. Its arena must be none of the others.
@@ -43,12 +42,12 @@
  */
 static int write_rendered_template(const struct OutputWriter* writer,
                                    const struct GalleryConfig* gallery_config,
+                                   const struct TemplateSet* template_set,
                                    const struct Album* root_album,
                                    struct Str template_name,
-                                   struct Os* os,
                                    struct Arena output,
                                    struct Arena scratch,
-                                   struct Log* log) __attribute__((nonnull(1, 2, 3, 5, 8)));
+                                   struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 8)));
 
 int site_writer_write_album_pages(const struct OutputWriter* writer,
                                   const struct Album* const* albums,
@@ -79,14 +78,14 @@ int site_writer_write_album_pages(const struct OutputWriter* writer,
 
 int site_writer_write_aggregates(const struct OutputWriter* writer,
                                  const struct GalleryConfig* gallery_config,
+                                 const struct TemplateSet* template_set,
                                  const struct Album* root_album,
-                                 struct Os* os,
                                  struct Arena output,
                                  struct Arena scratch,
                                  struct Log* log) {
   for (ptrdiff_t i = 0; i < gallery_config->aggregate_template_count; i++) {
-    if (write_rendered_template(writer, gallery_config, root_album,
-                                gallery_config->aggregate_templates[i], os, output, scratch,
+    if (write_rendered_template(writer, gallery_config, template_set, root_album,
+                                gallery_config->aggregate_templates[i], output, scratch,
                                 log) != 0) {
       return -1;
     }
@@ -119,9 +118,9 @@ int site_writer_copy_static_files(const struct OutputWriter* writer,
 
 static int write_rendered_template(const struct OutputWriter* writer,
                                    const struct GalleryConfig* gallery_config,
+                                   const struct TemplateSet* template_set,
                                    const struct Album* root_album,
                                    struct Str template_name,
-                                   struct Os* os,
                                    struct Arena output,
                                    struct Arena scratch,
                                    struct Log* log) {
@@ -135,8 +134,8 @@ static int write_rendered_template(const struct OutputWriter* writer,
       .album_current = &aggregate_album,
   };
   struct Str rendered_html = {0};
-  if (template_render_file(gallery_config->templates_dir, template_name, &context, os, &output,
-                           scratch, &rendered_html, log) != 0) {
+  if (template_context_render(template_set, template_name, &context, template_name, &output,
+                              scratch, &rendered_html, log) != 0) {
     return -1;
   }
   // The render has returned, so its temporaries in `scratch` are dead and the path can reuse them.

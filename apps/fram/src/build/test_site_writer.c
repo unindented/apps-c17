@@ -15,10 +15,11 @@
 #include "os/os_memory.h"
 #include "output/manifest.h"
 #include "output/output_writer.h"
+#include "templates/template_set.h"
 #include "testing/test_support.h"
 
-// Every test here runs against the in-memory host: the writers read templates and static files and
-// write their outputs only through `runtime/os.h`.
+// Every test here runs against the in-memory host: the writers read static files and write their
+// outputs only through `os/os.h`, from templates that each test loads first.
 
 /**
  * @brief Initializes a writer on `os` whose manifest names `output_paths`, as the build's would.
@@ -40,6 +41,28 @@ static void init_writer(struct OutputWriter* writer,
     TEST_CHECK(manifest_add(manifest, str_from_cstr(output_paths[i]), S("test"), arena, NULL) == 0);
   }
   *writer = (struct OutputWriter){.manifest = manifest, .os = os};
+}
+
+/**
+ * @brief Loads the templates `names` below `templates_dir` of `os` as a set, which the test
+ *        releases.
+ *
+ * @param templates_dir Directory of the templates.
+ * @param names         Array of `count` template names. Must not be `NULL`.
+ * @param count         Number of entries in `names`.
+ * @param os            Host holding the templates. Must not be `NULL`.
+ * @return The set, in an arena of its own.
+ */
+static struct TemplateSet* load_templates(struct Str templates_dir,
+                                          const struct Str* names,
+                                          ptrdiff_t count,
+                                          struct Os* os) {
+  struct TemplateSet* set = NULL;
+  struct Arena perm = test_arena();
+  struct Log log = test_log();
+  TEST_ASSERT(template_set_load(templates_dir, names, NULL, count, os, &perm, test_arena(), &set,
+                                &log) == 0);
+  return set;
 }
 
 // Album pages, aggregate templates, and nested static files land at their planned destinations.
@@ -79,8 +102,11 @@ static void test_writes_complete_output_layer(void) {
   init_writer(&writer, &manifest, output_paths, 4, os, &paths);
 
   TEST_CHECK(site_writer_write_album_pages(&writer, albums, 1, rendered, scratch, &log) == 0);
-  TEST_CHECK(site_writer_write_aggregates(&writer, &gallery_config, albums[0], os, output, scratch,
-                                          &log) == 0);
+  struct TemplateSet* template_set =
+      load_templates(gallery_config.templates_dir, aggregates, 2, os);
+  TEST_CHECK(site_writer_write_aggregates(&writer, &gallery_config, template_set, albums[0], output,
+                                          scratch, &log) == 0);
+  template_set_release(template_set);
   TEST_CHECK(site_writer_copy_static_files(&writer, &gallery_config, &static_paths,
                                            gallery_config.static_dir, scratch, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
@@ -176,8 +202,11 @@ static void test_write_aggregates_reports_write_failure(void) {
   init_writer(&writer, &manifest, output_paths, 1, os, &arena);
   struct Log log = test_log();
 
-  TEST_CHECK(site_writer_write_aggregates(&writer, &gallery_config, &root, os, test_arena(),
-                                          test_arena(), &log) == -1);
+  struct TemplateSet* template_set =
+      load_templates(gallery_config.templates_dir, aggregates, 1, os);
+  TEST_CHECK(site_writer_write_aggregates(&writer, &gallery_config, template_set, &root,
+                                          test_arena(), test_arena(), &log) == -1);
+  template_set_release(template_set);
   TEST_CHECK(test_log_is(&log, "failed to write page: %s ('public/map.xml')\n", strerror(EISDIR)));
 }
 

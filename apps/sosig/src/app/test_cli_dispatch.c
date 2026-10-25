@@ -141,6 +141,7 @@ static void test_build_command_receives_parsed_options(void) {
                                   "parsing content, workers: 1\n"
                                   "\rparsing content 1/2\rparsing content 2/2\n"
                                   "collecting content entries\n"
+                                  "compiling templates\n"
                                   "building output manifest\n"
                                   "ignoring build cache, rendering every page\n"
                                   "converting bodies\n"

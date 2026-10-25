@@ -182,7 +182,7 @@ The build rejects an input file that is too large before it reads the file. The 
 | Config file | 1 MiB |
 | Template or partial | 4 MiB |
 
-A source image can have at most 100 million pixels. A rendered page can be at most 256 MiB, a render can use at most 64 distinct partials and 300,000 partial expansions, and a render that passes a limit fails. A build cache over 64 MiB is not read, and the build probes every media file again.
+A source image can have at most 100 million pixels. A gallery can have at most 64 partials in the `partials/` directory of `templates_dir`. A rendered page can be at most 256 MiB, a render can use at most 300,000 partial expansions, and a render that passes a limit fails. A build cache over 64 MiB is not read, and the build probes every media file again.
 
 The build reserves its memory once, when it starts, in fixed sizes that come from these limits. Reserved memory that the build does not use takes address space but no memory. Decoded images are not part of the reservation. An address-space limit (`ulimit -v`) can refuse the full reservation. When that happens, the build runs fewer workers, down to one. If the reservation still does not fit, the build makes it smaller until it fits, so the build has less room for its data. The smaller reservation leaves room for the memory that the build does not reserve, such as decoded images. [ARCHITECTURE.md](ARCHITECTURE.md#memory-reserve-then-commit-on-demand) describes this process. Because the build runs fewer workers before it makes its reservation smaller, the address-space limit that a build needs does not increase with `-w`:
 
@@ -258,7 +258,7 @@ Every template gets these keys:
 | `generator` | The name and version of `fram`, for a tag such as `<meta name="generator" content="{{generator}}">`. |
 | `path_to_root` | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. It stays the page's prefix inside `sub_albums`, `breadcrumbs` and `parent`. |
 
-A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_`, and `-`.
+A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_` and `-`. A reference to another name fails the build, and `fram` ignores the other files of `partials/` and its subdirectories. The build compiles every template that it renders and every partial once, before it writes anything, and reports every template that cannot be read or does not compile in one run. The aggregate templates also use the `.html` partials.
 
 ```html
 {{> header}}

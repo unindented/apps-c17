@@ -13,10 +13,11 @@
 #include "os/os_memory.h"
 #include "output/manifest.h"
 #include "output/output_writer.h"
+#include "templates/template_set.h"
 #include "testing/test_support.h"
 
-// Every test here runs against the in-memory host: the writers read templates and static files and
-// write their outputs only through `runtime/os.h`.
+// Every test here runs against the in-memory host: the writers read static files and write their
+// outputs only through `os/os.h`, from templates that each test loads first.
 
 /**
  * @brief Initializes a configuration rooted at `templates` and `public`, with no outputs.
@@ -49,6 +50,23 @@ static void init_writer(struct OutputWriter* writer,
     TEST_CHECK(manifest_add(manifest, str_from_cstr(output_paths[i]), S("test"), arena, NULL) == 0);
   }
   *writer = (struct OutputWriter){.manifest = manifest, .os = os};
+}
+
+/**
+ * @brief Loads the templates `names` below `templates/` of `os` as a set, which the test releases.
+ *
+ * @param os    Host holding the templates. Must not be `NULL`.
+ * @param names Array of `count` template names. Must not be `NULL`.
+ * @param count Number of entries in `names`.
+ * @return The set, in an arena of its own.
+ */
+static struct TemplateSet* load_templates(struct Os* os, const struct Str* names, ptrdiff_t count) {
+  struct TemplateSet* set = NULL;
+  struct Arena perm = test_arena();
+  struct Log log = test_log();
+  TEST_ASSERT(template_set_load(S("templates"), names, NULL, count, os, &perm, test_arena(), &set,
+                                &log) == 0);
+  return set;
 }
 
 // Templates and static files, nested ones included, land at their planned destinations, and the
@@ -88,10 +106,13 @@ static void test_writes_complete_output_layer(void) {
 
   struct Arena output = test_arena();
   struct Log log = test_log();
-  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 2, entries, 2, false,
-                                         false, os, output, test_arena(), &log) == 0);
-  TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds, 1, entries, 1, true, false,
-                                         os, output, test_arena(), &log) == 0);
+  struct TemplateSet* aggregates_set = load_templates(os, aggregates, 2);
+  struct TemplateSet* feeds_set = load_templates(os, feeds, 1);
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates_set, aggregates, 2,
+                                         entries, 2, false, false, os, output, test_arena(),
+                                         &log) == 0);
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds_set, feeds, 1, entries, 1,
+                                         true, false, os, output, test_arena(), &log) == 0);
   TEST_CHECK(site_writer_copy_static_files(&writer, &site_config, &static_paths,
                                            site_config.static_dir, test_arena(), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
@@ -103,6 +124,8 @@ static void test_writes_complete_output_layer(void) {
                                "<updated>2026-07-01T00:00:00Z</updated>"
                                "Newer=https://example.com/newer.html;"));
   TEST_CHECK(os_memory_is_file(os, "public/icons/a.txt", "static"));
+  template_set_release(aggregates_set);
+  template_set_release(feeds_set);
 }
 
 // A feed template gets `feed`: its own absolute URL as `id` and `url`, the site's home as
@@ -147,10 +170,13 @@ static void test_write_templates_gives_feed_data(void) {
 
   struct Arena output = test_arena();
   struct Log log = test_log();
-  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 1, entries, 3, false,
-                                         false, os, output, test_arena(), &log) == 0);
-  TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds, 1, entries, 2, true, false,
-                                         os, output, test_arena(), &log) == 0);
+  struct TemplateSet* aggregates_set = load_templates(os, aggregates, 1);
+  struct TemplateSet* feeds_set = load_templates(os, feeds, 1);
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates_set, aggregates, 1,
+                                         entries, 3, false, false, os, output, test_arena(),
+                                         &log) == 0);
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds_set, feeds, 1, entries, 2,
+                                         true, false, os, output, test_arena(), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(
       os_memory_is_file(os, "public/index.html", "[];2026-06-15T00:00:00Z;2026-08-01T00:00:00Z;"));
@@ -160,6 +186,8 @@ static void test_write_templates_gives_feed_data(void) {
                         "https://example.com/|2026-07-01T00:00:00Z|"
                         "2026-07-01T00:00:00Z=https://example.com/newer.html;"
                         "2026-06-15T00:00:00Z=https://example.com/older.html;"));
+  template_set_release(aggregates_set);
+  template_set_release(feeds_set);
 }
 
 // An aggregate or a feed resolves `path_to_root` from its own name, which is also its output path
@@ -185,15 +213,19 @@ static void test_write_templates_renders_path_to_root_per_template(void) {
 
   struct Arena output = test_arena();
   struct Log log = test_log();
-  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 3, NULL, 0, false,
+  struct TemplateSet* aggregates_set = load_templates(os, aggregates, 3);
+  struct TemplateSet* feeds_set = load_templates(os, feeds, 1);
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates_set, aggregates, 3, NULL,
+                                         0, false, false, os, output, test_arena(), &log) == 0);
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds_set, feeds, 1, NULL, 0, true,
                                          false, os, output, test_arena(), &log) == 0);
-  TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds, 1, NULL, 0, true, false, os,
-                                         output, test_arena(), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_file(os, "public/index.html", "[]"));
   TEST_CHECK(os_memory_is_file(os, "public/field-notes/index.html", "[../]"));
   TEST_CHECK(os_memory_is_file(os, "public/a/b/c.html", "[../../]"));
   TEST_CHECK(os_memory_is_file(os, "public/feeds/atom.xml", "[../]"));
+  template_set_release(aggregates_set);
+  template_set_release(feeds_set);
 }
 
 // A file below another root keeps its path relative to that root, not to `static_dir`.
@@ -235,10 +267,12 @@ static void test_write_templates_reports_write_failure(void) {
 
   struct Arena output = test_arena();
   struct Log log = test_log();
-  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates, 1, NULL, 0, false,
-                                         false, os, output, test_arena(), &log) == -1);
+  struct TemplateSet* aggregates_set = load_templates(os, aggregates, 1);
+  TEST_CHECK(site_writer_write_templates(&writer, &site_config, aggregates_set, aggregates, 1, NULL,
+                                         0, false, false, os, output, test_arena(), &log) == -1);
   TEST_CHECK(
       test_log_is(&log, "failed to write page: %s ('public/index.html')\n", strerror(EISDIR)));
+  template_set_release(aggregates_set);
 }
 
 // A failed static copy names the operation and the cause, then the path that failed: the

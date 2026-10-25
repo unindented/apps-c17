@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "build/template.h"
+#include "build/template_context.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/str.h"
@@ -15,6 +15,7 @@
 #include "output/output_path.h"
 #include "output/output_writer.h"
 #include "runtime/job.h"
+#include "templates/template_set.h"
 
 /**
  * Worker context shared by all content entry page render jobs. Every field is read-only to a job,
@@ -31,10 +32,10 @@ struct PageRenderContext {
    */
   struct TemplateContext base_context;
 
-  /** Template directory root shared by every render job. */
-  struct Str templates_dir;
+  /** Templates every job renders from, read by every worker at once. */
+  const struct TemplateSet* template_set;
 
-  /** Host every job reads its templates from. */
+  /** Host every job inspects its output on. */
   struct Os* os;
 
   /** Writer every job writes its page through. */
@@ -73,10 +74,9 @@ static int render_content_page_job(ptrdiff_t index,
 /**
  * @brief Renders one content entry through its configured content template.
  *
- * @param templates_dir          Template directory root.
+ * @param template_set           Templates the page renders from. Must not be `NULL`.
  * @param context                Template context whose `content_entry_current` is the entry to
  *                               render. Must not be `NULL`.
- * @param os                     Host the templates are read from. Must not be `NULL`.
  * @param perm                   Arena that owns the HTML. Must not be `NULL`.
  * @param scratch                Arena for the render's temporaries.
  * @param html_out               Receives the HTML owned by `perm` on success. Must not be `NULL`.
@@ -85,14 +85,13 @@ static int render_content_page_job(ptrdiff_t index,
  * @param log                    Log of the job, which receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` on render failure.
  */
-static int render_content_page_template(struct Str templates_dir,
+static int render_content_page_template(const struct TemplateSet* template_set,
                                         const struct TemplateContext* context,
-                                        struct Os* os,
                                         struct Arena* perm,
                                         struct Arena scratch,
                                         struct Str* html_out,
                                         bool* is_entry_list_read_out,
-                                        struct Log* log) __attribute__((nonnull(2, 3, 4, 6, 7, 8)));
+                                        struct Log* log) __attribute__((nonnull(1, 2, 3, 5, 6, 7)));
 
 /**
  * @brief Finds the build cache row that vouches for one content entry's page, when the page exists.
@@ -129,6 +128,7 @@ static int render_content_page_write(const struct OutputWriter* writer,
 
 int page_renderer_render_pages(const struct OutputWriter* writer,
                                const struct SiteConfig* site_config,
+                               const struct TemplateSet* template_set,
                                const struct ContentEntry* const* source_entries,
                                ptrdiff_t source_entry_count,
                                const struct ContentEntry* const* content_entries,
@@ -149,7 +149,7 @@ int page_renderer_render_pages(const struct OutputWriter* writer,
               .content_entries = content_entries,
               .content_entry_count = content_entry_count,
           },
-      .templates_dir = site_config->templates_dir,
+      .template_set = template_set,
       .os = os,
       .writer = writer,
       .source_entries = source_entries,
@@ -197,9 +197,8 @@ static int render_content_page_job(ptrdiff_t index,
     // decides how deep the page is.
     template_context.path_to_root = output_path_to_root(str_tail(entry->url_path, 1), &scratch);
     struct Str rendered_html = {0};
-    rc = render_content_page_template(context->templates_dir, &template_context, context->os, &perm,
-                                      scratch, &rendered_html, &context->entry_list_flags[index],
-                                      log);
+    rc = render_content_page_template(context->template_set, &template_context, &perm, scratch,
+                                      &rendered_html, &context->entry_list_flags[index], log);
     if (rc == 0) {
       // The render has returned, so its temporaries are dead and the write can reuse the region.
       rc = render_content_page_write(context->writer, entry, rendered_html, arenas->scratch, log);
@@ -211,9 +210,8 @@ static int render_content_page_job(ptrdiff_t index,
   return rc;
 }
 
-static int render_content_page_template(struct Str templates_dir,
+static int render_content_page_template(const struct TemplateSet* template_set,
                                         const struct TemplateContext* context,
-                                        struct Os* os,
                                         struct Arena* perm,
                                         struct Arena scratch,
                                         struct Str* html_out,
@@ -222,9 +220,9 @@ static int render_content_page_template(struct Str templates_dir,
   const struct ContentEntry* entry = context->content_entry_current;
   const struct Str template_name =
       entry->template.len > 0 ? entry->template : context->site_config->content_template;
-  // The render names the entry in its failure, because `content_entry_current` is set.
-  return template_render_file(templates_dir, template_name, context, os, perm, scratch, html_out,
-                              is_entry_list_read_out, log);
+  // The page's path below `output_dir` is its URL without the leading `/`, which a failure names.
+  return template_context_render(template_set, template_name, context, str_tail(entry->url_path, 1),
+                                 perm, scratch, html_out, is_entry_list_read_out, log);
 }
 
 static const struct BuildCacheEntry* render_content_page_find_fresh_row(

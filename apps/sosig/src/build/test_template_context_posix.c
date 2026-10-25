@@ -2,19 +2,20 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "build/template.h"
+#include "build/template_context.h"
 #include "core/arena.h"
 #include "core/log.h"
 #include "core/str.h"
 #include "domain/content_entry.h"
 #include "domain/site_config.h"
 #include "os/os_posix.h"
+#include "templates/template_set.h"
 #include "testing/test_support.h"
 
 // These tests run on the POSIX host, because they render the real templates of the golden site
 // `tests/fixtures/site_file_permalink`, which only the real filesystem holds. The test runs from
-// the project's source directory. `test_template.c` runs the rest of the renderer on the in-memory
-// host.
+// the project's source directory. `test_template_context.c` runs the rest of the data on the
+// in-memory host.
 
 /** Templates of the golden site the tests render, relative to the project's source directory. */
 #define GOLDEN_TEMPLATES_DIR "tests/fixtures/site_file_permalink/templates"
@@ -52,26 +53,35 @@ static void init_test_content_entry(struct ContentEntry* entry) {
 }
 
 /**
- * @brief Renders a template of the golden site through `template_render_file` and hands back the
- *        HTML as a C string.
+ * @brief Loads a template of the golden site, renders it through `template_context_render`, and
+ *        hands back the HTML as a C string.
  *
  * The assertions inspect the rendered text with `strstr`, so the helper hands it back terminated,
  * copied after the HTML in `perm`. Rendered output holds no `NUL` byte, so the copy loses nothing.
  *
  * @param template_name Terminated name of a template below `GOLDEN_TEMPLATES_DIR`.
  * @param context       Template context. Must not be `NULL`.
- * @param perm          Arena that owns the HTML and its terminated copy. Must not be `NULL`.
+ * @param perm          Arena that owns the set, the HTML and its terminated copy. Must not be
+ *                      `NULL`.
  * @param html_out      Receives the terminated HTML on success. Must not be `NULL`.
- * @return `0` on success, or `-1` when the render failed.
+ * @return `0` on success, or `-1` when the load or the render failed.
  */
 static int render(const char* template_name,
                   const struct TemplateContext* context,
                   struct Arena* perm,
                   char** html_out) {
   struct Log log = test_log();
+  const struct Str name = str_from_cstr(template_name);
+  struct TemplateSet* set = NULL;
+  if (template_set_load(S(GOLDEN_TEMPLATES_DIR), &name, NULL, 1, os_posix(), perm, test_arena(),
+                        &set, &log) != 0) {
+    return -1;
+  }
   struct Str html = {0};
-  if (template_render_file(S(GOLDEN_TEMPLATES_DIR), str_from_cstr(template_name), context,
-                           os_posix(), perm, test_arena(), &html, NULL, &log) != 0) {
+  const int rc =
+      template_context_render(set, name, context, name, perm, test_arena(), &html, NULL, &log);
+  template_set_release(set);
+  if (rc != 0) {
     return -1;
   }
   *html_out = str_cstr(html, perm);
