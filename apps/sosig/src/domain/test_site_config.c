@@ -1,24 +1,20 @@
-#define _DARWIN_C_SOURCE
-#define _DEFAULT_SOURCE
-
 #include <acutest.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 
+#include "core/arena.h"
 #include "core/buf.h"
 #include "core/error.h"
 #include "core/log.h"
 #include "core/str.h"
 #include "domain/site_config.h"
-#include "os/os.h"
-#include "os/os_posix.h"
+#include "os/os_memory.h"
 #include "testing/test_support.h"
+
+// Every test here runs against the in-memory host, whose root is the working directory a load
+// resolves the config path from, and which keeps what `site_config_print` prints.
 
 /**
  * Size of a buffer for an expected diagnostic. The log never truncates, so this only has to hold
@@ -26,26 +22,21 @@
  */
 enum { EXPECTED_SIZE = 8192 };
 
-/** Fixture root template for a config written by `write_temp_config`. */
-#define TEMP_CONFIG_ROOT_TEMPLATE "/tmp/sosig-site-config-test.XXXXXX"
-
-/** A `sosig.toml` written alone into a fresh fixture root. */
-struct TempConfig {
-  /** Fixture root, which `remove_fixture_tree` removes together with the config. */
-  char root_dir[sizeof(TEMP_CONFIG_ROOT_TEMPLATE)];
-
-  /** Path of the written config. */
-  char path[sizeof(TEMP_CONFIG_ROOT_TEMPLATE) + sizeof("/sosig.toml") - 1];
-};
+/**
+ * Path `load_text` writes a config to. It lies below a directory, so a relative directory resolved
+ * against the config's directory shows that directory.
+ */
+#define CONFIG_PATH "site/sosig.toml"
 
 /**
- * @brief Loads a config with a fresh long-lived arena and a fresh scratch arena.
+ * @brief Loads a config from a host with a fresh long-lived arena and a fresh scratch arena.
  *
  * Each call reserves its own two arenas, so the loaded values stay valid for the rest of the test
  * and never overlap the scratch the load worked in.
  *
  * @param site_config Initialized config that receives the values. Must not be `NULL`.
  * @param config_path Terminated path of the config to load. Must not be `NULL`.
+ * @param os          Host holding the config. Must not be `NULL`.
  * @param log         Log that receives every error the load records. Must not be `NULL`.
  * @return `0` when the config was loaded with no error, or `-1` when it could not be read or
  *         parsed, or any key was rejected. `site_config_load` itself returns `0` in the last case,
@@ -53,101 +44,55 @@ struct TempConfig {
  */
 static int load_site_config(struct SiteConfig* site_config,
                             const char* config_path,
+                            struct Os* os,
                             struct Log* log) {
   struct Arena perm = test_arena();
-  const int rc = site_config_load(site_config, str_from_cstr(config_path), os_posix(), &perm,
-                                  test_arena(), log);
+  const int rc =
+      site_config_load(site_config, str_from_cstr(config_path), os, &perm, test_arena(), log);
   return rc != 0 || log->errors > 0 ? -1 : 0;
 }
 
 /**
- * @brief Loads a config from a path relative to a fixture root, with the root as the working
- *        directory, as a command loads the path that `-c` names.
+ * @brief Writes TOML to `CONFIG_PATH` on a fresh host and loads it with `load_site_config`.
  *
  * @param site_config Initialized config that receives the values. Must not be `NULL`.
- * @param root_dir    Terminated fixture root to load from. Must not be `NULL`.
- * @param config_path Terminated path of the config, relative to `root_dir`. Must not be `NULL`.
+ * @param toml        Terminated TOML text of the config. Must not be `NULL`.
  * @param log         Log that receives every error the load records. Must not be `NULL`.
- * @return The result of `load_site_config`, or `-1` when the working directory cannot be changed or
- *         restored.
+ * @return The result of `load_site_config`.
  */
-static int load_site_config_in(struct SiteConfig* site_config,
-                               const char* root_dir,
-                               const char* config_path,
-                               struct Log* log) {
-  int saved_dir_fd = -1;
-  if (working_dir_enter(root_dir, &saved_dir_fd) != 0) {
-    return -1;
-  }
-  const int rc = load_site_config(site_config, config_path, log);
-  return working_dir_leave(saved_dir_fd) == 0 ? rc : -1;
+static int load_text(struct SiteConfig* site_config, const char* toml, struct Log* log) {
+  struct Os* os = os_memory();
+  os_memory_write(os, CONFIG_PATH, toml);
+  return load_site_config(site_config, CONFIG_PATH, os, log);
 }
 
 /**
- * @brief Renders a site configuration into a terminated text buffer.
+ * @brief Reports whether `dir` is `name` resolved against the directory of `CONFIG_PATH`.
  *
- * `site_config_print` writes to standard output, so its descriptor is captured while it runs.
- *
- * @param site_config  Configuration to render.
- * @param text_out     Buffer that receives the rendered text.
- * @param text_out_len Size of `text_out` in bytes. Must be non-zero.
- * @return `0` on success, or `-1` after recording a test failure.
+ * @param dir  Directory the load produced.
+ * @param name Terminated directory as the config names it, or its default. Must not be `NULL`.
+ * @return `true` when `dir` is `site/<name>`.
  */
-static int render(const struct SiteConfig* site_config, char* text_out, ptrdiff_t text_out_len) {
-  text_out[0] = '\0';
-  struct StreamCapture capture;
-  if (capture_begin(stdout, &capture) != 0) {
-    return -1;
-  }
-  const bool is_printed = TEST_CHECK(site_config_print(site_config, os_posix(), test_arena()) == 0);
-  const bool is_captured = capture_end(&capture, text_out, text_out_len) == 0;
-  return is_printed && is_captured ? 0 : -1;
-}
-
-/**
- * @brief Writes TOML to `sosig.toml` in a fresh fixture root.
- *
- * On success the caller removes the root with `remove_fixture_tree(temp_config_out->root_dir)`. On
- * failure no fixture is left behind.
- *
- * @param temp_config_out Receives the fixture root and the config path.
- * @param toml            Terminated TOML text to write.
- * @return `0` on success, or `-1` after recording a test-plumbing failure.
- */
-static int write_temp_config(struct TempConfig* temp_config_out, const char* toml) {
-  memcpy(temp_config_out->root_dir, TEMP_CONFIG_ROOT_TEMPLATE, sizeof(TEMP_CONFIG_ROOT_TEMPLATE));
-  if (init_fixture_dir(temp_config_out->root_dir) != 0) {
-    return -1;
-  }
-  const int n = snprintf(temp_config_out->path, sizeof(temp_config_out->path), "%s/sosig.toml",
-                         temp_config_out->root_dir);
-  if (!TEST_CHECK(n > 0 && (size_t)n < sizeof(temp_config_out->path))) {
-    remove_fixture_tree(temp_config_out->root_dir);
-    return -1;
-  }
-  if (!TEST_CHECK(write_fixture_file(temp_config_out->root_dir, "sosig.toml", toml) == 0)) {
-    remove_fixture_tree(temp_config_out->root_dir);
-    return -1;
-  }
-  return 0;
-}
-
-/**
- * @brief Reports whether `dir` is `name` resolved against the fixture root of `temp_config`, the
- *        directory its config is in.
- *
- * @param dir         Directory the load produced.
- * @param temp_config Fixture whose config the load read. Must not be `NULL`.
- * @param name        Terminated directory as the config names it, or its default. Must not be
- *                    `NULL`.
- * @return `true` when `dir` is `<root_dir>/<name>`.
- */
-static bool is_fixture_dir(struct Str dir, const struct TempConfig* temp_config, const char* name) {
+static bool is_config_dir(struct Str dir, const char* name) {
   struct Arena arena = test_arena();
   struct Buf expected = {.arena = &arena};
-  buf_printf(&expected, "%s/%s", temp_config->root_dir, name);
+  buf_printf(&expected, "site/%s", name);
   TEST_MSG("expected '%s', got '%.*s'", buf_cstr(&expected), STR_FMT(dir));
   return str_eq(dir, buf_str(&expected));
+}
+
+/**
+ * @brief Prints a site configuration on a fresh host.
+ *
+ * Records a test failure when the print fails.
+ *
+ * @param site_config Configuration to print. Must not be `NULL`.
+ * @return The host, whose standard output holds the printed text.
+ */
+static struct Os* print_config(const struct SiteConfig* site_config) {
+  struct Os* os = os_memory();
+  TEST_CHECK(site_config_print(site_config, os, test_arena()) == 0);
+  return os;
 }
 
 /**
@@ -166,18 +111,11 @@ static void check_load_rejects(const char* toml_extra, const char* expected) {
                          "%s",
                          toml_extra);
   TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
-
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
   TEST_CHECK(test_log_is_one(&log, expected));
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 /**
@@ -201,39 +139,27 @@ static void test_load_applies_required_and_defaults(void) {
       "description = \"Example notes\"\n"
       "author = \"Example Author\"\n"
       "base_url = \"https://example.com\"\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
-
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
 
   TEST_CHECK(str_eq(config.title, S("Example Site")));
   TEST_CHECK(str_eq(config.description, S("Example notes")));
   TEST_CHECK(str_eq(config.author, S("Example Author")));
   TEST_CHECK(str_eq(config.base_url, S("https://example.com")));
   TEST_CHECK(str_eq(config.permalink, S("/{section}/{slug}.html")));
-  TEST_CHECK(is_fixture_dir(config.content_dir, &temp_config, "content"));
-  TEST_CHECK(is_fixture_dir(config.output_dir, &temp_config, "public"));
-  TEST_CHECK(is_fixture_dir(config.templates_dir, &temp_config, "templates"));
-  TEST_CHECK(is_fixture_dir(config.static_dir, &temp_config, "static"));
+  TEST_CHECK(is_config_dir(config.content_dir, "content"));
+  TEST_CHECK(is_config_dir(config.output_dir, "public"));
+  TEST_CHECK(is_config_dir(config.templates_dir, "templates"));
+  TEST_CHECK(is_config_dir(config.static_dir, "static"));
   TEST_CHECK(str_eq(config.content_template, S("content.html")));
-  if (!TEST_CHECK(config.aggregate_template_count == 1)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(config.aggregate_template_count == 1);
   TEST_CHECK(str_eq(config.aggregate_templates[0], S("index.html")));
-  if (!TEST_CHECK(config.feed_template_count == 1)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(config.feed_template_count == 1);
   TEST_CHECK(str_eq(config.feed_templates[0], S("atom.xml")));
   TEST_CHECK(config.feed_count == 25);
   TEST_CHECK(config.frontmatter_ignored_key_count == 0);
-
-cleanup:
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // Loading a file that sets every optional key overrides each corresponding default.
@@ -253,37 +179,25 @@ static void test_load_overrides_optional_keys(void) {
       "feed_templates = []\n"
       "feed_count = 5\n"
       "frontmatter_ignored_keys = [\"identifier\", \"signature\"]\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
-
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
 
   TEST_CHECK(str_eq(config.permalink, S("/{slug}/index.html")));
-  TEST_CHECK(is_fixture_dir(config.content_dir, &temp_config, "posts"));
-  TEST_CHECK(is_fixture_dir(config.output_dir, &temp_config, "dist"));
-  TEST_CHECK(is_fixture_dir(config.templates_dir, &temp_config, "layouts"));
-  TEST_CHECK(is_fixture_dir(config.static_dir, &temp_config, "files"));
+  TEST_CHECK(is_config_dir(config.content_dir, "posts"));
+  TEST_CHECK(is_config_dir(config.output_dir, "dist"));
+  TEST_CHECK(is_config_dir(config.templates_dir, "layouts"));
+  TEST_CHECK(is_config_dir(config.static_dir, "files"));
   TEST_CHECK(str_eq(config.content_template, S("post.html")));
-  if (!TEST_CHECK(config.aggregate_template_count == 2)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(config.aggregate_template_count == 2);
   TEST_CHECK(str_eq(config.aggregate_templates[0], S("index.html")));
   TEST_CHECK(str_eq(config.aggregate_templates[1], S("archive.html")));
   TEST_CHECK(config.feed_template_count == 0);
   TEST_CHECK(config.feed_count == 5);
-  if (!TEST_CHECK(config.frontmatter_ignored_key_count == 2)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(config.frontmatter_ignored_key_count == 2);
   TEST_CHECK(str_eq(config.frontmatter_ignored_keys[0], S("identifier")));
   TEST_CHECK(str_eq(config.frontmatter_ignored_keys[1], S("signature")));
-
-cleanup:
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // Directory keys have trailing separators trimmed at load. Left in place, a trailing slash defeats
@@ -300,54 +214,37 @@ static void test_load_normalizes_directory_keys(void) {
       "output_dir = \"/srv/www///\"\n"
       "templates_dir = \"../shared/templates/\"\n"
       "static_dir = \"files/\"\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
-
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(is_fixture_dir(config.content_dir, &temp_config, "content"));
+  TEST_CHECK(is_config_dir(config.content_dir, "content"));
   TEST_CHECK(str_eq(config.output_dir, S("/srv/www")));
-  TEST_CHECK(is_fixture_dir(config.templates_dir, &temp_config, "../shared/templates"));
-  TEST_CHECK(is_fixture_dir(config.static_dir, &temp_config, "files"));
-
-  remove_fixture_tree(temp_config.root_dir);
+  TEST_CHECK(is_config_dir(config.templates_dir, "../shared/templates"));
+  TEST_CHECK(is_config_dir(config.static_dir, "files"));
 }
 
 // A relative directory, given or default, resolves against the config's directory, and an absolute
 // one stays as it is, so `-c site/sosig.toml` reads and writes next to the config.
 static void test_load_resolves_directories_against_config_dir(void) {
-  char root_dir[] = "/tmp/sosig-site-config-sub.XXXXXX";
-  if (init_fixture_dir(root_dir) != 0) {
-    return;
-  }
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  if (!TEST_CHECK(write_fixture_file(root_dir, "site/sosig.toml",
-                                     "title = \"Example Site\"\n"
-                                     "description = \"Example notes\"\n"
-                                     "author = \"Example Author\"\n"
-                                     "base_url = \"https://example.com\"\n"
-                                     "content_dir = \"../posts\"\n"
-                                     "templates_dir = \"layouts/\"\n"
-                                     "static_dir = \"/srv/static\"\n") == 0)) {
-    goto cleanup;
-  }
-
-  TEST_CHECK(load_site_config_in(&config, root_dir, "site/sosig.toml", &log) == 0);
+  TEST_CHECK(load_text(&config,
+                       "title = \"Example Site\"\n"
+                       "description = \"Example notes\"\n"
+                       "author = \"Example Author\"\n"
+                       "base_url = \"https://example.com\"\n"
+                       "content_dir = \"../posts\"\n"
+                       "templates_dir = \"layouts/\"\n"
+                       "static_dir = \"/srv/static\"\n",
+                       &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(str_eq(config.content_dir, S("site/../posts")));
   TEST_CHECK(str_eq(config.output_dir, S("site/public")));
   TEST_CHECK(str_eq(config.templates_dir, S("site/layouts")));
   TEST_CHECK(str_eq(config.static_dir, S("/srv/static")));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An absolute `base_url` keeps its scheme, host, port and path, and loses only a trailing `/`,
@@ -371,19 +268,12 @@ static void test_load_normalizes_base_url(void) {
                            "base_url = \"%s\"\n",
                            cases[i][0]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, toml) != 0) {
-      continue;
-    }
-
     struct SiteConfig config;
     site_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_site_config(&config, temp_config.path, &log) == 0);
+    TEST_CHECK(load_text(&config, toml, &log) == 0);
     TEST_CHECK(log.errors == 0);
     TEST_CHECK(str_eq(config.base_url, str_from_cstr(cases[i][1])));
-
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -397,20 +287,13 @@ static void test_load_leaves_directory_overlap_to_the_build(void) {
       "base_url = \"https://example.com\"\n"
       "content_dir = \"posts\"\n"
       "output_dir = \"posts/generated\"\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
-
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(is_fixture_dir(config.content_dir, &temp_config, "posts"));
-  TEST_CHECK(is_fixture_dir(config.output_dir, &temp_config, "posts/generated"));
-
-  remove_fixture_tree(temp_config.root_dir);
+  TEST_CHECK(is_config_dir(config.content_dir, "posts"));
+  TEST_CHECK(is_config_dir(config.output_dir, "posts/generated"));
 }
 
 // Permalink patterns that expand to a safe relative path are accepted, including a directory-style
@@ -432,19 +315,12 @@ static void test_load_accepts_valid_permalinks(void) {
                            "permalink = \"%s\"\n",
                            permalinks_valid[i]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, toml) != 0) {
-      continue;
-    }
-
     struct SiteConfig config;
     site_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_site_config(&config, temp_config.path, &log) == 0);
+    TEST_CHECK(load_text(&config, toml, &log) == 0);
     TEST_CHECK(log.errors == 0);
     TEST_CHECK(str_eq(config.permalink, str_from_cstr(permalinks_valid[i])));
-
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -458,19 +334,12 @@ static void test_load_accepts_zero_feed_count(void) {
       "author = \"Example Author\"\n"
       "base_url = \"https://example.com\"\n"
       "feed_count = 0\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
-
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
   TEST_CHECK(config.feed_count == 0);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // Loading a config path that does not exist reports a read failure naming the path and cause.
@@ -478,81 +347,57 @@ static void test_load_rejects_missing_file(void) {
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  const char* missing_path = "/tmp/sosig-site-config-test-missing.toml";
-  TEST_CHECK(load_site_config(&config, missing_path, &log) == -1);
+  TEST_CHECK(load_site_config(&config, CONFIG_PATH, os_memory(), &log) == -1);
   // The cause distinguishes a missing file from an unreadable or malformed one. Derived from the
   // running libc rather than hardcoded, so the assertion is the whole claim and stays portable.
   char reason[ERROR_SYSTEM_MESSAGE_SIZE];
   char expected[EXPECTED_SIZE];
   const int expected_len =
       snprintf(expected, sizeof(expected), "failed to read config: %s ('%s')",
-               error_system_message(reason, sizeof(reason), ENOENT), missing_path);
+               error_system_message(reason, sizeof(reason), ENOENT), CONFIG_PATH);
   TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(test_log_is_one(&log, expected));
 }
 
 // A config larger than `CONFIG_FILE_LEN_MAX` is rejected at the read, from its size, naming the
 // limit and the size. The constant is file-local to `site_config.c`, so the 1 MiB below is spelled
-// out and must change with it. The file is sparse, so the fixture costs no disk.
+// out and must change with it. The host stores only the size of the extension, so the fixture costs
+// no memory.
 static void test_load_rejects_oversize_file(void) {
   enum { CONFIG_FILE_LEN_MAX = 1024 * 1024 };
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, "title = \"Site\"\n") != 0) {
-    return;
-  }
-  const off_t config_len = (off_t)CONFIG_FILE_LEN_MAX + 1;
+  const ptrdiff_t config_len = (ptrdiff_t)CONFIG_FILE_LEN_MAX + 1;
+  struct Os* os = os_memory();
+  os_memory_write(os, CONFIG_PATH, "title = \"Site\"\n");
+  os_memory_truncate(os, CONFIG_PATH, config_len);
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
   char expected[EXPECTED_SIZE];
   const int expected_len =
       snprintf(expected, sizeof(expected),
-               "failed to read config: exceeds max file size (%d bytes) at %jd bytes ('%s')",
-               CONFIG_FILE_LEN_MAX, (intmax_t)config_len, temp_config.path);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(truncate(temp_config.path, config_len) == 0)) {
-    goto cleanup;
-  }
+               "failed to read config: exceeds max file size (%d bytes) at %td bytes ('%s')",
+               CONFIG_FILE_LEN_MAX, config_len, CONFIG_PATH);
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
 
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_site_config(&config, CONFIG_PATH, os, &log) == -1);
   TEST_CHECK(test_log_is_one(&log, expected));
-
-cleanup:
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // A config file holding an embedded `NUL` is rejected at the read, before the parse, naming the
 // config path. `os_read` rejects it for every caller, because the byte has no meaning in any format
 // `sosig` reads or writes.
 static void test_load_rejects_nul_in_file(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, "") != 0) {
-    return;
-  }
   static const char config_data[] = "title = \"Site\"\0author = \"Example Author\"\n";
+  struct Os* os = os_memory();
+  os_memory_write_bytes(os, S(CONFIG_PATH),
+                        (struct Str){config_data, (ptrdiff_t)sizeof(config_data) - 1});
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  char expected[EXPECTED_SIZE];
-  const int expected_len =
-      snprintf(expected, sizeof(expected),
-               "failed to read config: contains an embedded NUL byte ('%s')", temp_config.path);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(os_write(os_posix(), str_from_cstr(temp_config.path),
-                           (struct OsSource){.bytes = {config_data, sizeof(config_data) - 1}},
-                           S("failed to write fixture"), &log) == 0)) {
-    goto cleanup;
-  }
 
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
-  TEST_CHECK(test_log_is_one(&log, expected));
-
-cleanup:
-  remove_fixture_tree(temp_config.root_dir);
+  TEST_CHECK(load_site_config(&config, CONFIG_PATH, os, &log) == -1);
+  TEST_CHECK(test_log_is_one(
+      &log, "failed to read config: contains an embedded NUL byte ('" CONFIG_PATH "')"));
 }
 
 // `site_config_load` reports a syntactically malformed config as a parse failure naming the config
@@ -560,15 +405,10 @@ cleanup:
 // error.
 static void test_load_rejects_malformed_toml(void) {
   const char toml[] = "base_url = \n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
-
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
   // The prefix and the trailing attribution are this module's own contribution. The text between
   // them is the vendored parser's `errmsg`, left unpinned so rewording it upstream does not fail
   // this test. The two together are still the whole first-party claim, which neither the
@@ -577,14 +417,10 @@ static void test_load_rejects_malformed_toml(void) {
   const struct Str message = buf_str(&log.buf);
   TEST_CHECK(log.errors == 1);
   TEST_CHECK(str_startswith(message, prefix));
-  char suffix[EXPECTED_SIZE];
-  const int n = snprintf(suffix, sizeof(suffix), " (in '%s')\n", temp_config.path);
-  TEST_CHECK(n > 0 && (size_t)n < sizeof(suffix));
+  const struct Str suffix = S(" (in '" CONFIG_PATH "')\n");
   // A cause of at least one byte has to sit between the two, or the parser reported nothing.
-  TEST_CHECK(message.len > prefix.len + n);
-  TEST_CHECK(str_endswith(message, (struct Str){suffix, n}));
-
-  remove_fixture_tree(temp_config.root_dir);
+  TEST_CHECK(message.len > prefix.len + suffix.len);
+  TEST_CHECK(str_endswith(message, suffix));
 }
 
 /**
@@ -604,15 +440,10 @@ static const char TOML_KEYS_INVALID[] =
 // Every invalid key in one config is reported in one load, in the order the load checks them, not
 // only the first.
 static void test_load_reports_every_invalid_key(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, TOML_KEYS_INVALID) != 0) {
-    return;
-  }
-
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, TOML_KEYS_INVALID, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "unknown config key 'colour'\n"
                          "config key 'title' must be a string\n"
@@ -623,27 +454,19 @@ static void test_load_reports_every_invalid_key(void) {
                          "include the '{slug}' token: '/fixed.html'\n"
                          "config key 'feed_count' must be at least 0: -1\n"));
   TEST_CHECK(log.errors == 6);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // A config that was read and parsed loads successfully even when keys are rejected: the errors are
 // in the log, and the result only says whether there was a file to check.
 static void test_load_returns_zero_with_key_errors(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, TOML_KEYS_INVALID) != 0) {
-    return;
-  }
-
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
+  struct Os* os = os_memory();
+  os_memory_write(os, CONFIG_PATH, TOML_KEYS_INVALID);
   struct Arena perm = test_arena();
-  TEST_CHECK(site_config_load(&config, str_from_cstr(temp_config.path), os_posix(), &perm,
-                              test_arena(), &log) == 0);
+  TEST_CHECK(site_config_load(&config, S(CONFIG_PATH), os, &perm, test_arena(), &log) == 0);
   TEST_CHECK(log.errors == 6);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // A rejected value is never stored. Each rejected key keeps the default `site_config_init` gave it,
@@ -651,16 +474,11 @@ static void test_load_returns_zero_with_key_errors(void) {
 // rejected directory key keeps its default resolved against the config's directory, and is marked
 // as rejected.
 static void test_load_keeps_defaults_for_rejected_keys(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, TOML_KEYS_INVALID) != 0) {
-    return;
-  }
-
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
-  TEST_CHECK(is_fixture_dir(config.content_dir, &temp_config, "content"));
+  TEST_CHECK(load_text(&config, TOML_KEYS_INVALID, &log) == -1);
+  TEST_CHECK(is_config_dir(config.content_dir, "content"));
   TEST_CHECK(config.is_content_dir_rejected);
   TEST_CHECK(!config.is_output_dir_rejected);
   TEST_CHECK(!config.is_templates_dir_rejected);
@@ -671,8 +489,6 @@ static void test_load_keeps_defaults_for_rejected_keys(void) {
   TEST_CHECK(str_eq(config.description, S("Example notes")));
   TEST_CHECK(str_eq(config.author, S("Example Author")));
   TEST_CHECK(config.base_url.len == 0);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 /**
@@ -716,22 +532,15 @@ static void test_load_rejects_missing_required_key(void) {
   for (ptrdiff_t i = 0; i < REQUIRED_KEY_COUNT; i++) {
     char toml[512];
     format_required_keys(i, "", toml, sizeof(toml));
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, toml) != 0) {
-      continue;
-    }
-
     struct SiteConfig config;
     site_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+    TEST_CHECK(load_text(&config, toml, &log) == -1);
     char expected[EXPECTED_SIZE];
     (void)snprintf(expected, sizeof(expected), "missing required config key '%s'",
                    REQUIRED_KEY_LINES[i][0]);
     TEST_CHECK(test_log_is_one(&log, expected));
     TEST_MSG("key '%s'", REQUIRED_KEY_LINES[i][0]);
-
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -743,15 +552,10 @@ static void test_load_rejects_wrong_key_type(void) {
     (void)snprintf(line, sizeof(line), "%s = 123\n", REQUIRED_KEY_LINES[i][0]);
     char toml[512];
     format_required_keys(i, line, toml, sizeof(toml));
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, toml) != 0) {
-      continue;
-    }
-
     struct SiteConfig config;
     site_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+    TEST_CHECK(load_text(&config, toml, &log) == -1);
     char expected[EXPECTED_SIZE];
     (void)snprintf(expected, sizeof(expected), "config key '%s' must be a string",
                    REQUIRED_KEY_LINES[i][0]);
@@ -762,8 +566,6 @@ static void test_load_rejects_wrong_key_type(void) {
                    "one field for each required key");
     TEST_CHECK(fields[i].len == 0);
     TEST_MSG("key '%s'", REQUIRED_KEY_LINES[i][0]);
-
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -792,17 +594,12 @@ static void test_load_rejects_unknown_keys(void) {
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, cases[i][0]) != 0) {
-      continue;
-    }
     struct SiteConfig config;
     site_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+    TEST_CHECK(load_text(&config, cases[i][0], &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i][1]));
     TEST_MSG("case %td", i);
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -824,17 +621,12 @@ static void test_load_rejects_table_values(void) {
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, cases[i][0]) != 0) {
-      continue;
-    }
     struct SiteConfig config;
     site_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+    TEST_CHECK(load_text(&config, cases[i][0], &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i][1]));
     TEST_MSG("case %td", i);
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -869,18 +661,11 @@ static void test_load_rejects_nul_in_string_values(void) {
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, cases[i][0]) != 0) {
-      continue;
-    }
-
     struct SiteConfig config;
     site_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+    TEST_CHECK(load_text(&config, cases[i][0], &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i][1]));
-
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -901,73 +686,55 @@ static void test_load_rejects_empty_directory_keys(void) {
 // `base_url` needs an HTTP(S) scheme and a host, and a rejected one becomes empty. `core/url`'s
 // tests cover the other URLs without a host.
 static void test_load_rejects_base_url_without_host(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config,
-                        "title = \"Example Site\"\n"
-                        "description = \"Example notes\"\n"
-                        "author = \"Example Author\"\n"
-                        "base_url = \"https:///path\"\n") != 0) {
-    return;
-  }
-
+  const char toml[] =
+      "title = \"Example Site\"\n"
+      "description = \"Example notes\"\n"
+      "author = \"Example Author\"\n"
+      "base_url = \"https:///path\"\n";
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
   TEST_CHECK(test_log_is_one(
       &log,
       "config key 'base_url' must be an absolute 'http://' or 'https://' URL with a "
       "host: 'https:///path'"));
   TEST_CHECK(config.base_url.len == 0);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // `base_url` is required, so a present but empty `base_url` is rejected as a URL without a host,
 // where fram, whose `base_url` is optional, reads it as absent.
 static void test_load_rejects_empty_base_url(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config,
-                        "title = \"Example Site\"\n"
-                        "description = \"Example notes\"\n"
-                        "author = \"Example Author\"\n"
-                        "base_url = \"\"\n") != 0) {
-    return;
-  }
-
+  const char toml[] =
+      "title = \"Example Site\"\n"
+      "description = \"Example notes\"\n"
+      "author = \"Example Author\"\n"
+      "base_url = \"\"\n";
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
   TEST_CHECK(test_log_is_one(
       &log,
       "config key 'base_url' must be an absolute 'http://' or 'https://' URL with a host: ''"));
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // A `base_url` with a query, a fragment, a space or a control byte would break every link below it,
 // so it is rejected, and the config keeps no `base_url`. `core/url`'s tests cover each byte.
 static void test_load_rejects_base_url_with_path_breaking_byte(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config,
-                        "title = \"Example Site\"\n"
-                        "description = \"Example notes\"\n"
-                        "author = \"Example Author\"\n"
-                        "base_url = \"https://example.com/x?y=1\"\n") != 0) {
-    return;
-  }
-
+  const char toml[] =
+      "title = \"Example Site\"\n"
+      "description = \"Example notes\"\n"
+      "author = \"Example Author\"\n"
+      "base_url = \"https://example.com/x?y=1\"\n";
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
   TEST_CHECK(test_log_is_one(&log,
                              "config key 'base_url' must not hold '?', '#', a space or a control "
                              "character: 'https://example.com/x?y=1'"));
   TEST_CHECK(config.base_url.len == 0);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // An unsafe `content_template` is rejected at load, in the singular wording that names the key,
@@ -1016,24 +783,19 @@ static void test_load_rejects_invalid_frontmatter_ignored_keys(void) {
 // reported in element order. A wrong type or a `NUL` byte is reported once however many elements
 // have it, since its message names no element. The rejected key keeps its default.
 static void test_load_reports_every_invalid_template_name(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(
-          &temp_config,
-          "title = \"Example Site\"\n"
-          "description = \"Example notes\"\n"
-          "author = \"Example Author\"\n"
-          "base_url = \"https://example.com\"\n"
-          "feed_templates = [\"../a.xml\", 1, \"a\\u0000b\", \"ok.xml\", \"/b.xml\", 2, "
-          "\"c\\u0000d\"]\n") != 0) {
-    return;
-  }
-
+  const char toml[] =
+      "title = \"Example Site\"\n"
+      "description = \"Example notes\"\n"
+      "author = \"Example Author\"\n"
+      "base_url = \"https://example.com\"\n"
+      "feed_templates = [\"../a.xml\", 1, \"a\\u0000b\", \"ok.xml\", \"/b.xml\", 2, "
+      "\"c\\u0000d\"]\n";
   struct SiteConfig config;
   site_config_init(&config);
   const struct Str* const feed_templates_default = config.feed_templates;
   const ptrdiff_t feed_template_count_default = config.feed_template_count;
   struct Log log = test_log();
-  TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "config key 'feed_templates' must contain only safe relative template "
                          "names: '../a.xml'\n"
@@ -1044,8 +806,6 @@ static void test_load_reports_every_invalid_template_name(void) {
   TEST_CHECK(log.errors == 4);
   TEST_CHECK(config.feed_templates == feed_templates_default);
   TEST_CHECK(config.feed_template_count == feed_template_count_default);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // A permalink that could escape the output directory, or that uses bytes the expanded path cannot
@@ -1070,15 +830,10 @@ static void test_load_rejects_unsafe_permalink(void) {
                            "permalink = \"%s\"\n",
                            permalinks_unsafe[i]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, toml) != 0) {
-      continue;
-    }
-
     struct SiteConfig config;
     site_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+    TEST_CHECK(load_text(&config, toml, &log) == -1);
     char expected[EXPECTED_SIZE];
     const int expected_len =
         snprintf(expected, sizeof(expected),
@@ -1088,8 +843,6 @@ static void test_load_rejects_unsafe_permalink(void) {
                  permalinks_unsafe[i]);
     TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected));
     TEST_CHECK(test_log_is_one(&log, expected));
-
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -1115,15 +868,10 @@ static void test_load_rejects_permalink_without_slug(void) {
                            "permalink = \"%s\"\n",
                            permalinks_indistinct[i]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, toml) != 0) {
-      continue;
-    }
-
     struct SiteConfig config;
     site_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_site_config(&config, temp_config.path, &log) == -1);
+    TEST_CHECK(load_text(&config, toml, &log) == -1);
     char expected[EXPECTED_SIZE];
     const int expected_len =
         snprintf(expected, sizeof(expected),
@@ -1132,8 +880,6 @@ static void test_load_rejects_permalink_without_slug(void) {
                  permalinks_indistinct[i]);
     TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected));
     TEST_CHECK(test_log_is_one(&log, expected));
-
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -1164,26 +910,23 @@ static void test_print_defaults(void) {
   config.author = S("Example Author");
   config.base_url = S("https://example.com");
 
-  char config_out[1024];
-  TEST_ASSERT(render(&config, config_out, sizeof(config_out)) == 0);
-
-  // The whole buffer, not a set of per-line searches: only an exact comparison can catch a key that
+  // The whole output, not a set of per-line searches: only an exact comparison can catch a key that
   // is missing, duplicated, extra, or emitted in the wrong order.
-  TEST_CHECK(strcmp(config_out,
-                    "title = \"Example Site\"\n"
-                    "description = \"Example notes\"\n"
-                    "author = \"Example Author\"\n"
-                    "base_url = \"https://example.com\"\n"
-                    "permalink = \"/{section}/{slug}.html\"\n"
-                    "content_dir = \"content\"\n"
-                    "output_dir = \"public\"\n"
-                    "templates_dir = \"templates\"\n"
-                    "static_dir = \"static\"\n"
-                    "content_template = \"content.html\"\n"
-                    "aggregate_templates = [\"index.html\"]\n"
-                    "feed_templates = [\"atom.xml\"]\n"
-                    "feed_count = 25\n"
-                    "frontmatter_ignored_keys = []\n") == 0);
+  TEST_CHECK(os_memory_is_printed(print_config(&config), 1,
+                                  "title = \"Example Site\"\n"
+                                  "description = \"Example notes\"\n"
+                                  "author = \"Example Author\"\n"
+                                  "base_url = \"https://example.com\"\n"
+                                  "permalink = \"/{section}/{slug}.html\"\n"
+                                  "content_dir = \"content\"\n"
+                                  "output_dir = \"public\"\n"
+                                  "templates_dir = \"templates\"\n"
+                                  "static_dir = \"static\"\n"
+                                  "content_template = \"content.html\"\n"
+                                  "aggregate_templates = [\"index.html\"]\n"
+                                  "feed_templates = [\"atom.xml\"]\n"
+                                  "feed_count = 25\n"
+                                  "frontmatter_ignored_keys = []\n"));
 }
 
 // Printing escapes quotes, backslashes, and every named control escape (\t \b \n \f \r). It uses
@@ -1197,25 +940,22 @@ static void test_print_escapes_strings(void) {
   config.author = S("a\tA\bB\nC\fD\rE\x01Z\x7FG");
   config.base_url = S("https://example.com");
 
-  char config_out[1024];
-  TEST_ASSERT(render(&config, config_out, sizeof(config_out)) == 0);
-
   // Compared whole, so an escape leaking into a neighboring field cannot hide.
-  TEST_CHECK(strcmp(config_out,
-                    "title = \"Quote \\\" and \\\\ backslash\"\n"
-                    "description = \"Example notes\"\n"
-                    "author = \"a\\tA\\bB\\nC\\fD\\rE\\u0001Z\\u007FG\"\n"
-                    "base_url = \"https://example.com\"\n"
-                    "permalink = \"/{section}/{slug}.html\"\n"
-                    "content_dir = \"content\"\n"
-                    "output_dir = \"public\"\n"
-                    "templates_dir = \"templates\"\n"
-                    "static_dir = \"static\"\n"
-                    "content_template = \"content.html\"\n"
-                    "aggregate_templates = [\"index.html\"]\n"
-                    "feed_templates = [\"atom.xml\"]\n"
-                    "feed_count = 25\n"
-                    "frontmatter_ignored_keys = []\n") == 0);
+  TEST_CHECK(os_memory_is_printed(print_config(&config), 1,
+                                  "title = \"Quote \\\" and \\\\ backslash\"\n"
+                                  "description = \"Example notes\"\n"
+                                  "author = \"a\\tA\\bB\\nC\\fD\\rE\\u0001Z\\u007FG\"\n"
+                                  "base_url = \"https://example.com\"\n"
+                                  "permalink = \"/{section}/{slug}.html\"\n"
+                                  "content_dir = \"content\"\n"
+                                  "output_dir = \"public\"\n"
+                                  "templates_dir = \"templates\"\n"
+                                  "static_dir = \"static\"\n"
+                                  "content_template = \"content.html\"\n"
+                                  "aggregate_templates = [\"index.html\"]\n"
+                                  "feed_templates = [\"atom.xml\"]\n"
+                                  "feed_count = 25\n"
+                                  "frontmatter_ignored_keys = []\n"));
 }
 
 // Printing a config and loading the printed output back from the working directory yields the same
@@ -1248,19 +988,14 @@ static void test_print_load_round_trips(void) {
   config.frontmatter_ignored_keys = ignored_keys;
   config.frontmatter_ignored_key_count = 2;
 
-  char config_out[2048];
-  TEST_ASSERT(render(&config, config_out, sizeof(config_out)) == 0);
-
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, config_out) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write_bytes(os, S("sosig.toml"), os_memory_printed(print_config(&config), 1));
 
   struct SiteConfig reloaded;
   site_config_init(&reloaded);
   struct Log log = test_log();
   // A config in the working directory resolves a relative directory to itself.
-  TEST_CHECK(load_site_config_in(&reloaded, temp_config.root_dir, "sosig.toml", &log) == 0);
+  TEST_CHECK(load_site_config(&reloaded, "sosig.toml", os, &log) == 0);
 
   TEST_CHECK(str_eq(reloaded.title, config.title));
   TEST_CHECK(str_eq(reloaded.description, config.description));
@@ -1272,24 +1007,15 @@ static void test_print_load_round_trips(void) {
   TEST_CHECK(str_eq(reloaded.templates_dir, config.templates_dir));
   TEST_CHECK(str_eq(reloaded.static_dir, config.static_dir));
   TEST_CHECK(str_eq(reloaded.content_template, config.content_template));
-  if (!TEST_CHECK(reloaded.aggregate_template_count == 2)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(reloaded.aggregate_template_count == 2);
   TEST_CHECK(str_eq(reloaded.aggregate_templates[0], S("index.html")));
   TEST_CHECK(str_eq(reloaded.aggregate_templates[1], S("archive.html")));
-  if (!TEST_CHECK(reloaded.feed_template_count == 1)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(reloaded.feed_template_count == 1);
   TEST_CHECK(str_eq(reloaded.feed_templates[0], S("atom.xml")));
   TEST_CHECK(reloaded.feed_count == config.feed_count);
-  if (!TEST_CHECK(reloaded.frontmatter_ignored_key_count == 2)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(reloaded.frontmatter_ignored_key_count == 2);
   TEST_CHECK(str_eq(reloaded.frontmatter_ignored_keys[0], S("identifier")));
   TEST_CHECK(str_eq(reloaded.frontmatter_ignored_keys[1], S("signature")));
-
-cleanup:
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // An empty template array survives a load followed by a print. Neither operation alone tests this
@@ -1303,57 +1029,42 @@ static void test_print_empty_template_arrays(void) {
       "base_url = \"https://example.com\"\n"
       "aggregate_templates = []\n"
       "feed_templates = []\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
-
+  struct Os* os = os_memory();
+  os_memory_write(os, "sosig.toml", toml);
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
   // Loaded from the working directory, so the directories print as the config names them.
-  TEST_CHECK(load_site_config_in(&config, temp_config.root_dir, "sosig.toml", &log) == 0);
+  TEST_CHECK(load_site_config(&config, "sosig.toml", os, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  if (!TEST_CHECK(config.aggregate_template_count == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(config.feed_template_count == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(config.aggregate_template_count == 0);
+  TEST_ASSERT(config.feed_template_count == 0);
   // The empty array is a distinct pointer that is not `NULL`.
   TEST_CHECK(config.aggregate_templates != NULL);
   TEST_CHECK(config.feed_templates != NULL);
 
-  char config_out[1024];
-  if (render(&config, config_out, sizeof(config_out)) != 0) {
-    goto cleanup;
-  }
   // Compared whole: an empty array must print as `[]` and must not disturb its neighbors.
-  TEST_CHECK(strcmp(config_out,
-                    "title = \"Example Site\"\n"
-                    "description = \"Example notes\"\n"
-                    "author = \"Example Author\"\n"
-                    "base_url = \"https://example.com\"\n"
-                    "permalink = \"/{section}/{slug}.html\"\n"
-                    "content_dir = \"content\"\n"
-                    "output_dir = \"public\"\n"
-                    "templates_dir = \"templates\"\n"
-                    "static_dir = \"static\"\n"
-                    "content_template = \"content.html\"\n"
-                    "aggregate_templates = []\n"
-                    "feed_templates = []\n"
-                    "feed_count = 25\n"
-                    "frontmatter_ignored_keys = []\n") == 0);
-
-cleanup:
-  remove_fixture_tree(temp_config.root_dir);
+  TEST_CHECK(os_memory_is_printed(print_config(&config), 1,
+                                  "title = \"Example Site\"\n"
+                                  "description = \"Example notes\"\n"
+                                  "author = \"Example Author\"\n"
+                                  "base_url = \"https://example.com\"\n"
+                                  "permalink = \"/{section}/{slug}.html\"\n"
+                                  "content_dir = \"content\"\n"
+                                  "output_dir = \"public\"\n"
+                                  "templates_dir = \"templates\"\n"
+                                  "static_dir = \"static\"\n"
+                                  "content_template = \"content.html\"\n"
+                                  "aggregate_templates = []\n"
+                                  "feed_templates = []\n"
+                                  "feed_count = 25\n"
+                                  "frontmatter_ignored_keys = []\n"));
 }
 
 // A standard output that refuses the write makes `site_config_print` report `-1` with the write's
 // own `errno`, which is what lets `cmd_config_run` name a reason instead of reporting success over
-// lost output. A read-only descriptor in place of standard output is the deterministic way to get
-// one: every write fails with `EBADF`. The same shape is asserted for `cli_print_version` by
-// `test_print_version_reports_write_failure`.
+// lost output. The host fails the write as a read-only descriptor does, with `EBADF`. The same
+// shape is asserted for `cli_print_version` by `test_print_version_reports_write_failure`.
 static void test_print_reports_write_failure(void) {
   struct SiteConfig config;
   site_config_init(&config);
@@ -1362,16 +1073,11 @@ static void test_print_reports_write_failure(void) {
   config.author = S("Example Author");
   config.base_url = S("https://example.com");
 
-  struct StreamCapture capture;
-  if (capture_begin_unwritable(stdout, &capture) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_fail_print(os, 1, 0, EBADF);
   errno = 0;
-  const int rc = site_config_print(&config, os_posix(), test_arena());
-  const int print_errno = errno;
-  TEST_CHECK(capture_end(&capture, NULL, 0) == 0);
-  TEST_CHECK(rc == -1);
-  TEST_CHECK(print_errno == EBADF);
+  TEST_CHECK(site_config_print(&config, os, test_arena()) == -1);
+  TEST_CHECK(errno == EBADF);
 }
 
 TEST_LIST = {

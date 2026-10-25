@@ -7,10 +7,9 @@ target_sources(
 )
 
 if(APPS_BUILD_TESTING)
-  foreach(module IN ITEMS cli cli_dispatch cmd_config)
-    apps_add_unit_test(${module})
+  # The commands read, walk, write and print only through `os/os.h`, so their tests use the
+  # in-memory host.
+  foreach(module IN ITEMS cli cli_dispatch cmd_build cmd_config)
+    apps_add_unit_test(${module} OS memory)
   endforeach()
-  # A build reads, walks and writes only through `os/os.h`, so its tests use the in-memory
-  # host.
-  apps_add_unit_test(cmd_build OS memory)
 endif()

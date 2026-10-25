@@ -240,7 +240,7 @@ The source archive, `<app>-<version>-source.tar.gz`, holds the whole repository 
 
 The golden tests highlight code blocks, so they need every tree-sitter grammar, as [Grammars](#grammars) describes. The tests registered without `OS memory` link the POSIX host. These tests are:
 
-- the suites that are not yet converted to the in-memory host, which create their fixtures in a real temporary directory: `cli`, `cli_dispatch`, `cmd_config`, `entry_renderer`, `site_config` and `template`
+- `template_posix`, which renders the templates of the golden site `site_file_permalink` from `tests/fixtures/`
 - the tests that use no host
 
 The production render limit is 256 MiB, and a failure test at that limit uses too much memory. Thus the template test passes a 64 KiB limit to `template_render_file_limited`, and does not compile the template code again with a smaller limit.
@@ -286,7 +286,6 @@ The libwebp target compiles the encoder, the decoder, the DSP sources and utilit
 The tests registered without `OS memory` link the POSIX host. These tests are:
 
 - the tests that need the real host: `proc`, `video`, `album_scan_video`, `cmd_build_video` and `derivative_renderer_video`, which run processes or decode video
-- the suites that are not yet converted to the in-memory host, which create their fixtures in a real temporary directory: `cli`, `cli_dispatch`, `cmd_config`, `gallery_config` and `template`
 - the tests that use no host
 
 The production render limit is 256 MiB, and a failure test at that limit uses too much memory. Thus the template test passes a 64 KiB limit to `template_render_file_limited`, and does not compile the template code again with a smaller limit. The derivative renderer exports `derivative_renderer_decode_scale`, which returns the scale that its jobs select, so its test checks this selection directly and not through the decoded output.

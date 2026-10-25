@@ -1,15 +1,8 @@
-#define _DARWIN_C_SOURCE
-#define _DEFAULT_SOURCE
-
 #include <acutest.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 
 #include "core/arena.h"
 #include "core/buf.h"
@@ -19,8 +12,7 @@
 #include "core/str.h"
 #include "domain/gallery_config.h"
 #include "media/image.h"
-#include "os/os.h"
-#include "os/os_posix.h"
+#include "os/os_memory.h"
 #include "testing/test_support.h"
 
 /**
@@ -29,26 +21,25 @@
  */
 enum { EXPECTED_SIZE = 8192 };
 
-/** Fixture root template for a config written by `write_temp_config`. */
-#define TEMP_CONFIG_ROOT_TEMPLATE "/tmp/fram-gallery-config-test.XXXXXX"
+/**
+ * Path of the config that `load_text` writes. It lies in a directory of its own, so a relative
+ * directory the config names resolves to a path below `CONFIG_DIR`, unlike one resolved against the
+ * working directory.
+ */
+#define CONFIG_PATH "site/fram.toml"
 
-/** A `fram.toml` written alone into a fresh fixture root. */
-struct TempConfig {
-  /** Fixture root, which `remove_fixture_tree` removes together with the config. */
-  char root_dir[sizeof(TEMP_CONFIG_ROOT_TEMPLATE)];
-
-  /** Path of the written config. */
-  char path[sizeof(TEMP_CONFIG_ROOT_TEMPLATE) + sizeof("/fram.toml") - 1];
-};
+/** Directory that holds `CONFIG_PATH`, which its relative directories resolve against. */
+#define CONFIG_DIR "site"
 
 /**
- * @brief Loads a config with a fresh long-lived arena and a fresh scratch arena.
+ * @brief Loads a config from a host with a fresh long-lived arena and a fresh scratch arena.
  *
  * Each call reserves its own two arenas, so the loaded values stay valid for the rest of the test
  * and never overlap the scratch the load worked in.
  *
  * @param gallery_config Initialized config that receives the values. Must not be `NULL`.
  * @param config_path    Terminated path of the config to load. Must not be `NULL`.
+ * @param os             Host that holds the config. Must not be `NULL`.
  * @param log            Log that receives every error the load records. Must not be `NULL`.
  * @return `0` when the config was loaded with no error, or `-1` when it could not be read or
  *         parsed, or any key was rejected. `gallery_config_load` itself returns `0` in the last
@@ -56,81 +47,52 @@ struct TempConfig {
  */
 static int load_gallery_config(struct GalleryConfig* gallery_config,
                                const char* config_path,
+                               struct Os* os,
                                struct Log* log) {
   struct Arena perm = test_arena();
-  const int rc = gallery_config_load(gallery_config, str_from_cstr(config_path), os_posix(), &perm,
-                                     test_arena(), log);
+  const int rc =
+      gallery_config_load(gallery_config, str_from_cstr(config_path), os, &perm, test_arena(), log);
   return rc != 0 || log->errors > 0 ? -1 : 0;
 }
 
 /**
- * @brief Renders a gallery configuration into a terminated text buffer.
+ * @brief Writes TOML to `CONFIG_PATH` on a fresh host and loads it, as `load_gallery_config` does.
  *
- * `gallery_config_print` writes to standard output, so its descriptor is captured while it runs.
- *
- * @param gallery_config Configuration to render.
- * @param text_out       Buffer that receives the rendered text.
- * @param text_out_len   Size of `text_out` in bytes. Must be non-zero.
- * @return `0` on success, or `-1` after recording a test failure.
+ * @param gallery_config Initialized config that receives the values. Must not be `NULL`.
+ * @param toml           Terminated TOML text of the config. Must not be `NULL`.
+ * @param log            Log that receives every error the load records. Must not be `NULL`.
+ * @return The result of `load_gallery_config`.
  */
-static int render(const struct GalleryConfig* gallery_config,
-                  char* text_out,
-                  ptrdiff_t text_out_len) {
-  text_out[0] = '\0';
-  struct StreamCapture capture;
-  if (capture_begin(stdout, &capture) != 0) {
-    return -1;
-  }
-  const bool is_printed =
-      TEST_CHECK(gallery_config_print(gallery_config, os_posix(), test_arena()) == 0);
-  const bool is_captured = capture_end(&capture, text_out, text_out_len) == 0;
-  return is_printed && is_captured ? 0 : -1;
+static int load_text(struct GalleryConfig* gallery_config, const char* toml, struct Log* log) {
+  struct Os* os = os_memory();
+  os_memory_write(os, CONFIG_PATH, toml);
+  return load_gallery_config(gallery_config, CONFIG_PATH, os, log);
 }
 
 /**
- * @brief Writes TOML to `fram.toml` in a fresh fixture root.
+ * @brief Prints a gallery configuration on a fresh host.
  *
- * On success the caller removes the root with `remove_fixture_tree(temp_config_out->root_dir)`. On
- * failure no fixture is left behind.
- *
- * @param temp_config_out Receives the fixture root and the config path.
- * @param toml            Terminated TOML text to write.
- * @return `0` on success, or `-1` after recording a test-plumbing failure.
+ * @param gallery_config Configuration to print. Must not be `NULL`.
+ * @return The host, whose standard output holds what `gallery_config_print` wrote.
  */
-static int write_temp_config(struct TempConfig* temp_config_out, const char* toml) {
-  memcpy(temp_config_out->root_dir, TEMP_CONFIG_ROOT_TEMPLATE, sizeof(TEMP_CONFIG_ROOT_TEMPLATE));
-  if (init_fixture_dir(temp_config_out->root_dir) != 0) {
-    return -1;
-  }
-  const int n = snprintf(temp_config_out->path, sizeof(temp_config_out->path), "%s/fram.toml",
-                         temp_config_out->root_dir);
-  if (!TEST_CHECK(n > 0 && (size_t)n < sizeof(temp_config_out->path))) {
-    remove_fixture_tree(temp_config_out->root_dir);
-    return -1;
-  }
-  if (!TEST_CHECK(write_fixture_file(temp_config_out->root_dir, "fram.toml", toml) == 0)) {
-    remove_fixture_tree(temp_config_out->root_dir);
-    return -1;
-  }
-  return 0;
+static struct Os* print_config(const struct GalleryConfig* gallery_config) {
+  struct Os* os = os_memory();
+  TEST_CHECK(gallery_config_print(gallery_config, os, test_arena()) == 0);
+  return os;
 }
 
 /**
- * @brief Reports whether a loaded directory is a relative path resolved against the fixture root,
- *        which holds the config.
+ * @brief Reports whether a loaded directory is a relative path resolved against `CONFIG_DIR`, which
+ *        holds the config.
  *
- * @param temp_config   Fixture whose root the path resolves against. Must not be `NULL`.
  * @param dir           Directory the load produced.
  * @param relative_path Terminated directory as the config, or its default, gives it. Must not be
  *                      `NULL`.
- * @return `true` when `dir` is `relative_path` joined below the fixture root, `false` otherwise.
+ * @return `true` when `dir` is `relative_path` joined below `CONFIG_DIR`, `false` otherwise.
  */
-static bool is_resolved(const struct TempConfig* temp_config,
-                        struct Str dir,
-                        const char* relative_path) {
+static bool is_resolved(struct Str dir, const char* relative_path) {
   struct Arena arena = test_arena();
-  const struct Str expected =
-      path_join(str_from_cstr(temp_config->root_dir), str_from_cstr(relative_path), &arena);
+  const struct Str expected = path_join(S(CONFIG_DIR), str_from_cstr(relative_path), &arena);
   return str_eq(dir, expected);
 }
 
@@ -141,18 +103,11 @@ static bool is_resolved(const struct TempConfig* temp_config,
  * @param expected Exact diagnostic `gallery_config_load` must report.
  */
 static void check_load_rejects_whole(const char* toml, const char* expected) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
-
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
   TEST_CHECK(test_log_is_one(&log, expected));
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 /**
@@ -180,30 +135,24 @@ static void test_load_applies_required_and_defaults(void) {
       "title = \"Example Gallery\"\n"
       "description = \"Example Description\"\n"
       "author = \"Example Author\"\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
 
   TEST_CHECK(str_eq(config.title, S("Example Gallery")));
   TEST_CHECK(str_eq(config.description, S("Example Description")));
   TEST_CHECK(str_eq(config.author, S("Example Author")));
   TEST_CHECK(str_eq(config.base_url, S("")));
-  TEST_CHECK(is_resolved(&temp_config, config.media_dir, "media"));
-  TEST_CHECK(is_resolved(&temp_config, config.output_dir, "public"));
-  TEST_CHECK(is_resolved(&temp_config, config.templates_dir, "templates"));
-  TEST_CHECK(is_resolved(&temp_config, config.static_dir, "static"));
+  TEST_CHECK(is_resolved(config.media_dir, "media"));
+  TEST_CHECK(is_resolved(config.output_dir, "public"));
+  TEST_CHECK(is_resolved(config.templates_dir, "templates"));
+  TEST_CHECK(is_resolved(config.static_dir, "static"));
   TEST_CHECK(str_eq(config.album_template, S("album.html")));
   TEST_CHECK(config.aggregate_templates != NULL);
   TEST_CHECK(config.aggregate_template_count == 0);
-  if (!TEST_CHECK(config.derivative_count == 3)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(config.derivative_count == 3);
   TEST_CHECK(str_eq(config.derivatives[0].name, S("s")));
   TEST_CHECK(config.derivatives[0].width_px == 120);
   TEST_CHECK(config.derivatives[0].height_px == 120);
@@ -222,9 +171,6 @@ static void test_load_applies_required_and_defaults(void) {
   TEST_CHECK(config.album_sort_order == GALLERY_SORT_ASC);
   TEST_CHECK(config.media_sort_order == GALLERY_SORT_ASC);
   TEST_CHECK(config.video_frame_seconds == 1);
-
-cleanup:
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // Loading a file that sets every optional key overrides each corresponding default.
@@ -244,30 +190,22 @@ static void test_load_overrides_optional_keys(void) {
       "display = { width = 1200, height = 900, quality = 93 } }\n"
       "sort = { albums = \"desc\", media = \"desc\" }\n"
       "video_frame_seconds = 17\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
 
   TEST_CHECK(str_eq(config.base_url, S("https://example.com")));
-  TEST_CHECK(is_resolved(&temp_config, config.media_dir, "photos"));
-  TEST_CHECK(is_resolved(&temp_config, config.output_dir, "dist"));
-  TEST_CHECK(is_resolved(&temp_config, config.templates_dir, "layouts"));
-  TEST_CHECK(is_resolved(&temp_config, config.static_dir, "files"));
+  TEST_CHECK(is_resolved(config.media_dir, "photos"));
+  TEST_CHECK(is_resolved(config.output_dir, "dist"));
+  TEST_CHECK(is_resolved(config.templates_dir, "layouts"));
+  TEST_CHECK(is_resolved(config.static_dir, "files"));
   TEST_CHECK(str_eq(config.album_template, S("pages/album.html")));
-  if (!TEST_CHECK(config.aggregate_template_count == 2)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(config.aggregate_template_count == 2);
   TEST_CHECK(str_eq(config.aggregate_templates[0], S("sitemap.xml")));
   TEST_CHECK(str_eq(config.aggregate_templates[1], S("about/index.html")));
-  if (!TEST_CHECK(config.derivative_count == 2)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(config.derivative_count == 2);
   TEST_CHECK(str_eq(config.derivatives[0].name, S("tiny")));
   TEST_CHECK(config.derivatives[0].width_px == 200);
   TEST_CHECK(config.derivatives[0].height_px == 150);
@@ -281,9 +219,6 @@ static void test_load_overrides_optional_keys(void) {
   TEST_CHECK(config.album_sort_order == GALLERY_SORT_DESC);
   TEST_CHECK(config.media_sort_order == GALLERY_SORT_DESC);
   TEST_CHECK(config.video_frame_seconds == 17);
-
-cleanup:
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // Directory keys have trailing separators trimmed at load. Left in place, a trailing slash defeats
@@ -299,22 +234,16 @@ static void test_load_normalizes_directory_keys(void) {
       "output_dir = \"/srv/www///\"\n"
       "templates_dir = \"../shared/templates/\"\n"
       "static_dir = \"files/\"\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(is_resolved(&temp_config, config.media_dir, "media"));
+  TEST_CHECK(is_resolved(config.media_dir, "media"));
   TEST_CHECK(str_eq(config.output_dir, S("/srv/www")));
-  TEST_CHECK(is_resolved(&temp_config, config.templates_dir, "../shared/templates"));
-  TEST_CHECK(is_resolved(&temp_config, config.static_dir, "files"));
-
-  remove_fixture_tree(temp_config.root_dir);
+  TEST_CHECK(is_resolved(config.templates_dir, "../shared/templates"));
+  TEST_CHECK(is_resolved(config.static_dir, "files"));
 }
 
 // An absolute `base_url` keeps its scheme, host, port and path, and loses only a trailing `/`,
@@ -338,42 +267,31 @@ static void test_load_normalizes_base_url(void) {
                            "base_url = \"%s\"\n",
                            cases[i][0]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, toml) != 0) {
-      continue;
-    }
 
     struct GalleryConfig config;
     gallery_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
+    TEST_CHECK(load_text(&config, toml, &log) == 0);
     TEST_CHECK(log.errors == 0);
     TEST_CHECK(str_eq(config.base_url, str_from_cstr(cases[i][1])));
-
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
 // `base_url` is optional, so a present but empty `base_url` reads as absent and loads, where sosig
 // and surge, whose `base_url` is required, reject it.
 static void test_load_accepts_empty_base_url(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config,
-                        "title = \"Example Gallery\"\n"
-                        "description = \"Example Description\"\n"
-                        "author = \"Example Author\"\n"
-                        "base_url = \"\"\n") != 0) {
-    return;
-  }
+  const char toml[] =
+      "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
+      "author = \"Example Author\"\n"
+      "base_url = \"\"\n";
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
   TEST_CHECK(config.base_url.len == 0);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // Overlapping directories load, because comparing path text cannot tell whether two directories
@@ -385,46 +303,31 @@ static void test_load_leaves_directory_overlap_to_the_build(void) {
       "author = \"Example Author\"\n"
       "media_dir = \"photos\"\n"
       "output_dir = \"photos/generated\"\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(is_resolved(&temp_config, config.media_dir, "photos"));
-  TEST_CHECK(is_resolved(&temp_config, config.output_dir, "photos/generated"));
-
-  remove_fixture_tree(temp_config.root_dir);
+  TEST_CHECK(is_resolved(config.media_dir, "photos"));
+  TEST_CHECK(is_resolved(config.output_dir, "photos/generated"));
 }
 
 // A relative directory, given or default, resolves against the config's directory, and an absolute
 // one stays as it is, so `sub/fram.toml` without `output_dir` writes `sub/public`.
 static void test_load_resolves_paths_against_config_dir(void) {
-  char root_dir[] = TEMP_CONFIG_ROOT_TEMPLATE;
-  if (init_fixture_dir(root_dir) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, "sub/fram.toml",
+                  "title = \"Example Gallery\"\n"
+                  "description = \"Example Description\"\n"
+                  "author = \"Example Author\"\n"
+                  "media_dir = \"../photos\"\n"
+                  "templates_dir = \"tpl\"\n"
+                  "static_dir = \"/srv/static\"\n");
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  int saved_dir_fd = -1;
-  if (TEST_CHECK(write_fixture_file(root_dir, "sub/fram.toml",
-                                    "title = \"Example Gallery\"\n"
-                                    "description = \"Example Description\"\n"
-                                    "author = \"Example Author\"\n"
-                                    "media_dir = \"../photos\"\n"
-                                    "templates_dir = \"tpl\"\n"
-                                    "static_dir = \"/srv/static\"\n") == 0) &&
-      working_dir_enter(root_dir, &saved_dir_fd) == 0) {
-    TEST_CHECK(load_gallery_config(&config, "sub/fram.toml", &log) == 0);
-    TEST_CHECK(working_dir_leave(saved_dir_fd) == 0);
-  }
-  remove_fixture_tree(root_dir);
-
+  TEST_CHECK(load_gallery_config(&config, "sub/fram.toml", os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(str_eq(config.media_dir, S("sub/../photos")));
   TEST_CHECK(str_eq(config.output_dir, S("sub/public")));
@@ -450,18 +353,13 @@ static void test_load_reads_sort_orders_independently(void) {
     TEST_ASSERT(snprintf(toml, sizeof(toml),
                          "title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\n%s",
                          cases[i].toml_extra) > 0);
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, toml) != 0) {
-      continue;
-    }
     struct GalleryConfig config;
     gallery_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
+    TEST_CHECK(load_text(&config, toml, &log) == 0);
     TEST_CHECK(config.album_sort_order == cases[i].album_sort_order);
     TEST_CHECK(config.media_sort_order == cases[i].media_sort_order);
     TEST_MSG("case %td", i);
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -473,19 +371,13 @@ static void test_load_accepts_empty_sort_table(void) {
       "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
       "[sort]\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
   TEST_CHECK(config.album_sort_order == GALLERY_SORT_ASC);
   TEST_CHECK(config.media_sort_order == GALLERY_SORT_ASC);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // Zero is accepted, which is the boundary below every other accepting case in this file. A guard of
@@ -497,19 +389,13 @@ static void test_load_accepts_zero_video_frame_seconds(void) {
       "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
       "video_frame_seconds = 0\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
   TEST_CHECK(config.video_frame_seconds == 0);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // Loading a config path that does not exist reports a read failure naming the path and cause.
@@ -517,81 +403,51 @@ static void test_load_rejects_missing_file(void) {
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  const char* missing_path = "/tmp/fram-gallery-config-test-missing.toml";
-  TEST_CHECK(load_gallery_config(&config, missing_path, &log) == -1);
+  TEST_CHECK(load_gallery_config(&config, CONFIG_PATH, os_memory(), &log) == -1);
   // The cause distinguishes a missing file from an unreadable or malformed one. Derived from the
   // running libc rather than hardcoded, so the assertion is the whole claim and stays portable.
   char reason[ERROR_SYSTEM_MESSAGE_SIZE];
   char expected[EXPECTED_SIZE];
   const int expected_len =
-      snprintf(expected, sizeof(expected), "failed to read config: %s ('%s')",
-               error_system_message(reason, sizeof(reason), ENOENT), missing_path);
+      snprintf(expected, sizeof(expected), "failed to read config: %s ('" CONFIG_PATH "')",
+               error_system_message(reason, sizeof(reason), ENOENT));
   TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(test_log_is_one(&log, expected));
 }
 
 // A config larger than `CONFIG_FILE_LEN_MAX` is rejected at the read, from its size, naming the
 // limit and the size. The constant is file-local to `gallery_config.c`, so the 1 MiB below is
-// spelled out and must change with it. The file is sparse, so the fixture costs no disk.
+// spelled out and must change with it. The host stores only the size of the bytes past the end, so
+// the fixture costs no memory.
 static void test_load_rejects_oversize_file(void) {
   enum { CONFIG_FILE_LEN_MAX = 1024 * 1024 };
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, "title = \"Gallery\"\n") != 0) {
-    return;
-  }
-  const off_t config_len = (off_t)CONFIG_FILE_LEN_MAX + 1;
+  struct Os* os = os_memory();
+  os_memory_write(os, CONFIG_PATH, "title = \"Gallery\"\n");
+  os_memory_truncate(os, CONFIG_PATH, CONFIG_FILE_LEN_MAX + 1);
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  char expected[EXPECTED_SIZE];
-  const int expected_len =
-      snprintf(expected, sizeof(expected),
-               "failed to read config: exceeds max file size (%d bytes) at %jd bytes ('%s')",
-               CONFIG_FILE_LEN_MAX, (intmax_t)config_len, temp_config.path);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(truncate(temp_config.path, config_len) == 0)) {
-    goto cleanup;
-  }
-
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
-  TEST_CHECK(test_log_is_one(&log, expected));
-
-cleanup:
-  remove_fixture_tree(temp_config.root_dir);
+  TEST_CHECK(load_gallery_config(&config, CONFIG_PATH, os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to read config: exceeds max file size (%d bytes) at %d bytes "
+                         "('" CONFIG_PATH "')\n",
+                         CONFIG_FILE_LEN_MAX, CONFIG_FILE_LEN_MAX + 1));
+  TEST_CHECK(log.errors == 1);
 }
 
 // A config file holding an embedded `NUL` is rejected before the parse, naming the config path.
 // `os_read` accepts binary data because it also reads media, so the config boundary itself
 // establishes the `NUL`-free text invariant.
 static void test_load_rejects_nul_in_file(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, "") != 0) {
-    return;
-  }
   static const char config_data[] = "title = \"Gallery\"\0author = \"Example Author\"\n";
+  struct Os* os = os_memory();
+  os_memory_write_bytes(os, S(CONFIG_PATH), (struct Str){config_data, sizeof(config_data) - 1});
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  char expected[EXPECTED_SIZE];
-  const int expected_len =
-      snprintf(expected, sizeof(expected),
-               "failed to read config: contains an embedded NUL byte ('%s')", temp_config.path);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(os_write(os_posix(), str_from_cstr(temp_config.path),
-                           (struct OsSource){.bytes = {config_data, sizeof(config_data) - 1}},
-                           S("failed to write fixture"), &log) == 0)) {
-    goto cleanup;
-  }
-
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
-  TEST_CHECK(test_log_is_one(&log, expected));
-
-cleanup:
-  remove_fixture_tree(temp_config.root_dir);
+  TEST_CHECK(load_gallery_config(&config, CONFIG_PATH, os, &log) == -1);
+  TEST_CHECK(test_log_is_one(
+      &log, "failed to read config: contains an embedded NUL byte ('" CONFIG_PATH "')"));
 }
 
 // `gallery_config_load` reports a syntactically malformed config as a parse failure naming the
@@ -599,15 +455,11 @@ cleanup:
 // missing-key error.
 static void test_load_rejects_malformed_toml(void) {
   const char toml[] = "title = \n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
   // The prefix and the trailing attribution are this module's own contribution. The text between
   // them is the vendored parser's `errmsg`, left unpinned so rewording it upstream does not fail
   // this test. The two together are still the whole first-party claim, which neither the
@@ -616,14 +468,10 @@ static void test_load_rejects_malformed_toml(void) {
   const struct Str message = buf_str(&log.buf);
   TEST_CHECK(log.errors == 1);
   TEST_CHECK(str_startswith(message, prefix));
-  char suffix[EXPECTED_SIZE];
-  const int n = snprintf(suffix, sizeof(suffix), " (in '%s')\n", temp_config.path);
-  TEST_CHECK(n > 0 && (size_t)n < sizeof(suffix));
+  const struct Str suffix = S(" (in '" CONFIG_PATH "')\n");
   // A cause of at least one byte has to sit between the two, or the parser reported nothing.
-  TEST_CHECK(message.len > prefix.len + n);
-  TEST_CHECK(str_endswith(message, (struct Str){suffix, n}));
-
-  remove_fixture_tree(temp_config.root_dir);
+  TEST_CHECK(message.len > prefix.len + suffix.len);
+  TEST_CHECK(str_endswith(message, suffix));
 }
 
 /**
@@ -645,15 +493,10 @@ static const char TOML_KEYS_INVALID[] =
 // Every invalid key in one config is reported in one load, in the order the load checks them, not
 // only the first.
 static void test_load_reports_every_invalid_key(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, TOML_KEYS_INVALID) != 0) {
-    return;
-  }
-
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, TOML_KEYS_INVALID, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "unknown config key 'colour'\n"
                          "config key 'title' must be a string\n"
@@ -665,27 +508,19 @@ static void test_load_reports_every_invalid_key(void) {
                          "config key 'derivatives.s.width' must be at least 1: 0\n"
                          "config key 'video_frame_seconds' must be at least 0: -1\n"));
   TEST_CHECK(log.errors == 7);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // A config that was read and parsed loads successfully even when keys are rejected: the errors are
 // in the log, and the result only says whether there was a file to check.
 static void test_load_returns_zero_with_key_errors(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, TOML_KEYS_INVALID) != 0) {
-    return;
-  }
-
+  struct Os* os = os_memory();
+  os_memory_write(os, CONFIG_PATH, TOML_KEYS_INVALID);
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
   struct Arena perm = test_arena();
-  TEST_CHECK(gallery_config_load(&config, str_from_cstr(temp_config.path), os_posix(), &perm,
-                                 test_arena(), &log) == 0);
+  TEST_CHECK(gallery_config_load(&config, S(CONFIG_PATH), os, &perm, test_arena(), &log) == 0);
   TEST_CHECK(log.errors == 7);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // A rejected value is never stored. Each rejected key keeps the default `gallery_config_init` gave
@@ -693,16 +528,11 @@ static void test_load_returns_zero_with_key_errors(void) {
 // derivative table with one bad entry keeps the default derivatives whole. A rejected directory key
 // is marked as such.
 static void test_load_keeps_defaults_for_rejected_keys(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, TOML_KEYS_INVALID) != 0) {
-    return;
-  }
-
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
-  TEST_CHECK(is_resolved(&temp_config, config.media_dir, "media"));
+  TEST_CHECK(load_text(&config, TOML_KEYS_INVALID, &log) == -1);
+  TEST_CHECK(is_resolved(config.media_dir, "media"));
   TEST_CHECK(config.is_media_dir_rejected);
   TEST_CHECK(!config.is_output_dir_rejected);
   TEST_CHECK(!config.is_templates_dir_rejected);
@@ -715,8 +545,6 @@ static void test_load_keeps_defaults_for_rejected_keys(void) {
   TEST_CHECK(config.title.len == 0);
   TEST_CHECK(str_eq(config.description, S("Example Description")));
   TEST_CHECK(str_eq(config.author, S("Example Author")));
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // Omitting a required key is reported as missing rather than as a type error.
@@ -748,19 +576,14 @@ static void test_load_rejects_wrong_key_type(void) {
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, cases[i][0]) != 0) {
-      continue;
-    }
     struct GalleryConfig config;
     gallery_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+    TEST_CHECK(load_text(&config, cases[i][0], &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i][1]));
     const struct Str fields[] = {config.title, config.description, config.author};
     TEST_CHECK(fields[i].len == 0);
     TEST_MSG("case %td", i);
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -792,17 +615,12 @@ static void test_load_rejects_unknown_keys(void) {
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, cases[i][0]) != 0) {
-      continue;
-    }
     struct GalleryConfig config;
     gallery_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+    TEST_CHECK(load_text(&config, cases[i][0], &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i][1]));
     TEST_MSG("case %td", i);
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -827,17 +645,12 @@ static void test_load_rejects_table_values(void) {
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, cases[i][0]) != 0) {
-      continue;
-    }
     struct GalleryConfig config;
     gallery_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+    TEST_CHECK(load_text(&config, cases[i][0], &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i][1]));
     TEST_MSG("case %td", i);
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -875,18 +688,11 @@ static void test_load_rejects_nul_in_string_values(void) {
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct TempConfig temp_config;
-    if (write_temp_config(&temp_config, cases[i][0]) != 0) {
-      continue;
-    }
-
     struct GalleryConfig config;
     gallery_config_init(&config);
     struct Log log = test_log();
-    TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+    TEST_CHECK(load_text(&config, cases[i][0], &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i][1]));
-
-    remove_fixture_tree(temp_config.root_dir);
   }
 }
 
@@ -907,50 +713,40 @@ static void test_load_rejects_empty_directory_keys(void) {
 // `base_url` needs an HTTP(S) scheme and a host, and a rejected one becomes empty. `core/url`'s
 // tests cover the other URLs without a host.
 static void test_load_rejects_base_url_without_host(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config,
-                        "title = \"Example Gallery\"\n"
-                        "description = \"Example Description\"\n"
-                        "author = \"Example Author\"\n"
-                        "base_url = \"https:///path\"\n") != 0) {
-    return;
-  }
+  const char toml[] =
+      "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
+      "author = \"Example Author\"\n"
+      "base_url = \"https:///path\"\n";
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
   TEST_CHECK(test_log_is_one(
       &log,
       "config key 'base_url' must be an absolute 'http://' or 'https://' URL with a "
       "host: 'https:///path'"));
   TEST_CHECK(config.base_url.len == 0);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // A `base_url` with a query, a fragment, a space or a control byte would break every link below it,
 // so it is rejected, and the config keeps no `base_url`. `core/url`'s tests cover each byte.
 static void test_load_rejects_base_url_with_path_breaking_byte(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config,
-                        "title = \"Example Gallery\"\n"
-                        "description = \"Example Description\"\n"
-                        "author = \"Example Author\"\n"
-                        "base_url = \"https://example.com/x?y=1\"\n") != 0) {
-    return;
-  }
+  const char toml[] =
+      "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
+      "author = \"Example Author\"\n"
+      "base_url = \"https://example.com/x?y=1\"\n";
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
   TEST_CHECK(test_log_is_one(&log,
                              "config key 'base_url' must not hold '?', '#', a space or a control "
                              "character: 'https://example.com/x?y=1'"));
   TEST_CHECK(config.base_url.len == 0);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // An unsafe `album_template` is rejected at load, in the singular wording that names the key,
@@ -989,23 +785,19 @@ static void test_load_rejects_invalid_template_arrays(void) {
 // reported in element order. A wrong type or a `NUL` byte is reported once however many elements
 // have it, since its message names no element. The rejected key keeps its default.
 static void test_load_reports_every_invalid_template_name(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(
-          &temp_config,
-          "title = \"Example Gallery\"\n"
-          "description = \"Example Description\"\n"
-          "author = \"Example Author\"\n"
-          "aggregate_templates = [\"../a.xml\", 1, \"a\\u0000b\", \"ok.xml\", \"/b.xml\", "
-          "2, \"c\\u0000d\"]\n") != 0) {
-    return;
-  }
+  const char toml[] =
+      "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
+      "author = \"Example Author\"\n"
+      "aggregate_templates = [\"../a.xml\", 1, \"a\\u0000b\", \"ok.xml\", \"/b.xml\", "
+      "2, \"c\\u0000d\"]\n";
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   const struct Str* const aggregate_templates_default = config.aggregate_templates;
   const ptrdiff_t aggregate_template_count_default = config.aggregate_template_count;
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "config key 'aggregate_templates' must contain only safe relative "
                          "template names: '../a.xml'\n"
@@ -1016,8 +808,6 @@ static void test_load_reports_every_invalid_template_name(void) {
   TEST_CHECK(log.errors == 4);
   TEST_CHECK(config.aggregate_templates == aggregate_templates_default);
   TEST_CHECK(config.aggregate_template_count == aggregate_template_count_default);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // Dimension, quality, and video-frame upper bounds are exact and named in diagnostics.
@@ -1110,21 +900,18 @@ static void test_load_rejects_invalid_sort_tables(void) {
 // order in schema order. A rejected order is never stored, so a field the caller had already set
 // keeps that value rather than falling back to `asc`.
 static void test_load_reports_every_invalid_sort_key(void) {
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config,
-                        "title = \"Example Gallery\"\n"
-                        "description = \"Example Description\"\n"
-                        "author = \"Example Author\"\n"
-                        "sort = { albums = \"up\", order = \"asc\", media = 1 }\n") != 0) {
-    return;
-  }
+  const char toml[] =
+      "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
+      "author = \"Example Author\"\n"
+      "sort = { albums = \"up\", order = \"asc\", media = 1 }\n";
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   config.album_sort_order = GALLERY_SORT_DESC;
   config.media_sort_order = GALLERY_SORT_DESC;
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == -1);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "unknown config key 'sort.order'\n"
                          "config key 'sort.albums' must be 'asc' or 'desc': 'up'\n"
@@ -1132,8 +919,6 @@ static void test_load_reports_every_invalid_sort_key(void) {
   TEST_CHECK(log.errors == 3);
   TEST_CHECK(config.album_sort_order == GALLERY_SORT_DESC);
   TEST_CHECK(config.media_sort_order == GALLERY_SORT_DESC);
-
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // Printing emits every key, with the defaults `gallery_config_init` supplies for the optional ones.
@@ -1146,26 +931,24 @@ static void test_print_defaults(void) {
   config.description = S("Example Description");
   config.author = S("Example Author");
 
-  char config_out[1024];
-  TEST_ASSERT(render(&config, config_out, sizeof(config_out)) == 0);
-
-  // The whole buffer, not a set of per-line searches: only an exact comparison can catch a key that
+  // The whole output, not a set of per-line searches: only an exact comparison can catch a key that
   // is missing, duplicated, extra, or emitted in the wrong order.
-  TEST_CHECK(strcmp(config_out,
-                    "title = \"Example Gallery\"\n"
-                    "description = \"Example Description\"\n"
-                    "author = \"Example Author\"\n"
-                    "media_dir = \"media\"\n"
-                    "output_dir = \"public\"\n"
-                    "templates_dir = \"templates\"\n"
-                    "static_dir = \"static\"\n"
-                    "album_template = \"album.html\"\n"
-                    "aggregate_templates = []\n"
-                    "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
-                    "m = { width = 520, height = 360, quality = 80, crop = true }, "
-                    "l = { width = 792, height = 594, quality = 85 } }\n"
-                    "sort = { albums = \"asc\", media = \"asc\" }\n"
-                    "video_frame_seconds = 1\n") == 0);
+  TEST_CHECK(os_memory_is_printed(
+      print_config(&config), 1,
+      "title = \"Example Gallery\"\n"
+      "description = \"Example Description\"\n"
+      "author = \"Example Author\"\n"
+      "media_dir = \"media\"\n"
+      "output_dir = \"public\"\n"
+      "templates_dir = \"templates\"\n"
+      "static_dir = \"static\"\n"
+      "album_template = \"album.html\"\n"
+      "aggregate_templates = []\n"
+      "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
+      "m = { width = 520, height = 360, quality = 80, crop = true }, "
+      "l = { width = 792, height = 594, quality = 85 } }\n"
+      "sort = { albums = \"asc\", media = \"asc\" }\n"
+      "video_frame_seconds = 1\n"));
 }
 
 // Printing escapes quotes, backslashes, and every named control escape (\t \b \n \f \r). It uses
@@ -1178,33 +961,31 @@ static void test_print_escapes_strings(void) {
   // Each hex escape is followed by a non-hex-digit char ('Z', 'G') so it ends after one byte.
   config.author = S("a\tA\bB\nC\fD\rE\x01Z\x7FG");
 
-  char config_out[1024];
-  TEST_ASSERT(render(&config, config_out, sizeof(config_out)) == 0);
-
   // Compared whole, so an escape leaking into a neighboring field cannot hide.
-  TEST_CHECK(strcmp(config_out,
-                    "title = \"Quote \\\" and \\\\ backslash\"\n"
-                    "description = \"Example Description\"\n"
-                    "author = \"a\\tA\\bB\\nC\\fD\\rE\\u0001Z\\u007FG\"\n"
-                    "media_dir = \"media\"\n"
-                    "output_dir = \"public\"\n"
-                    "templates_dir = \"templates\"\n"
-                    "static_dir = \"static\"\n"
-                    "album_template = \"album.html\"\n"
-                    "aggregate_templates = []\n"
-                    "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
-                    "m = { width = 520, height = 360, quality = 80, crop = true }, "
-                    "l = { width = 792, height = 594, quality = 85 } }\n"
-                    "sort = { albums = \"asc\", media = \"asc\" }\n"
-                    "video_frame_seconds = 1\n") == 0);
+  TEST_CHECK(os_memory_is_printed(
+      print_config(&config), 1,
+      "title = \"Quote \\\" and \\\\ backslash\"\n"
+      "description = \"Example Description\"\n"
+      "author = \"a\\tA\\bB\\nC\\fD\\rE\\u0001Z\\u007FG\"\n"
+      "media_dir = \"media\"\n"
+      "output_dir = \"public\"\n"
+      "templates_dir = \"templates\"\n"
+      "static_dir = \"static\"\n"
+      "album_template = \"album.html\"\n"
+      "aggregate_templates = []\n"
+      "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
+      "m = { width = 520, height = 360, quality = 80, crop = true }, "
+      "l = { width = 792, height = 594, quality = 85 } }\n"
+      "sort = { albums = \"asc\", media = \"asc\" }\n"
+      "video_frame_seconds = 1\n"));
 }
 
 // Printing a config and loading the printed output back yields the same field values, exercising
 // the round-trip invariant documented on `gallery_config_print` across escaped strings (including a
 // `U+007F` byte), multi-element template arrays, cropping and non-cropping derivatives, and two
-// different sort orders. The printed output is loaded from the fixture root, not the working
-// directory, so its relative directories come back resolved against that root, and only the
-// absolute one comes back as it is.
+// different sort orders. The printed output is loaded from `CONFIG_DIR`, not the working directory,
+// so its relative directories come back resolved against that directory, and only the absolute one
+// comes back as it is.
 static void test_print_load_round_trips(void) {
   static const struct Str aggregates[] = {STR_INIT("sitemap.xml"), STR_INIT("about/index.html")};
   static const struct GalleryDerivative derivatives[] = {
@@ -1236,36 +1017,26 @@ static void test_print_load_round_trips(void) {
   config.media_sort_order = GALLERY_SORT_ASC;
   config.video_frame_seconds = 0;
 
-  char config_out[2048];
-  TEST_ASSERT(render(&config, config_out, sizeof(config_out)) == 0);
-
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, config_out) != 0) {
-    return;
-  }
-
+  struct Os* os = os_memory();
+  os_memory_write_bytes(os, S(CONFIG_PATH), os_memory_printed(print_config(&config), 1));
   struct GalleryConfig reloaded;
   gallery_config_init(&reloaded);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&reloaded, temp_config.path, &log) == 0);
+  TEST_CHECK(load_gallery_config(&reloaded, CONFIG_PATH, os, &log) == 0);
 
   TEST_CHECK(str_eq(reloaded.title, config.title));
   TEST_CHECK(str_eq(reloaded.description, config.description));
   TEST_CHECK(str_eq(reloaded.author, config.author));
   TEST_CHECK(str_eq(reloaded.base_url, config.base_url));
-  TEST_CHECK(is_resolved(&temp_config, reloaded.media_dir, "photos"));
-  TEST_CHECK(is_resolved(&temp_config, reloaded.output_dir, "dist"));
-  TEST_CHECK(is_resolved(&temp_config, reloaded.templates_dir, "layouts"));
+  TEST_CHECK(is_resolved(reloaded.media_dir, "photos"));
+  TEST_CHECK(is_resolved(reloaded.output_dir, "dist"));
+  TEST_CHECK(is_resolved(reloaded.templates_dir, "layouts"));
   TEST_CHECK(str_eq(reloaded.static_dir, config.static_dir));
   TEST_CHECK(str_eq(reloaded.album_template, config.album_template));
-  if (!TEST_CHECK(reloaded.aggregate_template_count == 2)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(reloaded.aggregate_template_count == 2);
   TEST_CHECK(str_eq(reloaded.aggregate_templates[0], S("sitemap.xml")));
   TEST_CHECK(str_eq(reloaded.aggregate_templates[1], S("about/index.html")));
-  if (!TEST_CHECK(reloaded.derivative_count == 2)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(reloaded.derivative_count == 2);
   for (ptrdiff_t i = 0; i < 2; i++) {
     TEST_CHECK(str_eq(reloaded.derivatives[i].name, derivatives[i].name));
     TEST_CHECK(reloaded.derivatives[i].width_px == derivatives[i].width_px);
@@ -1276,9 +1047,6 @@ static void test_print_load_round_trips(void) {
   TEST_CHECK(reloaded.album_sort_order == config.album_sort_order);
   TEST_CHECK(reloaded.media_sort_order == config.media_sort_order);
   TEST_CHECK(reloaded.video_frame_seconds == config.video_frame_seconds);
-
-cleanup:
-  remove_fixture_tree(temp_config.root_dir);
 }
 
 // An empty template array survives a load followed by a print, and prints as `[]`. Neither
@@ -1290,58 +1058,41 @@ static void test_print_empty_template_array(void) {
       "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
       "aggregate_templates = []\n";
-  struct TempConfig temp_config;
-  if (write_temp_config(&temp_config, toml) != 0) {
-    return;
-  }
 
   struct GalleryConfig config;
   gallery_config_init(&config);
   struct Log log = test_log();
-  // The directories print resolved against the fixture root, which holds the config.
-  struct Arena arena = test_arena();
-  struct Buf expected = {.arena = &arena};
-  const char* root_dir = temp_config.root_dir;
-  buf_printf(&expected,
-             "title = \"Example Gallery\"\n"
-             "description = \"Example Description\"\n"
-             "author = \"Example Author\"\n"
-             "media_dir = \"%s/media\"\n"
-             "output_dir = \"%s/public\"\n"
-             "templates_dir = \"%s/templates\"\n"
-             "static_dir = \"%s/static\"\n"
-             "album_template = \"album.html\"\n"
-             "aggregate_templates = []\n"
-             "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
-             "m = { width = 520, height = 360, quality = 80, crop = true }, "
-             "l = { width = 792, height = 594, quality = 85 } }\n"
-             "sort = { albums = \"asc\", media = \"asc\" }\n"
-             "video_frame_seconds = 1\n",
-             root_dir, root_dir, root_dir, root_dir);
-  TEST_CHECK(load_gallery_config(&config, temp_config.path, &log) == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  if (!TEST_CHECK(config.aggregate_template_count == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(config.aggregate_template_count == 0);
   // The empty array is a distinct non-`NULL` pointer, which the `nonnull` consumers need.
   TEST_CHECK(config.aggregate_templates != NULL);
 
-  char config_out[1024];
-  if (render(&config, config_out, sizeof(config_out)) != 0) {
-    goto cleanup;
-  }
-  // Compared whole: an empty array must print as `[]` and must not disturb its neighbors.
-  TEST_CHECK(strcmp(config_out, buf_cstr(&expected)) == 0);
-
-cleanup:
-  remove_fixture_tree(temp_config.root_dir);
+  // Compared whole: an empty array must print as `[]` and must not disturb its neighbors. The
+  // directories print resolved against `CONFIG_DIR`, which holds the config.
+  TEST_CHECK(
+      os_memory_is_printed(
+          print_config(&config), 1,
+          "title = \"Example Gallery\"\n"
+          "description = \"Example Description\"\n"
+          "author = \"Example Author\"\n"
+          "media_dir = \"" CONFIG_DIR "/media\"\n"
+          "output_dir = \"" CONFIG_DIR "/public\"\n"
+          "templates_dir = \"" CONFIG_DIR "/templates\"\n"
+          "static_dir = \"" CONFIG_DIR "/static\"\n"
+          "album_template = \"album.html\"\n"
+          "aggregate_templates = []\n"
+          "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
+          "m = { width = 520, height = 360, quality = 80, crop = true }, "
+          "l = { width = 792, height = 594, quality = 85 } }\n"
+          "sort = { albums = \"asc\", media = \"asc\" }\n"
+          "video_frame_seconds = 1\n"));
 }
 
 // A standard output that refuses the write makes `gallery_config_print` report `-1` with the
 // write's own `errno`, which is what lets `cmd_config_run` name a reason instead of reporting
-// success over lost output. A read-only descriptor in place of standard output is the deterministic
-// way to get one: every write fails with `EBADF`. The same shape is asserted for
-// `cli_print_version` by `test_print_version_reports_write_failure`.
+// success over lost output. The same shape is asserted for `cli_print_version` by
+// `test_print_version_reports_write_failure`.
 static void test_print_reports_write_failure(void) {
   struct GalleryConfig config;
   gallery_config_init(&config);
@@ -1349,16 +1100,11 @@ static void test_print_reports_write_failure(void) {
   config.description = S("Example Description");
   config.author = S("Example Author");
 
-  struct StreamCapture capture;
-  if (capture_begin_unwritable(stdout, &capture) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_fail_print(os, 1, 0, EBADF);
   errno = 0;
-  const int rc = gallery_config_print(&config, os_posix(), test_arena());
-  const int print_errno = errno;
-  TEST_CHECK(capture_end(&capture, NULL, 0) == 0);
-  TEST_CHECK(rc == -1);
-  TEST_CHECK(print_errno == EBADF);
+  TEST_CHECK(gallery_config_print(&config, os, test_arena()) == -1);
+  TEST_CHECK(errno == EBADF);
 }
 
 // The recipe component names every output-affecting value: the recipe version, each derivative's

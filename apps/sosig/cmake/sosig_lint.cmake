@@ -32,6 +32,7 @@ apps_add_lint_targets(
     "${PROJECT_SOURCE_DIR}/src/build/test_page_renderer.c"
     "${PROJECT_SOURCE_DIR}/src/build/test_site_writer.c"
     "${PROJECT_SOURCE_DIR}/src/build/test_template.c"
+    "${PROJECT_SOURCE_DIR}/src/build/test_template_posix.c"
     "${PROJECT_SOURCE_DIR}/src/domain/build_cache.c"
     "${PROJECT_SOURCE_DIR}/src/domain/build_cache.h"
     "${PROJECT_SOURCE_DIR}/src/domain/content_entry.c"

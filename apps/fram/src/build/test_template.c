@@ -1,27 +1,20 @@
-#define _DARWIN_C_SOURCE
-#define _DEFAULT_SOURCE
-
 #include <acutest.h>
 #include <errno.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "build/template.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/error.h"
 #include "core/log.h"
-#include "core/path.h"
 #include "core/str.h"
 #include "domain/album.h"
 #include "domain/fram_version.h"
 #include "domain/gallery_config.h"
 #include "domain/media_item.h"
-#include "os/os.h"
-#include "os/os_posix.h"
+#include "os/os_memory.h"
 #include "testing/test_support.h"
 
 /**
@@ -36,6 +29,9 @@ enum { EXPECTED_SIZE = 1024 };
  */
 #define UNESCAPED_FAILURE \
   "unescaped Mustache interpolation is supported only for a key that ends in '_html'"
+
+/** Template directory every test renders from, which each test writes its templates below. */
+#define TEMPLATES_DIR "templates"
 
 /**
  * @brief Initializes shared gallery metadata for template tests.
@@ -52,48 +48,6 @@ static void init_test_gallery_config(struct GalleryConfig* gallery_config) {
 }
 
 /**
- * @brief Creates a fixture root holding one `album.html` template.
- *
- * @param root_dir Writable `mkdtemp` template. Receives the created directory path. Must not be
- *                 `NULL`.
- * @param text     Terminated template text to write.
- * @return `0` on success, or `-1` after recording a test-plumbing failure, with no fixture left
- *         behind.
- */
-static int write_template_fixture(char root_dir[static 1], const char* text) {
-  if (init_fixture_dir(root_dir) != 0) {
-    return -1;
-  }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "album.html", text) == 0)) {
-    remove_fixture_tree(root_dir);
-    return -1;
-  }
-  return 0;
-}
-
-/**
- * @brief Writes one fixture file whose bytes may include a `NUL`.
- *
- * @param root_dir      Fixture root directory.
- * @param relative_path Relative fixture path below `root_dir`.
- * @param data          Bytes to write.
- * @return `0` on success, or `-1` on test-plumbing failure.
- */
-static int write_fixture_bytes(const char* root_dir, const char* relative_path, struct Str data) {
-  char fixture_path[256];
-  const int n = snprintf(fixture_path, sizeof(fixture_path), "%s/%s", root_dir, relative_path);
-  TEST_CHECK(n > 0 && (size_t)n < sizeof(fixture_path));
-  if (n <= 0 || (size_t)n >= sizeof(fixture_path)) {
-    return -1;
-  }
-  struct Log log = test_log();
-  const int rc = os_write(os_posix(), str_from_cstr(fixture_path), (struct OsSource){.bytes = data},
-                          S("failed to write fixture"), &log);
-  TEST_CHECK(rc == 0);
-  return rc;
-}
-
-/**
  * @brief Renders through `template_render_file_limited` and hands back the HTML as a C string.
  *
  * This is a deliberate test-only bridge back to C strings. Every assertion below inspects rendered
@@ -101,7 +55,7 @@ static int write_fixture_bytes(const char* root_dir, const char* relative_path, 
  * terminated, copied after the HTML in `perm`. Rendered output holds no `NUL` byte, so the copy
  * loses nothing.
  *
- * @param templates_dir  Terminated template directory root.
+ * @param os             Host that holds the templates below `TEMPLATES_DIR`. Must not be `NULL`.
  * @param template_name  Terminated template name.
  * @param context        Template context. Must not be `NULL`.
  * @param output_len_max Largest rendered output accepted, in bytes.
@@ -112,7 +66,7 @@ static int write_fixture_bytes(const char* root_dir, const char* relative_path, 
  *                       result.
  * @return `0` on success, or `-1` when the render failed.
  */
-static int render_limited(const char* templates_dir,
+static int render_limited(struct Os* os,
                           const char* template_name,
                           const struct TemplateContext* context,
                           ptrdiff_t output_len_max,
@@ -125,9 +79,8 @@ static int render_limited(const char* templates_dir,
     log = &discarded;
   }
   struct Str html = {0};
-  if (template_render_file_limited(str_from_cstr(templates_dir), str_from_cstr(template_name),
-                                   context, output_len_max, os_posix(), perm, test_arena(), &html,
-                                   log) != 0) {
+  if (template_render_file_limited(S(TEMPLATES_DIR), str_from_cstr(template_name), context,
+                                   output_len_max, os, perm, test_arena(), &html, log) != 0) {
     return -1;
   }
   if (html_out != NULL) {
@@ -140,7 +93,7 @@ static int render_limited(const char* templates_dir,
  * @brief Renders through `template_render_file` with the production bound and hands back the HTML
  *        as a C string, the same test-only bridge as `render_limited`.
  *
- * @param templates_dir Terminated template directory root.
+ * @param os            Host that holds the templates below `TEMPLATES_DIR`. Must not be `NULL`.
  * @param template_name Terminated template name.
  * @param context       Template context. Must not be `NULL`.
  * @param perm          Arena that owns the HTML and its terminated copy. Must not be `NULL`.
@@ -150,7 +103,7 @@ static int render_limited(const char* templates_dir,
  *                      result.
  * @return `0` on success, or `-1` when the render failed.
  */
-static int render(const char* templates_dir,
+static int render(struct Os* os,
                   const char* template_name,
                   const struct TemplateContext* context,
                   struct Arena* perm,
@@ -162,8 +115,8 @@ static int render(const char* templates_dir,
     log = &discarded;
   }
   struct Str html = {0};
-  if (template_render_file(str_from_cstr(templates_dir), str_from_cstr(template_name), context,
-                           os_posix(), perm, test_arena(), &html, log) != 0) {
+  if (template_render_file(S(TEMPLATES_DIR), str_from_cstr(template_name), context, os, perm,
+                           test_arena(), &html, log) != 0) {
     return -1;
   }
   if (html_out != NULL) {
@@ -175,22 +128,20 @@ static int render(const char* templates_dir,
 // Album, breadcrumb, repeated-media, boolean, escaping, and contextual URL nodes resolve together.
 static void test_renders_gallery_tree_with_page_relative_urls(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  const char* text =
+  struct Os* os = os_memory();
+  os_memory_write(
+      os, TEMPLATES_DIR "/album.html",
       "{{gallery.title}}|{{album.title}}|{{#breadcrumbs}}[{{title}}={{url}}]{{/breadcrumbs}}|"
       "{{#media}}{{title}}={{s.url}}/{{s.width}}x{{s.height}},"
       "{{card.url}}/{{card.width}}x{{card.height}},{{original_url}}{{#is_image}}I{{/is_image}};"
-      "{{/media}}";
-  if (write_template_fixture(root_dir, text) != 0) {
-    return;
-  }
+      "{{/media}}");
 
   struct GalleryConfig gallery_config;
   gallery_config_init(&gallery_config);
   gallery_config.title = S("A & B");
   gallery_config.description = S("Description");
   gallery_config.author = S("Ada");
-  gallery_config.templates_dir = str_from_cstr(root_dir);
+  gallery_config.templates_dir = S(TEMPLATES_DIR);
 
   struct Album root = {.source_dir = S(""),
                        .title = S("Root"),
@@ -220,28 +171,21 @@ static void test_renders_gallery_tree_with_page_relative_urls(void) {
   const struct TemplateContext context = {
       .gallery_config = &gallery_config, .album_current = &child, .is_album_page = true};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html,
                     "A &amp; B|Trip|[Root=../index.html][Trip=]|"
                     "x&lt;y.jpg=../_fram/r/s/x.jpg/120x120,"
                     "../_fram/r/card/x.jpg/480x320,"
                     "../_fram/originals/x.jpgI;") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Every `gallery` field resolves to its configured value, escaped like any other scalar.
 static void test_renders_gallery_fields(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir,
-                             "{{gallery.title}}|{{gallery.description}}|{{gallery.author}}|"
-                             "{{gallery.base_url}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html",
+                  "{{gallery.title}}|{{gallery.description}}|{{gallery.author}}|"
+                  "{{gallery.base_url}}");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -251,26 +195,19 @@ static void test_renders_gallery_fields(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html,
                     "Gallery|Photos &lt;&amp; videos&gt;|Ada|https://example.com/gallery") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Sub-album links and inherited covers are materialized relative to the page being rendered.
 static void test_renders_sub_album_cover(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir,
-                             "{{#sub_albums}}{{title}}={{url}}={{cover.s.url}}={{cover.s.width}}x"
-                             "{{cover.s.height}}={{media_count_total}};"
-                             "{{/sub_albums}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html",
+                  "{{#sub_albums}}{{title}}={{url}}={{cover.s.url}}={{cover.s.width}}x"
+                  "{{cover.s.height}}={{media_count_total}};"
+                  "{{/sub_albums}}");
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
   struct MediaDerivative cover_derivatives[] = {
@@ -292,13 +229,8 @@ static void test_renders_sub_album_cover(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "Trip=trip/index.html=_fram/r/s/trip/x.jpg=120x120=3;") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // `path_to_root` is the prefix of the page being rendered in every context: inside `sub_albums`,
@@ -306,14 +238,12 @@ cleanup:
 // because only the root answers it.
 static void test_path_to_root_is_the_page_prefix_in_every_context(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir,
-                             "{{path_to_root}}|"
-                             "{{#sub_albums}}[{{path_to_root}}]{{/sub_albums}}|"
-                             "{{#breadcrumbs}}[{{path_to_root}}]{{/breadcrumbs}}|"
-                             "{{#parent}}[{{path_to_root}}]{{/parent}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html",
+                  "{{path_to_root}}|"
+                  "{{#sub_albums}}[{{path_to_root}}]{{/sub_albums}}|"
+                  "{{#breadcrumbs}}[{{path_to_root}}]{{/breadcrumbs}}|"
+                  "{{#parent}}[{{path_to_root}}]{{/parent}}");
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
   struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
@@ -337,14 +267,9 @@ static void test_path_to_root_is_the_page_prefix_in_every_context(void) {
   dawn.parent = &day;
   const struct TemplateContext context = {.gallery_config = &gallery_config, .album_current = &day};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "../../|[../../]|[../../][../../][../../]|[../../]") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // On an album's page, the trail's last crumb is that album: only it has `is_last`, and its `url` is
@@ -352,13 +277,11 @@ cleanup:
 // `is_last`, and keeps its `url`.
 static void test_breadcrumbs_mark_the_current_album_last(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir,
-                             "{{#breadcrumbs}}[{{title}}:{{url}}:{{#is_last}}last{{/is_last}}]"
-                             "{{/breadcrumbs}}|{{#sub_albums}}[{{title}}:{{url}}:"
-                             "{{#is_last}}last{{/is_last}}]{{/sub_albums}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html",
+                  "{{#breadcrumbs}}[{{title}}:{{url}}:{{#is_last}}last{{/is_last}}]"
+                  "{{/breadcrumbs}}|{{#sub_albums}}[{{title}}:{{url}}:"
+                  "{{#is_last}}last{{/is_last}}]{{/sub_albums}}");
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
   struct Album root = {.title = S("Root"), .url_path = S("index.html")};
@@ -381,31 +304,23 @@ static void test_breadcrumbs_mark_the_current_album_last(void) {
   const struct TemplateContext aggregate = {.gallery_config = &gallery_config,
                                             .album_current = &root};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html,
                     "[Root:../../index.html:][Trip:../../trip/index.html:][Day::last]|"
                     "[Dawn:../../trip/day/dawn/index.html:]") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
 
-  if (!TEST_CHECK(render(root_dir, "album.html", &aggregate, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &aggregate, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[Root:index.html:]|") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // `generator` names the tool and its version, at the root and inside a section.
 static void test_renders_generator(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{generator}}|{{#media}}{{generator}}{{/media}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html",
+                  "{{generator}}|{{#media}}{{generator}}{{/media}}");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -419,31 +334,22 @@ static void test_renders_generator(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   char* rendered_html = NULL;
-  const int render_rc = render(root_dir, "album.html", &context, &perm, &rendered_html, NULL);
+  const int render_rc = render(os, "album.html", &context, &perm, &rendered_html, NULL);
   const struct Str version = fram_version_string();
   char expected[64];
   const int expected_len = snprintf(expected, sizeof(expected), "fram %.*s|fram %.*s",
                                     STR_FMT(version), STR_FMT(version));
-  if (!TEST_CHECK(render_rc == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render_rc == 0);
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(strcmp(rendered_html, expected) == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A safe partial loads and renders in the parent context, with its values still escaped.
 static void test_renders_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "before {{> card}} after") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "before {{> card}} after");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -452,16 +358,9 @@ static void test_renders_partial(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html", "{{album.title}}") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  os_memory_write(os, TEMPLATES_DIR "/partials/card.html", "{{album.title}}");
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "before Root &lt;One&gt; after") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A partial referenced twice per media item across three items expands six times and renders each
@@ -469,10 +368,8 @@ cleanup:
 // what a broken cache would break, stale or empty expansions, rather than the number of compiles.
 static void test_repeated_partial_renders_same_content_each_time(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{#media}}{{>card}}{{>card}}{{/media}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{#media}}{{>card}}{{>card}}{{/media}}");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -487,17 +384,10 @@ static void test_repeated_partial_renders_same_content_each_time(void) {
                                           .album_current = &root};
   struct Log log = test_log();
   char* rendered_html = NULL;
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html", "[{{title}}]") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, &log) == 0)) {
-    goto cleanup;
-  }
+  os_memory_write(os, TEMPLATES_DIR "/partials/card.html", "[{{title}}]");
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(strcmp(rendered_html, "[p1][p1][p2][p2][p3][p3]") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Referencing one partial more times than the distinct-partial limit allows still builds, because
@@ -524,10 +414,8 @@ static void test_repeated_partial_stays_under_distinct_limit(void) {
   source[REFERENCE_COUNT * REFERENCE_LEN] = '\0';
   expected[REFERENCE_COUNT * EXPANSION_LEN] = '\0';
 
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, source) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", source);
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -536,26 +424,17 @@ static void test_repeated_partial_stays_under_distinct_limit(void) {
                                           .album_current = &root};
   struct Log log = test_log();
   char* rendered_html = NULL;
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html", "[{{album.title}}]") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, &log) == 0)) {
-    goto cleanup;
-  }
+  os_memory_write(os, TEMPLATES_DIR "/partials/card.html", "[{{album.title}}]");
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(strcmp(rendered_html, expected) == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An empty template renders as empty output.
 static void test_empty_template_yields_empty_string(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -563,22 +442,15 @@ static void test_empty_template_yields_empty_string(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An unknown variable renders as empty text per the Mustache spec, at the root and in a subtree.
 static void test_unknown_variable_renders_empty(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "[{{typo}}|{{gallery.typo}}]\n") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "[{{typo}}|{{gallery.typo}}]\n");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -586,13 +458,8 @@ static void test_unknown_variable_renders_empty(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[|]\n") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An unescaped tag of a name the data does not hold renders nothing and does not fail, whatever the
@@ -601,10 +468,8 @@ cleanup:
 // empty value, as it does in an escaped tag.
 static void test_unescaped_unknown_name_renders_empty(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "[{{{typo_html}}}|{{& gallery.typo}}]\n") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "[{{{typo_html}}}|{{& gallery.typo}}]\n");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -612,22 +477,15 @@ static void test_unescaped_unknown_name_renders_empty(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[|]\n") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An inverted section renders only when the list is empty.
 static void test_inverted_section_renders_when_list_empty(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{#media}}x{{/media}}{{^media}}none{{/media}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{#media}}x{{/media}}{{^media}}none{{/media}}");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -645,20 +503,11 @@ static void test_inverted_section_renders_when_list_empty(void) {
   const struct TemplateContext context_full = {.gallery_config = &gallery_config,
                                                .album_current = &full};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context_empty, &perm, &rendered_html, NULL) ==
-                  0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context_empty, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "none") == 0);
 
-  if (!TEST_CHECK(render(root_dir, "album.html", &context_full, &perm, &rendered_html, NULL) ==
-                  0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context_full, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "x") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An empty field value is falsey as a section, so an unset field reads as absent. Were an empty
@@ -667,12 +516,10 @@ cleanup:
 // guarding it relies on this rule.
 static void test_empty_field_is_falsey_as_section(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir,
-                             "{{#media}}[{{#original_url}}U:{{original_url}}{{/original_url}}"
-                             "{{^original_url}}NONE{{/original_url}}]{{/media}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html",
+                  "{{#media}}[{{#original_url}}U:{{original_url}}{{/original_url}}"
+                  "{{^original_url}}NONE{{/original_url}}]{{/media}}");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -687,13 +534,8 @@ static void test_empty_field_is_falsey_as_section(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[NONE][U:_fram/originals/b.jpg]") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An absent value or a false flag is an empty field, so it never resolves from an enclosing album:
@@ -702,19 +544,17 @@ cleanup:
 // Each false flag also fires its inverted section.
 static void test_absent_value_does_not_resolve_from_enclosing_album(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(
-          root_dir,
-          "{{#sub_albums}}[{{title}}:{{cover.s.url}}{{^cover}}none{{/cover}}:"
-          "{{#has_media}}M{{/has_media}}{{^has_media}}empty{{/has_media}}:"
-          "{{#has_sub_albums}}S{{/has_sub_albums}}{{^has_sub_albums}}leaf{{/has_sub_albums}}]"
-          "{{/sub_albums}}|"
-          "{{#media}}[{{title}}:{{^is_video}}still{{/is_video}}{{^is_image}}moving{{/is_image}}]"
-          "{{/media}}|"
-          "{{#breadcrumbs}}[{{title}}:{{parent.title}}{{^parent}}top{{/parent}}]{{/"
-          "breadcrumbs}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(
+      os, TEMPLATES_DIR "/album.html",
+      "{{#sub_albums}}[{{title}}:{{cover.s.url}}{{^cover}}none{{/cover}}:"
+      "{{#has_media}}M{{/has_media}}{{^has_media}}empty{{/has_media}}:"
+      "{{#has_sub_albums}}S{{/has_sub_albums}}{{^has_sub_albums}}leaf{{/has_sub_albums}}]"
+      "{{/sub_albums}}|"
+      "{{#media}}[{{title}}:{{^is_video}}still{{/is_video}}{{^is_image}}moving{{/is_image}}]"
+      "{{/media}}|"
+      "{{#breadcrumbs}}[{{title}}:{{parent.title}}{{^parent}}top{{/parent}}]{{/"
+      "breadcrumbs}}");
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
   struct MediaDerivative photo_derivatives[] = {
@@ -741,15 +581,10 @@ static void test_absent_value_does_not_resolve_from_enclosing_album(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &trip};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html,
                     "[Empty:none:empty:leaf]|[:still][Clip:moving]|[Root:top][Trip:Root]") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A name that no media item has is looked up in the enclosing scopes, as Mustache asks, so inside
@@ -757,10 +592,8 @@ cleanup:
 // stop the lookup.
 static void test_unknown_name_resolves_from_enclosing_album(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{#media}}[{{url}}]{{/media}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{#media}}[{{url}}]{{/media}}");
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
   struct MediaItem photo = {.kind = MEDIA_KIND_IMAGE};
@@ -770,25 +603,18 @@ static void test_unknown_name_resolves_from_enclosing_album(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[index.html]") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A media item names its kind, `image` or `video`, and has the flag of that kind only.
 static void test_media_names_its_kind(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir,
-                             "{{#media}}[{{kind}}:{{#is_image}}I{{/is_image}}"
-                             "{{#is_video}}V{{/is_video}}]{{/media}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html",
+                  "{{#media}}[{{kind}}:{{#is_image}}I{{/is_image}}"
+                  "{{#is_video}}V{{/is_video}}]{{/media}}");
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
   struct MediaItem image = {.kind = MEDIA_KIND_IMAGE};
@@ -799,25 +625,18 @@ static void test_media_names_its_kind(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[image:I][video:V]") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A video's `duration` is its length in milliseconds, even when that is `0`, and an image's is
 // empty, so `{{#duration}}` renders only for a video.
 static void test_duration_is_empty_for_an_image(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(
-          root_dir, "{{#media}}[{{#duration}}D{{duration}}{{/duration}}]{{/media}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html",
+                  "{{#media}}[{{#duration}}D{{duration}}{{/duration}}]{{/media}}");
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
   struct MediaItem image = {.kind = MEDIA_KIND_IMAGE};
@@ -828,23 +647,16 @@ static void test_duration_is_empty_for_an_image(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[][D0]") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Comments are dropped from the rendered output.
 static void test_comments_are_dropped(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "a{{! ignored }}b") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "a{{! ignored }}b");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -852,13 +664,8 @@ static void test_comments_are_dropped(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "ab") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // The output bound belongs to the call. `template_render_file_limited` accepts output exactly at
@@ -870,10 +677,8 @@ static void test_output_bound_applies_per_call(void) {
   char* padding = arena_new(&perm, OUTPUT_LEN_MAX + 2, char);
   memset(padding, 'x', (size_t)OUTPUT_LEN_MAX + 1);
   padding[OUTPUT_LEN_MAX + 1] = '\0';
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, padding) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", padding);
   padding[OUTPUT_LEN_MAX] = '\0';
 
   struct GalleryConfig gallery_config;
@@ -888,27 +693,17 @@ static void test_output_bound_applies_per_call(void) {
       snprintf(expected_err, sizeof(expected_err),
                "render exceeds max rendered output (%d bytes) at %d bytes (in 'album.html')",
                OUTPUT_LEN_MAX, OUTPUT_LEN_MAX + 1);
-  if (!TEST_CHECK(write_fixture_file(root_dir, "at.html", padding) == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(render_limited(root_dir, "at.html", &context, OUTPUT_LEN_MAX, &perm,
-                                 &rendered_html, &log) == 0)) {
-    goto cleanup;
-  }
+  os_memory_write(os, TEMPLATES_DIR "/at.html", padding);
+  TEST_ASSERT(
+      render_limited(os, "at.html", &context, OUTPUT_LEN_MAX, &perm, &rendered_html, &log) == 0);
   TEST_CHECK(strlen(rendered_html) == (size_t)OUTPUT_LEN_MAX);
 
-  TEST_CHECK(render_limited(root_dir, "album.html", &context, OUTPUT_LEN_MAX, &perm, NULL, &log) ==
-             -1);
+  TEST_CHECK(render_limited(os, "album.html", &context, OUTPUT_LEN_MAX, &perm, NULL, &log) == -1);
   TEST_CHECK(expected_err_len > 0 && (size_t)expected_err_len < sizeof(expected_err));
   TEST_CHECK(test_log_is_one(&log, expected_err));
 
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &rendered_html, &log) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, &log) == 0);
   TEST_CHECK(strlen(rendered_html) == (size_t)OUTPUT_LEN_MAX + 1);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A partial name that could escape the partials directory is rejected, with a diagnostic. A name
@@ -916,10 +711,8 @@ cleanup:
 // compiling, so the failure surfaces as a compile error for the enclosing template.
 static void test_rejects_unsafe_partial_name(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{> ../secret}}\n") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{> ../secret}}\n");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -927,7 +720,7 @@ static void test_rejects_unsafe_partial_name(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   struct Log log = test_log();
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
   // Rejected by mustache4c's own tag validation, so the leading `%s` is its text and only the
   // position wrapper is this project's. Composed through the same format string as
   // `test_rejects_unclosed_section`, which is the other assertion of that wrapper.
@@ -940,11 +733,9 @@ static void test_rejects_unsafe_partial_name(void) {
 
   // A name Mustache accepts but that is not a safe identifier is rejected by the provider, which
   // names the offending partial and the template that references it.
-  if (!TEST_CHECK(write_fixture_file(root_dir, "album.html", "{{>nested.name}}\n") == 0)) {
-    goto cleanup;
-  }
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{>nested.name}}\n");
   log = test_log();
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
   char expected_unsafe_name[EXPECTED_SIZE];
   n = snprintf(
       expected_unsafe_name, sizeof(expected_unsafe_name),
@@ -952,9 +743,6 @@ static void test_rejects_unsafe_partial_name(void) {
       "nested.name");
   TEST_CHECK(n > 0 && (size_t)n < sizeof(expected_unsafe_name));
   TEST_CHECK(test_log_is_one(&log, expected_unsafe_name));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A bad partial reference names the file it is written in. Inside a partial that is the partial,
@@ -963,10 +751,8 @@ cleanup:
 // has finished, where the template holds it again.
 static void test_rejects_unsafe_partial_name_in_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{>card}}\n") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{>card}}\n");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -974,26 +760,19 @@ static void test_rejects_unsafe_partial_name_in_partial(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   struct Log log = test_log();
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html", "outer {{>a/b}}\n") == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
+  os_memory_write(os, TEMPLATES_DIR "/partials/card.html", "outer {{>a/b}}\n");
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
   TEST_CHECK(test_log_is_one(&log,
                              "partial name must contain only letters, digits, '_' and '-': 'a/b' "
                              "(in 'partials/card.html')"));
 
-  if (!TEST_CHECK(write_fixture_file(root_dir, "album.html", "{{>card}}\n{{>a/b}}\n") == 0) ||
-      !TEST_CHECK(write_fixture_file(root_dir, "partials/card.html", "card\n") == 0)) {
-    goto cleanup;
-  }
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{>card}}\n{{>a/b}}\n");
+  os_memory_write(os, TEMPLATES_DIR "/partials/card.html", "card\n");
   log = test_log();
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
   TEST_CHECK(test_log_is_one(
       &log,
       "partial name must contain only letters, digits, '_' and '-': 'a/b' (in 'album.html')"));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An unreadable partial fails the render and reports the cause. It does not publish a page with a
@@ -1002,11 +781,9 @@ cleanup:
 // `{{>card}}` is a typical cause.
 static void test_rejects_unreadable_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
+  struct Os* os = os_memory();
   // No `partials/card.html` is written, so resolving the reference fails on the read.
-  if (write_template_fixture(root_dir, "before {{>card}} after") != 0) {
-    return;
-  }
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "before {{>card}} after");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -1014,30 +791,21 @@ static void test_rejects_unreadable_partial(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   struct Log log = test_log();
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
   char reason[ERROR_SYSTEM_MESSAGE_SIZE];
-  char expected[EXPECTED_SIZE];
-  const int expected_len = snprintf(
-      expected, sizeof(expected), "failed to read partial: %s ('%s/%s')",
-      error_system_message(reason, sizeof(reason), ENOENT), root_dir, "partials/card.html");
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
-  TEST_CHECK(test_log_is_one(&log, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to read partial: %s ('" TEMPLATES_DIR "/partials/card.html')\n",
+                         error_system_message(reason, sizeof(reason), ENOENT)));
+  TEST_CHECK(log.errors == 1);
 }
 
 // A template holding a `NUL` byte is rejected before compiling, naming the template file. Rendering
 // past it would emit a page with a raw `NUL` in it.
 static void test_rejects_template_with_nul_byte(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (init_fixture_dir(root_dir) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
   static const char bytes[] = {'a', '\0', 'b'};
+  os_memory_write_bytes(os, S(TEMPLATES_DIR "/album.html"), (struct Str){bytes, sizeof(bytes)});
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -1045,33 +813,21 @@ static void test_rejects_template_with_nul_byte(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   struct Log log = test_log();
-  char expected[EXPECTED_SIZE];
-  const int expected_len = snprintf(
-      expected, sizeof(expected),
-      "failed to read template: contains an embedded NUL byte ('%s/album.html')", root_dir);
-  if (!TEST_CHECK(write_fixture_bytes(root_dir, "album.html", (struct Str){bytes, sizeof(bytes)}) ==
-                  0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
-  TEST_CHECK(test_log_is_one(&log, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(test_log_is_one(
+      &log,
+      "failed to read template: contains an embedded NUL byte ('" TEMPLATES_DIR "/album.html')"));
 }
 
 // A partial holding a `NUL` byte is rejected on the same grounds as a template, naming the partial
 // file rather than the template that included it.
 static void test_rejects_partial_with_nul_byte(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "before {{>card}} after") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "before {{>card}} after");
   static const char bytes[] = {'a', '\0', 'b'};
+  os_memory_write_bytes(os, S(TEMPLATES_DIR "/partials/card.html"),
+                        (struct Str){bytes, sizeof(bytes)});
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -1079,83 +835,44 @@ static void test_rejects_partial_with_nul_byte(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   struct Log log = test_log();
-  char expected[EXPECTED_SIZE];
-  const int expected_len = snprintf(
-      expected, sizeof(expected),
-      "failed to read partial: contains an embedded NUL byte ('%s/partials/card.html')", root_dir);
-  if (!TEST_CHECK(write_fixture_bytes(root_dir, "partials/card.html",
-                                      (struct Str){bytes, sizeof(bytes)}) == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
-  TEST_CHECK(test_log_is_one(&log, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(
+      test_log_is_one(&log, "failed to read partial: contains an embedded NUL byte ('" TEMPLATES_DIR
+                            "/partials/card.html')"));
 }
 
 // A template or partial larger than `TEMPLATE_FILE_LEN_MAX` fails the render at the read, from its
-// size, naming the limit and the size. The files are sparse, so the fixture costs no disk.
+// size, naming the limit and the size. The host stores only the size of the bytes past the end, so
+// the fixture costs no memory.
 static void test_rejects_oversize_template_and_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "before {{>big}} after") != 0) {
-    return;
-  }
-  struct Arena arena = test_arena();
-  const off_t file_len = (off_t)TEMPLATE_FILE_LEN_MAX + 1;
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "before {{>big}} after");
+  os_memory_write(os, TEMPLATES_DIR "/big.html", "");
+  os_memory_write(os, TEMPLATES_DIR "/partials/big.html", "");
+  os_memory_truncate(os, TEMPLATES_DIR "/big.html", TEMPLATE_FILE_LEN_MAX + 1);
+  os_memory_truncate(os, TEMPLATES_DIR "/partials/big.html", TEMPLATE_FILE_LEN_MAX + 1);
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
   struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
-  struct Log log = test_log();
-  char expected[EXPECTED_SIZE];
-  int expected_len = 0;
-  if (!TEST_CHECK(write_fixture_file(root_dir, "big.html", "") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/big.html", "") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(
-          truncate(str_cstr(path_join(str_from_cstr(root_dir), S("big.html"), &arena), &arena),
-                   file_len) == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(
-          truncate(
-              str_cstr(path_join(str_from_cstr(root_dir), S("partials/big.html"), &arena), &arena),
-              file_len) == 0)) {
-    goto cleanup;
-  }
 
-  TEST_CHECK(render(root_dir, "big.html", &context, &perm, NULL, &log) == -1);
-  expected_len = snprintf(expected, sizeof(expected),
-                          "failed to read template: exceeds max file size (%d bytes) at %jd bytes "
-                          "('%s/big.html')",
-                          TEMPLATE_FILE_LEN_MAX, (intmax_t)file_len, root_dir);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
-  TEST_CHECK(test_log_is_one(&log, expected));
+  struct Log log = test_log();
+  TEST_CHECK(render(os, "big.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to read template: exceeds max file size (%d bytes) at %d bytes "
+                         "('" TEMPLATES_DIR "/big.html')\n",
+                         TEMPLATE_FILE_LEN_MAX, TEMPLATE_FILE_LEN_MAX + 1));
+  TEST_CHECK(log.errors == 1);
 
   log = test_log();
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
-  expected_len = snprintf(expected, sizeof(expected),
-                          "failed to read partial: exceeds max file size (%d bytes) at %jd bytes "
-                          "('%s/partials/big.html')",
-                          TEMPLATE_FILE_LEN_MAX, (intmax_t)file_len, root_dir);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
-  TEST_CHECK(test_log_is_one(&log, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to read partial: exceeds max file size (%d bytes) at %d bytes "
+                         "('" TEMPLATES_DIR "/partials/big.html')\n",
+                         TEMPLATE_FILE_LEN_MAX, TEMPLATE_FILE_LEN_MAX + 1));
+  TEST_CHECK(log.errors == 1);
 }
 
 // One distinct partial past the limit is rejected, naming the limit and the partial that reached
@@ -1189,10 +906,7 @@ static void test_rejects_partial_count_past_limit(void) {
   at_limit[at_limit_len] = '\0';
   over_limit[over_limit_len] = '\0';
 
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (init_fixture_dir(root_dir) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
   struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
@@ -1213,37 +927,22 @@ static void test_rejects_partial_count_past_limit(void) {
   at_expected[RENDER_PARTIAL_COUNT_MAX] = '\0';
   // One partial file per distinct name, plus the one that overflows the budget.
   for (ptrdiff_t i = 0; i <= RENDER_PARTIAL_COUNT_MAX; i++) {
-    char partial_name[32];
-    const int partial_name_len =
-        snprintf(partial_name, sizeof(partial_name), "partials/p%td.html", i);
-    if (!TEST_CHECK(partial_name_len > 0 && (size_t)partial_name_len < sizeof(partial_name))) {
-      goto cleanup;
-    }
-    if (!TEST_CHECK(write_fixture_file(root_dir, partial_name, "x") == 0)) {
-      goto cleanup;
-    }
+    char partial_path[64];
+    const int partial_path_len =
+        snprintf(partial_path, sizeof(partial_path), TEMPLATES_DIR "/partials/p%td.html", i);
+    TEST_ASSERT(partial_path_len > 0 && (size_t)partial_path_len < sizeof(partial_path));
+    os_memory_write(os, partial_path, "x");
   }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "album.html", at_limit) == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "over.html", over_limit) == 0)) {
-    goto cleanup;
-  }
+  os_memory_write(os, TEMPLATES_DIR "/album.html", at_limit);
+  os_memory_write(os, TEMPLATES_DIR "/over.html", over_limit);
 
-  if (!TEST_CHECK(render(root_dir, "album.html", &context, &perm, &at_rendered, &at_log) == 0)) {
-    goto cleanup;
-  }
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &at_rendered, &at_log) == 0);
   TEST_CHECK(test_log_is_empty(&at_log));
   TEST_CHECK(strcmp(at_rendered, at_expected) == 0);
 
-  TEST_CHECK(render(root_dir, "over.html", &context, &perm, NULL, &over_log) == -1);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  TEST_CHECK(render(os, "over.html", &context, &perm, NULL, &over_log) == -1);
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(test_log_is_one(&over_log, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A partial that includes itself is bounded by the expansion count rather than recursing until the
@@ -1257,10 +956,8 @@ cleanup:
 // expansion, which is the term `template.c`'s limits comment sizes the constant against.
 static void test_rejects_recursive_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{>loop}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{>loop}}");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -1268,29 +965,22 @@ static void test_rejects_recursive_partial(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   struct Log log = test_log();
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/loop.html", "{{>loop}}") == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
+  os_memory_write(os, TEMPLATES_DIR "/partials/loop.html", "{{>loop}}");
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
   // `RENDER_EXPANSION_COUNT_MAX` is file-local to `template.c`, so it is spelled out here. Changing
   // it there must update this.
   TEST_CHECK(
       test_log_is_one(&log,
                       "render exceeds max partial expansions (300000); check for a partial that "
                       "includes itself (in 'album.html')"));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Two partials that include each other are bounded by the same expansion count, so the bound is not
 // specific to direct self-inclusion.
 static void test_rejects_mutual_partial_cycle(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{>ping}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{>ping}}");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -1298,22 +988,15 @@ static void test_rejects_mutual_partial_cycle(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   struct Log log = test_log();
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/ping.html", "{{>pong}}") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/pong.html", "{{>ping}}") == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
+  os_memory_write(os, TEMPLATES_DIR "/partials/ping.html", "{{>pong}}");
+  os_memory_write(os, TEMPLATES_DIR "/partials/pong.html", "{{>ping}}");
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
   // `RENDER_EXPANSION_COUNT_MAX` is spelled out here for the same reason as in
   // `test_rejects_recursive_partial`. Changing it in `template.c` must update this.
   TEST_CHECK(
       test_log_is_one(&log,
                       "render exceeds max partial expansions (300000); check for a partial that "
                       "includes itself (in 'album.html')"));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An oversize render is rejected once the accumulated output passes the byte bound it was given.
@@ -1332,10 +1015,8 @@ static void test_rejects_oversize_render_output(void) {
   memset(partial, 'x', (size_t)PADDING_LEN);
   memcpy(partial + PADDING_LEN, "{{>card}}", sizeof("{{>card}}"));
 
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{>card}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{>card}}");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -1351,11 +1032,8 @@ static void test_rejects_oversize_render_output(void) {
       snprintf(expected_head, sizeof(expected_head),
                "render exceeds max rendered output (%d bytes) at ", OUTPUT_LEN_MAX);
   struct Str failure = {0};
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html", partial) == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render_limited(root_dir, "album.html", &context, OUTPUT_LEN_MAX, &perm, NULL, &log) ==
-             -1);
+  os_memory_write(os, TEMPLATES_DIR "/partials/card.html", partial);
+  TEST_CHECK(render_limited(os, "album.html", &context, OUTPUT_LEN_MAX, &perm, NULL, &log) == -1);
   TEST_CHECK(expected_head_len > 0 && (size_t)expected_head_len < sizeof(expected_head));
   failure = buf_str(&log.buf);
   TEST_CHECK(str_startswith(failure, (struct Str){expected_head, expected_head_len}));
@@ -1367,9 +1045,6 @@ static void test_rejects_oversize_render_output(void) {
       str_endswith(failure, (struct Str){expected_tail, (ptrdiff_t)sizeof(expected_tail) - 1}));
   TEST_CHECK(log.errors == 1);
   TEST_MSG("actual: '%.*s'", STR_FMT(failure));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Compilation rejects an unclosed section. The diagnostic gives the line and column of the
@@ -1377,10 +1052,8 @@ cleanup:
 // callback. The section opens on line 3, so a hardcoded line 1 cannot pass.
 static void test_rejects_unclosed_section(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "first\nsecond\n{{#media}}{{title}}\n") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "first\nsecond\n{{#media}}{{title}}\n");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -1388,7 +1061,7 @@ static void test_rejects_unclosed_section(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   struct Log log = test_log();
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
   // The leading `%s` is mustache4c's own parser text. Only the position and template around it are
   // this project's wording. Composing through the same format string keeps the two distinguishable
   // and keeps that wording greppable from `template.c`.
@@ -1396,13 +1069,8 @@ static void test_rejects_unclosed_section(void) {
   const int expected_len =
       snprintf(expected, sizeof(expected), "%s at line %u, column %u (in '%s')",
                "section-opening tag has no closer", 3U, 1U, "album.html");
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(test_log_is_one(&log, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A mismatched section closing tag fails to compile. The diagnostic says the closer does not match
@@ -1412,10 +1080,8 @@ cleanup:
 // so a hardcoded 1 cannot pass.
 static void test_rejects_section_name_mismatch(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{#media}}{{title}}{{/wrong}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{#media}}{{title}}{{/wrong}}");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -1423,20 +1089,15 @@ static void test_rejects_section_name_mismatch(void) {
   const struct TemplateContext context = {.gallery_config = &gallery_config,
                                           .album_current = &root};
   struct Log log = test_log();
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
   char expected[EXPECTED_SIZE];
   const int expected_len =
       snprintf(expected, sizeof(expected), "%s at line %u, column %u (in '%s')",
                "name of section-closing tag does not match corresponding section-opening "
                "tag",
                1U, 20U, "album.html");
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(test_log_is_one(&log, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Malformed tag syntax and unsupported block commands are each rejected with the library's own
@@ -1447,10 +1108,7 @@ cleanup:
 // unbalanced triple brace fails here, while compiling, before `node_dump` could reject it.
 static void test_rejects_malformed_tags(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (init_fixture_dir(root_dir) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
   struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
@@ -1468,23 +1126,16 @@ static void test_rejects_malformed_tags(void) {
       {"{{#if album}}\n", "tag name is invalid", 1U},
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    if (!TEST_CHECK(write_fixture_file(root_dir, "album.html", cases[i].source) == 0)) {
-      goto cleanup;
-    }
+    os_memory_write(os, TEMPLATES_DIR "/album.html", cases[i].source);
     struct Log log = test_log();
-    TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
+    TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
     char expected[EXPECTED_SIZE];
     const int expected_len =
         snprintf(expected, sizeof(expected), "%s at line %u, column %u (in '%s')", cases[i].reason,
                  1U, cases[i].column, "album.html");
-    if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-      goto cleanup;
-    }
+    TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
     TEST_CHECK(test_log_is_one(&log, expected));
   }
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A syntax error inside a partial names the partial's *file*, not the bare tag name.
@@ -1494,10 +1145,8 @@ cleanup:
 // included it.
 static void test_rejects_syntax_error_in_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{>card}}\n") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{>card}}\n");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -1509,18 +1158,10 @@ static void test_rejects_syntax_error_in_partial(void) {
   const int expected_len =
       snprintf(expected, sizeof(expected), "%s at line %u, column %u (in '%s')",
                "section-opening tag has no closer", 2U, 1U, "partials/card.html");
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html",
-                                     "first\n{{#media}}{{title}}\n") == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  os_memory_write(os, TEMPLATES_DIR "/partials/card.html", "first\n{{#media}}{{title}}\n");
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(test_log_is_one(&log, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A syntax error in the middle of a partial is reported like one at its end, as the first error of
@@ -1530,10 +1171,8 @@ cleanup:
 // the scan read poisoned memory.
 static void test_rejects_syntax_error_inside_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{>card}}\n") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{>card}}\n");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -1545,32 +1184,23 @@ static void test_rejects_syntax_error_inside_partial(void) {
   const int expected_len =
       snprintf(expected, sizeof(expected), "%s at line %u, column %u (in '%s')",
                "tag opener has no closer", 2U, 1U, "partials/card.html");
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html",
-                                     "first\n{{title\n"
-                                     "a line of ordinary text that runs on well past the length "
-                                     "of the diagnostic for the error above it\n"
-                                     "{{/each}}\n"
-                                     "and one more line of text after the second error\n") == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  os_memory_write(os, TEMPLATES_DIR "/partials/card.html",
+                  "first\n{{title\n"
+                  "a line of ordinary text that runs on well past the length "
+                  "of the diagnostic for the error above it\n"
+                  "{{/each}}\n"
+                  "and one more line of text after the second error\n");
+  TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(test_log_is_one(&log, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Triple braces and the ampersand tag cannot bypass the single HTML-escaping boundary, and neither
 // can a partial, whose rejection is attributed to the template being rendered.
 static void test_rejects_unescaped_interpolation(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{{gallery.title}}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{{gallery.title}}}");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -1586,34 +1216,23 @@ static void test_rejects_unescaped_interpolation(void) {
       {"ampersand.html", UNESCAPED_FAILURE " (in 'ampersand.html')"},
       {"outer.html", UNESCAPED_FAILURE " (in 'outer.html')"},
   };
-  if (!TEST_CHECK(write_fixture_file(root_dir, "ampersand.html", "{{& gallery.title}}") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "outer.html", "{{>raw}}") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/raw.html", "{{{album.title}}}") == 0)) {
-    goto cleanup;
-  }
+  os_memory_write(os, TEMPLATES_DIR "/ampersand.html", "{{& gallery.title}}");
+  os_memory_write(os, TEMPLATES_DIR "/outer.html", "{{>raw}}");
+  os_memory_write(os, TEMPLATES_DIR "/partials/raw.html", "{{{album.title}}}");
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
     struct Log log = test_log();
-    TEST_CHECK(render(root_dir, cases[i].template_name, &context, &perm, NULL, &log) == -1);
+    TEST_CHECK(render(os, cases[i].template_name, &context, &perm, NULL, &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i].expected));
     TEST_MSG("template: %s", cases[i].template_name);
   }
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A triple-brace tag fails whatever kind of value it names, so `{{{album.parent}}}` fails on a
 // sub-album, whose parent is an album, as it does on the root album, whose parent is empty.
 static void test_rejects_unescaped_interpolation_of_any_value(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/fram-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{{album.parent}}}") != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{{album.parent}}}");
 
   struct GalleryConfig gallery_config;
   init_test_gallery_config(&gallery_config);
@@ -1628,12 +1247,10 @@ static void test_rejects_unescaped_interpolation_of_any_value(void) {
     const struct TemplateContext context = {.gallery_config = &gallery_config,
                                             .album_current = albums[i]};
     struct Log log = test_log();
-    TEST_CHECK(render(root_dir, "album.html", &context, &perm, NULL, &log) == -1);
+    TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
     TEST_CHECK(test_log_is_one(&log, UNESCAPED_FAILURE " (in 'album.html')"));
     TEST_MSG("album: %.*s", STR_FMT(albums[i]->title));
   }
-
-  remove_fixture_tree(root_dir);
 }
 
 TEST_LIST = {

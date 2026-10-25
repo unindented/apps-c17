@@ -7,13 +7,12 @@ target_sources(
 )
 
 if(APPS_BUILD_TESTING)
-  foreach(module IN ITEMS cli cli_dispatch cmd_config)
-    apps_add_unit_test(${module})
-  endforeach()
   # The builds of galleries with videos run `ffprobe` and `ffmpeg` fakes, and a video's frame is a
   # file on the real host, so these run on the POSIX one.
   apps_add_unit_test(cmd_build_video)
-  # A build reads, walks and writes only through `os/os.h`, so its tests use the in-memory
+  # These read, walk, write and print only through `os/os.h`, so they run against the in-memory
   # host.
-  apps_add_unit_test(cmd_build OS memory)
+  foreach(module IN ITEMS cli cli_dispatch cmd_build cmd_config)
+    apps_add_unit_test(${module} OS memory)
+  endforeach()
 endif()

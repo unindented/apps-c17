@@ -1,14 +1,14 @@
 #include <acutest.h>
 #include <errno.h>
-#include <stdbool.h>
 #include <stddef.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "app/cli.h"
+#include "core/arena.h"
+#include "core/buf.h"
 #include "core/str.h"
 #include "domain/fram_version.h"
-#include "os/os_posix.h"
+#include "os/os_memory.h"
 #include "testing/test_support.h"
 
 /**
@@ -27,24 +27,6 @@ static struct CliOptions parse(char** argv) {
   struct CliOptions options;
   cli_parse(&options, argc, argv, &arena);
   return options;
-}
-
-/**
- * @brief Prints the usage text of `command` for the program `fram`, capturing standard output.
- *
- * @param command      Command whose help to print.
- * @param text_out     Buffer that receives the terminated text.
- * @param text_out_len Size of `text_out` in bytes. Must be non-zero.
- * @return `true` when the text was printed and captured, or `false` after recording a failure.
- */
-static bool print_usage_capturing(enum CliCommand command, char* text_out, ptrdiff_t text_out_len) {
-  struct StreamCapture capture;
-  if (capture_begin(stdout, &capture) != 0) {
-    return false;
-  }
-  const int rc = cli_print_usage(S("fram"), command, os_posix(), test_arena());
-  const bool is_captured = capture_end(&capture, text_out, text_out_len) == 0;
-  return TEST_CHECK(rc == 0) && TEST_CHECK(is_captured);
 }
 
 // The `build` command resolves to the run action with no worker override.
@@ -553,144 +535,96 @@ static void test_version_accessor_present(void) {
 
 // `cli_print_version` writes exactly one `fram <version>` line to standard output and nothing else.
 static void test_print_version_writes_version_line(void) {
-  char text[64];
-  struct StreamCapture capture;
-  if (capture_begin(stdout, &capture) != 0) {
-    return;
-  }
-  const int rc = cli_print_version(os_posix(), test_arena());
-  const bool is_captured = capture_end(&capture, text, sizeof(text)) == 0;
-  TEST_CHECK(rc == 0);
-  if (!TEST_CHECK(is_captured)) {
-    return;
-  }
-
+  struct Os* os = os_memory();
+  TEST_CHECK(cli_print_version(os, test_arena()) == 0);
   const struct Str version = fram_version_string();
-  char expected[64];
-  const int expected_len = snprintf(expected, sizeof(expected), "fram %.*s\n", STR_FMT(version));
-  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
-  TEST_CHECK(strcmp(text, expected) == 0);
+  struct Arena arena = test_arena();
+  struct Buf expected = {.arena = &arena};
+  buf_printf(&expected, "fram %.*s\n", STR_FMT(version));
+  TEST_CHECK(os_memory_is_printed(os, 1, buf_cstr(&expected)));
+  TEST_CHECK(os_memory_is_printed(os, 2, ""));
 }
 
 // A standard output that refuses the write makes `cli_print_version` report `-1` with the write's
-// own `errno`, which lets `cli_dispatch` name a reason rather than exiting silently. A read-only
-// descriptor in place of standard output is the deterministic way there: every write to it fails
-// with `EBADF`.
+// own `errno`, which lets `cli_dispatch` name a reason rather than exiting silently.
 static void test_print_version_reports_write_failure(void) {
-  struct StreamCapture capture;
-  if (capture_begin_unwritable(stdout, &capture) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_fail_print(os, 1, 0, EBADF);
   errno = 0;
-  const int rc = cli_print_version(os_posix(), test_arena());
-  const int print_errno = errno;
-  TEST_CHECK(capture_end(&capture, NULL, 0) == 0);
-  TEST_CHECK(rc == -1);
-  TEST_CHECK(print_errno == EBADF);
+  TEST_CHECK(cli_print_version(os, test_arena()) == -1);
+  TEST_CHECK(errno == EBADF);
 }
 
-// `cli_print_usage` substitutes the caller's program name into the usage line, in the right
-// position for the selected command, alongside command-specific option content. The name passed
-// here is deliberately *not* `"fram"`. With the real program name the assertion passes just as well
-// against a hard-coded usage line, so it would prove nothing about substitution. `cli_dispatch`
-// passes `argv[0]`, so a user invoking `/usr/local/bin/fram build --help` has to see that path
-// back. The whole texts are asserted below.
-static void test_print_usage_names_program_and_command(void) {
-  static const struct Str prog_name = STR_INIT("/opt/bin/myfram");
-  const struct {
-    enum CliCommand command;
-    const char* usage_line;
-    const char* needle;
-  } cases[] = {
-      {CLI_COMMAND_BUILD, "    /opt/bin/myfram build [options]\n", "-w, --workers N"},
-      {CLI_COMMAND_CONFIG, "    /opt/bin/myfram config [options]\n", "-h, --help"},
-      {CLI_COMMAND_NONE, "    /opt/bin/myfram <command> [options]\n", "-V, --version"},
-  };
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    char text[4096];
-    struct StreamCapture capture;
-    if (capture_begin(stdout, &capture) != 0) {
-      return;
-    }
-    const int rc = cli_print_usage(prog_name, cases[i].command, os_posix(), test_arena());
-    const bool is_captured = capture_end(&capture, text, sizeof(text)) == 0;
-    TEST_CHECK(rc == 0);
-    if (!TEST_CHECK(is_captured)) {
-      return;
-    }
-    TEST_CHECK(strstr(text, cases[i].usage_line) != NULL);
-    TEST_CHECK(strstr(text, cases[i].needle) != NULL);
-    if (cases[i].command == CLI_COMMAND_BUILD) {
-      TEST_CHECK(strstr(text, "-n, --dry-run") != NULL);
-      TEST_CHECK(strstr(text, "    --force            Ignore the build cache for this build\n") !=
-                 NULL);
-    }
-    // Both commands take `-c`, and name its default.
-    if (cases[i].command != CLI_COMMAND_NONE) {
-      TEST_CHECK(strstr(text,
-                        "    -c, --config PATH  Read the configuration from PATH (default: "
-                        "fram.toml)\n") != NULL);
-    }
-    // The command-less help substitutes the name a second time, in the trailer.
-    if (cases[i].command == CLI_COMMAND_NONE) {
-      TEST_CHECK(strstr(text, "Use '/opt/bin/myfram <command> --help'") != NULL);
-    }
-  }
+// The usage summary names the program, the commands and the options. The name is deliberately not
+// `fram`: with the real program name the assertion passes just as well against a hard-coded usage
+// line, so it would prove nothing about substitution. `cli_dispatch` passes `argv[0]`, so a user
+// invoking `/usr/local/bin/fram --help` has to see that path back, in the usage line and in the
+// trailer.
+static void test_print_usage_names_program(void) {
+  struct Os* os = os_memory();
+  TEST_CHECK(cli_print_usage(S("/opt/bin/myfram"), CLI_COMMAND_NONE, os, test_arena()) == 0);
+  TEST_CHECK(os_memory_is_printed(
+      os, 1,
+      "A static photo and video gallery generator.\n"
+      "\n"
+      "USAGE:\n"
+      "    /opt/bin/myfram <command> [options]\n"
+      "\n"
+      "COMMANDS:\n"
+      "    build   Build the gallery\n"
+      "    config  Print the resolved configuration\n"
+      "\n"
+      "OPTIONS:\n"
+      "    -h, --help     Print this help and exit\n"
+      "    -V, --version  Print version information and exit\n"
+      "\n"
+      "Use '/opt/bin/myfram <command> --help' for more information about a command.\n"));
 }
 
-// The help of `config` names its option, compared whole.
+// The help of `config` names the program in its usage line, and names its option.
 static void test_print_usage_names_config_option(void) {
-  char text[4096];
-  if (!print_usage_capturing(CLI_COMMAND_CONFIG, text, sizeof(text))) {
-    return;
-  }
-  TEST_CHECK(strcmp(text,
-                    "Print the resolved configuration as TOML.\n"
-                    "\n"
-                    "USAGE:\n"
-                    "    fram config [options]\n"
-                    "\n"
-                    "OPTIONS:\n"
-                    "    -c, --config PATH  Read the configuration from PATH (default: fram.toml)\n"
-                    "    -h, --help         Print this help and exit\n") == 0);
+  struct Os* os = os_memory();
+  TEST_CHECK(cli_print_usage(S("/opt/bin/myfram"), CLI_COMMAND_CONFIG, os, test_arena()) == 0);
+  TEST_CHECK(os_memory_is_printed(
+      os, 1,
+      "Print the resolved configuration as TOML.\n"
+      "\n"
+      "USAGE:\n"
+      "    /opt/bin/myfram config [options]\n"
+      "\n"
+      "OPTIONS:\n"
+      "    -c, --config PATH  Read the configuration from PATH (default: fram.toml)\n"
+      "    -h, --help         Print this help and exit\n"));
 }
 
-// The help of `build` names each of its options, compared whole.
+// The help of `build` names the program in its usage line, and names each of its options.
 static void test_print_usage_names_build_options(void) {
-  char text[4096];
-  if (!print_usage_capturing(CLI_COMMAND_BUILD, text, sizeof(text))) {
-    return;
-  }
-  TEST_CHECK(
-      strcmp(text,
-             "Build the gallery.\n"
-             "\n"
-             "USAGE:\n"
-             "    fram build [options]\n"
-             "\n"
-             "OPTIONS:\n"
-             "    -c, --config PATH  Read the configuration from PATH (default: fram.toml)\n"
-             "    -w, --workers N    Use at most N worker threads (default: detected CPU count)\n"
-             "    -n, --dry-run      Report what would be written, kept, or removed, changing "
-             "nothing\n"
-             "    --force            Ignore the build cache for this build\n"
-             "    -v, --verbose      Print build progress to stderr\n"
-             "    -h, --help         Print this help and exit\n") == 0);
+  struct Os* os = os_memory();
+  TEST_CHECK(cli_print_usage(S("/opt/bin/myfram"), CLI_COMMAND_BUILD, os, test_arena()) == 0);
+  TEST_CHECK(os_memory_is_printed(
+      os, 1,
+      "Build the gallery.\n"
+      "\n"
+      "USAGE:\n"
+      "    /opt/bin/myfram build [options]\n"
+      "\n"
+      "OPTIONS:\n"
+      "    -c, --config PATH  Read the configuration from PATH (default: fram.toml)\n"
+      "    -w, --workers N    Use at most N worker threads (default: detected CPU count)\n"
+      "    -n, --dry-run      Report what would be written, kept, or removed, changing nothing\n"
+      "    --force            Ignore the build cache for this build\n"
+      "    -v, --verbose      Print build progress to stderr\n"
+      "    -h, --help         Print this help and exit\n"));
 }
 
 // `cli_print_usage` reports a failed write the same way, so neither informational action can exit
 // non-zero without a reason.
 static void test_print_usage_reports_write_failure(void) {
-  struct StreamCapture capture;
-  if (capture_begin_unwritable(stdout, &capture) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
+  os_memory_fail_print(os, 1, 0, EBADF);
   errno = 0;
-  const int rc = cli_print_usage(S("fram"), CLI_COMMAND_NONE, os_posix(), test_arena());
-  const int print_errno = errno;
-  TEST_CHECK(capture_end(&capture, NULL, 0) == 0);
-  TEST_CHECK(rc == -1);
-  TEST_CHECK(print_errno == EBADF);
+  TEST_CHECK(cli_print_usage(S("fram"), CLI_COMMAND_NONE, os, test_arena()) == -1);
+  TEST_CHECK(errno == EBADF);
 }
 
 TEST_LIST = {
@@ -748,7 +682,7 @@ TEST_LIST = {
     {"version accessor present", test_version_accessor_present},
     {"print version writes version line", test_print_version_writes_version_line},
     {"print version reports write failure", test_print_version_reports_write_failure},
-    {"print usage names program and command", test_print_usage_names_program_and_command},
+    {"print usage names program", test_print_usage_names_program},
     {"print usage names config option", test_print_usage_names_config_option},
     {"print usage names build options", test_print_usage_names_build_options},
     {"print usage reports write failure", test_print_usage_reports_write_failure},

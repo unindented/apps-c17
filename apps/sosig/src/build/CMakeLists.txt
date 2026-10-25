@@ -8,11 +8,10 @@ target_sources(
 target_link_libraries(sosig_app PRIVATE vendor_mustache)
 
 if(APPS_BUILD_TESTING)
-  foreach(module IN ITEMS entry_renderer template)
-    apps_add_unit_test(${module})
-  endforeach()
-  # These read and write only through `runtime/os.h`, so they run against the in-memory host.
-  foreach(module IN ITEMS manifest_builder page_renderer site_writer)
+  # These read and write only through `os/os.h`, so they run against the in-memory host.
+  foreach(module IN ITEMS entry_renderer manifest_builder page_renderer site_writer template)
     apps_add_unit_test(${module} OS memory)
   endforeach()
+  # These render the templates of a golden site, which only the real filesystem holds.
+  apps_add_unit_test(template_posix)
 endif()

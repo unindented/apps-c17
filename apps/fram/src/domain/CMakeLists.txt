@@ -7,7 +7,10 @@ target_sources(
 )
 
 if(APPS_BUILD_TESTING)
-  foreach(module IN ITEMS album build_cache gallery_config media_item)
+  foreach(module IN ITEMS album build_cache media_item)
     apps_add_unit_test(${module})
   endforeach()
+  # The config is read and printed only through `os/os.h`, so its tests run against the in-memory
+  # host.
+  apps_add_unit_test(gallery_config OS memory)
 endif()

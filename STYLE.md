@@ -265,7 +265,7 @@ This guide takes its ideas and conventions from these sources:
 
 ### sosig
 
-- The suites that are not yet converted to the in-memory host are `cli`, `cli_dispatch`, `cmd_config`, `entry_renderer`, `site_config` and `template`.
+- Every suite that reaches a host runs on the in-memory host except `template_posix`, which renders the templates of the golden site `tests/fixtures/site_file_permalink`, which only the real filesystem holds.
 
 ### fram
 
@@ -273,7 +273,7 @@ This guide takes its ideas and conventions from these sources:
 - **Decoded pixels.** Decoded pixels are the one exception to arena allocation. A `struct Image` owns its pixels on `malloc`: `image_alloc` in `apps/fram/src/media/image.c` allocates them, and `image_free` releases them. An arena would keep the largest decode of each worker committed for the rest of the build, as [apps/fram/ARCHITECTURE.md](apps/fram/ARCHITECTURE.md#decoded-pixels-stay-on-malloc) explains. Outside the tests, no other first-party code calls `malloc` or `free`, except the allocator wrapper that first-party code gives to a vendored library, such as the wrapper for tomlc17 in `formats/toml.c`, and `apps/fram/src/media/stb.c`, which routes stb's allocator hooks to `image_alloc`.
 - **Cleanup.** The resources that an arena does not release also include a decoded `struct Image` and a temporary video frame.
 - **Child processes in tests.** Keep a test that starts a child process, such as the `ffprobe` and `ffmpeg` fakes, on the POSIX host, because `proc` and `video` work on the real host, whichever host the test links. Thus the video cases of a memory-host module are a separate executable (`test_*_video.c`).
-- The tests on the POSIX host also include the tests that run processes or decode video (`proc`, `video` and the `*_video` tests). The suites that are not yet converted to the in-memory host are `cli`, `cli_dispatch`, `cmd_config`, `gallery_config` and `template`.
+- The tests on the POSIX host also include the tests that run processes or decode video (`proc`, `video` and the `*_video` tests). Every other suite that reaches a host runs on the in-memory host.
 
 ### cwrap
 

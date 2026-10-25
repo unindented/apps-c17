@@ -1,34 +1,34 @@
-#define _DARWIN_C_SOURCE
-#define _DEFAULT_SOURCE
-
 #include <acutest.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "build/template.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/error.h"
 #include "core/log.h"
-#include "core/path.h"
 #include "core/str.h"
 #include "domain/content_entry.h"
 #include "domain/site_config.h"
 #include "domain/sosig_version.h"
-#include "os/os.h"
-#include "os/os_posix.h"
+#include "os/os_memory.h"
 #include "testing/test_support.h"
+
+// Every test here runs against the in-memory host, which holds the templates and partials a render
+// reads. `test_template_posix.c` renders the templates of a golden site, which only the real
+// filesystem holds.
 
 /**
  * Size of a buffer for an expected diagnostic. The log never truncates, so this only has to hold
  * the longest message a test spells out.
  */
 enum { EXPECTED_SIZE = 1024 };
+
+/** Directory the templates are written to and rendered from, with partials below `partials/`. */
+#define TEMPLATES_DIR "templates"
 
 /**
  * Failure of an unescaped interpolation of a key that does not end in `_html`, which a test follows
@@ -70,45 +70,30 @@ static void init_test_content_entry(struct ContentEntry* entry) {
 }
 
 /**
- * @brief Creates a fixture root holding one `index.html` template.
+ * @brief Writes a template or a partial below `TEMPLATES_DIR`, creating its parent directories.
  *
- * @param root_dir Writable `mkdtemp` template. Receives the created directory path. Must not be
- *                 `NULL`.
- * @param text     Terminated template text to write.
- * @return `0` on success, or `-1` after recording a test-plumbing failure, with no fixture left
- *         behind.
+ * @param os   Host to write to. Must not be `NULL`.
+ * @param name Terminated path below `TEMPLATES_DIR`, such as `partials/card.html`. Must not be
+ *             `NULL`.
+ * @param text Terminated template text. Must not be `NULL`.
  */
-static int write_template_fixture(char root_dir[static 1], const char* text) {
-  if (init_fixture_dir(root_dir) != 0) {
-    return -1;
-  }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "index.html", text) == 0)) {
-    remove_fixture_tree(root_dir);
-    return -1;
-  }
-  return 0;
+static void write_template(struct Os* os, const char* name, const char* text) {
+  struct Arena arena = test_arena();
+  struct Buf path = {.arena = &arena};
+  buf_printf(&path, "%s/%s", TEMPLATES_DIR, name);
+  os_memory_write(os, buf_cstr(&path), text);
 }
 
 /**
- * @brief Writes one fixture file whose bytes may include a `NUL`.
+ * @brief Returns a fresh host holding one template, `index.html`.
  *
- * @param root_dir      Fixture root directory.
- * @param relative_path Relative fixture path below `root_dir`.
- * @param data          Bytes to write.
- * @return `0` on success, or `-1` on test-plumbing failure.
+ * @param text Terminated template text. Must not be `NULL`.
+ * @return The host.
  */
-static int write_fixture_bytes(const char* root_dir, const char* relative_path, struct Str data) {
-  char fixture_path[256];
-  const int n = snprintf(fixture_path, sizeof(fixture_path), "%s/%s", root_dir, relative_path);
-  TEST_CHECK(n > 0 && (size_t)n < sizeof(fixture_path));
-  if (n <= 0 || (size_t)n >= sizeof(fixture_path)) {
-    return -1;
-  }
-  struct Log log = test_log();
-  const int rc = os_write(os_posix(), str_from_cstr(fixture_path), (struct OsSource){.bytes = data},
-                          S("failed to write fixture"), &log);
-  TEST_CHECK(rc == 0);
-  return rc;
+static struct Os* template_host(const char* text) {
+  struct Os* os = os_memory();
+  write_template(os, "index.html", text);
+  return os;
 }
 
 /**
@@ -137,10 +122,10 @@ static bool is_log_one_failure(const struct Log* log,
  * terminated, copied after the HTML in `perm`. Rendered output holds no `NUL` byte, so the copy
  * loses nothing.
  *
- * @param templates_dir  Terminated template directory root.
- * @param template_name  Terminated template name.
+ * @param template_name  Terminated name of a template below `TEMPLATES_DIR`.
  * @param context        Template context. Must not be `NULL`.
  * @param output_len_max Largest rendered output accepted, in bytes.
+ * @param os             Host holding the templates. Must not be `NULL`.
  * @param perm           Arena that owns the HTML and its terminated copy. Must not be `NULL`.
  * @param html_out       Receives the terminated HTML on success, or `NULL` when the test asserts
  *                       only the result.
@@ -148,10 +133,10 @@ static bool is_log_one_failure(const struct Log* log,
  *                       result.
  * @return `0` on success, or `-1` when the render failed.
  */
-static int render_limited(const char* templates_dir,
-                          const char* template_name,
+static int render_limited(const char* template_name,
                           const struct TemplateContext* context,
                           ptrdiff_t output_len_max,
+                          struct Os* os,
                           struct Arena* perm,
                           char** html_out,
                           struct Log* log) {
@@ -161,9 +146,8 @@ static int render_limited(const char* templates_dir,
     log = &discarded;
   }
   struct Str html = {0};
-  if (template_render_file_limited(str_from_cstr(templates_dir), str_from_cstr(template_name),
-                                   context, output_len_max, os_posix(), perm, test_arena(), &html,
-                                   NULL, log) != 0) {
+  if (template_render_file_limited(S(TEMPLATES_DIR), str_from_cstr(template_name), context,
+                                   output_len_max, os, perm, test_arena(), &html, NULL, log) != 0) {
     return -1;
   }
   if (html_out != NULL) {
@@ -176,9 +160,9 @@ static int render_limited(const char* templates_dir,
  * @brief Renders through `template_render_file` with the production bound and hands back the HTML
  *        as a C string, the same test-only bridge as `render_limited`.
  *
- * @param templates_dir Terminated template directory root.
- * @param template_name Terminated template name.
+ * @param template_name Terminated name of a template below `TEMPLATES_DIR`.
  * @param context       Template context. Must not be `NULL`.
+ * @param os            Host holding the templates. Must not be `NULL`.
  * @param perm          Arena that owns the HTML and its terminated copy. Must not be `NULL`.
  * @param html_out      Receives the terminated HTML on success, or `NULL` when the test asserts
  *                      only the result.
@@ -186,9 +170,9 @@ static int render_limited(const char* templates_dir,
  *                      result.
  * @return `0` on success, or `-1` when the render failed.
  */
-static int render(const char* templates_dir,
-                  const char* template_name,
+static int render(const char* template_name,
                   const struct TemplateContext* context,
+                  struct Os* os,
                   struct Arena* perm,
                   char** html_out,
                   struct Log* log) {
@@ -198,35 +182,14 @@ static int render(const char* templates_dir,
     log = &discarded;
   }
   struct Str html = {0};
-  if (template_render_file(str_from_cstr(templates_dir), str_from_cstr(template_name), context,
-                           os_posix(), perm, test_arena(), &html, NULL, log) != 0) {
+  if (template_render_file(S(TEMPLATES_DIR), str_from_cstr(template_name), context, os, perm,
+                           test_arena(), &html, NULL, log) != 0) {
     return -1;
   }
   if (html_out != NULL) {
     *html_out = str_cstr(html, perm);
   }
   return 0;
-}
-
-// `{{title}}` is escaped and `{{{body_html}}}` is not in the same render, so escaping is chosen per
-// tag rather than per template. This renders the real `templates/content.html`, whose output,
-// including the feed `<link rel="alternate">`, is compared end to end with the expected output in
-// `tests/expected/site_file_permalink` by the golden test.
-static void test_renders_escaped_title_and_raw_body(void) {
-  struct Arena perm = test_arena();
-  struct SiteConfig site_config;
-  init_test_site_config(&site_config);
-  struct ContentEntry entry;
-  init_test_content_entry(&entry);
-  entry.title = S("Content Entry <One>");
-  const char* templates_dir = "tests/fixtures/site_file_permalink/templates";
-  const struct TemplateContext context = {.site_config = &site_config,
-                                          .content_entry_current = &entry};
-  char* rendered_html = NULL;
-  TEST_ASSERT(render(templates_dir, "content.html", &context, &perm, &rendered_html, NULL) == 0);
-  TEST_CHECK(strstr(rendered_html, "Content Entry &lt;One&gt;") != NULL);
-  TEST_CHECK(strstr(rendered_html, "<p>raw</p>") != NULL);
-  TEST_CHECK(strstr(rendered_html, "rel=\"alternate\"") != NULL);
 }
 
 // A render reports whether it read the entry list: `content_entries` depends on every entry,
@@ -243,15 +206,8 @@ static void test_reports_whether_it_read_the_entry_list(void) {
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
     struct Arena perm = test_arena();
-    char root_dir[] = "/tmp/sosig-template-XXXXXX";
-    if (write_template_fixture(root_dir, cases[i].text) != 0) {
-      return;
-    }
-    if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html",
-                                       "{{#content_entries}}{{/content_entries}}") == 0)) {
-      remove_fixture_tree(root_dir);
-      return;
-    }
+    struct Os* os = template_host(cases[i].text);
+    write_template(os, "partials/card.html", "{{#content_entries}}{{/content_entries}}");
     struct SiteConfig site_config;
     init_test_site_config(&site_config);
     struct ContentEntry entry;
@@ -261,11 +217,8 @@ static void test_reports_whether_it_read_the_entry_list(void) {
     struct Str html = {0};
     bool is_entry_list_read = !cases[i].is_entry_list_read;
     struct Log log = test_log();
-    const int rc =
-        template_render_file(str_from_cstr(root_dir), S("index.html"), &context, os_posix(), &perm,
-                             test_arena(), &html, &is_entry_list_read, &log);
-    remove_fixture_tree(root_dir);
-    TEST_CHECK(rc == 0);
+    TEST_CHECK(template_render_file(S(TEMPLATES_DIR), S("index.html"), &context, os, &perm,
+                                    test_arena(), &html, &is_entry_list_read, &log) == 0);
     TEST_CHECK_(is_entry_list_read == cases[i].is_entry_list_read, "'%s'", cases[i].text);
   }
 }
@@ -273,12 +226,9 @@ static void test_reports_whether_it_read_the_entry_list(void) {
 // Content entries and their tag lists iterate with escaping.
 static void test_iterates_content_entries_and_tags(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir,
-                             "{{#content_entries}}{{title}}: {{#tags}}[{{.}}]{{/tags}}\n"
-                             "{{/content_entries}}") != 0) {
-    return;
-  }
+  struct Os* os = template_host(
+      "{{#content_entries}}{{title}}: {{#tags}}[{{.}}]{{/tags}}\n"
+      "{{/content_entries}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -298,13 +248,10 @@ static void test_iterates_content_entries_and_tags(void) {
   second.title = S("Two");
   second.tags = second_tags;
   second.tag_count = 1;
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "One &lt;A&gt;: [c][x&amp;y]\nTwo: [z]\n") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An empty tag renders as an empty item and does not end the iteration. `NULL` from the child
@@ -313,11 +260,8 @@ cleanup:
 // `tags = ["", "x"]`, so this is reachable from a real site.
 static void test_empty_tag_does_not_truncate_tag_list(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(
-          root_dir, "{{#content_entries}}{{#tags}}[{{.}}]{{/tags}}{{/content_entries}}") != 0) {
-    return;
-  }
+  struct Os* os =
+      template_host("{{#content_entries}}{{#tags}}[{{.}}]{{/tags}}{{/content_entries}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -330,30 +274,24 @@ static void test_empty_tag_does_not_truncate_tag_list(void) {
   static struct Str tags[] = {STR_INIT("a"), STR_INIT(""), STR_INIT("b")};
   entry.tags = tags;
   entry.tag_count = 3;
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "[a][][b]") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Nested sections re-iterate content entries in an inner context.
 static void test_nested_section_reiterates_content_entries(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir,
-                             "{{#content_entries}}"
-                             "["
-                             "{{title}}:"
-                             "{{#content_entries}}"
-                             "{{title}},"
-                             "{{/content_entries}}"
-                             "]"
-                             "{{/content_entries}}") != 0) {
-    return;
-  }
+  struct Os* os = template_host(
+      "{{#content_entries}}"
+      "["
+      "{{title}}:"
+      "{{#content_entries}}"
+      "{{title}},"
+      "{{/content_entries}}"
+      "]"
+      "{{/content_entries}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -367,23 +305,17 @@ static void test_nested_section_reiterates_content_entries(void) {
   char* rendered_html = NULL;
   first.title = S("One");
   second.title = S("Two");
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "[One:One,Two,][Two:One,Two,]") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Double-brace variables are escaped, and a key that ends in `_html` stays raw in both a
 // triple-brace and an ampersand tag. An empty one writes nothing and does not fail.
 static void test_escapes_double_brace_and_leaves_html_key_raw(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{title}} [{{{body_html}}}|{{& body_html}}]\n") != 0) {
-    return;
-  }
+  struct Os* os = template_host("{{title}} [{{{body_html}}}|{{& body_html}}]\n");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -393,55 +325,23 @@ static void test_escapes_double_brace_and_leaves_html_key_raw(void) {
   char* rendered_html = NULL;
   init_test_content_entry(&entry);
   entry.title = S("Content Entry <One>");
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "Content Entry &lt;One&gt; [<p>raw</p>|<p>raw</p>]\n") == 0);
 
   entry.body_html = S("");
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "Content Entry &lt;One&gt; [|]\n") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
-}
-
-// The feed template renders through the same name-based entry point as an HTML page. A body that
-// already holds HTML is escaped again for XML. This renders the real `templates/atom.xml`, so the
-// golden test compares its output end to end with `tests/expected/site_file_permalink/atom.xml`.
-static void test_renders_atom_feed(void) {
-  struct Arena perm = test_arena();
-  struct SiteConfig site_config;
-  init_test_site_config(&site_config);
-  struct ContentEntry entry;
-  init_test_content_entry(&entry);
-  entry.title = S("Content Entry <One>");
-  entry.description = S("Desc & More");
-  const struct ContentEntry* content_entries[] = {&entry};
-  const char* templates_dir = "tests/fixtures/site_file_permalink/templates";
-  const struct TemplateContext context = {.site_config = &site_config,
-                                          .content_entry_current = NULL,
-                                          .content_entries = content_entries,
-                                          .content_entry_count = 1,
-                                          .is_feed = true};
-  char* rendered_html = NULL;
-  TEST_ASSERT(render(templates_dir, "atom.xml", &context, &perm, &rendered_html, NULL) == 0);
-  TEST_CHECK(strstr(rendered_html, "<title>Content Entry &lt;One&gt;</title>") != NULL);
-  TEST_CHECK(strstr(rendered_html, "<content type=\"html\">&lt;p&gt;raw&lt;/p&gt;</content>") !=
-             NULL);
-  TEST_CHECK(strstr(rendered_html, "<updated>2026-07-01T00:00:00Z</updated>") != NULL);
 }
 
 // `generator` names the tool and its version, at the root and inside a section.
 static void test_renders_generator(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(
-          root_dir, "{{generator}}|{{#content_entries}}{{generator}}{{/content_entries}}") != 0) {
-    return;
-  }
+  struct Os* os =
+      template_host("{{generator}}|{{#content_entries}}{{generator}}{{/content_entries}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -454,32 +354,23 @@ static void test_renders_generator(void) {
   char expected[64];
   int expected_len = 0;
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   expected_len = snprintf(expected, sizeof(expected), "sosig %.*s|sosig %.*s", STR_FMT(version),
                           STR_FMT(version));
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(strcmp(rendered_html, expected) == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Every `site.*` field from the configuration renders, escaped, at the root and inside a section,
 // in a template of any kind.
 static void test_renders_site_fields(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir,
-                             "{{site.title}}|{{site.description}}|{{site.author}}|{{site.base_url}}"
-                             "{{#content_entries}}|{{site.description}}{{/content_entries}}") !=
-      0) {
-    return;
-  }
+  struct Os* os = template_host(
+      "{{site.title}}|{{site.description}}|{{site.author}}|{{site.base_url}}"
+      "{{#content_entries}}|{{site.description}}{{/content_entries}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -489,15 +380,12 @@ static void test_renders_site_fields(void) {
   const struct TemplateContext context = {
       .site_config = &site_config, .content_entries = content_entries, .content_entry_count = 1};
   char* rendered_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html,
                     "Site|Notes &amp; more|Author|https://example.com|Notes &amp; more") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // `path_to_root` renders the prefix the caller set for the page, at the root and inside
@@ -506,12 +394,8 @@ cleanup:
 // gets.
 static void test_renders_path_to_root(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(
-          root_dir,
-          "[{{path_to_root}}]{{#content_entries}}({{path_to_root}}){{/content_entries}}") != 0) {
-    return;
-  }
+  struct Os* os =
+      template_host("[{{path_to_root}}]{{#content_entries}}({{path_to_root}}){{/content_entries}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -527,29 +411,22 @@ static void test_renders_path_to_root(void) {
       .site_config = &site_config, .content_entries = content_entries, .content_entry_count = 1};
   char* nested_html = NULL;
   char* top_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "index.html", &nested_context, &perm, &nested_html, NULL) ==
-                  0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &nested_context, os, &perm, &nested_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(nested_html, "[../../](../../)") == 0);
   TEST_MSG("rendered: '%s'", nested_html);
-  if (!TEST_CHECK(render(root_dir, "index.html", &top_context, &perm, &top_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &top_context, os, &perm, &top_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(top_html, "[]()") == 0);
   TEST_MSG("rendered: '%s'", top_html);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A safe partial loads and renders in the parent context, with its values still escaped.
 static void test_renders_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "before {{> card}} after") != 0) {
-    return;
-  }
+  struct Os* os = template_host("before {{> card}} after");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -558,17 +435,12 @@ static void test_renders_partial(void) {
                                           .content_entry_current = &entry};
   char* rendered_html = NULL;
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html", "{{title}}") == 0)) {
-    goto cleanup;
-  }
+  write_template(os, "partials/card.html", "{{title}}");
   entry.title = S("Content Entry <One>");
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "before Content Entry &lt;One&gt; after") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A partial referenced twice per entry across three entries expands six times and renders each
@@ -576,11 +448,7 @@ cleanup:
 // what a broken cache would break, stale or empty expansions, rather than the number of compiles.
 static void test_repeated_partial_renders_same_content_each_time(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir,
-                             "{{#content_entries}}{{>card}}{{>card}}{{/content_entries}}") != 0) {
-    return;
-  }
+  struct Os* os = template_host("{{#content_entries}}{{>card}}{{>card}}{{/content_entries}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -595,17 +463,12 @@ static void test_repeated_partial_renders_same_content_each_time(void) {
       .site_config = &site_config, .content_entries = content_entries, .content_entry_count = 3};
   struct Log log = test_log();
   char* rendered_html = NULL;
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html", "[{{title}}]") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, &log) == 0)) {
-    goto cleanup;
+  write_template(os, "partials/card.html", "[{{title}}]");
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, &log) == 0)) {
+    return;
   }
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(strcmp(rendered_html, "[p1][p1][p2][p2][p3][p3]") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Referencing one partial more times than the distinct-partial limit allows still builds, because
@@ -632,10 +495,7 @@ static void test_repeated_partial_stays_under_distinct_limit(void) {
   source[REFERENCE_COUNT * REFERENCE_LEN] = '\0';
   expected[REFERENCE_COUNT * EXPANSION_LEN] = '\0';
 
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, source) != 0) {
-    return;
-  }
+  struct Os* os = template_host(source);
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -645,26 +505,18 @@ static void test_repeated_partial_stays_under_distinct_limit(void) {
   struct Log log = test_log();
   char* rendered_html = NULL;
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html", "[{{title}}]") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, &log) == 0)) {
-    goto cleanup;
+  write_template(os, "partials/card.html", "[{{title}}]");
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, &log) == 0)) {
+    return;
   }
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(strcmp(rendered_html, expected) == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An empty template renders as empty output.
 static void test_empty_template_yields_empty_string(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "") != 0) {
-    return;
-  }
+  struct Os* os = template_host("");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -673,22 +525,16 @@ static void test_empty_template_yields_empty_string(void) {
                                           .content_entry_current = &entry};
   char* rendered_html = NULL;
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An unknown variable renders as empty text per the Mustache spec, at the root and in a subtree.
 static void test_unknown_variable_renders_empty(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "[{{typo}}|{{site.typo}}]\n") != 0) {
-    return;
-  }
+  struct Os* os = template_host("[{{typo}}|{{site.typo}}]\n");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -697,13 +543,10 @@ static void test_unknown_variable_renders_empty(void) {
                                           .content_entry_current = &entry};
   char* rendered_html = NULL;
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "[|]\n") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An unescaped tag of a name the data does not hold renders nothing and does not fail, whatever the
@@ -712,10 +555,7 @@ cleanup:
 // empty value, as it does in an escaped tag.
 static void test_unescaped_unknown_name_renders_empty(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "[{{{typo_html}}}|{{& site.typo}}]\n") != 0) {
-    return;
-  }
+  struct Os* os = template_host("[{{{typo_html}}}|{{& site.typo}}]\n");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -724,24 +564,18 @@ static void test_unescaped_unknown_name_renders_empty(void) {
                                           .content_entry_current = &entry};
   char* rendered_html = NULL;
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "[|]\n") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An inverted section renders only when the list is empty.
 static void test_inverted_section_renders_when_list_empty(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir,
-                             "{{#content_entries}}x{{/content_entries}}{{^content_entries}}none{{/"
-                             "content_entries}}") != 0) {
-    return;
-  }
+  struct Os* os = template_host(
+      "{{#content_entries}}x{{/content_entries}}{{^content_entries}}none{{/"
+      "content_entries}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -753,20 +587,15 @@ static void test_inverted_section_renders_when_list_empty(void) {
   char* rendered_html = NULL;
   init_test_content_entry(&entry);
 
-  if (!TEST_CHECK(render(root_dir, "index.html", &context_empty, &perm, &rendered_html, NULL) ==
-                  0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context_empty, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "none") == 0);
 
-  if (!TEST_CHECK(render(root_dir, "index.html", &context_full, &perm, &rendered_html, NULL) ==
-                  0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context_full, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "x") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An empty field value is falsey as a section, so an unset optional field reads as absent. Were an
@@ -776,14 +605,9 @@ cleanup:
 // rather than showing the page entry's, which Mustache's lookup in the enclosing context would.
 static void test_empty_field_is_falsey_as_section(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(
-          root_dir,
-          "{{#content_entries}}[{{#description}}D:{{description}}{{/description}}"
-          "{{^description}}NONE{{/description}}{{^tags}}|NOTAGS{{/tags}}]{{/content_entries}}") !=
-      0) {
-    return;
-  }
+  struct Os* os = template_host(
+      "{{#content_entries}}[{{#description}}D:{{description}}{{/description}}"
+      "{{^description}}NONE{{/description}}{{^tags}}|NOTAGS{{/tags}}]{{/content_entries}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -809,19 +633,15 @@ static void test_empty_field_is_falsey_as_section(void) {
   char* rendered_html = NULL;
   first.description = S("");
   second.description = S("Desc");
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "[NONE|NOTAGS][D:Desc|NOTAGS]") == 0);
 
-  if (!TEST_CHECK(render(root_dir, "index.html", &page_context, &perm, &rendered_html, NULL) ==
-                  0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &page_context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "[NONE|NOTAGS][D:Desc|NOTAGS]") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // `{{modified}}` renders the current entry's modified date and each listed entry's, and
@@ -830,16 +650,10 @@ cleanup:
 // entry without one still falls back to its own date rather than showing the current entry's.
 static void test_renders_modified_with_date_fallback(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir,
-                             "{{#content_entries}}[{{#modified}}{{modified}}{{/modified}}"
-                             "{{^modified}}{{date}}{{/modified}}]{{/content_entries}}") != 0) {
-    return;
-  }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "content.html", "[{{modified}}]") == 0)) {
-    remove_fixture_tree(root_dir);
-    return;
-  }
+  struct Os* os = template_host(
+      "{{#content_entries}}[{{#modified}}{{modified}}{{/modified}}"
+      "{{^modified}}{{date}}{{/modified}}]{{/content_entries}}");
+  write_template(os, "content.html", "[{{modified}}]");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -860,28 +674,20 @@ static void test_renders_modified_with_date_fallback(void) {
   char* list_html = NULL;
   char* first_html = NULL;
   char* second_html = NULL;
-  if (!TEST_CHECK(render(root_dir, "index.html", &list_context, &perm, &list_html, NULL) == 0) ||
-      !TEST_CHECK(render(root_dir, "content.html", &first_context, &perm, &first_html, NULL) ==
-                  0) ||
-      !TEST_CHECK(render(root_dir, "content.html", &second_context, &perm, &second_html, NULL) ==
-                  0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &list_context, os, &perm, &list_html, NULL) == 0) ||
+      !TEST_CHECK(render("content.html", &first_context, os, &perm, &first_html, NULL) == 0) ||
+      !TEST_CHECK(render("content.html", &second_context, os, &perm, &second_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(list_html, "[2026-07-03T00:00:00Z][2026-07-01T00:00:00Z]") == 0);
   TEST_CHECK(strcmp(first_html, "[2026-07-03T00:00:00Z]") == 0);
   TEST_CHECK(strcmp(second_html, "[]") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Comments are dropped from the rendered output.
 static void test_comments_are_dropped(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "a{{! ignored }}b") != 0) {
-    return;
-  }
+  struct Os* os = template_host("a{{! ignored }}b");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -890,13 +696,10 @@ static void test_comments_are_dropped(void) {
                                           .content_entry_current = &entry};
   char* rendered_html = NULL;
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, NULL) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, NULL) == 0)) {
+    return;
   }
   TEST_CHECK(strcmp(rendered_html, "ab") == 0);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // The output bound belongs to the call. `template_render_file_limited` accepts output exactly at
@@ -908,10 +711,7 @@ static void test_output_bound_applies_per_call(void) {
   char* padding = arena_new(&perm, OUTPUT_LEN_MAX + 2, char);
   memset(padding, 'x', (size_t)OUTPUT_LEN_MAX + 1);
   padding[OUTPUT_LEN_MAX + 1] = '\0';
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, padding) != 0) {
-    return;
-  }
+  struct Os* os = template_host(padding);
   padding[OUTPUT_LEN_MAX] = '\0';
 
   struct SiteConfig site_config;
@@ -924,17 +724,14 @@ static void test_output_bound_applies_per_call(void) {
   char expected_err[EXPECTED_SIZE];
   int expected_err_len = 0;
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(write_fixture_file(root_dir, "at.html", padding) == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(render_limited(root_dir, "at.html", &context, OUTPUT_LEN_MAX, &perm,
-                                 &rendered_html, &log) == 0)) {
-    goto cleanup;
+  write_template(os, "at.html", padding);
+  if (!TEST_CHECK(render_limited("at.html", &context, OUTPUT_LEN_MAX, os, &perm, &rendered_html,
+                                 &log) == 0)) {
+    return;
   }
   TEST_CHECK(strlen(rendered_html) == (size_t)OUTPUT_LEN_MAX);
 
-  TEST_CHECK(render_limited(root_dir, "index.html", &context, OUTPUT_LEN_MAX, &perm, NULL, &log) ==
-             -1);
+  TEST_CHECK(render_limited("index.html", &context, OUTPUT_LEN_MAX, os, &perm, NULL, &log) == -1);
   expected_err_len =
       snprintf(expected_err, sizeof(expected_err),
                "render exceeds max rendered output (%d bytes) at %d bytes (in 'index.html')",
@@ -942,13 +739,10 @@ static void test_output_bound_applies_per_call(void) {
   TEST_CHECK(expected_err_len > 0 && (size_t)expected_err_len < sizeof(expected_err));
   TEST_CHECK(is_log_one_failure(&log, &entry, expected_err));
 
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, &log) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, &log) == 0)) {
+    return;
   }
   TEST_CHECK(strlen(rendered_html) == (size_t)OUTPUT_LEN_MAX + 1);
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A partial name that could escape the partials directory is rejected, with a diagnostic. A name
@@ -956,10 +750,7 @@ cleanup:
 // compiling, so the failure surfaces as a compile error for the enclosing template.
 static void test_rejects_unsafe_partial_name(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{> ../secret}}\n") != 0) {
-    return;
-  }
+  struct Os* os = template_host("{{> ../secret}}\n");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -972,7 +763,7 @@ static void test_rejects_unsafe_partial_name(void) {
   char expected_unsafe_name[EXPECTED_SIZE];
   int n = 0;
   init_test_content_entry(&entry);
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, &log) == -1);
+  TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, &log) == -1);
   // Rejected by mustache4c's own tag validation, so the leading `%s` is its text and only the
   // position wrapper is this project's. Composed through the same format string as
   // `test_rejects_unclosed_section`, which is the other assertion of that wrapper.
@@ -983,20 +774,15 @@ static void test_rejects_unsafe_partial_name(void) {
 
   // A name Mustache accepts but that is not a safe identifier is rejected by the provider, which
   // names the offending partial and the template that references it.
-  if (!TEST_CHECK(write_fixture_file(root_dir, "index.html", "{{>nested.name}}\n") == 0)) {
-    goto cleanup;
-  }
+  write_template(os, "index.html", "{{>nested.name}}\n");
   log = test_log();
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, &rendered_html, &log) == -1);
+  TEST_CHECK(render("index.html", &context, os, &perm, &rendered_html, &log) == -1);
   n = snprintf(
       expected_unsafe_name, sizeof(expected_unsafe_name),
       "partial name must contain only letters, digits, '_' and '-': '%s' (in 'index.html')",
       "nested.name");
   TEST_CHECK(n > 0 && (size_t)n < sizeof(expected_unsafe_name));
   TEST_CHECK(is_log_one_failure(&log, &entry, expected_unsafe_name));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A bad partial reference names the file it is written in. Inside a partial that is the partial,
@@ -1005,10 +791,7 @@ cleanup:
 // has finished, where the template holds it again.
 static void test_rejects_unsafe_partial_name_in_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{>card}}\n") != 0) {
-    return;
-  }
+  struct Os* os = template_host("{{>card}}\n");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1017,27 +800,20 @@ static void test_rejects_unsafe_partial_name_in_partial(void) {
                                           .content_entry_current = &entry};
   struct Log log = test_log();
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html", "outer {{>a/b}}\n") == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
+  write_template(os, "partials/card.html", "outer {{>a/b}}\n");
+  TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
   TEST_CHECK(
       is_log_one_failure(&log, &entry,
                          "partial name must contain only letters, digits, '_' and '-': 'a/b' "
                          "(in 'partials/card.html')"));
 
-  if (!TEST_CHECK(write_fixture_file(root_dir, "index.html", "{{>card}}\n{{>a/b}}\n") == 0) ||
-      !TEST_CHECK(write_fixture_file(root_dir, "partials/card.html", "card\n") == 0)) {
-    goto cleanup;
-  }
+  write_template(os, "index.html", "{{>card}}\n{{>a/b}}\n");
+  write_template(os, "partials/card.html", "card\n");
   log = test_log();
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
   TEST_CHECK(is_log_one_failure(
       &log, &entry,
       "partial name must contain only letters, digits, '_' and '-': 'a/b' (in 'index.html')"));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Triple braces and the ampersand tag fail for any key that does not end in `_html`, whatever kind
@@ -1046,10 +822,7 @@ cleanup:
 // rendered.
 static void test_rejects_unescaped_interpolation_of_other_keys(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{{title}}}") != 0) {
-    return;
-  }
+  struct Os* os = template_host("{{{title}}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1070,21 +843,14 @@ static void test_rejects_unescaped_interpolation_of_other_keys(void) {
       {"list.html", "{{{content_entries}}}", UNESCAPED_FAILURE " (in 'list.html')"},
       {"outer.html", "{{>raw}}", UNESCAPED_FAILURE " (in 'outer.html')"},
   };
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/raw.html", "{{{site.title}}}") == 0)) {
-    goto cleanup;
-  }
+  write_template(os, "partials/raw.html", "{{{site.title}}}");
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    if (!TEST_CHECK(write_fixture_file(root_dir, cases[i].template_name, cases[i].text) == 0)) {
-      goto cleanup;
-    }
+    write_template(os, cases[i].template_name, cases[i].text);
     struct Log log = test_log();
-    TEST_CHECK(render(root_dir, cases[i].template_name, &context, &perm, NULL, &log) == -1);
+    TEST_CHECK(render(cases[i].template_name, &context, os, &perm, NULL, &log) == -1);
     TEST_CHECK(is_log_one_failure(&log, &entry, cases[i].expected));
     TEST_MSG("template: %s", cases[i].template_name);
   }
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An unreadable partial fails the render and reports the cause. It does not publish a page with a
@@ -1093,11 +859,8 @@ cleanup:
 // `{{>card}}` is a typical cause.
 static void test_rejects_unreadable_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
   // No `partials/card.html` is written, so resolving the reference fails on the read.
-  if (write_template_fixture(root_dir, "before {{>card}} after") != 0) {
-    return;
-  }
+  struct Os* os = template_host("before {{>card}} after");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1109,27 +872,19 @@ static void test_rejects_unreadable_partial(void) {
   char expected[EXPECTED_SIZE];
   int expected_len = 0;
   init_test_content_entry(&entry);
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
   expected_len = snprintf(expected, sizeof(expected), "failed to read partial: %s ('%s/%s')",
-                          error_system_message(reason, sizeof(reason), ENOENT), root_dir,
+                          error_system_message(reason, sizeof(reason), ENOENT), TEMPLATES_DIR,
                           "partials/card.html");
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(is_log_one_failure(&log, &entry, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A template holding a `NUL` byte is rejected at the read, naming the template file. Rendering past
 // it would emit a page with a raw `NUL` in it.
 static void test_rejects_template_with_nul_byte(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (init_fixture_dir(root_dir) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1141,31 +896,20 @@ static void test_rejects_template_with_nul_byte(void) {
   int expected_len = 0;
   init_test_content_entry(&entry);
   static const char bytes[] = {'a', '\0', 'b'};
-  if (!TEST_CHECK(write_fixture_bytes(root_dir, "index.html", (struct Str){bytes, sizeof(bytes)}) ==
-                  0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
+  os_memory_write_bytes(os, S(TEMPLATES_DIR "/index.html"), (struct Str){bytes, sizeof(bytes)});
+  TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
   expected_len = snprintf(
       expected, sizeof(expected),
-      "failed to read template: contains an embedded NUL byte ('%s/index.html')", root_dir);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+      "failed to read template: contains an embedded NUL byte ('%s/index.html')", TEMPLATES_DIR);
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(is_log_one_failure(&log, &entry, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A partial holding a `NUL` byte is rejected on the same grounds as a template, naming the partial
 // file rather than the template that included it.
 static void test_rejects_partial_with_nul_byte(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "before {{>card}} after") != 0) {
-    return;
-  }
+  struct Os* os = template_host("before {{>card}} after");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1177,84 +921,55 @@ static void test_rejects_partial_with_nul_byte(void) {
   int expected_len = 0;
   init_test_content_entry(&entry);
   static const char bytes[] = {'a', '\0', 'b'};
-  if (!TEST_CHECK(write_fixture_bytes(root_dir, "partials/card.html",
-                                      (struct Str){bytes, sizeof(bytes)}) == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
-  expected_len = snprintf(
-      expected, sizeof(expected),
-      "failed to read partial: contains an embedded NUL byte ('%s/partials/card.html')", root_dir);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  os_memory_write_bytes(os, S(TEMPLATES_DIR "/partials/card.html"),
+                        (struct Str){bytes, sizeof(bytes)});
+  TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
+  expected_len =
+      snprintf(expected, sizeof(expected),
+               "failed to read partial: contains an embedded NUL byte ('%s/partials/card.html')",
+               TEMPLATES_DIR);
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(is_log_one_failure(&log, &entry, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A template or partial larger than `TEMPLATE_FILE_LEN_MAX` fails the render at the read, from its
-// size, naming the limit and the size. The files are sparse, so the fixture costs no disk.
+// size, naming the limit and the size. The host stores only the size of each extension, so the
+// fixture costs no memory.
 static void test_rejects_oversize_template_and_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "before {{>big}} after") != 0) {
-    return;
-  }
+  struct Os* os = template_host("before {{>big}} after");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
   struct ContentEntry entry;
   const struct TemplateContext context = {.site_config = &site_config,
                                           .content_entry_current = &entry};
-  struct Arena arena = test_arena();
-  const off_t file_len = (off_t)TEMPLATE_FILE_LEN_MAX + 1;
+  const ptrdiff_t file_len = (ptrdiff_t)TEMPLATE_FILE_LEN_MAX + 1;
   struct Log log = test_log();
   char expected[EXPECTED_SIZE];
   int expected_len = 0;
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(write_fixture_file(root_dir, "big.html", "") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/big.html", "") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(
-          truncate(str_cstr(path_join(str_from_cstr(root_dir), S("big.html"), &arena), &arena),
-                   file_len) == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(
-          truncate(
-              str_cstr(path_join(str_from_cstr(root_dir), S("partials/big.html"), &arena), &arena),
-              file_len) == 0)) {
-    goto cleanup;
-  }
+  write_template(os, "big.html", "");
+  write_template(os, "partials/big.html", "");
+  os_memory_truncate(os, TEMPLATES_DIR "/big.html", file_len);
+  os_memory_truncate(os, TEMPLATES_DIR "/partials/big.html", file_len);
 
-  TEST_CHECK(render(root_dir, "big.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(render("big.html", &context, os, &perm, NULL, &log) == -1);
   expected_len = snprintf(expected, sizeof(expected),
-                          "failed to read template: exceeds max file size (%d bytes) at %jd bytes "
+                          "failed to read template: exceeds max file size (%d bytes) at %td bytes "
                           "('%s/big.html')",
-                          TEMPLATE_FILE_LEN_MAX, (intmax_t)file_len, root_dir);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+                          TEMPLATE_FILE_LEN_MAX, file_len, TEMPLATES_DIR);
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(is_log_one_failure(&log, &entry, expected));
 
   log = test_log();
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
   expected_len = snprintf(expected, sizeof(expected),
-                          "failed to read partial: exceeds max file size (%d bytes) at %jd bytes "
+                          "failed to read partial: exceeds max file size (%d bytes) at %td bytes "
                           "('%s/partials/big.html')",
-                          TEMPLATE_FILE_LEN_MAX, (intmax_t)file_len, root_dir);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+                          TEMPLATE_FILE_LEN_MAX, file_len, TEMPLATES_DIR);
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(is_log_one_failure(&log, &entry, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // One distinct partial past the limit is rejected, naming the limit and the partial that reached
@@ -1269,10 +984,7 @@ cleanup:
 static void test_rejects_partial_count_past_limit(void) {
   struct Arena perm = test_arena();
   enum { RENDER_PARTIAL_COUNT_MAX = 64 };
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (init_fixture_dir(root_dir) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1298,21 +1010,15 @@ static void test_rejects_partial_count_past_limit(void) {
     char partial_name[32];
     const int partial_name_len =
         snprintf(partial_name, sizeof(partial_name), "partials/p%td.html", i);
-    if (!TEST_CHECK(partial_name_len > 0 && (size_t)partial_name_len < sizeof(partial_name))) {
-      goto cleanup;
-    }
-    if (!TEST_CHECK(write_fixture_file(root_dir, partial_name, "x") == 0)) {
-      goto cleanup;
-    }
+    TEST_ASSERT(partial_name_len > 0 && (size_t)partial_name_len < sizeof(partial_name));
+    write_template(os, partial_name, "x");
   }
 
   // `index.html` references exactly the limit. `over.html` references one more.
   for (ptrdiff_t i = 0; i <= RENDER_PARTIAL_COUNT_MAX; i++) {
     char reference[16];
     const int n = snprintf(reference, sizeof(reference), "{{>p%td}}", i);
-    if (!TEST_CHECK(n > 0 && (size_t)n < sizeof(reference))) {
-      goto cleanup;
-    }
+    TEST_ASSERT(n > 0 && (size_t)n < sizeof(reference));
     if (i < RENDER_PARTIAL_COUNT_MAX) {
       memcpy(at_limit + at_limit_len, reference, (size_t)n);
       at_limit_len += (size_t)n;
@@ -1322,31 +1028,22 @@ static void test_rejects_partial_count_past_limit(void) {
   }
   at_limit[at_limit_len] = '\0';
   over_limit[over_limit_len] = '\0';
-  if (!TEST_CHECK(write_fixture_file(root_dir, "index.html", at_limit) == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "over.html", over_limit) == 0)) {
-    goto cleanup;
-  }
+  write_template(os, "index.html", at_limit);
+  write_template(os, "over.html", over_limit);
 
-  if (!TEST_CHECK(render(root_dir, "index.html", &context, &perm, &at_rendered, &at_log) == 0)) {
-    goto cleanup;
+  if (!TEST_CHECK(render("index.html", &context, os, &perm, &at_rendered, &at_log) == 0)) {
+    return;
   }
   TEST_CHECK(test_log_is_empty(&at_log));
   TEST_CHECK(strcmp(at_rendered, at_expected) == 0);
 
-  TEST_CHECK(render(root_dir, "over.html", &context, &perm, NULL, &over_log) == -1);
+  TEST_CHECK(render("over.html", &context, os, &perm, NULL, &over_log) == -1);
   expected_len = snprintf(expected, sizeof(expected),
                           "render exceeds max distinct partials (%d) while resolving partial 'p%d' "
                           "(in 'over.html')",
                           RENDER_PARTIAL_COUNT_MAX, RENDER_PARTIAL_COUNT_MAX);
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(is_log_one_failure(&over_log, &entry, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A partial that includes itself is bounded by the expansion count rather than recursing until the
@@ -1360,10 +1057,7 @@ cleanup:
 // expansion, which is the term `template.c`'s limits comment sizes the constant against.
 static void test_rejects_recursive_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{>loop}}") != 0) {
-    return;
-  }
+  struct Os* os = template_host("{{>loop}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1372,29 +1066,21 @@ static void test_rejects_recursive_partial(void) {
                                           .content_entry_current = &entry};
   struct Log log = test_log();
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/loop.html", "{{>loop}}") == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
+  write_template(os, "partials/loop.html", "{{>loop}}");
+  TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
   // `RENDER_EXPANSION_COUNT_MAX` is file-local to `template.c`, so it is spelled out here. Changing
   // it there must update this.
   TEST_CHECK(
       is_log_one_failure(&log, &entry,
                          "render exceeds max partial expansions (300000); check for a partial that "
                          "includes itself (in 'index.html')"));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Two partials that include each other are bounded by the same expansion count, so the bound is not
 // specific to direct self-inclusion.
 static void test_rejects_mutual_partial_cycle(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{>ping}}") != 0) {
-    return;
-  }
+  struct Os* os = template_host("{{>ping}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1403,22 +1089,15 @@ static void test_rejects_mutual_partial_cycle(void) {
                                           .content_entry_current = &entry};
   struct Log log = test_log();
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/ping.html", "{{>pong}}") == 0)) {
-    goto cleanup;
-  }
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/pong.html", "{{>ping}}") == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
+  write_template(os, "partials/ping.html", "{{>pong}}");
+  write_template(os, "partials/pong.html", "{{>ping}}");
+  TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
   // `RENDER_EXPANSION_COUNT_MAX` is spelled out here for the same reason as in
   // `test_rejects_recursive_partial`. Changing it in `template.c` must update this.
   TEST_CHECK(
       is_log_one_failure(&log, &entry,
                          "render exceeds max partial expansions (300000); check for a partial that "
                          "includes itself (in 'index.html')"));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // An oversize render is rejected once the accumulated output passes the byte bound it was given.
@@ -1437,10 +1116,7 @@ static void test_rejects_oversize_render_output(void) {
   memset(partial, 'x', (size_t)PADDING_LEN);
   memcpy(partial + PADDING_LEN, "{{>card}}", sizeof("{{>card}}"));
 
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{>card}}") != 0) {
-    return;
-  }
+  struct Os* os = template_host("{{>card}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1452,11 +1128,8 @@ static void test_rejects_oversize_render_output(void) {
   int expected_head_len = 0;
   struct Str failure = {0};
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html", partial) == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render_limited(root_dir, "index.html", &context, OUTPUT_LEN_MAX, &perm, NULL, &log) ==
-             -1);
+  write_template(os, "partials/card.html", partial);
+  TEST_CHECK(render_limited("index.html", &context, OUTPUT_LEN_MAX, os, &perm, NULL, &log) == -1);
   // The measured length is whichever append first crossed the bound, so it depends on the chunking
   // mustache4c happens to use. The limit clause and the template attribution are deterministic and
   // are asserted instead.
@@ -1473,9 +1146,6 @@ static void test_rejects_oversize_render_output(void) {
       str_endswith(failure, (struct Str){expected_tail, (ptrdiff_t)sizeof(expected_tail) - 1}));
   TEST_CHECK(log.errors == 1);
   TEST_MSG("actual: '%.*s'", STR_FMT(failure));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Compilation rejects an unclosed section. The diagnostic gives the line and column of the
@@ -1483,10 +1153,7 @@ cleanup:
 // callback. The section opens on line 3, so a hardcoded line 1 cannot pass.
 static void test_rejects_unclosed_section(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "first\nsecond\n{{#content_entries}}{{title}}\n") != 0) {
-    return;
-  }
+  struct Os* os = template_host("first\nsecond\n{{#content_entries}}{{title}}\n");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1497,19 +1164,14 @@ static void test_rejects_unclosed_section(void) {
   char expected[EXPECTED_SIZE];
   int expected_len = 0;
   init_test_content_entry(&entry);
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
   // The leading `%s` is mustache4c's own parser text. Only the position and template around it are
   // this project's wording. Composing through the same format string keeps the two distinguishable
   // and keeps that wording greppable from `template.c`.
   expected_len = snprintf(expected, sizeof(expected), "%s at line %u, column %u (in '%s')",
                           "section-opening tag has no closer", 3U, 1U, "index.html");
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(is_log_one_failure(&log, &entry, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A mismatched section closing tag fails to compile. The diagnostic says the closer does not match
@@ -1519,10 +1181,7 @@ cleanup:
 // so a hardcoded 1 cannot pass.
 static void test_rejects_section_name_mismatch(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{#content_entries}}{{title}}{{/wrong}}") != 0) {
-    return;
-  }
+  struct Os* os = template_host("{{#content_entries}}{{title}}{{/wrong}}");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1533,19 +1192,14 @@ static void test_rejects_section_name_mismatch(void) {
   char expected[EXPECTED_SIZE];
   int expected_len = 0;
   init_test_content_entry(&entry);
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
+  TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
   expected_len =
       snprintf(expected, sizeof(expected), "%s at line %u, column %u (in '%s')",
                "name of section-closing tag does not match corresponding section-opening "
                "tag",
                1U, 30U, "index.html");
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(is_log_one_failure(&log, &entry, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // Malformed tag syntax and unsupported block commands are each rejected with the library's own
@@ -1555,10 +1209,7 @@ cleanup:
 // single line, so the line is 1 by construction and the column is what distinguishes the cases.
 static void test_rejects_malformed_tags(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (init_fixture_dir(root_dir) != 0) {
-    return;
-  }
+  struct Os* os = os_memory();
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1578,23 +1229,16 @@ static void test_rejects_malformed_tags(void) {
       {"{{#if content_entry}}\n", "tag name is invalid", 1U},
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    if (!TEST_CHECK(write_fixture_file(root_dir, "index.html", cases[i].source) == 0)) {
-      goto cleanup;
-    }
+    write_template(os, "index.html", cases[i].source);
     struct Log log = test_log();
-    TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
+    TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
     char expected[EXPECTED_SIZE];
     const int expected_len =
         snprintf(expected, sizeof(expected), "%s at line %u, column %u (in '%s')", cases[i].reason,
                  1U, cases[i].column, "index.html");
-    if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-      goto cleanup;
-    }
+    TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
     TEST_CHECK(is_log_one_failure(&log, &entry, expected));
   }
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A syntax error inside a partial names the partial's *file*, not the bare tag name.
@@ -1604,10 +1248,7 @@ cleanup:
 // included it.
 static void test_rejects_syntax_error_in_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{>card}}\n") != 0) {
-    return;
-  }
+  struct Os* os = template_host("{{>card}}\n");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1618,20 +1259,12 @@ static void test_rejects_syntax_error_in_partial(void) {
   char expected[EXPECTED_SIZE];
   int expected_len = 0;
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html",
-                                     "first\n{{#content_entries}}{{title}}\n") == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
+  write_template(os, "partials/card.html", "first\n{{#content_entries}}{{title}}\n");
+  TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
   expected_len = snprintf(expected, sizeof(expected), "%s at line %u, column %u (in '%s')",
                           "section-opening tag has no closer", 2U, 1U, "partials/card.html");
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(is_log_one_failure(&log, &entry, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 // A syntax error in the middle of a partial is reported like one at its end, as the first error of
@@ -1641,10 +1274,7 @@ cleanup:
 // the scan read poisoned memory.
 static void test_rejects_syntax_error_inside_partial(void) {
   struct Arena perm = test_arena();
-  char root_dir[] = "/tmp/sosig-template-XXXXXX";
-  if (write_template_fixture(root_dir, "{{>card}}\n") != 0) {
-    return;
-  }
+  struct Os* os = template_host("{{>card}}\n");
 
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
@@ -1655,35 +1285,26 @@ static void test_rejects_syntax_error_inside_partial(void) {
   char expected[EXPECTED_SIZE];
   int expected_len = 0;
   init_test_content_entry(&entry);
-  if (!TEST_CHECK(write_fixture_file(root_dir, "partials/card.html",
-                                     "first\n{{title\n"
-                                     "a line of ordinary text that runs on well past the length "
-                                     "of the diagnostic for the error above it\n"
-                                     "{{/each}}\n"
-                                     "and one more line of text after the second error\n") == 0)) {
-    goto cleanup;
-  }
-  TEST_CHECK(render(root_dir, "index.html", &context, &perm, NULL, &log) == -1);
+  write_template(os, "partials/card.html",
+                 "first\n{{title\n"
+                 "a line of ordinary text that runs on well past the length "
+                 "of the diagnostic for the error above it\n"
+                 "{{/each}}\n"
+                 "and one more line of text after the second error\n");
+  TEST_CHECK(render("index.html", &context, os, &perm, NULL, &log) == -1);
   expected_len = snprintf(expected, sizeof(expected), "%s at line %u, column %u (in '%s')",
                           "tag opener has no closer", 2U, 1U, "partials/card.html");
-  if (!TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected))) {
-    goto cleanup;
-  }
+  TEST_ASSERT(expected_len > 0 && (size_t)expected_len < sizeof(expected));
   TEST_CHECK(is_log_one_failure(&log, &entry, expected));
-
-cleanup:
-  remove_fixture_tree(root_dir);
 }
 
 TEST_LIST = {
-    {"renders escaped title and raw body", test_renders_escaped_title_and_raw_body},
     {"reports whether it read the entry list", test_reports_whether_it_read_the_entry_list},
     {"iterates content entries and tags", test_iterates_content_entries_and_tags},
     {"empty tag does not truncate tag list", test_empty_tag_does_not_truncate_tag_list},
     {"nested section reiterates content entries", test_nested_section_reiterates_content_entries},
     {"escapes double brace and leaves html key raw",
      test_escapes_double_brace_and_leaves_html_key_raw},
-    {"renders atom feed", test_renders_atom_feed},
     {"renders generator", test_renders_generator},
     {"renders site fields", test_renders_site_fields},
     {"renders path to root", test_renders_path_to_root},

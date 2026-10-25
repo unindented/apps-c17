@@ -8,7 +8,10 @@ target_sources(
 )
 
 if(APPS_BUILD_TESTING)
-  foreach(module IN ITEMS build_cache content_entry frontmatter permalink site_config)
+  foreach(module IN ITEMS build_cache content_entry frontmatter permalink)
     apps_add_unit_test(${module})
   endforeach()
+  # The config reads its file and prints only through `os/os.h`, so its tests use the in-memory
+  # host.
+  apps_add_unit_test(site_config OS memory)
 endif()
