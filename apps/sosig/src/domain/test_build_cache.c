@@ -96,6 +96,23 @@ static void test_round_trips_sorted_rows(void) {
 }
 
 // A row whose name holds a tab or a newline is left out, so its input is made every build and no
+
+// A file dated before 1970 has negative seconds, and its row parses and matches like any other, so
+// one such file does not make the whole build cache unreadable.
+static void test_round_trips_a_time_before_1970(void) {
+  struct Arena arena = test_arena();
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  const struct BuildCacheEntry entries[] = {
+      {.kind = BUILD_CACHE_KIND_CONTENT, .name = S("old.html"), .len = 3, .mtime_s = -315590400},
+  };
+  const struct Str text = format_cache(entries, 1, &site_config, &arena);
+  struct BuildCache cache = {0};
+  struct Log log = test_log();
+  TEST_ASSERT(build_cache_parse(text, &site_config, &arena, &cache, &log) == 0);
+  const struct OsStat stat = {.len = 3, .mtime_s = -315590400};
+  TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_CONTENT, S("old.html"), &stat) != NULL);
+}
 // name needs escaping.
 static void test_leaves_out_name_with_tab_or_newline(void) {
   struct Arena arena = test_arena();
@@ -265,6 +282,7 @@ static void test_rejects_rows_that_do_not_parse(void) {
 
 TEST_LIST = {
     {"round trips sorted rows", test_round_trips_sorted_rows},
+    {"round trips a time before 1970", test_round_trips_a_time_before_1970},
     {"leaves out name with tab or newline", test_leaves_out_name_with_tab_or_newline},
     {"recipe starts with site fields", test_recipe_starts_with_site_fields},
     {"recipe records grammars", test_recipe_records_grammars},

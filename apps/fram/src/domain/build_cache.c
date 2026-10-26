@@ -130,12 +130,19 @@ static int parse_entry(struct Str line, struct BuildCacheEntry* entry_out) {
   struct StrCut rest = {.tail = line, .is_found = true};
   struct Str path = {0};
   ptrdiff_t values[7] = {0};
+  int64_t mtime_s = 0;
   if (!take_field(&rest, &path) || path.len == 0) {
     return -1;
   }
   for (ptrdiff_t i = 0; i < 7; i++) {
     struct Str field = {0};
-    if (!take_field(&rest, &field) || parse_size(field, &values[i]) != 0) {
+    if (!take_field(&rest, &field)) {
+      return -1;
+    }
+    // The seconds, the second field, are negative for a file dated before 1970, as `stat` reports
+    // them.
+    const int parse_rc = i == 1 ? parse_int64(field, &mtime_s) : parse_size(field, &values[i]);
+    if (parse_rc != 0) {
       return -1;
     }
   }
@@ -147,7 +154,7 @@ static int parse_entry(struct Str line, struct BuildCacheEntry* entry_out) {
   *entry_out = (struct BuildCacheEntry){
       .path = path,
       .len = values[0],
-      .mtime_s = values[1],
+      .mtime_s = mtime_s,
       .mtime_ns = values[2],
       .width_px = values[3],
       .height_px = values[4],

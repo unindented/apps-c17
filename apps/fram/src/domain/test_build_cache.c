@@ -85,6 +85,25 @@ static void test_round_trips_and_finds_matching_rows(void) {
   TEST_CHECK(build_cache_find(&cache, S("album/b.jpg"), &stat) == NULL);
 }
 
+// A file dated before 1970 has negative seconds, and its row parses and matches like any other, so
+// one such file does not make the whole build cache unreadable.
+static void test_round_trips_a_time_before_1970(void) {
+  struct Arena arena = test_arena();
+  const struct BuildCacheEntry entries[] = {
+      {.path = S("old.jpg"),
+       .len = 3,
+       .mtime_s = -315590400,
+       .width_px = 4,
+       .height_px = 3,
+       .orientation = IMAGE_ORIENTATION_TOP_LEFT},
+  };
+  const struct Str text = format_cache(entries, 1, &arena);
+  struct BuildCache cache = {0};
+  struct Log log = test_log();
+  TEST_ASSERT(build_cache_parse(text, &arena, &cache, &log) == 0);
+  struct OsStat stat = stat_of(&entries[0]);
+  TEST_CHECK(build_cache_find(&cache, S("old.jpg"), &stat) != NULL);
+}
 // A gallery with no media writes the first line alone, which parses as an empty build cache.
 static void test_parses_first_line_alone(void) {
   struct Arena arena = test_arena();
@@ -151,6 +170,7 @@ static void test_rejects_rows_that_do_not_parse(void) {
 
 TEST_LIST = {
     {"round trips and finds matching rows", test_round_trips_and_finds_matching_rows},
+    {"round trips a time before 1970", test_round_trips_a_time_before_1970},
     {"parses first line alone", test_parses_first_line_alone},
     {"skips path with tab or newline", test_skips_path_with_tab_or_newline},
     {"rejects another build", test_rejects_another_build},

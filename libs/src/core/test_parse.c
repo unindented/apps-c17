@@ -69,9 +69,33 @@ static void test_parse_size_rejects_malformed(void) {
   TEST_CHECK(value == 7);
 }
 
+// A signed integer takes one leading `-`, as a modification time before 1970 has, and its digits
+// parse and saturate as `parse_size`'s do.
+static void test_parse_int64_accepts_a_sign(void) {
+  int64_t value = 0;
+  TEST_CHECK(parse_int64(S("-315590400"), &value) == 0 && value == -315590400);
+  TEST_CHECK(parse_int64(S("1782864000"), &value) == 0 && value == 1782864000);
+  TEST_CHECK(parse_int64(S("-0"), &value) == 0 && value == 0);
+  TEST_CHECK(parse_int64(S("-9223372036854775808"), &value) == 0 && value == -PTRDIFF_MAX);
+}
+
+// A `+`, a lone or doubled `-`, and anything `parse_size` rejects are not integers, and a failure
+// leaves the output as it was.
+static void test_parse_int64_rejects_malformed(void) {
+  static const struct Str texts[] = {STR_INIT("+1"),  STR_INIT("-"), STR_INIT("--1"),
+                                     STR_INIT("- 1"), STR_INIT(""),  STR_INIT("1-")};
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(texts) / sizeof(texts[0])); i++) {
+    int64_t value = 7;
+    TEST_CHECK(parse_int64(texts[i], &value) == -1 && value == 7);
+    TEST_MSG("text: '%.*s'", STR_FMT(texts[i]));
+  }
+}
+
 TEST_LIST = {
     {"parse size accepts digits", test_parse_size_accepts_digits},
     {"parse size saturates and rejects overflow", test_parse_size_saturates_and_rejects_overflow},
     {"parse size rejects malformed", test_parse_size_rejects_malformed},
+    {"parse int64 accepts a sign", test_parse_int64_accepts_a_sign},
+    {"parse int64 rejects malformed", test_parse_int64_rejects_malformed},
     {NULL, NULL},
 };

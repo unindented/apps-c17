@@ -231,16 +231,19 @@ static int parse_entry(struct Str line, struct BuildCacheEntry* entry_out) {
   } else {
     return -1;
   }
-  ptrdiff_t values[3] = {0};
+  struct Str fields[3] = {0};
   for (ptrdiff_t i = 0; i < 3; i++) {
-    struct Str field = {0};
-    if (!take_field(&rest, &field) || parse_size(field, &values[i]) != 0) {
+    if (!take_field(&rest, &fields[i])) {
       return -1;
     }
   }
-  if (values[2] >= BUILD_CACHE_NS_PER_S) {
+  // The seconds are negative for a file dated before 1970, as `stat` reports them.
+  ptrdiff_t mtime_ns = 0;
+  if (parse_size(fields[0], &entry.len) != 0 || parse_int64(fields[1], &entry.mtime_s) != 0 ||
+      parse_size(fields[2], &mtime_ns) != 0 || mtime_ns >= BUILD_CACHE_NS_PER_S) {
     return -1;
   }
+  entry.mtime_ns = mtime_ns;
   if (entry.kind == BUILD_CACHE_KIND_CONTENT) {
     struct Str flag = {0};
     if (!take_field(&rest, &flag) || !(str_eq(flag, S("0")) || str_eq(flag, S("1")))) {
@@ -251,9 +254,6 @@ static int parse_entry(struct Str line, struct BuildCacheEntry* entry_out) {
   if (rest.is_found) {
     return -1;
   }
-  entry.len = values[0];
-  entry.mtime_s = values[1];
-  entry.mtime_ns = values[2];
   *entry_out = entry;
   return 0;
 }
