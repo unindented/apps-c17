@@ -7,7 +7,7 @@
 #include "core/arena.h"
 #include "core/str.h"
 
-struct BuildCacheEntry;
+struct BuildCacheRow;
 struct ContentEntry;
 struct JobArenas;
 struct Log;
@@ -76,7 +76,7 @@ int page_renderer_render_pages(const struct OutputWriter* writer,
                                ptrdiff_t source_entry_count,
                                const struct ContentEntry* const* content_entries,
                                ptrdiff_t content_entry_count,
-                               const struct BuildCacheEntry* const* fresh_rows,
+                               const struct BuildCacheRow* const* fresh_rows,
                                ptrdiff_t worker_count,
                                struct JobArenas* worker_arenas,
                                bool is_verbose,

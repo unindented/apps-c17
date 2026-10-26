@@ -25,6 +25,7 @@
 #include "markup/highlight.h"
 #include "os/oom.h"
 #include "os/os.h"
+#include "output/build_cache_file.h"
 #include "output/manifest.h"
 #include "output/output_pruner.h"
 #include "output/output_writer.h"
@@ -194,7 +195,7 @@ struct BuildState {
    * One slot per source path, holding the build cache row that vouches for its page, or `NULL`
    * where the page must be made, in `perm`.
    */
-  const struct BuildCacheEntry** fresh_rows;
+  const struct BuildCacheRow** fresh_rows;
 
   /**
    * One slot per source path, which the page phase fills with whether its page read the entry list,
@@ -434,6 +435,20 @@ static int load_build_cache(struct BuildState* state, struct Log* log)
  * @param state Build state that receives the build cache. Must not be `NULL`.
  */
 static void load_build_cache_read(struct BuildState* state) __attribute__((nonnull(1)));
+
+/**
+ * @brief Parses the text of the build cache into the build state, as `BuildCacheFileParseFn`.
+ *
+ * @param text     Bytes of the build cache.
+ * @param perm     Arena that owns the rows. Must not be `NULL`.
+ * @param log      Log that receives the reason the build cache cannot be used. Must not be `NULL`.
+ * @param userdata The `struct BuildState`, which receives the build cache.
+ * @return `0` on success, or `-1` when the build cache cannot be used.
+ */
+static int load_build_cache_read_parse(struct Str text,
+                                       struct Arena* perm,
+                                       struct Log* log,
+                                       void* userdata) __attribute__((nonnull(2, 3, 4)));
 
 /**
  * @brief Lists and stats every file below `templates_dir`.
@@ -834,7 +849,7 @@ static int load_build_inputs_static(struct BuildState* state, struct Log* log) {
 
 static int load_build_inputs_require_read_roots(const struct BuildState* state, struct Log* log) {
   const struct SiteConfig* site_config = &state->site_config;
-  struct ReadRoot roots[] = {
+  const struct ReadRoot roots[] = {
       {.dir_path = site_config->content_dir,
        .key = S("content_dir"),
        .is_rejected = site_config->is_content_dir_rejected},
@@ -1013,27 +1028,23 @@ static int load_build_cache(struct BuildState* state, struct Log* log) {
 
 static void load_build_cache_read(struct BuildState* state) {
   build_verbose(state, "loading build cache");
-  // `os_stat` finds a missing build cache without a message, which is the usual case on a first
-  // build.
-  struct OsStat st;
-  if (os_stat(state->os, state->build_cache_path, &st) != 0) {
+  struct Str reason = {0};
+  const enum BuildCacheFileState cache_state = build_cache_file_load(
+      state->build_cache_path, BUILD_CACHE_FILE_LEN_MAX, load_build_cache_read_parse, state,
+      state->os, &state->perm, state->scratch, &reason);
+  if (cache_state == BUILD_CACHE_FILE_MISSING) {
     build_verbose(state, "no build cache, rendering every page");
-    return;
-  }
-  // Why the build cache cannot be used is a note, never a build error, so it goes to a log of its
-  // own. The log grows in a copy of the scratch, which neither the read nor the parse receives, and
-  // its text is copied into `perm` before the note is formatted in the scratch.
-  struct Arena log_arena = state->scratch;
-  struct Log cache_log = {.buf = {.arena = &log_arena}};
-  struct Str text = {0};
-  if (os_read(state->os, state->build_cache_path, BUILD_CACHE_FILE_LEN_MAX, OS_READ_TEXT,
-              &state->perm, &text, S("failed to read build cache"), &cache_log) != 0 ||
-      build_cache_parse(text, &state->site_config, &state->perm, &state->build_cache, &cache_log) !=
-          0) {
-    const struct Str logged = buf_str(&cache_log.buf);
-    const struct Str reason = str_clone(str_head(logged, logged.len - 1), &state->perm);
+  } else if (cache_state == BUILD_CACHE_FILE_UNUSABLE) {
     build_verbose(state, "build cache not used, rendering every page: %.*s", STR_FMT(reason));
   }
+}
+
+static int load_build_cache_read_parse(struct Str text,
+                                       struct Arena* perm,
+                                       struct Log* log,
+                                       void* userdata) {
+  struct BuildState* state = userdata;
+  return build_cache_parse(text, &state->site_config, perm, &state->build_cache, log);
 }
 
 static int load_build_cache_templates(struct BuildState* state, struct Log* log) {
@@ -1067,7 +1078,7 @@ static struct OsStat* load_build_cache_stats(const struct PathList* paths,
 
 static void load_build_cache_find_fresh(struct BuildState* state) {
   state->fresh_rows =
-      arena_new(&state->perm, state->source_paths.count, const struct BuildCacheEntry*);
+      arena_new(&state->perm, state->source_paths.count, const struct BuildCacheRow*);
   state->entry_list_flags = arena_new(&state->perm, state->source_paths.count, bool);
   if (!is_every_template_unchanged(state)) {
     return;
@@ -1081,7 +1092,7 @@ static void load_build_cache_find_fresh(struct BuildState* state) {
     }
     struct Str relative = {0};
     (void)path_is_below(entry->output_path, state->site_config.output_dir, &relative);
-    const struct BuildCacheEntry* row = build_cache_find(
+    const struct BuildCacheRow* row = build_cache_find(
         &state->build_cache, BUILD_CACHE_KIND_CONTENT, relative, &entry->source_stat);
     if (row != NULL && (!row->is_entry_list_read || is_every_entry_fresh)) {
       state->fresh_rows[i] = row;
@@ -1092,7 +1103,7 @@ static void load_build_cache_find_fresh(struct BuildState* state) {
 static bool is_every_entry_unchanged(const struct BuildState* state) {
   ptrdiff_t row_count = 0;
   for (ptrdiff_t i = 0; i < state->build_cache.count; i++) {
-    row_count += state->build_cache.entries[i].kind == BUILD_CACHE_KIND_CONTENT;
+    row_count += state->build_cache.rows[i].kind == BUILD_CACHE_KIND_CONTENT;
   }
   if (row_count != state->content_entry_count) {
     return false;
@@ -1112,7 +1123,7 @@ static bool is_every_entry_unchanged(const struct BuildState* state) {
 static bool is_every_template_unchanged(const struct BuildState* state) {
   ptrdiff_t row_count = 0;
   for (ptrdiff_t i = 0; i < state->build_cache.count; i++) {
-    row_count += state->build_cache.entries[i].kind == BUILD_CACHE_KIND_TEMPLATE;
+    row_count += state->build_cache.rows[i].kind == BUILD_CACHE_KIND_TEMPLATE;
   }
   // An empty build cache has no template rows, and a site always has its content template, so this
   // also rejects a build cache that was not read.
@@ -1162,8 +1173,11 @@ static int prepare_output_dir(const struct BuildState* state, struct Log* log) {
 
 static int empty_build_cache(const struct BuildState* state, struct Log* log) {
   oom_set_job(state->build_cache_path, NULL);
-  return output_writer_write(&state->writer, state->build_cache_path, (struct OsSource){0},
-                             S("failed to empty build cache"), log);
+  const int rc = output_writer_write(&state->writer, state->build_cache_path, (struct OsSource){0},
+                                     S("failed to empty build cache"), log);
+  // The phases that follow name their own files, and the main thread's work between them none.
+  oom_set_job((struct Str){0}, NULL);
+  return rc;
 }
 
 static int render_content_pages(struct BuildState* state, struct Log* log) {
@@ -1175,7 +1189,7 @@ static int render_content_pages(struct BuildState* state, struct Log* log) {
       &state->writer, &state->site_config, state->template_set,
       (const struct ContentEntry* const*)state->source_entries, state->source_paths.count,
       (const struct ContentEntry* const*)state->content_entries, state->content_entry_count,
-      (const struct BuildCacheEntry* const*)state->fresh_rows, state->worker_count,
+      (const struct BuildCacheRow* const*)state->fresh_rows, state->worker_count,
       state->worker_arenas, state->is_verbose, state->os, state->scratch, state->entry_list_flags,
       log);
 }
@@ -1236,10 +1250,10 @@ static int write_build_cache(struct BuildState* state, struct Log* log) {
   oom_set_job(state->build_cache_path, NULL);
   struct Arena scratch = state->scratch;
   struct BuildCache cache = {
-      .entries = arena_new(&scratch,
-                           state->content_entry_count + state->template_paths.count +
-                               state->static_paths.count + state->asset_paths.count,
-                           struct BuildCacheEntry),
+      .rows = arena_new(&scratch,
+                        state->content_entry_count + state->template_paths.count +
+                            state->static_paths.count + state->asset_paths.count,
+                        struct BuildCacheRow),
   };
   for (ptrdiff_t i = 0; i < state->source_paths.count; i++) {
     const struct ContentEntry* entry = state->source_entries[i];
@@ -1248,7 +1262,7 @@ static int write_build_cache(struct BuildState* state, struct Log* log) {
     }
     struct Str relative = {0};
     (void)path_is_below(entry->output_path, state->site_config.output_dir, &relative);
-    cache.entries[cache.count++] = (struct BuildCacheEntry){
+    cache.rows[cache.count++] = (struct BuildCacheRow){
         .kind = BUILD_CACHE_KIND_CONTENT,
         .name = relative,
         .len = entry->source_stat.len,
@@ -1263,7 +1277,7 @@ static int write_build_cache(struct BuildState* state, struct Log* log) {
     struct Str relative = {0};
     (void)path_is_below(state->template_paths.items[i], state->site_config.templates_dir,
                         &relative);
-    cache.entries[cache.count++] = (struct BuildCacheEntry){
+    cache.rows[cache.count++] = (struct BuildCacheRow){
         .kind = BUILD_CACHE_KIND_TEMPLATE,
         .name = relative,
         .len = state->template_stats[i].len,
@@ -1290,7 +1304,7 @@ static void write_build_cache_files(struct BuildCache* cache,
   for (ptrdiff_t i = 0; i < paths->count; i++) {
     struct Str relative = {0};
     (void)path_is_below(paths->items[i], root_dir, &relative);
-    cache->entries[cache->count++] = (struct BuildCacheEntry){
+    cache->rows[cache->count++] = (struct BuildCacheRow){
         .kind = kind,
         .name = relative,
         .len = stats[i].len,

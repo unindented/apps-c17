@@ -15,26 +15,25 @@
 static void test_require_accepts_directories_and_missing_optional_roots(void) {
   struct Os* os = os_memory();
   os_memory_mkdir(os, "content");
-  struct ReadRoot roots[] = {
+  const struct ReadRoot roots[] = {
       {.dir_path = S("content"), .key = S("content_dir")},
       {.dir_path = S("static"), .key = S("static_dir"), .is_optional = true},
   };
   struct Log log = test_log();
   TEST_CHECK(read_root_require(roots, 2, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  TEST_CHECK(roots[0].is_usable && roots[1].is_usable);
 }
 
 // Every root that is missing, not a directory, or cannot be inspected is reported in one run, with
 // its key, its cause and its path, an optional one included unless it is missing, and a root whose
-// key was rejected is neither checked nor usable.
+// key was rejected is not checked.
 static void test_require_reports_every_unusable_root(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "templates", "a file");
   os_memory_write(os, "releases", "a file");
   os_memory_mkdir(os, "locked/static");
   os_memory_fail(os, OS_MEMORY_OP_STAT, "locked/static", EACCES);
-  struct ReadRoot roots[] = {
+  const struct ReadRoot roots[] = {
       {.dir_path = S("content"), .key = S("content_dir")},
       {.dir_path = S("templates"), .key = S("templates_dir")},
       {.dir_path = S("locked/static"), .key = S("static_dir"), .is_optional = true},
@@ -51,8 +50,6 @@ static void test_require_reports_every_unusable_root(void) {
                          "failed to resolve config directory 'releases_dir': not a directory "
                          "('releases')\n",
                          strerror(ENOENT), strerror(EACCES)));
-  TEST_CHECK(!roots[0].is_usable && !roots[1].is_usable && !roots[2].is_usable &&
-             !roots[3].is_usable && !roots[4].is_usable);
 }
 
 TEST_LIST = {

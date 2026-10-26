@@ -28,6 +28,7 @@
 #include "media/video.h"
 #include "os/oom.h"
 #include "os/os.h"
+#include "output/build_cache_file.h"
 #include "output/manifest.h"
 #include "output/output_pruner.h"
 #include "output/output_writer.h"
@@ -353,13 +354,27 @@ static int build_album_skeleton(struct BuildState* state, struct Log* log)
 /**
  * @brief Reads the probe facts an earlier build left, unless the build ignores them.
  *
- * A missing build cache, one that cannot be read, and one that does not parse or was written by
- * another build are each an empty build cache, never an error. The verbose log says which, and the
- * probe then reads every source.
+ * A missing build cache, one that is empty or cannot be read, and one that does not parse or was
+ * written by another fram version are each an empty build cache, never an error. The verbose log
+ * says which, and the probe then reads every source.
  *
  * @param state Build state that receives the build cache and its path. Must not be `NULL`.
  */
 static void load_build_cache(struct BuildState* state) __attribute__((nonnull(1)));
+
+/**
+ * @brief Parses the text of the build cache into the build state, as `BuildCacheFileParseFn`.
+ *
+ * @param text     Bytes of the build cache.
+ * @param perm     Arena that owns the rows. Must not be `NULL`.
+ * @param log      Log that receives the reason the build cache cannot be used. Must not be `NULL`.
+ * @param userdata The `struct BuildState`, which receives the build cache.
+ * @return `0` on success, or `-1` when the build cache cannot be used.
+ */
+static int load_build_cache_parse(struct Str text,
+                                  struct Arena* perm,
+                                  struct Log* log,
+                                  void* userdata) __attribute__((nonnull(2, 3, 4)));
 
 /**
  * @brief Returns what `os_stat` reports for each of `paths`, for the rows of the build cache.
@@ -697,7 +712,7 @@ static int load_build_inputs_static(struct BuildState* state, struct Log* log) {
 
 static int load_build_inputs_require_read_roots(const struct BuildState* state, struct Log* log) {
   const struct SiteConfig* site_config = &state->site_config;
-  struct ReadRoot roots[] = {
+  const struct ReadRoot roots[] = {
       {.dir_path = site_config->media_dir,
        .key = S("media_dir"),
        .is_rejected = site_config->is_media_dir_rejected},
@@ -833,26 +848,23 @@ static void load_build_cache(struct BuildState* state) {
     return;
   }
   build_verbose(state, "loading build cache");
-  // `os_stat` finds a missing build cache without a message, which is the usual case on a first
-  // build.
-  struct OsStat st;
-  if (os_stat(state->os, state->build_cache_path, &st) != 0) {
+  struct Str reason = {0};
+  const enum BuildCacheFileState cache_state = build_cache_file_load(
+      state->build_cache_path, BUILD_CACHE_FILE_LEN_MAX, load_build_cache_parse, state, state->os,
+      &state->perm, state->scratch, &reason);
+  if (cache_state == BUILD_CACHE_FILE_MISSING) {
     build_verbose(state, "no build cache, probing every source");
-    return;
-  }
-  // Why the build cache cannot be used is a note, never a build error, so it goes to a log of its
-  // own. The log grows in a copy of the scratch, which neither the read nor the parse receives, and
-  // its text is copied into `perm` before the note is formatted in the scratch.
-  struct Arena log_arena = state->scratch;
-  struct Log cache_log = {.buf = {.arena = &log_arena}};
-  struct Str text = {0};
-  if (os_read(state->os, state->build_cache_path, BUILD_CACHE_FILE_LEN_MAX, OS_READ_TEXT,
-              &state->perm, &text, S("failed to read build cache"), &cache_log) != 0 ||
-      build_cache_parse(text, &state->perm, &state->build_cache, &cache_log) != 0) {
-    const struct Str logged = buf_str(&cache_log.buf);
-    const struct Str reason = str_clone(str_head(logged, logged.len - 1), &state->perm);
+  } else if (cache_state == BUILD_CACHE_FILE_UNUSABLE) {
     build_verbose(state, "build cache not used, probing every source: %.*s", STR_FMT(reason));
   }
+}
+
+static int load_build_cache_parse(struct Str text,
+                                  struct Arena* perm,
+                                  struct Log* log,
+                                  void* userdata) {
+  struct BuildState* state = userdata;
+  return build_cache_parse(text, perm, &state->build_cache, log);
 }
 
 static struct OsStat* load_build_cache_stats(const struct PathList* paths,
@@ -930,7 +942,7 @@ static int write_build_cache(struct BuildState* state, bool is_static_complete, 
     const struct OsStat* source_stat = &state->source_stats[i];
     struct Str relative = {0};
     (void)path_is_below(item->source_path, state->site_config.media_dir, &relative);
-    const struct BuildCacheEntry entry = {
+    const struct BuildCacheRow row = {
         .kind = BUILD_CACHE_KIND_MEDIA,
         .name = relative,
         .len = source_stat->len,
@@ -941,7 +953,7 @@ static int write_build_cache(struct BuildState* state, bool is_static_complete, 
         .orientation = item->orientation,
         .duration_ms = item->duration_ms,
     };
-    build_cache_format_entry(&text, &entry);
+    build_cache_format_row(&text, &row);
   }
   // The static rows follow the media rows, as their kind sorts after media. The walk sorted the
   // paths bytewise, and they share the `static_dir` prefix, so these rows are sorted too.
@@ -949,14 +961,14 @@ static int write_build_cache(struct BuildState* state, bool is_static_complete, 
     const struct OsStat* source_stat = &state->static_stats[i];
     struct Str relative = {0};
     (void)path_is_below(state->static_paths.items[i], state->site_config.static_dir, &relative);
-    const struct BuildCacheEntry entry = {
+    const struct BuildCacheRow row = {
         .kind = BUILD_CACHE_KIND_STATIC,
         .name = relative,
         .len = source_stat->len,
         .mtime_s = source_stat->mtime_s,
         .mtime_ns = source_stat->mtime_ns,
     };
-    build_cache_format_entry(&text, &entry);
+    build_cache_format_row(&text, &row);
   }
   return output_writer_write(&state->writer, state->build_cache_path,
                              (struct OsSource){.bytes = buf_str(&text)},

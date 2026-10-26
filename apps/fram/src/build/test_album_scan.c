@@ -714,15 +714,15 @@ static void test_probe_media_reuses_matching_row(void) {
   struct OsStat stats[1] = {0};
   struct OsStat source_stat;
   TEST_ASSERT(os_stat(os, item.source_path, &source_stat) == 0);
-  struct BuildCacheEntry entry = {.kind = BUILD_CACHE_KIND_MEDIA,
-                                  .name = S("a.jpg"),
-                                  .len = source_stat.len,
-                                  .mtime_s = source_stat.mtime_s,
-                                  .mtime_ns = source_stat.mtime_ns,
-                                  .width_px = 3,
-                                  .height_px = 2,
-                                  .orientation = IMAGE_ORIENTATION_RIGHT_TOP};
-  const struct BuildCache cache = {.entries = &entry, .count = 1};
+  struct BuildCacheRow row = {.kind = BUILD_CACHE_KIND_MEDIA,
+                              .name = S("a.jpg"),
+                              .len = source_stat.len,
+                              .mtime_s = source_stat.mtime_s,
+                              .mtime_ns = source_stat.mtime_ns,
+                              .width_px = 3,
+                              .height_px = 2,
+                              .orientation = IMAGE_ORIENTATION_RIGHT_TOP};
+  const struct BuildCache cache = {.rows = &row, .count = 1};
   struct Log log = test_log();
   struct JobArenas* worker_arenas = test_job_arenas(1, &arena);
 
@@ -750,20 +750,20 @@ static void test_probe_media_probes_changed_source(void) {
   struct OsStat stats[1] = {0};
   struct OsStat source_stat;
   TEST_ASSERT(os_stat(os, item.source_path, &source_stat) == 0);
-  struct BuildCacheEntry entries[2] = {{.kind = BUILD_CACHE_KIND_MEDIA,
-                                        .name = S("a.jpg"),
-                                        .len = source_stat.len + 1,
-                                        .mtime_s = source_stat.mtime_s,
-                                        .mtime_ns = source_stat.mtime_ns,
-                                        .width_px = 3,
-                                        .height_px = 2,
-                                        .orientation = IMAGE_ORIENTATION_TOP_LEFT}};
-  entries[1] = entries[0];
-  entries[1].len = source_stat.len;
-  entries[1].mtime_ns = source_stat.mtime_ns + 1;
+  struct BuildCacheRow rows[2] = {{.kind = BUILD_CACHE_KIND_MEDIA,
+                                   .name = S("a.jpg"),
+                                   .len = source_stat.len + 1,
+                                   .mtime_s = source_stat.mtime_s,
+                                   .mtime_ns = source_stat.mtime_ns,
+                                   .width_px = 3,
+                                   .height_px = 2,
+                                   .orientation = IMAGE_ORIENTATION_TOP_LEFT}};
+  rows[1] = rows[0];
+  rows[1].len = source_stat.len;
+  rows[1].mtime_ns = source_stat.mtime_ns + 1;
   struct JobArenas* worker_arenas = test_job_arenas(1, &arena);
   for (ptrdiff_t i = 0; i < 2; i++) {
-    const struct BuildCache cache = {.entries = &entries[i], .count = 1};
+    const struct BuildCache cache = {.rows = &rows[i], .count = 1};
     struct Log log = test_log();
     TEST_CHECK(album_scan_probe_media(&site_config, media, 1, &cache, frames, 1, worker_arenas,
                                       false, os, arena, stats, &log) == -1);

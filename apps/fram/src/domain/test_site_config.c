@@ -477,16 +477,16 @@ static void test_load_rejects_malformed_toml(void) {
 /**
  * A config that parses but holds seven independent mistakes, one each for the unknown-key check, a
  * string key's type, `base_url`, a directory, `album_template`, a derivative, and
- * `video_frame_seconds`. The unknown key comes before the directory, which the key table lists
- * first.
+ * `video_frame_seconds`. The directory comes before `base_url` in the file, and after it in the key
+ * table, which the errors follow.
  */
 static const char TOML_KEYS_INVALID[] =
     "title = 1\n"
     "description = \"Example Description\"\n"
     "author = \"Example Author\"\n"
+    "media_dir = \"/\"\n"
     "base_url = \"ftp://example.com\"\n"
     "colour = \"blue\"\n"
-    "media_dir = \"/\"\n"
     "album_template = \"../album.html\"\n"
     "derivatives = { s = { width = 0, height = 120, quality = 70 } }\n"
     "video_frame_seconds = -1\n";

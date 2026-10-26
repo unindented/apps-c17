@@ -11,36 +11,36 @@
 #include "testing/test_support.h"
 
 /**
- * @brief Formats a build cache of `entries` the way a build writes one.
+ * @brief Formats a build cache of `rows` the way a build writes one.
  *
- * @param entries     Rows to format, sorted by path. May be `NULL` only when `entry_count` is 0.
- * @param entry_count Number of rows in `entries`.
- * @param arena       Arena that owns the text. Must not be `NULL`.
+ * @param rows      Rows to format, sorted by path. May be `NULL` only when `row_count` is 0.
+ * @param row_count Number of rows in `rows`.
+ * @param arena     Arena that owns the text. Must not be `NULL`.
  * @return The text, owned by `arena`.
  */
-static struct Str format_cache(const struct BuildCacheEntry* entries,
-                               ptrdiff_t entry_count,
+static struct Str format_cache(const struct BuildCacheRow* rows,
+                               ptrdiff_t row_count,
                                struct Arena* arena) {
   struct Buf text = {.arena = arena};
   build_cache_format_header(&text);
-  for (ptrdiff_t i = 0; i < entry_count; i++) {
-    build_cache_format_entry(&text, &entries[i]);
+  for (ptrdiff_t i = 0; i < row_count; i++) {
+    build_cache_format_row(&text, &rows[i]);
   }
   return buf_str(&text);
 }
 
 /**
- * @brief Returns the stat a source must have to match `entry`.
+ * @brief Returns the stat a source must have to match `row`.
  *
- * @param entry Row the stat matches. Must not be `NULL`.
+ * @param row Row the stat matches. Must not be `NULL`.
  * @return The stat.
  */
-static struct OsStat stat_of(const struct BuildCacheEntry* entry) {
-  return (struct OsStat){.len = entry->len, .mtime_s = entry->mtime_s, .mtime_ns = entry->mtime_ns};
+static struct OsStat stat_of(const struct BuildCacheRow* row) {
+  return (struct OsStat){.len = row->len, .mtime_s = row->mtime_s, .mtime_ns = row->mtime_ns};
 }
 
 /** Two rows, an image and a video, in path order. */
-static const struct BuildCacheEntry ENTRIES[] = {
+static const struct BuildCacheRow ROWS[] = {
     {.kind = BUILD_CACHE_KIND_MEDIA,
      .name = STR_INIT("album/a.jpg"),
      .len = 1234,
@@ -64,25 +64,25 @@ static const struct BuildCacheEntry ENTRIES[] = {
 // source's size and modification time still match it.
 static void test_round_trips_and_finds_matching_rows(void) {
   struct Arena arena = test_arena();
-  const struct Str text = format_cache(ENTRIES, 2, &arena);
+  const struct Str text = format_cache(ROWS, 2, &arena);
   struct BuildCache cache = {0};
   struct Log log = test_log();
   TEST_CHECK(build_cache_parse(text, &arena, &cache, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(cache.count == 2);
 
-  struct OsStat stat = stat_of(&ENTRIES[1]);
-  const struct BuildCacheEntry* found =
+  struct OsStat stat = stat_of(&ROWS[1]);
+  const struct BuildCacheRow* found =
       build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("clip.mp4"), &stat);
   TEST_CHECK(found != NULL && found->width_px == 640 && found->height_px == 360 &&
              found->orientation == IMAGE_ORIENTATION_TOP_LEFT && found->duration_ms == 1500);
-  stat = stat_of(&ENTRIES[0]);
+  stat = stat_of(&ROWS[0]);
   found = build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("album/a.jpg"), &stat);
   TEST_CHECK(found != NULL && found->orientation == IMAGE_ORIENTATION_RIGHT_TOP);
 
   stat.len++;
   TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("album/a.jpg"), &stat) == NULL);
-  stat = stat_of(&ENTRIES[0]);
+  stat = stat_of(&ROWS[0]);
   stat.mtime_ns++;
   TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("album/a.jpg"), &stat) == NULL);
   TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("album/b.jpg"), &stat) == NULL);
@@ -92,7 +92,7 @@ static void test_round_trips_and_finds_matching_rows(void) {
 // one such file does not make the whole build cache unreadable.
 static void test_round_trips_a_time_before_1970(void) {
   struct Arena arena = test_arena();
-  const struct BuildCacheEntry entries[] = {
+  const struct BuildCacheRow rows[] = {
       {.kind = BUILD_CACHE_KIND_MEDIA,
        .name = S("old.jpg"),
        .len = 3,
@@ -101,11 +101,11 @@ static void test_round_trips_a_time_before_1970(void) {
        .height_px = 3,
        .orientation = IMAGE_ORIENTATION_TOP_LEFT},
   };
-  const struct Str text = format_cache(entries, 1, &arena);
+  const struct Str text = format_cache(rows, 1, &arena);
   struct BuildCache cache = {0};
   struct Log log = test_log();
   TEST_ASSERT(build_cache_parse(text, &arena, &cache, &log) == 0);
-  struct OsStat stat = stat_of(&entries[0]);
+  struct OsStat stat = stat_of(&rows[0]);
   TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("old.jpg"), &stat) != NULL);
 }
 
@@ -113,20 +113,20 @@ static void test_round_trips_a_time_before_1970(void) {
 // so a media source and a static file of one name are two rows.
 static void test_round_trips_static_rows_after_media_rows(void) {
   struct Arena arena = test_arena();
-  const struct BuildCacheEntry entries[] = {
-      ENTRIES[0],
+  const struct BuildCacheRow rows[] = {
+      ROWS[0],
       {.kind = BUILD_CACHE_KIND_STATIC, .name = STR_INIT("album/a.jpg"), .len = 7, .mtime_s = 9},
   };
-  const struct Str text = format_cache(entries, 2, &arena);
+  const struct Str text = format_cache(rows, 2, &arena);
   struct BuildCache cache = {0};
   struct Log log = test_log();
   TEST_ASSERT(build_cache_parse(text, &arena, &cache, &log) == 0);
   const struct OsStat stat = {.len = 7, .mtime_s = 9};
-  const struct BuildCacheEntry* found =
+  const struct BuildCacheRow* found =
       build_cache_find(&cache, BUILD_CACHE_KIND_STATIC, S("album/a.jpg"), &stat);
   TEST_CHECK(found != NULL && found->kind == BUILD_CACHE_KIND_STATIC);
   TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("album/a.jpg"), &stat) == NULL);
-  const struct BuildCacheEntry reversed[] = {entries[1], entries[0]};
+  const struct BuildCacheRow reversed[] = {rows[1], rows[0]};
   TEST_CHECK(build_cache_parse(format_cache(reversed, 2, &arena), &arena, &cache, &log) == -1);
 }
 
@@ -145,22 +145,31 @@ static void test_parses_first_line_alone(void) {
 static void test_skips_path_with_tab_or_newline(void) {
   struct Arena arena = test_arena();
   struct Buf text = {.arena = &arena};
-  struct BuildCacheEntry entry = ENTRIES[0];
-  entry.name = S("album/a\tb.jpg");
-  build_cache_format_entry(&text, &entry);
-  entry.name = S("album/a\nb.jpg");
-  build_cache_format_entry(&text, &entry);
+  struct BuildCacheRow row = ROWS[0];
+  row.name = S("album/a\tb.jpg");
+  build_cache_format_row(&text, &row);
+  row.name = S("album/a\nb.jpg");
+  build_cache_format_row(&text, &row);
   TEST_CHECK(buf_str(&text).len == 0);
 }
 
+// An empty file, which an interrupted write of the build cache leaves, is reported as such.
+static void test_rejects_an_empty_file(void) {
+  struct Arena arena = test_arena();
+  struct BuildCache cache = {0};
+  struct Log log = test_log();
+  TEST_CHECK(build_cache_parse(S(""), &arena, &cache, &log) == -1);
+  TEST_CHECK(test_log_is(&log, "build cache is empty, as a build that did not finish leaves it\n"));
+}
+
 // A first line written by another generator is an empty build cache, reported for the verbose log.
-static void test_rejects_another_build(void) {
+static void test_rejects_another_fram_version(void) {
   struct Arena arena = test_arena();
   struct BuildCache cache = {0};
   struct Log log = test_log();
   TEST_CHECK(build_cache_parse(S("fram-build-cache\tfram 0.0.0-other\n"), &arena, &cache, &log) ==
              -1);
-  TEST_CHECK(test_log_is(&log, "build cache was written by another build\n"));
+  TEST_CHECK(test_log_is(&log, "build cache was written by another fram version\n"));
   TEST_CHECK(cache.count == 0);
 }
 
@@ -168,7 +177,7 @@ static void test_rejects_another_build(void) {
 // row cut short by an interrupted write, a field out of range, and rows out of order.
 static void test_rejects_rows_that_do_not_parse(void) {
   struct Arena arena = test_arena();
-  const struct Str text = format_cache(ENTRIES, 2, &arena);
+  const struct Str text = format_cache(ROWS, 2, &arena);
   static const char* const bad_rows[] = {
       "media\talbum/a.jpg\t1\t2\t3\t4\t5\t1\t0",             // no newline
       "media\talbum/a.jpg\t1\t2\t3\t4\t5\t9\t0\n",           // orientation out of range
@@ -189,11 +198,15 @@ static void test_rejects_rows_that_do_not_parse(void) {
     TEST_CHECK(test_log_is(&log, "build cache does not parse at line 2\n"));
   }
 
-  struct BuildCacheEntry reversed[] = {ENTRIES[1], ENTRIES[0]};
-  struct BuildCache cache = {0};
+  struct BuildCacheRow reversed[] = {ROWS[1], ROWS[0]};
+  const struct Str reversed_text = format_cache(reversed, 2, &arena);
+  // A failed parse leaves the arena and the cache it was given as they were.
+  const char* const arena_beg = arena.beg;
+  struct BuildCache cache = {.count = 7};
   struct Log log = test_log();
-  TEST_CHECK(build_cache_parse(format_cache(reversed, 2, &arena), &arena, &cache, &log) == -1);
+  TEST_CHECK(build_cache_parse(reversed_text, &arena, &cache, &log) == -1);
   TEST_CHECK(test_log_is(&log, "build cache does not parse at line 3\n"));
+  TEST_CHECK(arena.beg == arena_beg && cache.count == 7 && cache.rows == NULL);
 }
 
 TEST_LIST = {
@@ -202,7 +215,8 @@ TEST_LIST = {
     {"round trips static rows after media rows", test_round_trips_static_rows_after_media_rows},
     {"parses first line alone", test_parses_first_line_alone},
     {"skips path with tab or newline", test_skips_path_with_tab_or_newline},
-    {"rejects another build", test_rejects_another_build},
+    {"rejects an empty file", test_rejects_an_empty_file},
+    {"rejects another fram version", test_rejects_another_fram_version},
     {"rejects rows that do not parse", test_rejects_rows_that_do_not_parse},
     {NULL, NULL},
 };

@@ -856,9 +856,9 @@ static void test_ignores_build_cache_of_another_build(void) {
   TEST_CHECK(execute_build_with_options(&options, os, &log) == -1);
   TEST_CHECK(
       test_log_is(&log, "failed to probe media: %s ('photos/album/one.jpg')\n", strerror(EACCES)));
-  TEST_CHECK(has_printed_line(
-      os, 2,
-      "build cache not used, probing every source: build cache was written by another build"));
+  TEST_CHECK(has_printed_line(os, 2,
+                              "build cache not used, probing every source: build cache was written "
+                              "by another fram version"));
 }
 
 // A build cache of another format version has another name, so a build never reads it, and the

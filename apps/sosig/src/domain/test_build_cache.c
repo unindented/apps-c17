@@ -14,21 +14,21 @@
 #include "testing/test_support.h"
 
 /**
- * @brief Formats a build cache of copies of `entries` for `site_config`, as a build writes one.
+ * @brief Formats a build cache of copies of `rows` for `site_config`, as a build writes one.
  *
- * @param entries     Rows to format, in any order. May be `NULL` only when `entry_count` is 0.
- * @param entry_count Number of rows in `entries`.
+ * @param rows        Rows to format, in any order. May be `NULL` only when `row_count` is 0.
+ * @param row_count   Number of rows in `rows`.
  * @param site_config Configuration whose page recipe leads the text. Must not be `NULL`.
  * @param arena       Arena that owns the text and the copies. Must not be `NULL`.
  * @return The text, owned by `arena`.
  */
-static struct Str format_cache(const struct BuildCacheEntry* entries,
-                               ptrdiff_t entry_count,
+static struct Str format_cache(const struct BuildCacheRow* rows,
+                               ptrdiff_t row_count,
                                const struct SiteConfig* site_config,
                                struct Arena* arena) {
-  struct BuildCache cache = {.entries = arena_new(arena, entry_count, struct BuildCacheEntry)};
-  for (ptrdiff_t i = 0; i < entry_count; i++) {
-    cache.entries[cache.count++] = entries[i];
+  struct BuildCache cache = {.rows = arena_new(arena, row_count, struct BuildCacheRow)};
+  for (ptrdiff_t i = 0; i < row_count; i++) {
+    cache.rows[cache.count++] = rows[i];
   }
   struct Buf text = {.arena = arena};
   build_cache_format(&text, site_config, &cache);
@@ -47,7 +47,7 @@ static struct Str recipe_of(const struct SiteConfig* site_config, struct Arena* 
 }
 
 /** Three rows out of order: two content pages, one that read the entry list, and a template. */
-static const struct BuildCacheEntry ENTRIES[] = {
+static const struct BuildCacheRow ROWS[] = {
     {.kind = BUILD_CACHE_KIND_TEMPLATE,
      .name = STR_INIT("content.html"),
      .len = 20,
@@ -71,18 +71,18 @@ static void test_round_trips_sorted_rows(void) {
   struct Arena arena = test_arena();
   struct SiteConfig site_config;
   site_config_init(&site_config);
-  const struct Str text = format_cache(ENTRIES, 3, &site_config, &arena);
+  const struct Str text = format_cache(ROWS, 3, &site_config, &arena);
   struct BuildCache cache = {0};
   struct Log log = test_log();
   TEST_CHECK(build_cache_parse(text, &site_config, &arena, &cache, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(cache.count == 3);
-  TEST_CHECK(cache.count == 3 && str_eq(cache.entries[0].name, S("posts/a.html")) &&
-             str_eq(cache.entries[1].name, S("posts/b.html")) &&
-             cache.entries[2].kind == BUILD_CACHE_KIND_TEMPLATE);
+  TEST_CHECK(cache.count == 3 && str_eq(cache.rows[0].name, S("posts/a.html")) &&
+             str_eq(cache.rows[1].name, S("posts/b.html")) &&
+             cache.rows[2].kind == BUILD_CACHE_KIND_TEMPLATE);
 
   struct OsStat stat = {.len = 1234, .mtime_s = 1782864001, .mtime_ns = 999999999};
-  const struct BuildCacheEntry* row =
+  const struct BuildCacheRow* row =
       build_cache_find(&cache, BUILD_CACHE_KIND_CONTENT, S("posts/b.html"), &stat);
   TEST_CHECK(row != NULL && row->is_entry_list_read);
   stat.mtime_ns--;
@@ -101,19 +101,19 @@ static void test_round_trips_static_and_asset_rows(void) {
   struct Arena arena = test_arena();
   struct SiteConfig site_config;
   site_config_init(&site_config);
-  const struct BuildCacheEntry entries[] = {
+  const struct BuildCacheRow rows[] = {
       {.kind = BUILD_CACHE_KIND_ASSET, .name = STR_INIT("a.png"), .len = 5, .mtime_s = 8},
-      ENTRIES[0],
+      ROWS[0],
       {.kind = BUILD_CACHE_KIND_STATIC, .name = STR_INIT("a.png"), .len = 7, .mtime_s = 9},
   };
-  const struct Str text = format_cache(entries, 3, &site_config, &arena);
+  const struct Str text = format_cache(rows, 3, &site_config, &arena);
   struct BuildCache cache = {0};
   struct Log log = test_log();
   TEST_ASSERT(build_cache_parse(text, &site_config, &arena, &cache, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  TEST_CHECK(cache.count == 3 && cache.entries[0].kind == BUILD_CACHE_KIND_TEMPLATE &&
-             cache.entries[1].kind == BUILD_CACHE_KIND_STATIC &&
-             cache.entries[2].kind == BUILD_CACHE_KIND_ASSET);
+  TEST_CHECK(cache.count == 3 && cache.rows[0].kind == BUILD_CACHE_KIND_TEMPLATE &&
+             cache.rows[1].kind == BUILD_CACHE_KIND_STATIC &&
+             cache.rows[2].kind == BUILD_CACHE_KIND_ASSET);
   const struct OsStat static_stat = {.len = 7, .mtime_s = 9};
   TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_STATIC, S("a.png"), &static_stat) != NULL);
   TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_ASSET, S("a.png"), &static_stat) == NULL);
@@ -127,10 +127,10 @@ static void test_round_trips_a_time_before_1970(void) {
   struct Arena arena = test_arena();
   struct SiteConfig site_config;
   site_config_init(&site_config);
-  const struct BuildCacheEntry entries[] = {
+  const struct BuildCacheRow rows[] = {
       {.kind = BUILD_CACHE_KIND_CONTENT, .name = S("old.html"), .len = 3, .mtime_s = -315590400},
   };
-  const struct Str text = format_cache(entries, 1, &site_config, &arena);
+  const struct Str text = format_cache(rows, 1, &site_config, &arena);
   struct BuildCache cache = {0};
   struct Log log = test_log();
   TEST_ASSERT(build_cache_parse(text, &site_config, &arena, &cache, &log) == 0);
@@ -144,10 +144,10 @@ static void test_leaves_out_name_with_tab_or_newline(void) {
   struct Arena arena = test_arena();
   struct SiteConfig site_config;
   site_config_init(&site_config);
-  struct BuildCacheEntry entries[2] = {ENTRIES[0], ENTRIES[0]};
-  entries[0].name = S("a\tb.html");
-  entries[1].name = S("a\nb.html");
-  const struct Str text = format_cache(entries, 2, &site_config, &arena);
+  struct BuildCacheRow rows[2] = {ROWS[0], ROWS[0]};
+  rows[0].name = S("a\tb.html");
+  rows[1].name = S("a\nb.html");
+  const struct Str text = format_cache(rows, 2, &site_config, &arena);
   TEST_CHECK(str_eq(text, recipe_of(&site_config, &arena)));
 }
 
@@ -193,7 +193,7 @@ static void test_parse_tells_escaped_recipe_texts_apart(void) {
   other.description = S("X\tdescription=Y");
   struct SiteConfig escaped = tab;
   escaped.title = S("Site\\tdescription=X");
-  const struct Str text = format_cache(ENTRIES, 3, &tab, &arena);
+  const struct Str text = format_cache(ROWS, 3, &tab, &arena);
   TEST_CHECK(str_startswith(text, S("title=Site\\tdescription=X\tdescription=Y\tauthor=\t")));
   struct BuildCache cache = {0};
   struct Log log = test_log();
@@ -211,7 +211,7 @@ static void test_parse_tells_escaped_recipe_texts_apart(void) {
   site_config_init(&newline);
   newline.description = S("a\nb\\");
   newline.author = S("Ada");
-  const struct Str newline_text = format_cache(ENTRIES, 3, &newline, &arena);
+  const struct Str newline_text = format_cache(ROWS, 3, &newline, &arena);
   TEST_CHECK(str_startswith(newline_text, S("title=\tdescription=a\\nb\\\\\tauthor=Ada\t")));
   struct Log newline_log = test_log();
   TEST_CHECK(build_cache_parse(newline_text, &newline, &arena, &cache, &newline_log) == 0);
@@ -227,7 +227,7 @@ static void test_parse_tells_escaped_recipe_texts_apart(void) {
   struct SiteConfig two = comma;
   two.feed_templates = two_names;
   two.feed_template_count = 2;
-  const struct Str comma_text = format_cache(ENTRIES, 3, &comma, &arena);
+  const struct Str comma_text = format_cache(ROWS, 3, &comma, &arena);
   const struct Str generator = sosig_generator_string();
   const struct Str grammars = highlight_grammar_list();
   struct Buf comma_tail = {.arena = &arena};
@@ -248,7 +248,7 @@ static void test_rejects_another_page_recipe(void) {
   struct SiteConfig site_config;
   site_config_init(&site_config);
   site_config.title = S("Site");
-  const struct Str text = format_cache(ENTRIES, 3, &site_config, &arena);
+  const struct Str text = format_cache(ROWS, 3, &site_config, &arena);
   site_config.title = S("Renamed");
   struct BuildCache cache = {0};
   struct Log log = test_log();
@@ -259,7 +259,7 @@ static void test_rejects_another_page_recipe(void) {
   // The description is a field a render reads too.
   site_config.title = S("Site");
   site_config.description = S("Notes");
-  const struct Str described = format_cache(ENTRIES, 3, &site_config, &arena);
+  const struct Str described = format_cache(ROWS, 3, &site_config, &arena);
   site_config.description = S("Other notes");
   struct Log description_log = test_log();
   TEST_CHECK(build_cache_parse(described, &site_config, &arena, &cache, &description_log) == -1);
@@ -281,7 +281,7 @@ static void test_rejects_rows_that_do_not_parse(void) {
 
   static const char* const bad_rows[] = {
       "content\ta.html\t1\t2\t3\t0",             // no newline
-      "content\ta.html\t1\t2\t3\n",              // no entry-list flag
+      "content\ta.html\t1\t2\t3\n",              // no row-list flag
       "content\ta.html\t1\t2\t3\t2\n",           // a flag that is neither 0 nor 1
       "template\ta.html\t1\t2\t3\t0\n",          // a flag on a template row
       "page\ta.html\t1\t2\t3\t0\n",              // another kind
@@ -301,9 +301,13 @@ static void test_rejects_rows_that_do_not_parse(void) {
   struct Buf unsorted = {.arena = &arena};
   buf_append(&unsorted, recipe);
   buf_append(&unsorted, S("template\ta.html\t1\t2\t3\ncontent\ta.html\t1\t2\t3\t0\n"));
+  // A failed parse leaves the arena and the cache it was given as they were.
+  const char* const arena_beg = arena.beg;
+  cache = (struct BuildCache){.count = 7};
   log = test_log();
   TEST_CHECK(build_cache_parse(buf_str(&unsorted), &site_config, &arena, &cache, &log) == -1);
   TEST_CHECK(test_log_is(&log, "build cache does not parse at line 3\n"));
+  TEST_CHECK(arena.beg == arena_beg && cache.count == 7 && cache.rows == NULL);
 }
 
 TEST_LIST = {

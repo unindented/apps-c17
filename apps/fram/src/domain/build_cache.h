@@ -38,7 +38,7 @@ enum BuildCacheKind {
  * facts about the source itself: derivative dimensions follow from them and the configuration, so
  * editing `fram.toml` never invalidates a row.
  */
-struct BuildCacheEntry {
+struct BuildCacheRow {
   /** What the row names. */
   enum BuildCacheKind kind;
 
@@ -68,9 +68,9 @@ struct BuildCacheEntry {
 /** The rows of one build cache, sorted by kind and then bytewise by name. A zeroed one is empty. */
 struct BuildCache {
   /** Rows, sorted by `kind` and then bytewise by `name`, with no name twice in one kind. */
-  struct BuildCacheEntry* entries;
+  struct BuildCacheRow* rows;
 
-  /** Number of rows in `entries`. */
+  /** Number of rows in `rows`. */
   ptrdiff_t count;
 };
 
@@ -85,18 +85,21 @@ struct BuildCache {
 struct Str build_cache_path(struct Str output_dir, struct Arena* arena) __attribute__((nonnull(2)));
 
 /**
- * @brief Parses a build cache, rejecting a first line that names another build.
+ * @brief Parses a build cache with `build_cache_file_parse`, rejecting a first line that names
+ *        another fram version.
  *
  * The first line must name this file kind and the current generator string, so a release that
- * changes how sources are read probes every source again. Every row after it, the last included,
- * ends in a newline, and the rows are sorted by kind and then bytewise by name, with no name twice
- * in one kind.
+ * changes how sources are read probes every source again. An empty file, which an interrupted write
+ * leaves, is reported as such. Every row after the first line, the last included, ends in a
+ * newline, and the rows are sorted by kind and then bytewise by name, with no name twice in one
+ * kind.
  *
  * @param text      Bytes of the build cache.
  * @param perm      Arena that owns the rows. Must not be `NULL`.
  * @param cache_out Receives the rows on success. Written only on success. Must not be `NULL`.
  * @param log       Log that receives the reason the build cache cannot be used. Must not be `NULL`.
- * @return `0` on success, or `-1` when the first line differs or a row does not parse.
+ * @return `0` on success, or `-1` when the file is empty, the first line differs, or a row does not
+ *         parse.
  */
 int build_cache_parse(struct Str text,
                       struct Arena* perm,
@@ -112,10 +115,10 @@ int build_cache_parse(struct Str text,
  * @param source_stat What `os_stat` reported for the source now. Must not be `NULL`.
  * @return The matching row, or `NULL` when there is none or the source changed since.
  */
-const struct BuildCacheEntry* build_cache_find(const struct BuildCache* cache,
-                                               enum BuildCacheKind kind,
-                                               struct Str name,
-                                               const struct OsStat* source_stat)
+const struct BuildCacheRow* build_cache_find(const struct BuildCache* cache,
+                                             enum BuildCacheKind kind,
+                                             struct Str name,
+                                             const struct OsStat* source_stat)
     __attribute__((nonnull(1, 4)));
 
 /**
@@ -131,9 +134,9 @@ void build_cache_format_header(struct Buf* buffer) __attribute__((nonnull(1)));
  * Such an input has no row, so it is probed or copied on every build, and no name needs escaping.
  *
  * @param buffer Buffer that receives the row. Must not be `NULL`.
- * @param entry  Row to append. Must not be `NULL`.
+ * @param row    Row to append. Must not be `NULL`.
  */
-void build_cache_format_entry(struct Buf* buffer, const struct BuildCacheEntry* entry)
+void build_cache_format_row(struct Buf* buffer, const struct BuildCacheRow* row)
     __attribute__((nonnull(1, 2)));
 
 #endif

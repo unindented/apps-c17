@@ -790,18 +790,18 @@ static int probe_media_job(ptrdiff_t index,
   const struct Str operation = S("failed to probe media");
   // A source that cannot be inspected is probed, so the read reports why.
   struct OsStat* source_stat = &context->source_stats[index];
-  const struct BuildCacheEntry* entry = NULL;
+  const struct BuildCacheRow* row = NULL;
   if (os_stat(context->os, item->source_path, source_stat) == 0) {
     struct Str relative = {0};
     (void)path_is_below(item->source_path, context->site_config->media_dir, &relative);
-    entry = build_cache_find(context->build_cache, BUILD_CACHE_KIND_MEDIA, relative, source_stat);
+    row = build_cache_find(context->build_cache, BUILD_CACHE_KIND_MEDIA, relative, source_stat);
   }
   int rc = 0;
-  if (entry != NULL) {
-    item->duration_ms = entry->duration_ms;
-    item->orientation = entry->orientation;
-    item->width_px = entry->width_px;
-    item->height_px = entry->height_px;
+  if (row != NULL) {
+    item->duration_ms = row->duration_ms;
+    item->orientation = row->orientation;
+    item->width_px = row->width_px;
+    item->height_px = row->height_px;
   } else if (item->kind == MEDIA_KIND_IMAGE) {
     rc = probe_image(item, context->os, arenas->scratch, operation, log);
   } else {

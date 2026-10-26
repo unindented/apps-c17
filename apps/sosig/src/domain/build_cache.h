@@ -50,7 +50,7 @@ enum BuildCacheKind {
 };
 
 /** The stat of one input the pages depend on, as the build that wrote the row saw it. */
-struct BuildCacheEntry {
+struct BuildCacheRow {
   /** What the row names. */
   enum BuildCacheKind kind;
 
@@ -76,9 +76,9 @@ struct BuildCacheEntry {
 /** The rows of one build cache, sorted by kind and then bytewise by name. A zeroed one is empty. */
 struct BuildCache {
   /** Rows, sorted by `kind` and then bytewise by `name`, with no row twice. */
-  struct BuildCacheEntry* entries;
+  struct BuildCacheRow* rows;
 
-  /** Number of rows in `entries`. */
+  /** Number of rows in `rows`. */
   ptrdiff_t count;
 };
 
@@ -93,7 +93,8 @@ struct BuildCache {
 struct Str build_cache_path(struct Str output_dir, struct Arena* arena) __attribute__((nonnull(2)));
 
 /**
- * @brief Parses a build cache, rejecting a first line other than the page recipe of `site_config`.
+ * @brief Parses a build cache with `build_cache_file_parse`, rejecting a first line other than the
+ *        page recipe of `site_config`.
  *
  * The page recipe is what an output depends on besides its input files: the configuration a render
  * reads, the generator string, the grammars the build links, and `PAGE_RECIPE_VERSION`, each as
@@ -129,10 +130,10 @@ int build_cache_parse(struct Str text,
  * @param stat  What `os_stat` reported for the input now. Must not be `NULL`.
  * @return The matching row, or `NULL` when there is none or the input changed since.
  */
-const struct BuildCacheEntry* build_cache_find(const struct BuildCache* cache,
-                                               enum BuildCacheKind kind,
-                                               struct Str name,
-                                               const struct OsStat* stat)
+const struct BuildCacheRow* build_cache_find(const struct BuildCache* cache,
+                                             enum BuildCacheKind kind,
+                                             struct Str name,
+                                             const struct OsStat* stat)
     __attribute__((nonnull(1, 4)));
 
 /**

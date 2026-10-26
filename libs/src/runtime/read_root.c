@@ -9,14 +9,13 @@
 #include "core/str.h"
 #include "os/os.h"
 
-int read_root_require(struct ReadRoot* roots,
+int read_root_require(const struct ReadRoot* roots,
                       ptrdiff_t root_count,
                       struct Os* os,
                       struct Log* log) {
   int rc = 0;
   for (ptrdiff_t i = 0; i < root_count; i++) {
-    struct ReadRoot* root = &roots[i];
-    root->is_usable = false;
+    const struct ReadRoot* root = &roots[i];
     // A root gets two questions in order, because the second presupposes the first answer.
     //
     // Is it there at all? Only an optional root may answer no, and for that root absence is the
@@ -34,7 +33,6 @@ int read_root_require(struct ReadRoot* roots,
     struct OsStat st;
     if (os_stat(os, root->dir_path, &st) != 0) {
       if (root->is_optional && errno == ENOENT) {
-        root->is_usable = true;
         continue;
       }
       char message[ERROR_SYSTEM_MESSAGE_SIZE];
@@ -44,8 +42,6 @@ int read_root_require(struct ReadRoot* roots,
     } else if (!st.is_dir) {
       rc = log_error(log, "failed to resolve config directory '%.*s': not a directory ('%.*s')",
                      STR_FMT(root->key), STR_FMT(root->dir_path));
-    } else {
-      root->is_usable = true;
     }
   }
   return rc;

@@ -8,7 +8,6 @@
 
 #include "core/arena.h"
 #include "core/buf.h"
-#include "core/log.h"
 #include "core/parse.h"
 #include "core/path.h"
 #include "core/str.h"
@@ -17,6 +16,7 @@
 #include "formats/tsv.h"
 #include "markup/highlight.h"
 #include "os/os.h"
+#include "output/build_cache_file.h"
 
 /** Nanoseconds in a second, the bound of a row's `mtime_ns`. */
 enum { BUILD_CACHE_NS_PER_S = 1000000000 };
@@ -53,21 +53,44 @@ static void format_recipe_list(struct Buf* buffer, const struct Str* names, ptrd
  * @brief Appends one row of a build cache, or nothing for a name that holds a tab or a newline.
  *
  * @param buffer Buffer that receives the row. Must not be `NULL`.
- * @param entry  Row to append. Must not be `NULL`.
+ * @param row    Row to append. Must not be `NULL`.
  */
-static void build_cache_format_entry(struct Buf* buffer, const struct BuildCacheEntry* entry)
+static void build_cache_format_row(struct Buf* buffer, const struct BuildCacheRow* row)
     __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Sizes the rows of a parse, as `BuildCacheFileBeginFn`.
+ *
+ * @param row_count Number of rows.
+ * @param perm      Arena that owns the rows. Must not be `NULL`.
+ * @param userdata  The `struct BuildCache` being parsed.
+ */
+static void build_cache_parse_begin(ptrdiff_t row_count, struct Arena* perm, void* userdata)
+    __attribute__((nonnull(2, 3)));
+
+/**
+ * @brief Parses one row, which must sort after the row before it, as `BuildCacheFileRowFn`.
+ *
+ * @param line     The row, without its newline.
+ * @param index    Index of the row.
+ * @param perm     Arena that owns the row's copied text. Must not be `NULL`.
+ * @param userdata The `struct BuildCache` being parsed.
+ * @return `0` on success, or `-1` when the row does not parse or is out of order.
+ */
+static int build_cache_parse_row(struct Str line,
+                                 ptrdiff_t index,
+                                 struct Arena* perm,
+                                 void* userdata) __attribute__((nonnull(3, 4)));
 
 /**
  * @brief Parses one row of a build cache, without its newline.
  *
- * @param line      Row to parse.
- * @param entry_out Receives the row, whose name points into `line`. Must not be `NULL`.
+ * @param line    Row to parse.
+ * @param row_out Receives the row, whose name points into `line`. Must not be `NULL`.
  * @return `0` on success, or `-1` when the row has another kind, the wrong number of fields for its
  *         kind, or a field out of range.
  */
-static int parse_entry(struct Str line, struct BuildCacheEntry* entry_out)
-    __attribute__((nonnull(2)));
+static int parse_row(struct Str line, struct BuildCacheRow* row_out) __attribute__((nonnull(2)));
 
 /**
  * @brief Splits the next tab-separated field off `rest`.
@@ -82,11 +105,11 @@ static bool take_field(struct StrCut* rest, struct Str* field_out) __attribute__
 /**
  * @brief Orders two rows by kind and then bytewise by name, for `bsearch`.
  *
- * @param a First `struct BuildCacheEntry`. Must not be `NULL`.
- * @param b Second `struct BuildCacheEntry`. Must not be `NULL`.
+ * @param a First `struct BuildCacheRow`. Must not be `NULL`.
+ * @param b Second `struct BuildCacheRow`. Must not be `NULL`.
  * @return A negative, zero, or positive value as `a` orders before, equal to, or after `b`.
  */
-static int compare_entries(const void* a, const void* b) __attribute__((nonnull(1, 2)));
+static int compare_rows(const void* a, const void* b) __attribute__((nonnull(1, 2)));
 
 struct Str build_cache_path(struct Str output_dir, struct Arena* arena) {
   struct Buf name = {.arena = arena};
@@ -99,57 +122,54 @@ int build_cache_parse(struct Str text,
                       struct Arena* perm,
                       struct BuildCache* cache_out,
                       struct Log* log) {
-  if (text.len == 0) {
-    return log_error(log, "build cache is empty, as a build that did not finish leaves it");
-  }
   struct Arena arena = *perm;
-  struct Arena recipe_scratch = arena;
-  struct Buf recipe = {.arena = &recipe_scratch};
-  format_recipe(&recipe, site_config);
-  if (!str_startswith(text, buf_str(&recipe))) {
-    return log_error(log, "build cache was written for another page recipe");
-  }
-  const struct Str rows = str_tail(text, buf_str(&recipe).len);
-  ptrdiff_t row_count = 0;
-  for (ptrdiff_t i = 0; i < rows.len; i++) {
-    row_count += rows.data[i] == '\n';
-  }
-  struct BuildCache cache = {.entries = arena_new(&arena, row_count, struct BuildCacheEntry)};
-  // A file cut short by an interrupted write ends without its last newline, which is the reason
-  // every row must end in one.
-  struct StrCut cut = str_cut(rows, '\n');
-  for (; cut.is_found; cut = str_cut(cut.tail, '\n')) {
-    struct BuildCacheEntry* entry = &cache.entries[cache.count];
-    if (parse_entry(cut.head, entry) != 0 ||
-        (cache.count > 0 && compare_entries(&cache.entries[cache.count - 1], entry) >= 0)) {
-      return log_error(log, "build cache does not parse at line %td", cache.count + 2);
-    }
-    entry->name = str_clone(entry->name, &arena);
-    cache.count++;
-  }
-  if (cut.head.len > 0) {
-    return log_error(log, "build cache does not parse at line %td", cache.count + 2);
+  struct Buf header = {.arena = &arena};
+  format_recipe(&header, site_config);
+  struct BuildCache cache = {0};
+  if (build_cache_file_parse(
+          text, buf_str(&header), S("build cache was written for another page recipe"),
+          build_cache_parse_begin, build_cache_parse_row, &cache, &arena, log) != 0) {
+    return -1;
   }
   *perm = arena;
   *cache_out = cache;
   return 0;
 }
 
-const struct BuildCacheEntry* build_cache_find(const struct BuildCache* cache,
-                                               enum BuildCacheKind kind,
-                                               struct Str name,
-                                               const struct OsStat* stat) {
+static void build_cache_parse_begin(ptrdiff_t row_count, struct Arena* perm, void* userdata) {
+  struct BuildCache* cache = userdata;
+  cache->rows = arena_new(perm, row_count, struct BuildCacheRow);
+}
+
+static int build_cache_parse_row(struct Str line,
+                                 ptrdiff_t index,
+                                 struct Arena* perm,
+                                 void* userdata) {
+  struct BuildCache* cache = userdata;
+  struct BuildCacheRow* row = &cache->rows[index];
+  if (parse_row(line, row) != 0 || (index > 0 && compare_rows(&cache->rows[index - 1], row) >= 0)) {
+    return -1;
+  }
+  row->name = str_clone(row->name, perm);
+  cache->count = index + 1;
+  return 0;
+}
+
+const struct BuildCacheRow* build_cache_find(const struct BuildCache* cache,
+                                             enum BuildCacheKind kind,
+                                             struct Str name,
+                                             const struct OsStat* stat) {
   if (cache->count == 0) {
     return NULL;
   }
-  const struct BuildCacheEntry key = {.kind = kind, .name = name};
-  const struct BuildCacheEntry* entry =
-      bsearch(&key, cache->entries, (size_t)cache->count, sizeof(*cache->entries), compare_entries);
-  if (entry == NULL || entry->len != stat->len || entry->mtime_s != stat->mtime_s ||
-      entry->mtime_ns != stat->mtime_ns) {
+  const struct BuildCacheRow key = {.kind = kind, .name = name};
+  const struct BuildCacheRow* row =
+      bsearch(&key, cache->rows, (size_t)cache->count, sizeof(*cache->rows), compare_rows);
+  if (row == NULL || row->len != stat->len || row->mtime_s != stat->mtime_s ||
+      row->mtime_ns != stat->mtime_ns) {
     return NULL;
   }
-  return entry;
+  return row;
 }
 
 void build_cache_format(struct Buf* buffer,
@@ -157,10 +177,10 @@ void build_cache_format(struct Buf* buffer,
                         struct BuildCache* cache) {
   format_recipe(buffer, site_config);
   if (cache->count > 0) {
-    qsort(cache->entries, (size_t)cache->count, sizeof(*cache->entries), compare_entries);
+    qsort(cache->rows, (size_t)cache->count, sizeof(*cache->rows), compare_rows);
   }
   for (ptrdiff_t i = 0; i < cache->count; i++) {
-    build_cache_format_entry(buffer, &cache->entries[i]);
+    build_cache_format_row(buffer, &cache->rows[i]);
   }
 }
 
@@ -204,26 +224,26 @@ static void format_recipe_list(struct Buf* buffer, const struct Str* names, ptrd
   }
 }
 
-static void build_cache_format_entry(struct Buf* buffer, const struct BuildCacheEntry* entry) {
-  for (ptrdiff_t i = 0; i < entry->name.len; i++) {
-    if (entry->name.data[i] == '\t' || entry->name.data[i] == '\n') {
+static void build_cache_format_row(struct Buf* buffer, const struct BuildCacheRow* row) {
+  for (ptrdiff_t i = 0; i < row->name.len; i++) {
+    if (row->name.data[i] == '\t' || row->name.data[i] == '\n') {
       return;
     }
   }
-  const struct Str kind = BUILD_CACHE_KIND_NAMES[entry->kind];
-  buf_printf(buffer, "%.*s\t%.*s\t%td\t%" PRId64 "\t%" PRId64, STR_FMT(kind), STR_FMT(entry->name),
-             entry->len, entry->mtime_s, entry->mtime_ns);
-  if (entry->kind == BUILD_CACHE_KIND_CONTENT) {
-    buf_printf(buffer, "\t%d", entry->is_entry_list_read ? 1 : 0);
+  const struct Str kind = BUILD_CACHE_KIND_NAMES[row->kind];
+  buf_printf(buffer, "%.*s\t%.*s\t%td\t%" PRId64 "\t%" PRId64, STR_FMT(kind), STR_FMT(row->name),
+             row->len, row->mtime_s, row->mtime_ns);
+  if (row->kind == BUILD_CACHE_KIND_CONTENT) {
+    buf_printf(buffer, "\t%d", row->is_entry_list_read ? 1 : 0);
   }
   buf_append_char(buffer, '\n');
 }
 
-static int parse_entry(struct Str line, struct BuildCacheEntry* entry_out) {
+static int parse_row(struct Str line, struct BuildCacheRow* row_out) {
   struct StrCut rest = {.tail = line, .is_found = true};
   struct Str kind_name = {0};
-  struct BuildCacheEntry entry = {0};
-  if (!take_field(&rest, &kind_name) || !take_field(&rest, &entry.name) || entry.name.len == 0) {
+  struct BuildCacheRow row = {0};
+  if (!take_field(&rest, &kind_name) || !take_field(&rest, &row.name) || row.name.len == 0) {
     return -1;
   }
   ptrdiff_t kind_index = 0;
@@ -235,7 +255,7 @@ static int parse_entry(struct Str line, struct BuildCacheEntry* entry_out) {
   if (kind_index == kind_count) {
     return -1;
   }
-  entry.kind = (enum BuildCacheKind)kind_index;
+  row.kind = (enum BuildCacheKind)kind_index;
   struct Str fields[3] = {0};
   for (ptrdiff_t i = 0; i < 3; i++) {
     if (!take_field(&rest, &fields[i])) {
@@ -244,22 +264,22 @@ static int parse_entry(struct Str line, struct BuildCacheEntry* entry_out) {
   }
   // The seconds are negative for a file dated before 1970, as `stat` reports them.
   ptrdiff_t mtime_ns = 0;
-  if (parse_size(fields[0], &entry.len) != 0 || parse_int64(fields[1], &entry.mtime_s) != 0 ||
+  if (parse_size(fields[0], &row.len) != 0 || parse_int64(fields[1], &row.mtime_s) != 0 ||
       parse_size(fields[2], &mtime_ns) != 0 || mtime_ns >= BUILD_CACHE_NS_PER_S) {
     return -1;
   }
-  entry.mtime_ns = mtime_ns;
-  if (entry.kind == BUILD_CACHE_KIND_CONTENT) {
+  row.mtime_ns = mtime_ns;
+  if (row.kind == BUILD_CACHE_KIND_CONTENT) {
     struct Str flag = {0};
     if (!take_field(&rest, &flag) || !(str_eq(flag, S("0")) || str_eq(flag, S("1")))) {
       return -1;
     }
-    entry.is_entry_list_read = str_eq(flag, S("1"));
+    row.is_entry_list_read = str_eq(flag, S("1"));
   }
   if (rest.is_found) {
     return -1;
   }
-  *entry_out = entry;
+  *row_out = row;
   return 0;
 }
 
@@ -272,9 +292,9 @@ static bool take_field(struct StrCut* rest, struct Str* field_out) {
   return true;
 }
 
-static int compare_entries(const void* a, const void* b) {
-  const struct BuildCacheEntry* left = a;
-  const struct BuildCacheEntry* right = b;
+static int compare_rows(const void* a, const void* b) {
+  const struct BuildCacheRow* left = a;
+  const struct BuildCacheRow* right = b;
   if (left->kind != right->kind) {
     return left->kind < right->kind ? -1 : 1;
   }

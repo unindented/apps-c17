@@ -45,7 +45,7 @@ struct PageRenderContext {
   const struct ContentEntry* const* source_entries;
 
   /** One build cache row per source path that vouches for its page, or `NULL`. May be `NULL`. */
-  const struct BuildCacheEntry* const* fresh_rows;
+  const struct BuildCacheRow* const* fresh_rows;
 
   /** One slot per source path, which receives whether its page read the entry list. */
   bool* entry_list_flags;
@@ -103,7 +103,7 @@ static int render_content_page_template(const struct TemplateSet* template_set,
  * @param index   Entry slot index, whose entry is set.
  * @return The row, or `NULL` when the page must be made.
  */
-static const struct BuildCacheEntry* render_content_page_find_fresh_row(
+static const struct BuildCacheRow* render_content_page_find_fresh_row(
     const struct PageRenderContext* context,
     ptrdiff_t index) __attribute__((nonnull(1)));
 
@@ -133,7 +133,7 @@ int page_renderer_render_pages(const struct OutputWriter* writer,
                                ptrdiff_t source_entry_count,
                                const struct ContentEntry* const* content_entries,
                                ptrdiff_t content_entry_count,
-                               const struct BuildCacheEntry* const* fresh_rows,
+                               const struct BuildCacheRow* const* fresh_rows,
                                ptrdiff_t worker_count,
                                struct JobArenas* worker_arenas,
                                bool is_verbose,
@@ -174,7 +174,7 @@ static int render_content_page_job(ptrdiff_t index,
     // race. That phase's `pool_run` joined its workers before returning, and this phase's
     // `pthread_create` happens after, so the write is already published to this thread.
     oom_set_job(entry->source_path, log);
-    const struct BuildCacheEntry* row = render_content_page_find_fresh_row(context, index);
+    const struct BuildCacheRow* row = render_content_page_find_fresh_row(context, index);
     if (row != NULL) {
       // A kept page has no render, so it reads the entry list exactly when the page the row vouches
       // for did: rendering is deterministic, and the row is trusted only while every input it names
@@ -225,11 +225,10 @@ static int render_content_page_template(const struct TemplateSet* template_set,
                                  perm, scratch, html_out, is_entry_list_read_out, log);
 }
 
-static const struct BuildCacheEntry* render_content_page_find_fresh_row(
+static const struct BuildCacheRow* render_content_page_find_fresh_row(
     const struct PageRenderContext* context,
     ptrdiff_t index) {
-  const struct BuildCacheEntry* row =
-      context->fresh_rows == NULL ? NULL : context->fresh_rows[index];
+  const struct BuildCacheRow* row = context->fresh_rows == NULL ? NULL : context->fresh_rows[index];
   struct OsStat output_stat;
   if (row == NULL ||
       os_stat(context->os, context->source_entries[index]->output_path, &output_stat) != 0 ||
