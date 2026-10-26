@@ -296,8 +296,8 @@ static void site_config_load_fields(struct SiteConfig* site_config,
   (void)toml_require_known_keys(table, config_keys, sizeof(config_keys) / sizeof(config_keys[0]),
                                 S("config"), S(""), (struct Str){0}, log);
 
-  // The site keys are read in the order the config lists them, so their errors come in that order
-  // too. `base_url` is last of them, and is validated as soon as it is copied.
+  // Each key is read and validated at its row of the README's key table, which `sosig config` also
+  // follows, so the errors of one load come in that order.
   const struct SiteConfigStringKey site_strings[] = {
       {"title", &site_config->title, true},
       {"description", &site_config->description, true},
@@ -312,15 +312,10 @@ static void site_config_load_fields(struct SiteConfig* site_config,
   if (toml_copy_string(table, S(""), "base_url", true, perm, &site_config->base_url, log) == 0) {
     normalize_base_url(site_config, log);
   }
-
-  const struct SiteConfigStringKey optional_strings[] = {
-      {"permalink", &site_config->permalink, false},
-      {"content_template", &site_config->content_template, false},
-  };
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(optional_strings) / sizeof(optional_strings[0]));
-       i++) {
-    (void)toml_copy_string(table, S(""), optional_strings[i].key, optional_strings[i].is_required,
-                           perm, optional_strings[i].field, log);
+  if (toml_copy_string(table, S(""), "permalink", false, perm, &site_config->permalink, log) != 0 ||
+      require_valid_permalink(site_config->permalink, scratch, log) != 0) {
+    site_config->permalink = PERMALINK_DEFAULT;
+    site_config->is_output_key_rejected = true;
   }
   // A default directory resolves against the config's directory too, so that `-c sub/sosig.toml`
   // without `output_dir` writes `sub/public`. A key that is absent or rejected keeps it.
@@ -338,15 +333,13 @@ static void site_config_load_fields(struct SiteConfig* site_config,
                     &site_config->templates_dir, log) != 0;
   site_config->is_static_dir_rejected = toml_copy_dir(table, S(""), "static_dir", false, config_dir,
                                                       perm, &site_config->static_dir, log) != 0;
-  if (!path_is_safe_relative(site_config->content_template)) {
+  if (toml_copy_string(table, S(""), "content_template", false, perm,
+                       &site_config->content_template, log) == 0 &&
+      !path_is_safe_relative(site_config->content_template)) {
     (void)log_error(log,
                     "config key 'content_template' must be a safe relative template name: '%.*s'",
                     STR_FMT(site_config->content_template));
     site_config->content_template = CONTENT_TEMPLATE_DEFAULT;
-  }
-  if (require_valid_permalink(site_config->permalink, scratch, log) != 0) {
-    site_config->permalink = PERMALINK_DEFAULT;
-    site_config->is_output_key_rejected = true;
   }
   if (toml_copy_strings(table, S(""), "aggregate_templates", true, perm,
                         &site_config->aggregate_templates, &site_config->aggregate_template_count,
@@ -357,7 +350,6 @@ static void site_config_load_fields(struct SiteConfig* site_config,
                         &site_config->feed_template_count, log) != 0) {
     site_config->is_output_key_rejected = true;
   }
-
   const struct TomlSizeKey feed_count = {
       .key = "feed_count",
       .field = &site_config->feed_count,

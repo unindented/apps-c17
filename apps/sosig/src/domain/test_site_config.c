@@ -424,8 +424,9 @@ static void test_load_rejects_malformed_toml(void) {
 }
 
 /**
- * A config that parses but holds six independent mistakes, one each for the unknown-key check, a
- * string key's type, `base_url`, a directory, the permalink, and `feed_count`.
+ * A config that parses but holds seven independent mistakes, one each for the unknown-key check, a
+ * string key's type, `base_url`, a directory, the permalink, `content_template`, and `feed_count`.
+ * The directory comes before the permalink, which the key table lists first.
  */
 static const char TOML_KEYS_INVALID[] =
     "title = 1\n"
@@ -435,10 +436,11 @@ static const char TOML_KEYS_INVALID[] =
     "colour = \"blue\"\n"
     "content_dir = \"/\"\n"
     "permalink = \"/fixed.html\"\n"
+    "content_template = \"../content.html\"\n"
     "feed_count = -1\n";
 
-// Every invalid key in one config is reported in one load, in the order the load checks them, not
-// only the first.
+// Every invalid key in one config is reported in one load, not only the first, in the order of the
+// README's key table rather than of the file.
 static void test_load_reports_every_invalid_key(void) {
   struct SiteConfig config;
   site_config_init(&config);
@@ -449,11 +451,36 @@ static void test_load_reports_every_invalid_key(void) {
                          "config key 'title' must be a string\n"
                          "config key 'base_url' must be an absolute 'http://' or 'https://' URL "
                          "with a host: 'ftp://example.com'\n"
-                         "config key 'content_dir' must not be empty\n"
                          "config key 'permalink' must expand to a distinct path per content entry; "
                          "include the '{slug}' token: '/fixed.html'\n"
+                         "config key 'content_dir' must not be empty\n"
+                         "config key 'content_template' must be a safe relative template name: "
+                         "'../content.html'\n"
                          "config key 'feed_count' must be at least 0: -1\n"));
-  TEST_CHECK(log.errors == 6);
+  TEST_CHECK(log.errors == 7);
+}
+
+// A key of the wrong type is reported at its row of the key table too, and a mistyped `permalink`
+// is a rejected output key, as an invalid one is, because its default names outputs the user did
+// not choose.
+static void test_load_reports_mistyped_keys_in_table_order(void) {
+  struct SiteConfig config;
+  site_config_init(&config);
+  struct Log log = test_log();
+  TEST_CHECK(load_text(&config,
+                       "content_template = 2\n"
+                       "content_dir = 3\n"
+                       "permalink = 1\n"
+                       "title = \"Example Site\"\n"
+                       "description = \"Example notes\"\n"
+                       "author = \"Example Author\"\n"
+                       "base_url = \"https://example.com\"\n",
+                       &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "config key 'permalink' must be a string\n"
+                         "config key 'content_dir' must be a string\n"
+                         "config key 'content_template' must be a string\n"));
+  TEST_CHECK(config.is_output_key_rejected);
 }
 
 // A config that was read and parsed loads successfully even when keys are rejected: the errors are
@@ -466,7 +493,7 @@ static void test_load_returns_zero_with_key_errors(void) {
   os_memory_write(os, CONFIG_PATH, TOML_KEYS_INVALID);
   struct Arena perm = test_arena();
   TEST_CHECK(site_config_load(&config, S(CONFIG_PATH), os, &perm, test_arena(), &log) == 0);
-  TEST_CHECK(log.errors == 6);
+  TEST_CHECK(log.errors == 7);
 }
 
 // A rejected value is never stored. Each rejected key keeps the default `site_config_init` gave it,
@@ -1095,6 +1122,7 @@ TEST_LIST = {
     {"load rejects nul in file", test_load_rejects_nul_in_file},
     {"load rejects malformed toml", test_load_rejects_malformed_toml},
     {"load reports every invalid key", test_load_reports_every_invalid_key},
+    {"load reports mistyped keys in table order", test_load_reports_mistyped_keys_in_table_order},
     {"load returns zero with key errors", test_load_returns_zero_with_key_errors},
     {"load keeps defaults for rejected keys", test_load_keeps_defaults_for_rejected_keys},
     {"load rejects missing required key", test_load_rejects_missing_required_key},

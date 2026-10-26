@@ -238,18 +238,6 @@ static void normalize_base_url(struct SiteConfig* site_config, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Rejects an `album_template` that is not a safe relative template name.
- *
- * A rejected name is reset to the default, so the render still has a template to look for.
- *
- * @param site_config Config whose `album_template` is validated. Must not be `NULL`.
- * @param log         Log that receives the error. Must not be `NULL`.
- * @return `0` when the name is safe, or `-1` when it is not.
- */
-static int normalize_album_template(struct SiteConfig* site_config, struct Log* log)
-    __attribute__((nonnull(1, 2)));
-
-/**
  * @brief Rejects every derivative whose bounding box exceeds `IMAGE_PIXEL_COUNT_MAX`.
  *
  * @param derivatives      Array of `derivative_count` derivatives to validate. Must not be `NULL`.
@@ -388,19 +376,22 @@ static void site_config_load_fields(struct SiteConfig* site_config,
   (void)toml_require_known_keys(table, config_keys, sizeof(config_keys) / sizeof(config_keys[0]),
                                 S("config"), S(""), (struct Str){0}, log);
 
-  const struct SiteConfigStringKey strings[] = {
+  // Each key is read and validated at its row of the README's key table, which `fram config` also
+  // follows, so the errors of one load come in that order.
+  const struct SiteConfigStringKey site_strings[] = {
       {"title", &site_config->title, true},
       {"description", &site_config->description, true},
       {"author", &site_config->author, true},
-      {"base_url", &site_config->base_url, false},
-      {"album_template", &site_config->album_template, false},
   };
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(strings) / sizeof(strings[0])); i++) {
-    (void)toml_copy_string(table, S(""), strings[i].key, strings[i].is_required, perm,
-                           strings[i].field, log);
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(site_strings) / sizeof(site_strings[0])); i++) {
+    (void)toml_copy_string(table, S(""), site_strings[i].key, site_strings[i].is_required, perm,
+                           site_strings[i].field, log);
   }
-
-  normalize_base_url(site_config, log);
+  // A `base_url` that is mistyped is already reported, so its empty value is not judged a second
+  // time.
+  if (toml_copy_string(table, S(""), "base_url", false, perm, &site_config->base_url, log) == 0) {
+    normalize_base_url(site_config, log);
+  }
   // A default directory resolves against the config's directory too, so that `-c sub/fram.toml`
   // without `output_dir` writes `sub/public`. A key that is absent or rejected keeps it.
   site_config->media_dir = path_resolve(config_dir, site_config->media_dir, perm);
@@ -416,7 +407,14 @@ static void site_config_load_fields(struct SiteConfig* site_config,
                     &site_config->templates_dir, log) != 0;
   site_config->is_static_dir_rejected = toml_copy_dir(table, S(""), "static_dir", false, config_dir,
                                                       perm, &site_config->static_dir, log) != 0;
-  (void)normalize_album_template(site_config, log);
+  if (toml_copy_string(table, S(""), "album_template", false, perm, &site_config->album_template,
+                       log) == 0 &&
+      !path_is_safe_relative(site_config->album_template)) {
+    (void)log_error(log,
+                    "config key 'album_template' must be a safe relative template name: '%.*s'",
+                    STR_FMT(site_config->album_template));
+    site_config->album_template = ALBUM_TEMPLATE_DEFAULT;
+  }
   (void)toml_copy_strings(table, S(""), "aggregate_templates", true, perm,
                           &site_config->aggregate_templates, &site_config->aggregate_template_count,
                           log);
@@ -626,17 +624,6 @@ static void normalize_base_url(struct SiteConfig* site_config, struct Log* log) 
   }
   // Every link joins `base_url` with a path that starts with `/`, so the trailing `/` goes.
   site_config->base_url = path_trim_trailing_slashes(site_config->base_url);
-}
-
-static int normalize_album_template(struct SiteConfig* site_config, struct Log* log) {
-  if (path_is_safe_relative(site_config->album_template)) {
-    return 0;
-  }
-  const int rc =
-      log_error(log, "config key 'album_template' must be a safe relative template name: '%.*s'",
-                STR_FMT(site_config->album_template));
-  site_config->album_template = ALBUM_TEMPLATE_DEFAULT;
-  return rc;
 }
 
 static int require_derivative_bounds(const struct GalleryDerivative* derivatives,

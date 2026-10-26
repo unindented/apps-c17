@@ -79,7 +79,7 @@ struct SiteConfig {
   /** Number of names in `feed_templates`. */
   ptrdiff_t feed_template_count;
 
-  /** Maximum number of content entries included in the feed. Defaults to `10`. */
+  /** Maximum number of content entries included in the feed. Defaults to `25`. */
   ptrdiff_t feed_count;
 
   /**

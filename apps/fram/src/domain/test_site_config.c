@@ -477,7 +477,8 @@ static void test_load_rejects_malformed_toml(void) {
 /**
  * A config that parses but holds seven independent mistakes, one each for the unknown-key check, a
  * string key's type, `base_url`, a directory, `album_template`, a derivative, and
- * `video_frame_seconds`.
+ * `video_frame_seconds`. The unknown key comes before the directory, which the key table lists
+ * first.
  */
 static const char TOML_KEYS_INVALID[] =
     "title = 1\n"
@@ -490,8 +491,8 @@ static const char TOML_KEYS_INVALID[] =
     "derivatives = { s = { width = 0, height = 120, quality = 70 } }\n"
     "video_frame_seconds = -1\n";
 
-// Every invalid key in one config is reported in one load, in the order the load checks them, not
-// only the first.
+// Every invalid key in one config is reported in one load, not only the first, in the order of the
+// README's key table rather than of the file.
 static void test_load_reports_every_invalid_key(void) {
   struct SiteConfig site_config;
   site_config_init(&site_config);
@@ -508,6 +509,27 @@ static void test_load_reports_every_invalid_key(void) {
                          "config key 'derivatives.s.width' must be at least 1: 0\n"
                          "config key 'video_frame_seconds' must be at least 0: -1\n"));
   TEST_CHECK(log.errors == 7);
+}
+
+// A key of the wrong type is reported at its row of the key table too, so a mistyped
+// `album_template` comes after the directories, where its name is checked.
+static void test_load_reports_mistyped_keys_in_table_order(void) {
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  struct Log log = test_log();
+  TEST_CHECK(load_text(&site_config,
+                       "album_template = 2\n"
+                       "media_dir = 3\n"
+                       "base_url = 4\n"
+                       "title = \"Example Gallery\"\n"
+                       "description = \"Example Description\"\n"
+                       "author = \"Example Author\"\n",
+                       &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "config key 'base_url' must be a string\n"
+                         "config key 'media_dir' must be a string\n"
+                         "config key 'album_template' must be a string\n"));
+  TEST_CHECK(site_config.is_media_dir_rejected);
 }
 
 // A config that was read and parsed loads successfully even when keys are rejected: the errors are
@@ -1144,6 +1166,7 @@ TEST_LIST = {
     {"load rejects nul in file", test_load_rejects_nul_in_file},
     {"load rejects malformed toml", test_load_rejects_malformed_toml},
     {"load reports every invalid key", test_load_reports_every_invalid_key},
+    {"load reports mistyped keys in table order", test_load_reports_mistyped_keys_in_table_order},
     {"load returns zero with key errors", test_load_returns_zero_with_key_errors},
     {"load keeps defaults for rejected keys", test_load_keeps_defaults_for_rejected_keys},
     {"load rejects missing required key", test_load_rejects_missing_required_key},
