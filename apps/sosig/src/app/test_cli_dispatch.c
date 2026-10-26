@@ -144,7 +144,7 @@ static void test_build_command_receives_parsed_options(void) {
                                   "compiling templates\n"
                                   "building output manifest\n"
                                   "ignoring build cache, rendering every page\n"
-                                  "converting bodies\n"
+                                  "converting bodies, workers: 1\n"
                                   "\rconverting bodies 1/2\rconverting bodies 2/2\n"
                                   "rendering content, workers: 1\n"
                                   "\rrendering content 1/2\rrendering content 2/2\n"

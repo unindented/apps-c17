@@ -1644,7 +1644,7 @@ static void test_reports_a_shared_render_failure_once(void) {
       test_log_is(&log,
                   "unescaped Mustache interpolation is supported only for a key that ends "
                   "in '_html' (in 'raw.html') (while rendering 'a.html')\n\xE2\x80\xA6 and 1 "
-                  "more failures\n"));
+                  "more failure\n"));
   TEST_CHECK(log.errors == 2);
 }
 

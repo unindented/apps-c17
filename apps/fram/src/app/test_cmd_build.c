@@ -713,7 +713,7 @@ static void test_failed_render_keeps_the_static_copies_it_made(void) {
       test_log_is(&log,
                   "unescaped Mustache interpolation is supported only for a key that ends "
                   "in '_html' (in 'album.html') (while rendering 'index.html')\n\xE2\x80\xA6 "
-                  "and 1 more failures\n"));
+                  "and 1 more failure\n"));
 
   os_memory_write(os, "templates/album.html", ALBUM_TEMPLATE);
   log = test_log();
@@ -1464,7 +1464,7 @@ static void test_reports_a_shared_render_failure_once(void) {
   TEST_CHECK(test_log_is(&log,
                          "unescaped Mustache interpolation is supported only for a key that ends "
                          "in '_html' (in 'raw.html') (while rendering 'index.html')\n\xE2\x80\xA6 "
-                         "and 1 more failures\n"));
+                         "and 1 more failure\n"));
   TEST_CHECK(log.errors == 2);
 }
 

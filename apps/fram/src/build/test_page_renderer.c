@@ -98,7 +98,7 @@ static void test_reports_render_failure_per_album(void) {
   TEST_CHECK(test_log_is(&log,
                          "unescaped Mustache interpolation is supported only for a key that ends "
                          "in '_html' (in 'album.html') (while rendering 'index.html')\n"
-                         "\xE2\x80\xA6 and 1 more failures\n"));
+                         "\xE2\x80\xA6 and 1 more failure\n"));
 }
 
 TEST_LIST = {

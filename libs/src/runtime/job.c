@@ -284,7 +284,9 @@ static int job_run_report_errors(const struct JobSet* jobs, int pool_rc, struct 
 
   if (failure_count > reported_count) {
     // This summarizes errors already counted, so it is not one itself.
-    buf_printf(&log->buf, "\xE2\x80\xA6 and %td more failures\n", failure_count - reported_count);
+    const ptrdiff_t remainder_count = failure_count - reported_count;
+    buf_printf(&log->buf, "\xE2\x80\xA6 and %td more %s\n", remainder_count,
+               remainder_count == 1 ? "failure" : "failures");
   }
 
   if (pool_rc != 0 || failure_count > 0) {

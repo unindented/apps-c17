@@ -430,6 +430,17 @@ static void test_run_reports_a_systematic_failure_once(void) {
   TEST_CHECK(log.errors == JOB_COUNT);
 }
 
+// A remainder of one failure is counted in the singular.
+static void test_run_counts_one_remaining_failure_in_the_singular(void) {
+  enum { JOB_COUNT = 2 };
+  struct Log log = test_log();
+  TEST_CHECK(run_jobs(JOB_COUNT, 2, fail_with_one_message, NULL, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "template 'page.html' could not be parsed\n"
+                         "\xE2\x80\xA6 and 1 more failure\n"));
+  TEST_CHECK(log.errors == JOB_COUNT);
+}
+
 // A systematic failure that each job attributes to itself is still one cause. The report prints the
 // first job's line whole, attribution included, and counts the rest.
 static void test_run_reports_an_attributed_systematic_failure_once(void) {
@@ -558,6 +569,8 @@ TEST_LIST = {
     {"run separates errors by line", test_run_separates_errors_by_line},
     {"run caps collected errors", test_run_caps_collected_errors},
     {"run reports a systematic failure once", test_run_reports_a_systematic_failure_once},
+    {"run counts one remaining failure in the singular",
+     test_run_counts_one_remaining_failure_in_the_singular},
     {"run reports an attributed systematic failure once",
      test_run_reports_an_attributed_systematic_failure_once},
     {"run reports each attributed cause once", test_run_reports_each_attributed_cause_once},

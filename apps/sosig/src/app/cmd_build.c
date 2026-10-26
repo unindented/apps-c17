@@ -1135,7 +1135,7 @@ static int convert_content_bodies(struct BuildState* state, struct Log* log) {
   if (state->source_paths.count == 0) {
     return 0;
   }
-  build_verbose(state, "converting bodies");
+  build_verbose(state, "converting bodies, workers: %td", state->worker_count);
   const int rc = entry_renderer_convert_bodies(
       state->source_entries, state->draft_flags, &state->site_config, &state->source_paths,
       &state->asset_paths, state->worker_count, state->worker_arenas, state->is_verbose, state->os,
@@ -1161,6 +1161,7 @@ static int prepare_output_dir(const struct BuildState* state, struct Log* log) {
 }
 
 static int empty_build_cache(const struct BuildState* state, struct Log* log) {
+  oom_set_job(state->build_cache_path, NULL);
   return output_writer_write(&state->writer, state->build_cache_path, (struct OsSource){0},
                              S("failed to empty build cache"), log);
 }
@@ -1232,6 +1233,7 @@ static int write_generated_site_copy(const struct BuildState* state,
 
 static int write_build_cache(struct BuildState* state, struct Log* log) {
   build_verbose(state, "writing build cache");
+  oom_set_job(state->build_cache_path, NULL);
   struct Arena scratch = state->scratch;
   struct BuildCache cache = {
       .entries = arena_new(&scratch,
@@ -1300,6 +1302,7 @@ static void write_build_cache_files(struct BuildCache* cache,
 
 static int prune_stale_outputs(struct BuildState* state, struct Log* log) {
   build_verbose(state, "removing stale outputs");
+  oom_set_job((struct Str){0}, NULL);
   ptrdiff_t removed_count = 0;
   const struct SiteConfig* site_config = &state->site_config;
   const struct Str root_dirs[] = {site_config->content_dir, site_config->templates_dir,

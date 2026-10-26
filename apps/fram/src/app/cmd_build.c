@@ -920,6 +920,7 @@ static int copy_static_files(const struct BuildState* state, struct Log* log) {
 
 static int write_build_cache(struct BuildState* state, bool is_static_complete, struct Log* log) {
   build_verbose(state, "writing build cache");
+  oom_set_job(state->build_cache_path, NULL);
   struct Arena scratch = state->scratch;
   struct Buf text = {.arena = &scratch};
   build_cache_format_header(&text);
@@ -994,6 +995,7 @@ static int write_generated_site(struct BuildState* state, struct Log* log) {
 
 static int prune_stale_outputs(struct BuildState* state, struct Log* log) {
   build_verbose(state, "removing stale outputs");
+  oom_set_job((struct Str){0}, NULL);
   ptrdiff_t removed_count = 0;
   const struct SiteConfig* site_config = &state->site_config;
   const struct Str root_dirs[] = {site_config->media_dir, site_config->templates_dir,
