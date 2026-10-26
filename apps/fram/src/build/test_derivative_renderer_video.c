@@ -15,8 +15,8 @@
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
-#include "domain/gallery_config.h"
 #include "domain/media_item.h"
+#include "domain/site_config.h"
 #include "media/image.h"
 #include "media/video.h"
 #include "os/os.h"
@@ -122,15 +122,15 @@ static void init_item(struct MediaItem* item,
  * @brief Runs a quiet derivative phase over fresh worker arenas, reading sources up to the media
  *        read limit.
  *
- * @param gallery_config Configured derivatives shared by every job. Must not be `NULL`.
- * @param media          Media items, one job per item. Must not be `NULL`.
- * @param media_count    Number of items in `media`.
- * @param video_frames   Video frame slots, one per item in `media`. Must not be `NULL`.
- * @param worker_count   Number of worker threads to request.
- * @param log            Log that receives derivative errors. Must not be `NULL`.
+ * @param site_config  Configured derivatives shared by every job. Must not be `NULL`.
+ * @param media        Media items, one job per item. Must not be `NULL`.
+ * @param media_count  Number of items in `media`.
+ * @param video_frames Video frame slots, one per item in `media`. Must not be `NULL`.
+ * @param worker_count Number of worker threads to request.
+ * @param log          Log that receives derivative errors. Must not be `NULL`.
  * @return The renderer result.
  */
-static int generate(const struct GalleryConfig* gallery_config,
+static int generate(const struct SiteConfig* site_config,
                     struct MediaItem* const* media,
                     ptrdiff_t media_count,
                     struct VideoFrame* video_frames,
@@ -140,7 +140,7 @@ static int generate(const struct GalleryConfig* gallery_config,
   struct Manifest manifest = {0};
   test_derivative_renderer_record_outputs(&manifest, media, media_count, &arenas_perm);
   const struct OutputWriter writer = {.manifest = &manifest, .os = os_posix()};
-  return derivative_renderer_generate(&writer, gallery_config, media, media_count, video_frames,
+  return derivative_renderer_generate(&writer, site_config, media, media_count, video_frames,
                                       worker_count, test_job_arenas(worker_count, &arenas_perm),
                                       false, os_posix(), test_arena(), log);
 }
@@ -159,8 +159,8 @@ static void test_generate_video_unlinks_frame_on_success_and_failure(void) {
   struct MediaItem item;
   struct Str jpeg = {0};
   const struct Str frame_path = fixture_path(root_dir, "frame.jpg", &arena);
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[] = {{.path = str_cstr(frame_path, &arena), .is_created = true}};
   struct Log log = test_log();
@@ -177,7 +177,7 @@ static void test_generate_video_unlinks_frame_on_success_and_failure(void) {
     goto cleanup;
   }
 
-  TEST_CHECK(generate(&config, media, 1, frames, 1, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, &log) == 0);
   TEST_CHECK(!frames[0].is_created);
   TEST_CHECK(access(frame_path.data, F_OK) != 0);
 
@@ -193,7 +193,7 @@ static void test_generate_video_unlinks_frame_on_success_and_failure(void) {
   }
   frames[0].is_created = true;
   TEST_CHECK(test_log_is_empty(&log));
-  TEST_CHECK(generate(&config, media, 1, frames, 1, &failure_log) == -1);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, &failure_log) == -1);
   TEST_CHECK(!frames[0].is_created);
   TEST_CHECK(access(frame_path.data, F_OK) != 0);
   // The decoder's own reason sits between the operation and the frame path, so only those two ends

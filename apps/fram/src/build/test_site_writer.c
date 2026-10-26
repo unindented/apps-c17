@@ -11,7 +11,7 @@
 #include "core/path_list.h"
 #include "core/str.h"
 #include "domain/album.h"
-#include "domain/gallery_config.h"
+#include "domain/site_config.h"
 #include "os/os_memory.h"
 #include "output/manifest.h"
 #include "output/output_writer.h"
@@ -68,23 +68,23 @@ static struct TemplateSet* load_templates(struct Str templates_dir,
 // Album pages, aggregate templates, and nested static files land at their planned destinations.
 static void test_writes_complete_output_layer(void) {
   struct Os* os = os_memory();
-  os_memory_write(os, "templates/map.xml", "<g>{{gallery.title}}</g>");
+  os_memory_write(os, "templates/map.xml", "<g>{{site.title}}</g>");
   os_memory_write(os, "templates/nested/links.html", "{{album.url}}");
   os_memory_write(os, "static/icons/a.txt", "static");
   struct Arena paths = test_arena();
   const struct Arena output = test_arena();
   const struct Arena scratch = test_arena();
   static const struct Str aggregates[] = {STR_INIT("map.xml"), STR_INIT("nested/links.html")};
-  struct GalleryConfig gallery_config;
-  gallery_config_init(&gallery_config);
-  gallery_config.title = S("Gallery & Co");
-  gallery_config.description = S("Description");
-  gallery_config.author = S("Ada");
-  gallery_config.output_dir = S("public");
-  gallery_config.templates_dir = S("templates");
-  gallery_config.static_dir = S("static");
-  gallery_config.aggregate_templates = aggregates;
-  gallery_config.aggregate_template_count = 2;
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  site_config.title = S("Gallery & Co");
+  site_config.description = S("Description");
+  site_config.author = S("Ada");
+  site_config.output_dir = S("public");
+  site_config.templates_dir = S("templates");
+  site_config.static_dir = S("static");
+  site_config.aggregate_templates = aggregates;
+  site_config.aggregate_template_count = 2;
   struct Album root = {.source_dir = S(""),
                        .title = S("Root"),
                        .url_path = S("index.html"),
@@ -102,13 +102,12 @@ static void test_writes_complete_output_layer(void) {
   init_writer(&writer, &manifest, output_paths, 4, os, &paths);
 
   TEST_CHECK(site_writer_write_album_pages(&writer, albums, 1, rendered, scratch, &log) == 0);
-  struct TemplateSet* template_set =
-      load_templates(gallery_config.templates_dir, aggregates, 2, os);
-  TEST_CHECK(site_writer_write_aggregates(&writer, &gallery_config, template_set, albums[0], output,
+  struct TemplateSet* template_set = load_templates(site_config.templates_dir, aggregates, 2, os);
+  TEST_CHECK(site_writer_write_aggregates(&writer, &site_config, template_set, albums[0], output,
                                           scratch, &log) == 0);
   template_set_release(template_set);
-  TEST_CHECK(site_writer_copy_static_files(&writer, &gallery_config, &static_paths,
-                                           gallery_config.static_dir, scratch, &log) == 0);
+  TEST_CHECK(site_writer_copy_static_files(&writer, &site_config, &static_paths,
+                                           site_config.static_dir, scratch, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_file(os, "public/index.html", "<h1>Root</h1>"));
   TEST_CHECK(os_memory_is_file(os, "public/map.xml", "<g>Gallery &amp; Co</g>"));
@@ -120,10 +119,10 @@ static void test_writes_complete_output_layer(void) {
 static void test_copy_static_files_keeps_path_below_root(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "other/nested/a.svg", "<svg/>");
-  struct GalleryConfig gallery_config;
-  gallery_config_init(&gallery_config);
-  gallery_config.output_dir = S("public");
-  gallery_config.static_dir = S("static");
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  site_config.output_dir = S("public");
+  site_config.static_dir = S("static");
   struct Arena paths = test_arena();
   struct PathList static_paths = {0};
   path_list_push(&static_paths, S("other/nested/a.svg"), &paths);
@@ -133,7 +132,7 @@ static void test_copy_static_files_keeps_path_below_root(void) {
   init_writer(&writer, &manifest, output_paths, 1, os, &paths);
   struct Log log = test_log();
 
-  TEST_CHECK(site_writer_copy_static_files(&writer, &gallery_config, &static_paths, S("other"),
+  TEST_CHECK(site_writer_copy_static_files(&writer, &site_config, &static_paths, S("other"),
                                            test_arena(), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_file(os, "public/nested/a.svg", "<svg/>"));
@@ -188,12 +187,12 @@ static void test_write_aggregates_reports_write_failure(void) {
   os_memory_write(os, "templates/map.xml", "<g></g>");
   os_memory_mkdir(os, "public/map.xml");
   static const struct Str aggregates[] = {STR_INIT("map.xml")};
-  struct GalleryConfig gallery_config;
-  gallery_config_init(&gallery_config);
-  gallery_config.output_dir = S("public");
-  gallery_config.templates_dir = S("templates");
-  gallery_config.aggregate_templates = aggregates;
-  gallery_config.aggregate_template_count = 1;
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  site_config.output_dir = S("public");
+  site_config.templates_dir = S("templates");
+  site_config.aggregate_templates = aggregates;
+  site_config.aggregate_template_count = 1;
   struct Album root = {.source_dir = S(""), .title = S("Root"), .path_to_root = S("")};
   static const char* const output_paths[] = {"public/map.xml"};
   struct Arena arena = test_arena();
@@ -202,10 +201,9 @@ static void test_write_aggregates_reports_write_failure(void) {
   init_writer(&writer, &manifest, output_paths, 1, os, &arena);
   struct Log log = test_log();
 
-  struct TemplateSet* template_set =
-      load_templates(gallery_config.templates_dir, aggregates, 1, os);
-  TEST_CHECK(site_writer_write_aggregates(&writer, &gallery_config, template_set, &root,
-                                          test_arena(), test_arena(), &log) == -1);
+  struct TemplateSet* template_set = load_templates(site_config.templates_dir, aggregates, 1, os);
+  TEST_CHECK(site_writer_write_aggregates(&writer, &site_config, template_set, &root, test_arena(),
+                                          test_arena(), &log) == -1);
   template_set_release(template_set);
   TEST_CHECK(test_log_is(&log, "failed to write page: %s ('public/map.xml')\n", strerror(EISDIR)));
 }
@@ -216,10 +214,10 @@ static void test_copy_static_files_reports_copy_failure(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "static/a.css", "a {}");
   os_memory_mkdir(os, "public/a.css");
-  struct GalleryConfig gallery_config;
-  gallery_config_init(&gallery_config);
-  gallery_config.output_dir = S("public");
-  gallery_config.static_dir = S("static");
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  site_config.output_dir = S("public");
+  site_config.static_dir = S("static");
   struct Arena paths = test_arena();
   struct PathList static_paths = {0};
   path_list_push(&static_paths, S("static/a.css"), &paths);
@@ -229,16 +227,16 @@ static void test_copy_static_files_reports_copy_failure(void) {
   init_writer(&writer, &manifest, output_paths, 2, os, &paths);
   struct Log log = test_log();
 
-  TEST_CHECK(site_writer_copy_static_files(&writer, &gallery_config, &static_paths,
-                                           gallery_config.static_dir, test_arena(), &log) == -1);
+  TEST_CHECK(site_writer_copy_static_files(&writer, &site_config, &static_paths,
+                                           site_config.static_dir, test_arena(), &log) == -1);
   TEST_CHECK(
       test_log_is(&log, "failed to copy static file: %s ('public/a.css')\n", strerror(EISDIR)));
 
   static_paths = (struct PathList){0};
   path_list_push(&static_paths, S("static/gone.css"), &paths);
   log = test_log();
-  TEST_CHECK(site_writer_copy_static_files(&writer, &gallery_config, &static_paths,
-                                           gallery_config.static_dir, test_arena(), &log) == -1);
+  TEST_CHECK(site_writer_copy_static_files(&writer, &site_config, &static_paths,
+                                           site_config.static_dir, test_arena(), &log) == -1);
   TEST_CHECK(
       test_log_is(&log, "failed to copy static file: %s ('static/gone.css')\n", strerror(ENOENT)));
 }

@@ -8,7 +8,7 @@
 #include "core/str.h"
 
 struct Album;
-struct GalleryConfig;
+struct SiteConfig;
 struct Log;
 struct TemplateSet;
 
@@ -20,7 +20,7 @@ struct TemplateSet;
  */
 struct TemplateContext {
   /** Gallery metadata and configured paths. Must not be `NULL`. */
-  const struct GalleryConfig* gallery_config;
+  const struct SiteConfig* site_config;
 
   /** Album whose page-relative URL prefix applies to this render. Must not be `NULL`. */
   const struct Album* album_current;
@@ -36,7 +36,7 @@ struct TemplateContext {
  * @brief Renders the page template `template_name` of `set` with `context`.
  *
  * The render is `template_set_render`'s, under `TEMPLATE_RENDER_OUTPUT_LEN_MAX`, and resolves its
- * names lazily against `context`: `gallery.*`, `album`, `sub_albums`, `media`, `breadcrumbs`,
+ * names lazily against `context`: `site.*`, `album`, `sub_albums`, `media`, `breadcrumbs`,
  * `generator`, `path_to_root`, and the fields of the current album and of each listed album, media
  * item and derivative. fram makes no HTML, so an unescaped tag of any value fails the render.
  *

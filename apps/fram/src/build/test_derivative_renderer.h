@@ -6,8 +6,8 @@
 
 #include "core/arena.h"
 #include "core/str.h"
-#include "domain/gallery_config.h"
 #include "domain/media_item.h"
+#include "domain/site_config.h"
 #include "output/manifest.h"
 
 // This is header-only and `static inline` so that the image and the video tests of the derivative
@@ -20,14 +20,14 @@
  * `s` and `m` crop, and `l` fits. The derivative array is static, so the configuration needs no
  * release and only one may be live at a time.
  *
- * @param config       Configuration to initialize. Must not be `NULL`.
+ * @param site_config  Configuration to initialize. Must not be `NULL`.
  * @param small_width  Width of the `s` derivative in pixels.
  * @param small_height Height of the `s` derivative in pixels.
  * @param large_width  Width bound of the `l` derivative in pixels.
  * @param large_height Height bound of the `l` derivative in pixels.
  * @param quality      WebP quality shared by every derivative, from 1 through 100.
  */
-static inline void test_derivative_renderer_init_config(struct GalleryConfig* config,
+static inline void test_derivative_renderer_init_config(struct SiteConfig* site_config,
                                                         ptrdiff_t small_width,
                                                         ptrdiff_t small_height,
                                                         ptrdiff_t large_width,
@@ -35,7 +35,7 @@ static inline void test_derivative_renderer_init_config(struct GalleryConfig* co
                                                         ptrdiff_t quality)
     __attribute__((nonnull(1)));
 
-static inline void test_derivative_renderer_init_config(struct GalleryConfig* config,
+static inline void test_derivative_renderer_init_config(struct SiteConfig* site_config,
                                                         ptrdiff_t small_width,
                                                         ptrdiff_t small_height,
                                                         ptrdiff_t large_width,
@@ -54,7 +54,7 @@ static inline void test_derivative_renderer_init_config(struct GalleryConfig* co
                                               .height_px = large_height,
                                               .quality = quality,
                                               .is_crop = false};
-  *config = (struct GalleryConfig){
+  *site_config = (struct SiteConfig){
       .derivatives = derivatives,
       .derivative_count = 3,
   };

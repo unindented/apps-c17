@@ -14,7 +14,7 @@
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
-#include "domain/gallery_config.h"
+#include "domain/site_config.h"
 #include "os/os.h"
 #include "os/os_posix.h"
 #include "runtime/job.h"
@@ -27,7 +27,7 @@
 // directory. Every other build test is in `test_cmd_build.c`, on the in-memory host.
 
 /** Config body every fixture shares. Derivatives stay small so encoding stays cheap. */
-static const char* const GALLERY_CONFIG =
+static const char* const SITE_CONFIG =
     "title = \"Test Gallery\"\n"
     "description = \"Test description\"\n"
     "author = \"Tests\"\n"
@@ -37,7 +37,7 @@ static const char* const GALLERY_CONFIG =
 
 /** Minimal album template. It renders without naming any derivative, so sizes stay free. */
 static const char* const ALBUM_TEMPLATE =
-    "<!doctype html><title>{{album.title}} - {{gallery.title}}</title>"
+    "<!doctype html><title>{{album.title}} - {{site.title}}</title>"
     "{{#has_media}}<ul>{{#media}}<li>{{title}}</li>{{/media}}</ul>{{/has_media}}";
 
 /**
@@ -50,7 +50,7 @@ static int write_gallery_fixture(const char* root_dir) {
   if (write_fixture_file(root_dir, "templates/album.html", ALBUM_TEMPLATE) != 0) {
     return -1;
   }
-  return write_fixture_file(root_dir, "fram.toml", GALLERY_CONFIG);
+  return write_fixture_file(root_dir, "fram.toml", SITE_CONFIG);
 }
 
 /**
@@ -122,8 +122,7 @@ static const char* build_and_take_tool_runs(const char* root_dir,
                                             const char* log_path,
                                             struct Log* log,
                                             struct Arena* arena) {
-  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
-                                       .worker_count = 1};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .worker_count = 1};
   if (!TEST_CHECK(execute_build_in(&options, root_dir, log) == 0)) {
     return NULL;
   }
@@ -209,8 +208,7 @@ static void test_reports_many_failed_children(void) {
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
-  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
-                                       .worker_count = 1};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .worker_count = 1};
   struct Arena arena = test_arena();
   struct Buf script = {.arena = &arena};
   buf_printf(&script,

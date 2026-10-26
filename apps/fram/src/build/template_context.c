@@ -10,8 +10,8 @@
 #include "core/str.h"
 #include "domain/album.h"
 #include "domain/fram_version.h"
-#include "domain/gallery_config.h"
 #include "domain/media_item.h"
+#include "domain/site_config.h"
 #include "templates/template_set.h"
 
 /** Size of the stack buffer `node_scalar_number` formats one decimal `ptrdiff_t` into. */
@@ -30,11 +30,11 @@ static const struct Str MEDIA_KIND_NAMES[] = {
 
 /** Kind of a node in the data that a render walks. */
 enum NodeKind {
-  /** Top-level lookup context: `gallery.*`, the page's lists, and the current album's fields. */
+  /** Top-level lookup context: `site.*`, the page's lists, and the current album's fields. */
   NODE_ROOT,
 
-  /** Gallery metadata subtree resolving `gallery.*` names. */
-  NODE_GALLERY,
+  /** Site metadata subtree resolving `site.*` names, from the gallery configuration. */
+  NODE_SITE,
 
   /** One album, resolving bare album field names. */
   NODE_ALBUM,
@@ -100,9 +100,9 @@ static const void* template_context_render_root(struct Arena* arena, void* userd
 /**
  * @brief Resolves a named child of a node, as `TemplateChildByNameFn`.
  *
- * At the root a name selects the `gallery.*` subtree, the current `album`, the `sub_albums`,
- * `media` and `breadcrumbs` lists, the `generator` string that names this tool and its version, the
- * page's `path_to_root`, or otherwise a field of the current album.
+ * At the root a name selects the `site.*` subtree, the current `album`, the `sub_albums`, `media`
+ * and `breadcrumbs` lists, the `generator` string that names this tool and its version, the page's
+ * `path_to_root`, or otherwise a field of the current album.
  *
  * @param node     Parent `struct Node`.
  * @param name     Requested child name.
@@ -195,16 +195,31 @@ static struct Node* node_scalar_url(const struct ContextRender* render,
     __attribute__((nonnull(1, 3), returns_nonnull));
 
 /**
- * @brief Resolves a `gallery.*` name against the render's gallery configuration.
+ * @brief Returns a scalar node holding an output-root-relative URL joined behind `base_url`, or
+ *        empty text when the gallery sets no `base_url`.
+ *
+ * @param render            Render supplying the gallery configuration. Must not be `NULL`.
+ * @param root_relative_url Output-root-relative URL, already URL-safe because it is built from
+ *                          slugs.
+ * @param arena             Arena that owns the node and the URL. Must not be `NULL`.
+ * @return A scalar node.
+ */
+static struct Node* node_scalar_url_absolute(const struct ContextRender* render,
+                                             struct Str root_relative_url,
+                                             struct Arena* arena)
+    __attribute__((nonnull(1, 3), returns_nonnull));
+
+/**
+ * @brief Resolves a `site.*` name against the render's gallery configuration.
  *
  * @param render Render holding the gallery configuration. Must not be `NULL`.
  * @param name   Requested field name.
  * @param arena  Arena that owns the node. Must not be `NULL`.
  * @return The resolved node, or `NULL` when the name is unmatched.
  */
-static struct Node* resolve_gallery(const struct ContextRender* render,
-                                    struct Str name,
-                                    struct Arena* arena) __attribute__((nonnull(1, 3)));
+static struct Node* resolve_site(const struct ContextRender* render,
+                                 struct Str name,
+                                 struct Arena* arena) __attribute__((nonnull(1, 3)));
 
 /**
  * @brief Resolves a bare field name against an album.
@@ -247,9 +262,11 @@ static struct Node* resolve_breadcrumb(const struct ContextRender* render,
  * @brief Resolves a bare field name against a media item, including its derivative names.
  *
  * A name matching no media field is matched against the item's configured derivative names, so
- * `{{m.url}}` reaches the derivative named `m`. `kind` names the source kind, as surge names the
- * kind of a tree entry, and `is_image` and `is_video` resolve to a truthy scalar only for that
- * kind, so a section over either renders exactly for it. `duration` is empty for an image.
+ * `{{m.url}}` reaches the derivative named `m`. A derivative name is one of the fixed sizes, which
+ * no other key of the data uses, so it hides none. `url` is the copied original's. `kind` names the
+ * source kind, as surge names the kind of a tree entry, and `is_image` and `is_video` resolve to a
+ * truthy scalar only for that kind, so a section over either renders exactly for it. `duration` is
+ * empty for an image.
  *
  * @param render Render. Must not be `NULL`.
  * @param media  Media item to resolve against. Must not be `NULL`.
@@ -311,8 +328,8 @@ static const void* template_context_render_child_by_name(const void* node,
   const struct Node* parent = node;
   switch (parent->kind) {
     case NODE_ROOT:
-      if (str_eq(name, S("gallery"))) {
-        return node_alloc(arena, NODE_GALLERY);
+      if (str_eq(name, S("site"))) {
+        return node_alloc(arena, NODE_SITE);
       }
       if (str_eq(name, S("album"))) {
         struct Node* child = node_alloc(arena, NODE_ALBUM);
@@ -335,8 +352,8 @@ static const void* template_context_render_child_by_name(const void* node,
         return node_scalar(arena, render->context->album_current->path_to_root);
       }
       return resolve_album(render, render->context->album_current, name, arena);
-    case NODE_GALLERY:
-      return resolve_gallery(render, name, arena);
+    case NODE_SITE:
+      return resolve_site(render, name, arena);
     case NODE_ALBUM:
       return resolve_album(render, parent->album, name, arena);
     case NODE_BREADCRUMB:
@@ -446,21 +463,32 @@ static struct Node* node_scalar_url(const struct ContextRender* render,
       arena, path_join(render->context->album_current->path_to_root, root_relative_url, arena));
 }
 
-static struct Node* resolve_gallery(const struct ContextRender* render,
-                                    struct Str name,
-                                    struct Arena* arena) {
-  const struct GalleryConfig* gallery_config = render->context->gallery_config;
+static struct Node* node_scalar_url_absolute(const struct ContextRender* render,
+                                             struct Str root_relative_url,
+                                             struct Arena* arena) {
+  // Without a `base_url` a gallery has no absolute address, so `{{#absolute_url}}` is skipped.
+  const struct Str base_url = render->context->site_config->base_url;
+  if (base_url.len == 0) {
+    return node_scalar(arena, S(""));
+  }
+  return node_scalar(arena, path_join(base_url, root_relative_url, arena));
+}
+
+static struct Node* resolve_site(const struct ContextRender* render,
+                                 struct Str name,
+                                 struct Arena* arena) {
+  const struct SiteConfig* site_config = render->context->site_config;
   if (str_eq(name, S("title"))) {
-    return node_scalar(arena, gallery_config->title);
+    return node_scalar(arena, site_config->title);
   }
   if (str_eq(name, S("description"))) {
-    return node_scalar(arena, gallery_config->description);
+    return node_scalar(arena, site_config->description);
   }
   if (str_eq(name, S("author"))) {
-    return node_scalar(arena, gallery_config->author);
+    return node_scalar(arena, site_config->author);
   }
   if (str_eq(name, S("base_url"))) {
-    return node_scalar(arena, gallery_config->base_url);
+    return node_scalar(arena, site_config->base_url);
   }
   return NULL;
 }
@@ -474,6 +502,9 @@ static struct Node* resolve_album(const struct ContextRender* render,
   }
   if (str_eq(name, S("url"))) {
     return node_scalar_url(render, album->url_path, arena);
+  }
+  if (str_eq(name, S("absolute_url"))) {
+    return node_scalar_url_absolute(render, album->url_path, arena);
   }
   if (str_eq(name, S("media_count_total"))) {
     return node_scalar_number(arena, album->media_count_total);
@@ -535,8 +566,11 @@ static struct Node* resolve_media(const struct ContextRender* render,
   if (str_eq(name, S("is_image"))) {
     return node_scalar(arena, media->kind == MEDIA_KIND_IMAGE ? S("true") : S(""));
   }
-  if (str_eq(name, S("original_url"))) {
+  if (str_eq(name, S("url"))) {
     return node_scalar_url(render, media->original_url, arena);
+  }
+  if (str_eq(name, S("absolute_url"))) {
+    return node_scalar_url_absolute(render, media->original_url, arena);
   }
   if (str_eq(name, S("duration"))) {
     // An image has no length, so its `duration` is empty, not a truthy `0`.
@@ -562,6 +596,9 @@ static struct Node* resolve_derivative(const struct ContextRender* render,
                                        struct Arena* arena) {
   if (str_eq(name, S("url"))) {
     return node_scalar_url(render, derivative->url, arena);
+  }
+  if (str_eq(name, S("absolute_url"))) {
+    return node_scalar_url_absolute(render, derivative->url, arena);
   }
   if (str_eq(name, S("width"))) {
     return node_scalar_number(arena, derivative->width_px);

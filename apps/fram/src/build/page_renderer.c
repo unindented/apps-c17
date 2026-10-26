@@ -8,7 +8,7 @@
 #include "core/path.h"
 #include "core/str.h"
 #include "domain/album.h"
-#include "domain/gallery_config.h"
+#include "domain/site_config.h"
 #include "os/oom.h"
 #include "runtime/job.h"
 #include "templates/template_set.h"
@@ -19,7 +19,7 @@
  */
 struct PageRenderContext {
   /** Configuration supplying the album template name. */
-  const struct GalleryConfig* gallery_config;
+  const struct SiteConfig* site_config;
 
   /** Templates every job renders from, read by every worker at once. */
   const struct TemplateSet* template_set;
@@ -50,7 +50,7 @@ static int render_album_page_job(ptrdiff_t index,
                                  struct Log* log,
                                  void* userdata) __attribute__((nonnull(2, 3, 4)));
 
-int page_renderer_render_pages(const struct GalleryConfig* gallery_config,
+int page_renderer_render_pages(const struct SiteConfig* site_config,
                                const struct TemplateSet* template_set,
                                const struct Album* const* albums,
                                ptrdiff_t album_count,
@@ -62,7 +62,7 @@ int page_renderer_render_pages(const struct GalleryConfig* gallery_config,
                                struct RenderedPage* rendered_pages,
                                struct Log* log) {
   struct PageRenderContext context = {
-      .gallery_config = gallery_config,
+      .site_config = site_config,
       .template_set = template_set,
       .albums = albums,
       .rendered_pages = rendered_pages,
@@ -81,11 +81,11 @@ static int render_album_page_job(ptrdiff_t index,
   // The report names the album's source directory, as the other jobs name their source. A nested
   // album's path is joined in the job's scratch, and the render allocates after it.
   struct Arena scratch = arenas->scratch;
-  const struct Str media_dir = context->gallery_config->media_dir;
+  const struct Str media_dir = context->site_config->media_dir;
   oom_set_job(album_is_root(album) ? media_dir : path_join(media_dir, album->source_dir, &scratch),
               log);
   const struct TemplateContext template_context = {
-      .gallery_config = context->gallery_config,
+      .site_config = context->site_config,
       .album_current = album,
       .is_album_page = true,
   };
@@ -94,7 +94,7 @@ static int render_album_page_job(ptrdiff_t index,
   // succeeds, so a failed render leaves nothing behind for the write phase.
   struct Arena perm = arenas->perm;
   // The page's path below `output_dir`, which a failure names, is its URL.
-  if (template_context_render(context->template_set, context->gallery_config->album_template,
+  if (template_context_render(context->template_set, context->site_config->album_template,
                               &template_context, album->url_path, &perm, scratch, &page->html,
                               log) != 0) {
     return -1;

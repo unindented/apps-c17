@@ -22,8 +22,8 @@
 #include "core/str.h"
 #include "domain/album.h"
 #include "domain/build_cache.h"
-#include "domain/gallery_config.h"
 #include "domain/media_item.h"
+#include "domain/site_config.h"
 #include "media/image.h"
 #include "media/proc.h"
 #include "media/video.h"
@@ -133,7 +133,7 @@ struct BuildState {
   struct Str config_path;
 
   /** Loaded gallery configuration. Its values live in `perm`. */
-  struct GalleryConfig gallery_config;
+  struct SiteConfig site_config;
 
   /** Compiled templates, released when the build ends, or `NULL` until they load. */
   struct TemplateSet* template_set;
@@ -584,9 +584,9 @@ static void build_state_init(struct BuildState* state,
                              struct Arena perm,
                              struct Arena scratch) {
   // This is one literal, so a field added to `BuildState` cannot be left out of its defaults. The
-  // zeroed path lists and manifest are already their empty state. `gallery_config_init` does more:
-  // it installs the optional-key defaults, which `gallery_config_load` leaves untouched when a key
-  // is absent.
+  // zeroed path lists and manifest are already their empty state. `site_config_init` does more: it
+  // installs the optional-key defaults, which `site_config_load` leaves untouched when a key is
+  // absent.
   *state = (struct BuildState){
       .os = os,
       .perm = perm,
@@ -604,24 +604,24 @@ static void build_state_init(struct BuildState* state,
       .is_verbose = options->is_verbose,
       .is_forced = options->is_forced,
   };
-  gallery_config_init(&state->gallery_config);
+  site_config_init(&state->site_config);
 }
 
 static int load_build_inputs(struct BuildState* state, struct Log* log) {
   build_verbose(state, "loading config");
-  if (gallery_config_load(&state->gallery_config, state->config_path, state->os, &state->perm,
-                          state->scratch, log) != 0) {
+  if (site_config_load(&state->site_config, state->config_path, state->os, &state->perm,
+                       state->scratch, log) != 0) {
     return -1;
   }
   // A rejected directory key holds a default the user never chose, so the build stops before the
   // checks and the walks that would report that default as a second error.
-  const struct GalleryConfig* gallery_config = &state->gallery_config;
-  if (load_build_inputs_require_read_roots(state, log) != 0 ||
-      gallery_config->is_media_dir_rejected || gallery_config->is_output_dir_rejected ||
-      gallery_config->is_templates_dir_rejected || gallery_config->is_static_dir_rejected) {
+  const struct SiteConfig* site_config = &state->site_config;
+  if (load_build_inputs_require_read_roots(state, log) != 0 || site_config->is_media_dir_rejected ||
+      site_config->is_output_dir_rejected || site_config->is_templates_dir_rejected ||
+      site_config->is_static_dir_rejected) {
     return -1;
   }
-  if (manifest_builder_check_output_dir(&state->gallery_config, state->config_path, state->os,
+  if (manifest_builder_check_output_dir(&state->site_config, state->config_path, state->os,
                                         state->scratch, log) != 0) {
     return -1;
   }
@@ -643,7 +643,7 @@ static int load_build_inputs_media(struct BuildState* state, struct Log* log) {
   // A failure names the directory or entry that failed, which is more precise than the configured
   // root, so the root is not repeated.
   if (walk_files_with_suffixes(
-          &state->source_paths, state->gallery_config.media_dir, state->gallery_config.output_dir,
+          &state->source_paths, state->site_config.media_dir, state->site_config.output_dir,
           media_suffixes, (ptrdiff_t)(sizeof(media_suffixes) / sizeof(media_suffixes[0])), true,
           state->os, &state->perm, state->scratch, S("failed to list source media"), log) != 0) {
     return -1;
@@ -662,24 +662,23 @@ static int load_build_inputs_static(struct BuildState* state, struct Log* log) {
   // failure names the directory or entry that failed, which is more precise than the configured
   // root, so the root is not repeated.
   struct OsStat st;
-  if (os_stat(state->os, state->gallery_config.static_dir, &st) != 0 && errno == ENOENT) {
+  if (os_stat(state->os, state->site_config.static_dir, &st) != 0 && errno == ENOENT) {
     return 0;
   }
   static const struct Str static_suffixes[] = {STR_INIT("")};
-  return walk_files_with_suffixes(&state->static_paths, state->gallery_config.static_dir,
-                                  state->gallery_config.output_dir, static_suffixes, 1, false,
+  return walk_files_with_suffixes(&state->static_paths, state->site_config.static_dir,
+                                  state->site_config.output_dir, static_suffixes, 1, false,
                                   state->os, &state->perm, state->scratch,
                                   S("failed to list static files"), log);
 }
 
 static int load_build_inputs_require_read_roots(const struct BuildState* state, struct Log* log) {
   const struct ReadRoot roots[] = {
-      {state->gallery_config.media_dir, "media_dir", false,
-       state->gallery_config.is_media_dir_rejected},
-      {state->gallery_config.templates_dir, "templates_dir", false,
-       state->gallery_config.is_templates_dir_rejected},
-      {state->gallery_config.static_dir, "static_dir", true,
-       state->gallery_config.is_static_dir_rejected},
+      {state->site_config.media_dir, "media_dir", false, state->site_config.is_media_dir_rejected},
+      {state->site_config.templates_dir, "templates_dir", false,
+       state->site_config.is_templates_dir_rejected},
+      {state->site_config.static_dir, "static_dir", true,
+       state->site_config.is_static_dir_rejected},
   };
   int rc = 0;
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(roots) / sizeof(roots[0])); i++) {
@@ -778,16 +777,16 @@ cleanup:
 
 static int load_templates(struct BuildState* state, struct Log* log) {
   build_verbose(state, "compiling templates");
-  const struct GalleryConfig* gallery_config = &state->gallery_config;
-  const ptrdiff_t name_count_max = 1 + gallery_config->aggregate_template_count;
+  const struct SiteConfig* site_config = &state->site_config;
+  const ptrdiff_t name_count_max = 1 + site_config->aggregate_template_count;
   struct Arena scratch = state->scratch;
   struct Str* names = arena_new(&scratch, name_count_max, struct Str);
   ptrdiff_t name_count = 0;
-  load_templates_add(names, &name_count, gallery_config->album_template);
-  for (ptrdiff_t i = 0; i < gallery_config->aggregate_template_count; i++) {
-    load_templates_add(names, &name_count, gallery_config->aggregate_templates[i]);
+  load_templates_add(names, &name_count, site_config->album_template);
+  for (ptrdiff_t i = 0; i < site_config->aggregate_template_count; i++) {
+    load_templates_add(names, &name_count, site_config->aggregate_templates[i]);
   }
-  return template_set_load(gallery_config->templates_dir, names, NULL, name_count, state->os,
+  return template_set_load(site_config->templates_dir, names, NULL, name_count, state->os,
                            &state->perm, scratch, &state->template_set, log);
 }
 
@@ -803,7 +802,7 @@ static void load_templates_add(struct Str* names, ptrdiff_t* name_count, struct 
 
 static int build_album_skeleton(struct BuildState* state, struct Log* log) {
   build_verbose(state, "planning albums");
-  if (album_scan_build_skeleton(&state->gallery_config, &state->source_paths, &state->perm,
+  if (album_scan_build_skeleton(&state->site_config, &state->source_paths, &state->perm,
                                 state->scratch, &state->albums, &state->album_count, &state->media,
                                 &state->media_count, log) != 0) {
     return -1;
@@ -822,7 +821,7 @@ static int build_album_skeleton(struct BuildState* state, struct Log* log) {
 }
 
 static void load_build_cache(struct BuildState* state) {
-  state->build_cache_path = build_cache_path(state->gallery_config.output_dir, &state->perm);
+  state->build_cache_path = build_cache_path(state->site_config.output_dir, &state->perm);
   if (state->is_forced) {
     build_verbose(state, "ignoring build cache, probing every source");
     return;
@@ -855,7 +854,7 @@ static int probe_media(struct BuildState* state, struct Log* log) {
     return 0;
   }
   build_verbose(state, "probing media, workers: %td", state->worker_count);
-  return album_scan_probe_media(&state->gallery_config, state->media, state->media_count,
+  return album_scan_probe_media(&state->site_config, state->media, state->media_count,
                                 &state->build_cache, state->video_frames, state->worker_count,
                                 state->worker_arenas, state->is_verbose, state->os, state->scratch,
                                 state->source_stats, log);
@@ -872,7 +871,7 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log) {
   // this file. It only adds `const`, at both levels, and the deep `const` is a thread-safety
   // requirement. A `TemplateContext` with only `const` pointers keeps one render job from writing
   // an album another job is reading.
-  return manifest_builder_populate(&state->manifest, &state->gallery_config, state->config_path,
+  return manifest_builder_populate(&state->manifest, &state->site_config, state->config_path,
                                    &state->source_paths, &state->static_paths,
                                    (const struct Album* const*)state->albums, state->album_count,
                                    state->os, &state->perm, state->scratch, log);
@@ -881,7 +880,7 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log) {
 static int prepare_output_dir(const struct BuildState* state, struct Log* log) {
   // A failure names the component that failed, which is more precise than the configured root, so
   // the root is not repeated.
-  return output_writer_mkdirs(&state->writer, state->gallery_config.output_dir,
+  return output_writer_mkdirs(&state->writer, state->site_config.output_dir,
                               S("failed to prepare output directory"), log);
 }
 
@@ -895,7 +894,7 @@ static int write_build_cache(struct BuildState* state, struct Log* log) {
     const struct MediaItem* item = state->media[i];
     const struct OsStat* source_stat = &state->source_stats[i];
     struct Str relative = {0};
-    (void)path_is_below(item->source_path, state->gallery_config.media_dir, &relative);
+    (void)path_is_below(item->source_path, state->site_config.media_dir, &relative);
     const struct BuildCacheEntry entry = {
         .path = relative,
         .len = source_stat->len,
@@ -919,13 +918,13 @@ static int generate_derivatives(struct BuildState* state, struct Log* log) {
   }
   build_verbose(state, "generating derivatives, workers: %td", state->worker_count);
   return derivative_renderer_generate(
-      &state->writer, &state->gallery_config, state->media, state->media_count, state->video_frames,
+      &state->writer, &state->site_config, state->media, state->media_count, state->video_frames,
       state->worker_count, state->worker_arenas, state->is_verbose, state->os, state->scratch, log);
 }
 
 static int render_album_pages(struct BuildState* state, struct Log* log) {
   build_verbose(state, "rendering albums, workers: %td", state->worker_count);
-  return page_renderer_render_pages(&state->gallery_config, state->template_set,
+  return page_renderer_render_pages(&state->site_config, state->template_set,
                                     (const struct Album* const*)state->albums, state->album_count,
                                     state->worker_count, state->worker_arenas, state->is_verbose,
                                     state->os, state->scratch, state->rendered_pages, log);
@@ -939,22 +938,22 @@ static int write_generated_site(struct BuildState* state, struct Log* log) {
     return -1;
   }
   build_verbose(state, "rendering aggregate templates");
-  if (site_writer_write_aggregates(&state->writer, &state->gallery_config, state->template_set,
+  if (site_writer_write_aggregates(&state->writer, &state->site_config, state->template_set,
                                    state->albums[0], state->perm, state->scratch, log) != 0) {
     return -1;
   }
   build_verbose(state, "copying static files");
-  return site_writer_copy_static_files(&state->writer, &state->gallery_config, &state->static_paths,
-                                       state->gallery_config.static_dir, state->scratch, log);
+  return site_writer_copy_static_files(&state->writer, &state->site_config, &state->static_paths,
+                                       state->site_config.static_dir, state->scratch, log);
 }
 
 static int prune_stale_outputs(struct BuildState* state, struct Log* log) {
   build_verbose(state, "removing stale outputs");
   ptrdiff_t removed_count = 0;
-  const struct GalleryConfig* gallery_config = &state->gallery_config;
-  const struct Str root_dirs[] = {gallery_config->media_dir, gallery_config->templates_dir,
-                                  gallery_config->static_dir};
-  const int rc = output_pruner_prune(&state->writer, gallery_config->output_dir, root_dirs,
+  const struct SiteConfig* site_config = &state->site_config;
+  const struct Str root_dirs[] = {site_config->media_dir, site_config->templates_dir,
+                                  site_config->static_dir};
+  const int rc = output_pruner_prune(&state->writer, site_config->output_dir, root_dirs,
                                      (ptrdiff_t)(sizeof(root_dirs) / sizeof(root_dirs[0])),
                                      state->os, state->scratch, &removed_count, log);
   build_verbose(state, "removed stale outputs: %td", removed_count);
@@ -973,7 +972,7 @@ static int report_dry_run(struct BuildState* state, struct Log* log) {
 //
 // The print is unchecked. These lines are status, not diagnostics, and a build that otherwise
 // succeeded should not fail because `stderr` was a closed pipe. The cost is that an `EPIPE` here
-// goes unnoticed, unlike `gallery_config_print`, which reports it.
+// goes unnoticed, unlike `site_config_print`, which reports it.
 static void build_verbose(const struct BuildState* state, const char* format, ...) {
   if (!state->is_verbose) {
     return;

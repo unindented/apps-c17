@@ -19,8 +19,8 @@
 #include "core/path.h"
 #include "core/str.h"
 #include "domain/build_cache.h"
-#include "domain/gallery_config.h"
 #include "domain/media_item.h"
+#include "domain/site_config.h"
 #include "media/image.h"
 #include "media/video.h"
 #include "os/os.h"
@@ -177,8 +177,8 @@ static void test_probe_media_retains_clamped_video_frame(void) {
   struct Str jpeg = {0};
   struct FakeVideoEnv env;
   fake_video_env_enter(root_dir, frame_fixture, log_path, &arena, &env);
-  struct GalleryConfig config;
-  test_album_scan_init_config(&config);
+  struct SiteConfig site_config;
+  test_album_scan_init_config(&site_config);
   struct MediaDerivative derivatives[3] = {0};
   struct MediaItem item = {.source_path = S("short.mp4"),
                            .kind = MEDIA_KIND_VIDEO,
@@ -202,8 +202,8 @@ static void test_probe_media_retains_clamped_video_frame(void) {
   video_frame_init(&frames[0], &arena);
 
   worker_arenas = test_job_arenas(1, &arena);
-  TEST_CHECK(album_scan_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 1, worker_arenas,
-                                    false, os_posix(), arena, stats, &log) == 0);
+  TEST_CHECK(album_scan_probe_media(&site_config, media, 1, &NO_BUILD_CACHE, frames, 1,
+                                    worker_arenas, false, os_posix(), arena, stats, &log) == 0);
   TEST_CHECK(item.duration_ms == 400);
   TEST_CHECK(item.orientation == IMAGE_ORIENTATION_TOP_LEFT);
   TEST_CHECK(item.width_px == 2);
@@ -245,9 +245,9 @@ static void test_probe_media_names_video_of_invalid_frame(void) {
   struct Str log_path = fixture_path(root_dir, "seek.log", &arena);
   struct FakeVideoEnv env;
   fake_video_env_enter(root_dir, frame_fixture, log_path, &arena, &env);
-  struct GalleryConfig config;
-  test_album_scan_init_config(&config);
-  config.derivative_count = 0;
+  struct SiteConfig site_config;
+  test_album_scan_init_config(&site_config);
+  site_config.derivative_count = 0;
   struct MediaItem item = {.source_path = S("short.mp4"), .kind = MEDIA_KIND_VIDEO};
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
@@ -262,8 +262,8 @@ static void test_probe_media_names_video_of_invalid_frame(void) {
   video_frame_init(&frames[0], &arena);
 
   worker_arenas = test_job_arenas(1, &arena);
-  TEST_CHECK(album_scan_probe_media(&config, media, 1, &NO_BUILD_CACHE, frames, 1, worker_arenas,
-                                    false, os_posix(), arena, stats, &log) == -1);
+  TEST_CHECK(album_scan_probe_media(&site_config, media, 1, &NO_BUILD_CACHE, frames, 1,
+                                    worker_arenas, false, os_posix(), arena, stats, &log) == -1);
   TEST_CHECK(str_startswith(buf_str(&log.buf), S("failed to probe media: failed to probe JPEG: ")));
   TEST_CHECK(str_endswith(buf_str(&log.buf), S(" ('short.mp4')\n")));
   TEST_CHECK(log.errors == 1);

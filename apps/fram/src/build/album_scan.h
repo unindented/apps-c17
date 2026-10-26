@@ -8,7 +8,7 @@
 
 struct Album;
 struct BuildCache;
-struct GalleryConfig;
+struct SiteConfig;
 struct JobArenas;
 struct Log;
 struct MediaItem;
@@ -25,7 +25,7 @@ struct VideoFrame;
  * that arena. Every source is planned even after one fails, so one scan reports every path-limit
  * failure. A failed scan writes no output and leaves `perm` as it found it.
  *
- * @param gallery_config  Gallery configuration. Must not be `NULL`.
+ * @param site_config     Gallery configuration. Must not be `NULL`.
  * @param source_paths    Lexicographically sorted, distinct full source paths below `media_dir`, as
  *                        the walk lists them. Must not be `NULL`.
  * @param perm            Arena that owns the skeleton. Must not be `NULL`.
@@ -39,7 +39,7 @@ struct VideoFrame;
  * @param log             Log that receives every error. Must not be `NULL`.
  * @return `0` on success, or `-1` on invalid paths or output limits.
  */
-int album_scan_build_skeleton(const struct GalleryConfig* gallery_config,
+int album_scan_build_skeleton(const struct SiteConfig* site_config,
                               const struct PathList* source_paths,
                               struct Arena* perm,
                               struct Arena scratch,
@@ -67,26 +67,26 @@ int album_scan_build_skeleton(const struct GalleryConfig* gallery_config,
  * Each finished job reports progress when `is_verbose`. Failing jobs' errors go to `log` in media
  * order, as `job_run` collects them.
  *
- * @param gallery_config Gallery configuration. Must not be `NULL`.
- * @param media          Flat media pointer array. Must not be `NULL`.
- * @param media_count    Number of items, frame slots and stat slots.
- * @param build_cache    Probe facts from an earlier build, read-only and shared by every worker.
- *                       Empty for a build that has none or ignores it. Must not be `NULL`.
- * @param video_frames   Caller-owned frame slots, one per item in `media`. Must not be `NULL`.
- * @param worker_count   Requested worker threads, as for `pool_run`.
- * @param worker_arenas  One `JobArenas` per requested worker, as for `job_run`. Must not be `NULL`.
- * @param is_verbose     Whether progress is printed to `stderr`.
- * @param os             Host the sources and frames are read from and progress printed on, by every
- *                       worker at once. Must not be `NULL`.
- * @param scratch        Arena for the phase's own bookkeeping, as for `job_run`.
- * @param source_stats   Caller-owned stat slots, one per item in `media`, each of which receives
- *                       what `os_stat` reports for its source. Must not be `NULL`.
- * @param log            Log that receives the collected probe errors. Its arena must be none of the
- *                       others. Must not be `NULL`.
+ * @param site_config   Gallery configuration. Must not be `NULL`.
+ * @param media         Flat media pointer array. Must not be `NULL`.
+ * @param media_count   Number of items, frame slots and stat slots.
+ * @param build_cache   Probe facts from an earlier build, read-only and shared by every worker.
+ *                      Empty for a build that has none or ignores it. Must not be `NULL`.
+ * @param video_frames  Caller-owned frame slots, one per item in `media`. Must not be `NULL`.
+ * @param worker_count  Requested worker threads, as for `pool_run`.
+ * @param worker_arenas One `JobArenas` per requested worker, as for `job_run`. Must not be `NULL`.
+ * @param is_verbose    Whether progress is printed to `stderr`.
+ * @param os            Host the sources and frames are read from and progress printed on, by every
+ *                      worker at once. Must not be `NULL`.
+ * @param scratch       Arena for the phase's own bookkeeping, as for `job_run`.
+ * @param source_stats  Caller-owned stat slots, one per item in `media`, each of which receives
+ *                      what `os_stat` reports for its source. Must not be `NULL`.
+ * @param log           Log that receives the collected probe errors. Its arena must be none of the
+ *                      others. Must not be `NULL`.
  * @return `0` when every job succeeded, or `-1` when a probe job failed or the worker pool could
  *         not start.
  */
-int album_scan_probe_media(const struct GalleryConfig* gallery_config,
+int album_scan_probe_media(const struct SiteConfig* site_config,
                            struct MediaItem* const* media,
                            ptrdiff_t media_count,
                            const struct BuildCache* build_cache,

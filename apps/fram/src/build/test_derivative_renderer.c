@@ -13,8 +13,8 @@
 #include "core/error.h"
 #include "core/log.h"
 #include "core/str.h"
-#include "domain/gallery_config.h"
 #include "domain/media_item.h"
+#include "domain/site_config.h"
 #include "media/image.h"
 #include "media/video.h"
 #include "os/os.h"
@@ -181,20 +181,20 @@ static bool is_same_mtime(const struct OsStat* a, const struct OsStat* b) {
  * @brief Runs a derivative phase over fresh worker arenas through a writer whose manifest names
  *        every output of `media`.
  *
- * @param gallery_config Configured derivatives shared by every job. Must not be `NULL`.
- * @param media          Media items, one job per item. Must not be `NULL`.
- * @param media_count    Number of items in `media`.
- * @param video_frames   Video frame slots, one per item in `media`. Must not be `NULL`.
- * @param worker_count   Number of worker threads to request.
- * @param is_verbose     Whether each finished job prints a progress line.
- * @param is_dry_run     Whether the writer withholds its writes.
- * @param os             Host holding the sources, which receives the outputs. Must not be `NULL`.
- * @param manifest       Empty manifest that receives every output path and the marks. Must not be
- *                       `NULL`.
- * @param log            Log that receives derivative errors. Must not be `NULL`.
+ * @param site_config  Configured derivatives shared by every job. Must not be `NULL`.
+ * @param media        Media items, one job per item. Must not be `NULL`.
+ * @param media_count  Number of items in `media`.
+ * @param video_frames Video frame slots, one per item in `media`. Must not be `NULL`.
+ * @param worker_count Number of worker threads to request.
+ * @param is_verbose   Whether each finished job prints a progress line.
+ * @param is_dry_run   Whether the writer withholds its writes.
+ * @param os           Host holding the sources, which receives the outputs. Must not be `NULL`.
+ * @param manifest     Empty manifest that receives every output path and the marks. Must not be
+ *                     `NULL`.
+ * @param log          Log that receives derivative errors. Must not be `NULL`.
  * @return The renderer result.
  */
-static int generate_with(const struct GalleryConfig* gallery_config,
+static int generate_with(const struct SiteConfig* site_config,
                          struct MediaItem* const* media,
                          ptrdiff_t media_count,
                          struct VideoFrame* video_frames,
@@ -207,7 +207,7 @@ static int generate_with(const struct GalleryConfig* gallery_config,
   struct Arena arenas_perm = test_arena();
   test_derivative_renderer_record_outputs(manifest, media, media_count, &arenas_perm);
   const struct OutputWriter writer = {.manifest = manifest, .os = os, .is_dry_run = is_dry_run};
-  return derivative_renderer_generate(&writer, gallery_config, media, media_count, video_frames,
+  return derivative_renderer_generate(&writer, site_config, media, media_count, video_frames,
                                       worker_count, test_job_arenas(worker_count, &arenas_perm),
                                       is_verbose, os, test_arena(), log);
 }
@@ -216,17 +216,17 @@ static int generate_with(const struct GalleryConfig* gallery_config,
  * @brief Runs a derivative phase over fresh worker arenas, reading sources up to the media read
  *        limit.
  *
- * @param gallery_config Configured derivatives shared by every job. Must not be `NULL`.
- * @param media          Media items, one job per item. Must not be `NULL`.
- * @param media_count    Number of items in `media`.
- * @param video_frames   Video frame slots, one per item in `media`. Must not be `NULL`.
- * @param worker_count   Number of worker threads to request.
- * @param is_verbose     Whether each finished job prints a progress line.
- * @param os             Host holding the sources, which receives the outputs. Must not be `NULL`.
- * @param log            Log that receives derivative errors. Must not be `NULL`.
+ * @param site_config  Configured derivatives shared by every job. Must not be `NULL`.
+ * @param media        Media items, one job per item. Must not be `NULL`.
+ * @param media_count  Number of items in `media`.
+ * @param video_frames Video frame slots, one per item in `media`. Must not be `NULL`.
+ * @param worker_count Number of worker threads to request.
+ * @param is_verbose   Whether each finished job prints a progress line.
+ * @param os           Host holding the sources, which receives the outputs. Must not be `NULL`.
+ * @param log          Log that receives derivative errors. Must not be `NULL`.
  * @return The renderer result.
  */
-static int generate(const struct GalleryConfig* gallery_config,
+static int generate(const struct SiteConfig* site_config,
                     struct MediaItem* const* media,
                     ptrdiff_t media_count,
                     struct VideoFrame* video_frames,
@@ -235,7 +235,7 @@ static int generate(const struct GalleryConfig* gallery_config,
                     struct Os* os,
                     struct Log* log) {
   struct Manifest manifest = {0};
-  return generate_with(gallery_config, media, media_count, video_frames, worker_count, is_verbose,
+  return generate_with(site_config, media, media_count, video_frames, worker_count, is_verbose,
                        false, os, &manifest, log);
 }
 
@@ -254,8 +254,8 @@ static void check_generate_applies_orientation(ptrdiff_t source_len) {
   struct Arena arena = test_arena();
   struct MediaItem item;
   struct Str jpeg = {0};
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 4, 16, 16, 95);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 4, 16, 16, 95);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
@@ -272,7 +272,7 @@ static void check_generate_applies_orientation(ptrdiff_t source_len) {
   const char* source = str_cstr(item.source_path, &arena);
   os_memory_truncate(os, source, source_len > jpeg.len ? source_len : jpeg.len);
 
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
   struct Str output = {0};
   TEST_CHECK(os_memory_file(os, "public/l.webp", &output) == 0);
   TEST_CHECK(test_webp_decode(output, &decoded) == 0);
@@ -295,8 +295,8 @@ static void test_generate_image_and_skip_fresh_outputs(void) {
   struct Arena arena = test_arena();
   struct MediaItem item;
   struct Str jpeg = {0};
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 90);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 90);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
@@ -308,7 +308,7 @@ static void test_generate_image_and_skip_fresh_outputs(void) {
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
 
-  TEST_CHECK(generate(&config, media, 1, frames, 2, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 2, false, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
 
   TEST_CHECK(probe_file(item.derivatives[0].path, os, arena, &width, &height) == 0);
@@ -326,7 +326,7 @@ static void test_generate_image_and_skip_fresh_outputs(void) {
   TEST_CHECK(os_stat(os, item.derivatives[0].path, &thumb_before) == 0);
   TEST_CHECK(os_stat(os, item.derivatives[2].path, &large_before) == 0);
   TEST_CHECK(os_stat(os, item.original_path, &original_before) == 0);
-  TEST_CHECK(generate(&config, media, 1, frames, 2, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 2, false, os, &log) == 0);
   struct OsStat after;
   TEST_CHECK(os_stat(os, item.derivatives[0].path, &after) == 0 &&
              is_same_mtime(&after, &thumb_before));
@@ -342,8 +342,8 @@ static void test_generate_decodes_large_source_scaled(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
   struct MediaItem item;
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 95);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 95);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
@@ -367,7 +367,7 @@ static void test_generate_decodes_large_source_scaled(void) {
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
 
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   ptrdiff_t width = 0;
   ptrdiff_t height = 0;
@@ -395,22 +395,22 @@ static void test_generate_decodes_large_source_scaled(void) {
 static void test_decode_scale_follows_stale_derivatives(void) {
   struct Arena arena = test_arena();
   struct MediaItem item;
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 90);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 90);
   init_item(&item, MEDIA_KIND_IMAGE, "source.jpg", &arena);
   const bool all_stale[] = {true, true, true};
   const bool small_stale[] = {true, false, false};
-  TEST_CHECK(derivative_renderer_decode_scale(&config, &item, all_stale, 128, 64,
+  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, all_stale, 128, 64,
                                               IMAGE_ORIENTATION_TOP_LEFT) == 1);
-  TEST_CHECK(derivative_renderer_decode_scale(&config, &item, all_stale, 64, 32,
+  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, all_stale, 64, 32,
                                               IMAGE_ORIENTATION_TOP_LEFT) == 2);
-  TEST_CHECK(derivative_renderer_decode_scale(&config, &item, small_stale, 64, 32,
+  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, small_stale, 64, 32,
                                               IMAGE_ORIENTATION_TOP_LEFT) == 1);
-  TEST_CHECK(derivative_renderer_decode_scale(&config, &item, all_stale, 64, 128,
+  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, all_stale, 64, 128,
                                               IMAGE_ORIENTATION_TOP_LEFT) == 2);
-  TEST_CHECK(derivative_renderer_decode_scale(&config, &item, all_stale, 64, 128,
+  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, all_stale, 64, 128,
                                               IMAGE_ORIENTATION_RIGHT_TOP) == 1);
-  TEST_CHECK(derivative_renderer_decode_scale(&config, &item, all_stale, 8, 4,
+  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, all_stale, 8, 4,
                                               IMAGE_ORIENTATION_TOP_LEFT) == IMAGE_SCALE_FULL);
 }
 
@@ -421,8 +421,8 @@ static void test_generate_refreshes_outputs_independently(void) {
   struct Arena arena = test_arena();
   struct MediaItem item;
   struct Str jpeg = {0};
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
@@ -432,12 +432,12 @@ static void test_generate_refreshes_outputs_independently(void) {
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
 
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
   struct OsStat thumb_before;
   TEST_CHECK(os_stat(os, item.derivatives[0].path, &thumb_before) == 0);
   os_memory_write(os, "public/l.webp", "");
   os_memory_write(os, "public/original.bin", "x");
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
 
   struct OsStat after;
   TEST_CHECK(os_stat(os, item.derivatives[0].path, &after) == 0 &&
@@ -454,8 +454,8 @@ static void test_generate_avoids_decode_when_derivatives_fresh(void) {
   struct Arena arena = test_arena();
   struct MediaItem item;
   struct Str jpeg = {0};
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
@@ -464,7 +464,7 @@ static void test_generate_avoids_decode_when_derivatives_fresh(void) {
     return;
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
 
   char* invalid = arena_new(&arena, jpeg.len, char);
   os_memory_write_bytes(os, item.source_path, (struct Str){invalid, jpeg.len});
@@ -473,7 +473,7 @@ static void test_generate_avoids_decode_when_derivatives_fresh(void) {
   for (size_t i = 0; i < sizeof(outputs) / sizeof(outputs[0]); i++) {
     os_memory_touch(os, outputs[i]);
   }
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
 }
 
@@ -484,8 +484,8 @@ static void test_dry_run_marks_fresh_outputs_kept(void) {
   struct Arena arena = test_arena();
   struct MediaItem item;
   struct Str jpeg = {0};
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
@@ -494,11 +494,12 @@ static void test_dry_run_marks_fresh_outputs_kept(void) {
     return;
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
   os_memory_fail(os, OS_MEMORY_OP_READ, "photos/source.jpg", EACCES);
 
   struct Manifest manifest = {0};
-  TEST_CHECK(generate_with(&config, media, 1, frames, 1, false, true, os, &manifest, &log) == 0);
+  TEST_CHECK(generate_with(&site_config, media, 1, frames, 1, false, true, os, &manifest, &log) ==
+             0);
   TEST_CHECK(test_log_is_empty(&log));
   for (ptrdiff_t i = 0; i < item.derivative_count; i++) {
     TEST_CHECK(manifest_find_mark(&manifest, item.derivatives[i].path) == MANIFEST_MARK_KEPT);
@@ -512,8 +513,8 @@ static void test_dry_run_marks_stale_outputs_written_without_making_them(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
   struct MediaItem item;
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
@@ -521,7 +522,8 @@ static void test_dry_run_marks_stale_outputs_written_without_making_them(void) {
   os_memory_write(os, "photos/source.jpg", "not a JPEG");
 
   struct Manifest manifest = {0};
-  TEST_CHECK(generate_with(&config, media, 1, frames, 1, false, true, os, &manifest, &log) == 0);
+  TEST_CHECK(generate_with(&site_config, media, 1, frames, 1, false, true, os, &manifest, &log) ==
+             0);
   TEST_CHECK(test_log_is_empty(&log));
   for (ptrdiff_t i = 0; i < item.derivative_count; i++) {
     TEST_CHECK(manifest_find_mark(&manifest, item.derivatives[i].path) == MANIFEST_MARK_WRITTEN);
@@ -554,8 +556,8 @@ static void test_verbose_prints_one_progress_line_per_job(void) {
   struct MediaItem* media[ITEM_COUNT];
   struct VideoFrame frames[ITEM_COUNT] = {0};
   static const char* const names[ITEM_COUNT] = {"a.jpg", "b.jpg", "c.jpg"};
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct Log log = test_log();
   if (!TEST_CHECK(test_jpeg_encode(8, 4, &arena, &jpeg) == 0)) {
     return;
@@ -567,7 +569,7 @@ static void test_verbose_prints_one_progress_line_per_job(void) {
     media[i] = &items[i];
   }
 
-  TEST_CHECK(generate(&config, media, ITEM_COUNT, frames, 4, true, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, ITEM_COUNT, frames, 4, true, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   // Three jobs, so three progress lines, and one trailing newline closing the line before any later
   // status message. Workers finish in any order, so each count is asserted present once rather than
@@ -600,8 +602,8 @@ static void test_writes_derivatives_sharing_parents_concurrently(void) {
   struct MediaItem items[ITEM_COUNT];
   struct MediaItem* media[ITEM_COUNT];
   struct VideoFrame frames[ITEM_COUNT] = {0};
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct Log log = test_log();
   if (!TEST_CHECK(test_jpeg_encode(8, 4, &arena, &jpeg) == 0)) {
     return;
@@ -617,7 +619,7 @@ static void test_writes_derivatives_sharing_parents_concurrently(void) {
     media[i] = &items[i];
   }
 
-  TEST_CHECK(generate(&config, media, ITEM_COUNT, frames, 8, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, ITEM_COUNT, frames, 8, false, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
 
   for (ptrdiff_t i = 0; i < ITEM_COUNT; i++) {
@@ -638,13 +640,13 @@ static void test_writes_derivatives_sharing_parents_concurrently(void) {
 // The phase accepts an empty media set, for which `job_run` allocates no error slot and starts no
 // job.
 static void test_accepts_empty_media_set(void) {
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[1] = {NULL};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(generate(&config, media, 0, frames, 1, false, os_memory(), &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 0, frames, 1, false, os_memory(), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
 }
 
@@ -655,8 +657,8 @@ static void test_derivative_write_follows_symlink(void) {
   struct Arena arena = test_arena();
   struct MediaItem item;
   struct Str jpeg = {0};
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
@@ -670,7 +672,7 @@ static void test_derivative_write_follows_symlink(void) {
   os_memory_mkdir(os, "public");
   os_memory_symlink(os, "../elsewhere/l.webp", "public/l.webp");
 
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   ptrdiff_t width = 0;
   ptrdiff_t height = 0;
@@ -687,8 +689,8 @@ static void test_failed_derivative_write_is_regenerated(void) {
   struct Arena arena = test_arena();
   struct MediaItem item;
   struct Str jpeg = {0};
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
@@ -699,7 +701,7 @@ static void test_failed_derivative_write_is_regenerated(void) {
   os_memory_write_bytes(os, item.source_path, jpeg);
   os_memory_fail(os, OS_MEMORY_OP_WRITE_DATA, "public/l.webp", ENOSPC);
 
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == -1);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == -1);
   char reason[ERROR_SYSTEM_MESSAGE_SIZE];
   TEST_CHECK(test_log_is(&log, "failed to write derivative 'l': %s ('public/l.webp')\n",
                          error_system_message(reason, sizeof(reason), ENOSPC)));
@@ -708,7 +710,7 @@ static void test_failed_derivative_write_is_regenerated(void) {
 
   os_memory_fail(os, OS_MEMORY_OP_WRITE_DATA, "public/l.webp", 0);
   log = test_log();
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   ptrdiff_t width = 0;
   ptrdiff_t height = 0;
@@ -738,8 +740,8 @@ static void test_reports_read_failure_with_long_source_path(void) {
   struct Arena arena = test_arena();
   struct MediaItem item;
   const ptrdiff_t source_len = (ptrdiff_t)IMAGE_INPUT_LEN_MAX + 1;
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
@@ -752,7 +754,7 @@ static void test_reports_read_failure_with_long_source_path(void) {
   os_memory_write(os, "public/original.bin", "");
   os_memory_truncate(os, "public/original.bin", source_len);
 
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == -1);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "failed to read derivative source: exceeds max file size (%d bytes) at "
                          "%td bytes ('%.*s')\n",
@@ -767,8 +769,8 @@ static void test_reports_unreadable_source(void) {
   struct Arena arena = test_arena();
   struct MediaItem item;
   struct Str jpeg = {0};
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
@@ -780,7 +782,7 @@ static void test_reports_unreadable_source(void) {
   os_memory_write_bytes(os, item.original_path, jpeg);
   os_memory_fail(os, OS_MEMORY_OP_READ, "photos/source.jpg", EACCES);
 
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == -1);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == -1);
   // Exact, not by substring: a substring check would also pass for this message with something
   // appended to it.
   char reason[ERROR_SYSTEM_MESSAGE_SIZE];
@@ -794,15 +796,15 @@ static void test_reports_directory_source_once(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
   struct MediaItem item;
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
   init_item(&item, MEDIA_KIND_IMAGE, "source.jpg", &arena);
   os_memory_mkdir(os, "photos/source.jpg");
 
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == -1);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == -1);
   TEST_CHECK(test_log_is(
       &log, "failed to inspect media source: not a regular file ('photos/source.jpg')\n"));
   TEST_CHECK(os_memory_files(os, "public").count == 0);
@@ -816,8 +818,8 @@ static void test_rejects_oversize_source(void) {
   struct Arena arena = test_arena();
   struct MediaItem item;
   const ptrdiff_t source_len = (ptrdiff_t)IMAGE_INPUT_LEN_MAX + 1;
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
@@ -829,7 +831,7 @@ static void test_rejects_oversize_source(void) {
   os_memory_write(os, "public/original.bin", "");
   os_memory_truncate(os, "public/original.bin", source_len);
 
-  TEST_CHECK(generate(&config, media, 1, frames, 1, false, os, &log) == -1);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "failed to read derivative source: exceeds max file size (%d bytes) at "
                          "%td bytes ('photos/source.jpg')\n",
@@ -848,8 +850,8 @@ static void test_appends_one_error_line_per_failing_source(void) {
   struct Arena arena = test_arena();
   struct MediaItem items[2];
   static const char* const names[] = {"a.jpg", "b.jpg"};
-  struct GalleryConfig config;
-  test_derivative_renderer_init_config(&config, 2, 2, 8, 8, 82);
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&items[0], &items[1]};
   struct VideoFrame frames[2] = {0};
   struct Log log = test_log();
@@ -859,7 +861,7 @@ static void test_appends_one_error_line_per_failing_source(void) {
     os_memory_write_bytes(os, items[i].source_path, S("not a JPEG\n"));
   }
 
-  TEST_CHECK(generate(&config, media, 2, frames, 2, false, os, &log) == -1);
+  TEST_CHECK(generate(&site_config, media, 2, frames, 2, false, os, &log) == -1);
   // Compared whole: a dropped newline, a lost line, or the wrong order each change these bytes.
   TEST_CHECK(test_log_is(&log,
                          "failed to decode derivative source: failed to probe JPEG: Not a JPEG "

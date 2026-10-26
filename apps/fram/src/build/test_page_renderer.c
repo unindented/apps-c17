@@ -7,7 +7,7 @@
 #include "core/log.h"
 #include "core/str.h"
 #include "domain/album.h"
-#include "domain/gallery_config.h"
+#include "domain/site_config.h"
 #include "os/os_memory.h"
 #include "runtime/job.h"
 #include "templates/template_set.h"
@@ -42,11 +42,11 @@ static struct TemplateSet* load_templates(struct Str templates_dir,
 static void test_renders_pages_by_index(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "templates/album.html", "{{album.title}}:{{path_to_root}}");
-  struct GalleryConfig gallery_config;
-  gallery_config_init(&gallery_config);
-  gallery_config.title = S("Gallery");
-  gallery_config.description = S("Description");
-  gallery_config.author = S("Ada");
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  site_config.title = S("Gallery");
+  site_config.description = S("Description");
+  site_config.author = S("Ada");
   struct Album root = {.source_dir = S(""), .title = S("Root"), .path_to_root = S("")};
   struct Album child = {.source_dir = S("trip"), .title = S("Trip"), .path_to_root = S("../")};
   const struct Album* albums[] = {&root, &child};
@@ -59,8 +59,8 @@ static void test_renders_pages_by_index(void) {
                                       {.perm = test_arena(), .scratch = test_arena()}};
 
   struct TemplateSet* template_set =
-      load_templates(gallery_config.templates_dir, &gallery_config.album_template, 1, os);
-  TEST_CHECK(page_renderer_render_pages(&gallery_config, template_set, albums, 2, 2, worker_arenas,
+      load_templates(site_config.templates_dir, &site_config.album_template, 1, os);
+  TEST_CHECK(page_renderer_render_pages(&site_config, template_set, albums, 2, 2, worker_arenas,
                                         false, os, test_arena(), rendered, &log) == 0);
   template_set_release(template_set);
   TEST_CHECK(str_eq(rendered[0].html, S("Root:")));
@@ -74,8 +74,8 @@ static void test_renders_pages_by_index(void) {
 static void test_reports_render_failure_per_album(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "templates/album.html", "{{{album.title}}}");
-  struct GalleryConfig gallery_config;
-  gallery_config_init(&gallery_config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Album root = {.source_dir = S(""), .title = S("Root"), .url_path = S("index.html")};
   struct Album trip = {.source_dir = S("trip"),
                        .title = S("Trip"),
@@ -87,9 +87,9 @@ static void test_reports_render_failure_per_album(void) {
   struct Log log = {.buf = {.arena = &arena}};
   struct JobArenas worker_arenas = {.perm = test_arena(), .scratch = test_arena()};
   struct TemplateSet* template_set =
-      load_templates(gallery_config.templates_dir, &gallery_config.album_template, 1, os);
+      load_templates(site_config.templates_dir, &site_config.album_template, 1, os);
 
-  TEST_CHECK(page_renderer_render_pages(&gallery_config, template_set, albums, 2, 1, &worker_arenas,
+  TEST_CHECK(page_renderer_render_pages(&site_config, template_set, albums, 2, 1, &worker_arenas,
                                         false, os, test_arena(), rendered, &log) == -1);
   template_set_release(template_set);
   TEST_CHECK(rendered[0].html.len == 0 && rendered[1].html.len == 0);

@@ -46,7 +46,7 @@ struct CliOptions {
 
   /**
    * Config file that `-c` named, as a copy in the arena `cli_parse` was given, or
-   * `GALLERY_CONFIG_PATH_DEFAULT` when `-c` was not given.
+   * `SITE_CONFIG_PATH_DEFAULT` when `-c` was not given.
    */
   struct Str config_path;
 

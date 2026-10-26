@@ -12,8 +12,8 @@
 #include "core/str.h"
 #include "domain/album.h"
 #include "domain/build_cache.h"
-#include "domain/gallery_config.h"
 #include "domain/media_item.h"
+#include "domain/site_config.h"
 #include "os/os.h"
 #include "output/manifest.h"
 #include "output/output_path.h"
@@ -143,21 +143,21 @@ struct InputRoots {
  * `perm` itself after the walk has returned, so the set outlives this call and overlaps only memory
  * the walk is done with.
  *
- * @param inputs         Empty identity set that receives one entry per readable input file. Must
- *                       not be `NULL`.
- * @param gallery_config Configuration supplying `templates_dir`. Must not be `NULL`.
- * @param config_path    Path the configuration was loaded from.
- * @param source_paths   Every discovered media source path. Must not be `NULL`.
- * @param static_paths   Every enumerated file below `static_dir`. Must not be `NULL`.
- * @param os             Host the inputs are on. Must not be `NULL`.
- * @param perm           Arena that owns the identity set. Must not be `NULL`.
- * @param scratch        Arena for the template paths, which must not overlap `perm`.
- * @param log            Log that receives every error. Must not be `NULL`.
+ * @param inputs       Empty identity set that receives one entry per readable input file. Must not
+ *                     be `NULL`.
+ * @param site_config  Configuration supplying `templates_dir`. Must not be `NULL`.
+ * @param config_path  Path the configuration was loaded from.
+ * @param source_paths Every discovered media source path. Must not be `NULL`.
+ * @param static_paths Every enumerated file below `static_dir`. Must not be `NULL`.
+ * @param os           Host the inputs are on. Must not be `NULL`.
+ * @param perm         Arena that owns the identity set. Must not be `NULL`.
+ * @param scratch      Arena for the template paths, which must not overlap `perm`.
+ * @param log          Log that receives every error. Must not be `NULL`.
  * @return `0` when every readable input was claimed, or `-1` when the template tree cannot be
  *         walked.
  */
 static int claim_build_inputs(struct InputIdentities* inputs,
-                              const struct GalleryConfig* gallery_config,
+                              const struct SiteConfig* site_config,
                               struct Str config_path,
                               const struct PathList* source_paths,
                               const struct PathList* static_paths,
@@ -205,12 +205,12 @@ static void claim_build_inputs_identity(struct InputIdentities* inputs,
  * A root with no identity is recorded as absent rather than refused, for the same reason
  * `claim_build_inputs_identity` skips a missing file: it holds no input an output could land among.
  *
- * @param roots          Root set to fill. Must not be `NULL`.
- * @param gallery_config Configuration supplying the roots and `output_dir`. Must not be `NULL`.
- * @param os             Host the roots are on. Must not be `NULL`.
+ * @param roots       Root set to fill. Must not be `NULL`.
+ * @param site_config Configuration supplying the roots and `output_dir`. Must not be `NULL`.
+ * @param os          Host the roots are on. Must not be `NULL`.
  */
 static void claim_input_roots(struct InputRoots* roots,
-                              const struct GalleryConfig* gallery_config,
+                              const struct SiteConfig* site_config,
                               struct Os* os) __attribute__((nonnull(1, 2, 3)));
 
 /**
@@ -539,23 +539,23 @@ static int report_nested_output_paths(const struct Manifest* manifest, struct Lo
 static int identify(struct Str file_path, struct Os* os, struct OsIdentity* identity_out)
     __attribute__((nonnull(2, 3)));
 
-int manifest_builder_check_output_dir(const struct GalleryConfig* gallery_config,
+int manifest_builder_check_output_dir(const struct SiteConfig* site_config,
                                       struct Str config_path,
                                       struct Os* os,
                                       struct Arena scratch,
                                       struct Log* log) {
   struct InputRoots roots;
-  claim_input_roots(&roots, gallery_config, os);
+  claim_input_roots(&roots, site_config, os);
   const struct InputRoot* root = find_input_root_holding_output_dir(&roots, scratch);
   if (root != NULL) {
     // The root is a config key, so it stays in the sentence. The configured path trails as the
     // value that broke the rule.
     return log_error(log, "output directory would write inside '%.*s': '%.*s'",
-                     STR_FMT(root->config_key), STR_FMT(gallery_config->output_dir));
+                     STR_FMT(root->config_key), STR_FMT(site_config->output_dir));
   }
 
   struct OsIdentity output_identity;
-  if (identify(gallery_config->output_dir, os, &output_identity) != 0) {
+  if (identify(site_config->output_dir, os, &output_identity) != 0) {
     return 0;
   }
   for (ptrdiff_t i = 0; i < INPUT_ROOT_COUNT; i++) {
@@ -563,7 +563,7 @@ int manifest_builder_check_output_dir(const struct GalleryConfig* gallery_config
     if (held_root->is_present &&
         is_held_by_output_dir(held_root->dir_path, &output_identity, os, scratch)) {
       return log_error(log, "output directory would hold '%.*s': '%.*s'",
-                       STR_FMT(held_root->config_key), STR_FMT(gallery_config->output_dir));
+                       STR_FMT(held_root->config_key), STR_FMT(site_config->output_dir));
     }
   }
   // A config in the working directory has no directory of its own, so it is `.` here.
@@ -573,13 +573,13 @@ int manifest_builder_check_output_dir(const struct GalleryConfig* gallery_config
   }
   if (is_held_by_output_dir(config_dir, &output_identity, os, scratch)) {
     return log_error(log, "output directory would hold the config: '%.*s'",
-                     STR_FMT(gallery_config->output_dir));
+                     STR_FMT(site_config->output_dir));
   }
   return 0;
 }
 
 int manifest_builder_populate(struct Manifest* manifest,
-                              const struct GalleryConfig* gallery_config,
+                              const struct SiteConfig* site_config,
                               struct Str config_path,
                               const struct PathList* source_paths,
                               const struct PathList* static_paths,
@@ -594,8 +594,8 @@ int manifest_builder_populate(struct Manifest* manifest,
 
   // An input failure makes every output path suspect, so it stops the check rather than reporting
   // the same cause once per output.
-  claim_input_roots(&roots, gallery_config, os);
-  if (claim_build_inputs(&inputs, gallery_config, config_path, source_paths, static_paths, os,
+  claim_input_roots(&roots, site_config, os);
+  if (claim_build_inputs(&inputs, site_config, config_path, source_paths, static_paths, os,
                          &scratch, *perm, log) != 0) {
     return -1;
   }
@@ -604,21 +604,21 @@ int manifest_builder_populate(struct Manifest* manifest,
   // one run. A rejected path is not recorded, so it cannot cause a second report against a later
   // one, and a media item stops at its first rejected output, so it is reported once.
   int rc = 0;
-  if (register_album_list(manifest, albums, album_count, gallery_config->media_dir, &inputs, &roots,
+  if (register_album_list(manifest, albums, album_count, site_config->media_dir, &inputs, &roots,
                           perm, scratch, log) != 0) {
     rc = -1;
   }
-  if (register_template_list(
-          manifest, S("aggregate_templates"), gallery_config->aggregate_templates,
-          gallery_config->aggregate_template_count, &inputs, &roots, perm, scratch, log) != 0) {
+  if (register_template_list(manifest, S("aggregate_templates"), site_config->aggregate_templates,
+                             site_config->aggregate_template_count, &inputs, &roots, perm, scratch,
+                             log) != 0) {
     rc = -1;
   }
-  if (register_static_list(manifest, static_paths, gallery_config->static_dir, &inputs, &roots,
-                           perm, scratch, log) != 0) {
+  if (register_static_list(manifest, static_paths, site_config->static_dir, &inputs, &roots, perm,
+                           scratch, log) != 0) {
     rc = -1;
   }
   // The build cache is recorded last, so a dry run lists it last.
-  const struct Str cache_path = build_cache_path(gallery_config->output_dir, &scratch);
+  const struct Str cache_path = build_cache_path(site_config->output_dir, &scratch);
   if (register_output_path(manifest, cache_path, S("build cache"), &inputs, &roots, perm, log) !=
       0) {
     rc = -1;
@@ -631,7 +631,7 @@ int manifest_builder_populate(struct Manifest* manifest,
 }
 
 static int claim_build_inputs(struct InputIdentities* inputs,
-                              const struct GalleryConfig* gallery_config,
+                              const struct SiteConfig* site_config,
                               struct Str config_path,
                               const struct PathList* source_paths,
                               const struct PathList* static_paths,
@@ -640,9 +640,8 @@ static int claim_build_inputs(struct InputIdentities* inputs,
                               struct Arena scratch,
                               struct Log* log) {
   struct PathList template_paths = {0};
-  if (claim_build_inputs_list_templates(&template_paths, gallery_config->templates_dir,
-                                        gallery_config->output_dir, os, &scratch, *perm,
-                                        log) != 0) {
+  if (claim_build_inputs_list_templates(&template_paths, site_config->templates_dir,
+                                        site_config->output_dir, os, &scratch, *perm, log) != 0) {
     return -1;
   }
   // One slot for the configuration file, then one per source, per static file and per template
@@ -701,13 +700,13 @@ static void claim_build_inputs_identity(struct InputIdentities* inputs,
 }
 
 static void claim_input_roots(struct InputRoots* roots,
-                              const struct GalleryConfig* gallery_config,
+                              const struct SiteConfig* site_config,
                               struct Os* os) {
   *roots = (struct InputRoots){
-      .items = {{.config_key = S("media_dir"), .dir_path = gallery_config->media_dir},
-                {.config_key = S("templates_dir"), .dir_path = gallery_config->templates_dir},
-                {.config_key = S("static_dir"), .dir_path = gallery_config->static_dir}},
-      .output_dir = gallery_config->output_dir,
+      .items = {{.config_key = S("media_dir"), .dir_path = site_config->media_dir},
+                {.config_key = S("templates_dir"), .dir_path = site_config->templates_dir},
+                {.config_key = S("static_dir"), .dir_path = site_config->static_dir}},
+      .output_dir = site_config->output_dir,
       .os = os,
   };
   for (ptrdiff_t i = 0; i < INPUT_ROOT_COUNT; i++) {

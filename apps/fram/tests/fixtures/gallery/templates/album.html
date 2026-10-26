@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width">
   <meta name="generator" content="{{generator}}">
-  <meta name="description" content="{{gallery.description}}">
-  <meta name="author" content="{{gallery.author}}">
-  <title>{{#album.parent}}{{album.title}} - {{/album.parent}}{{gallery.title}}</title>
-  {{#gallery.base_url}}<link rel="home" href="{{gallery.base_url}}/">{{/gallery.base_url}}
+  <meta name="description" content="{{site.description}}">
+  <meta name="author" content="{{site.author}}">
+  <title>{{#album.parent}}{{album.title}} - {{/album.parent}}{{site.title}}</title>
+  {{#site.base_url}}<link rel="home" href="{{site.base_url}}/">{{/site.base_url}}
   <link rel="stylesheet" href="{{path_to_root}}assets/fram.css">
 </head>
 <body>
@@ -42,7 +42,7 @@
     <div class="gallery-grid" data-label="{{album.title}}">
       {{#media}}
       <a class="gallery-grid__item gallery-grid__item--{{kind}}"
-        href="{{original_url}}"
+        href="{{url}}"
         download="{{title}}"
         data-small-src="{{s.url}}"
         data-small-width="{{s.width}}"

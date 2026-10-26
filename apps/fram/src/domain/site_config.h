@@ -1,5 +1,5 @@
-#ifndef FRAM_GALLERY_CONFIG_H
-#define FRAM_GALLERY_CONFIG_H
+#ifndef FRAM_SITE_CONFIG_H
+#define FRAM_SITE_CONFIG_H
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -18,19 +18,20 @@ struct Os;
  * command loads the path it receives, and `cmd_build_run` also claims that path as a build input,
  * so no output path can overwrite it.
  *
- * It is `extern`, with the definition in `gallery_config.c`, rather than a `static` initializer in
+ * It is `extern`, with the definition in `site_config.c`, rather than a `static` initializer in
  * this header. Every translation unit then shares one object instead of getting a copy of its own
  * that most of them never read.
  */
-extern const struct Str GALLERY_CONFIG_PATH_DEFAULT;
+extern const struct Str SITE_CONFIG_PATH_DEFAULT;
 
 /** Stable derivative recipe version. Increment when output bytes must be regenerated. */
 enum { DERIVATIVE_RECIPE_VERSION = 2 };
 
-/** Largest accepted derivative-name length, excluding the terminating `NUL`. */
-enum { GALLERY_DERIVATIVE_NAME_LEN_MAX = 15 };
-
-/** Largest accepted number of configured derivative recipes. */
+/**
+ * Most derivative recipes a gallery configures: one for each name a derivative can have, `xs`, `s`,
+ * `m`, `l`, `xl` and `xxl`. The names are fixed, so a derivative, which a template reaches by name
+ * inside a media item, never hides another key of the template's data.
+ */
 enum { GALLERY_DERIVATIVE_COUNT_MAX = 6 };
 
 /** One named image derivative generated for every media item. */
@@ -60,9 +61,9 @@ enum GallerySortOrder {
 
 /**
  * Gallery configuration loaded from a config file, `fram.toml` by default. Every string and array
- * it points at is either a default literal or a copy in the arena `gallery_config_load` was given.
+ * it points at is either a default literal or a copy in the arena `site_config_load` was given.
  */
-struct GalleryConfig {
+struct SiteConfig {
   /** Required title of the gallery, also the root album's title. */
   struct Str title;
 
@@ -134,27 +135,27 @@ struct GalleryConfig {
 /**
  * @brief Initializes a gallery config with defaults for optional configuration keys.
  *
- * Sets defaults for optional keys, leaving required keys unset for `gallery_config_load` to fill.
+ * Sets defaults for optional keys, leaving required keys unset for `site_config_load` to fill.
  *
- * @param gallery_config Config to prepare. Must not be `NULL`.
+ * @param site_config Config to prepare. Must not be `NULL`.
  */
-void gallery_config_init(struct GalleryConfig* gallery_config) __attribute__((nonnull(1)));
+void site_config_init(struct SiteConfig* site_config) __attribute__((nonnull(1)));
 
 /**
- * @brief Loads `config_path` into `gallery_config`.
+ * @brief Loads `config_path` into `site_config`.
  *
  * Reads and parses the file, rejects a key outside the schema, validates required keys, template
  * names, derivative recipes, and sort orders, and copies values into `perm` over the defaults from
- * `gallery_config_init`.
+ * `site_config_init`.
  *
- * @param gallery_config Initialized config that receives the loaded values. Must not be `NULL`.
- * @param config_path    Path of the TOML file. Relative paths in the file, and the default
- *                       directories, resolve against its directory.
- * @param os             Host the file is read from. Must not be `NULL`.
- * @param perm           Arena that owns the loaded values for as long as the config is used. Must
- *                       not be `NULL`.
- * @param scratch        Arena for the file bytes, which tomlc17 copies.
- * @param log            Log that receives every error. Must not be `NULL`.
+ * @param site_config Initialized config that receives the loaded values. Must not be `NULL`.
+ * @param config_path Path of the TOML file. Relative paths in the file, and the default
+ *                    directories, resolve against its directory.
+ * @param os          Host the file is read from. Must not be `NULL`.
+ * @param perm        Arena that owns the loaded values for as long as the config is used. Must not
+ *                    be `NULL`.
+ * @param scratch     Arena for the file bytes, which tomlc17 copies.
+ * @param log         Log that receives every error. Must not be `NULL`.
  * @return `0` when the file was read and parsed, or `-1` when it could not be. A key that fails
  *         validation is logged and keeps its default, and the load goes on to check every other
  *         key, so `0` does not mean the config is valid: a caller checks `log->errors` before it
@@ -162,12 +163,12 @@ void gallery_config_init(struct GalleryConfig* gallery_config) __attribute__((no
  *         report a bad key and the errors in its media in one run, while a file that is missing or
  *         not TOML stops it, because there is nothing to check the media against.
  */
-int gallery_config_load(struct GalleryConfig* gallery_config,
-                        struct Str config_path,
-                        struct Os* os,
-                        struct Arena* perm,
-                        struct Arena scratch,
-                        struct Log* log) __attribute__((nonnull(1, 3, 4, 6)));
+int site_config_load(struct SiteConfig* site_config,
+                     struct Str config_path,
+                     struct Os* os,
+                     struct Arena* perm,
+                     struct Arena scratch,
+                     struct Log* log) __attribute__((nonnull(1, 3, 4, 6)));
 
 /**
  * @brief Writes the effective configuration to standard output as valid TOML.
@@ -175,25 +176,24 @@ int gallery_config_load(struct GalleryConfig* gallery_config,
  * Every path is printed resolved, so the text loads back to the same values from the working
  * directory. The text is formatted whole in `scratch` and printed in one `os_print` call.
  *
- * @param gallery_config Config to serialize. Must be fully populated (as after a successful
- *                       `gallery_config_load`). Must not be `NULL`.
- * @param os             Host to print on. Must not be `NULL`.
- * @param scratch        Arena the text is formatted in.
+ * @param site_config Config to serialize. Must be fully populated (as after a successful
+ *                    `site_config_load`). Must not be `NULL`.
+ * @param os          Host to print on. Must not be `NULL`.
+ * @param scratch     Arena the text is formatted in.
  * @return `0` on success, or `-1` when the write fails.
  */
-int gallery_config_print(const struct GalleryConfig* gallery_config,
-                         struct Os* os,
-                         struct Arena scratch) __attribute__((nonnull(1, 2)));
+int site_config_print(const struct SiteConfig* site_config, struct Os* os, struct Arena scratch)
+    __attribute__((nonnull(1, 2)));
 
 /**
  * @brief Builds the stable path component identifying a derivative recipe.
  *
- * @param gallery_config Config whose output-affecting values identify the recipe, within the limits
- *                       `gallery_config_load` enforces. Must not be `NULL`.
- * @param arena          Arena that owns the returned component. Must not be `NULL`.
+ * @param site_config Config whose output-affecting values identify the recipe, within the limits
+ *                    `site_config_load` enforces. Must not be `NULL`.
+ * @param arena       Arena that owns the returned component. Must not be `NULL`.
  * @return Recipe component owned by `arena`.
  */
-struct Str gallery_config_derivative_recipe(const struct GalleryConfig* gallery_config,
-                                            struct Arena* arena) __attribute__((nonnull(1, 2)));
+struct Str site_config_derivative_recipe(const struct SiteConfig* site_config, struct Arena* arena)
+    __attribute__((nonnull(1, 2)));
 
 #endif

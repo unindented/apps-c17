@@ -5,7 +5,7 @@
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/log.h"
-#include "domain/gallery_config.h"
+#include "domain/site_config.h"
 #include "os/oom.h"
 #include "os/os.h"
 
@@ -23,18 +23,18 @@ enum ExitCode cmd_config_run(struct Str config_path, struct Os* os) {
   struct Arena log_arena = arena_split(&scratch, (CMD_CONFIG_RESERVE_LEN / 3) >> shift);
   struct Log log = {.buf = {.arena = &log_arena}};
   oom_set_log(&log);
-  struct GalleryConfig gallery_config;
-  gallery_config_init(&gallery_config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
 
   enum ExitCode rc = EXIT_CODE_FAILURE;
   // A load that read the file still reports every bad key, and none of them may be printed as the
   // resolved config.
-  if (gallery_config_load(&gallery_config, config_path, os, &perm, scratch, &log) != 0 ||
+  if (site_config_load(&site_config, config_path, os, &perm, scratch, &log) != 0 ||
       log.errors > 0) {
     (void)os_print(os, 2, buf_str(&log.buf));
     goto cleanup;
   }
-  if (gallery_config_print(&gallery_config, os, scratch) != 0) {
+  if (site_config_print(&site_config, os, scratch) != 0) {
     goto cleanup;
   }
   rc = EXIT_CODE_OK;

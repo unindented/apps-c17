@@ -11,8 +11,8 @@
 #include "core/str.h"
 #include "domain/album.h"
 #include "domain/fram_version.h"
-#include "domain/gallery_config.h"
 #include "domain/media_item.h"
+#include "domain/site_config.h"
 #include "os/os_memory.h"
 #include "templates/template_set.h"
 #include "testing/test_support.h"
@@ -32,13 +32,13 @@
  *
  * The assigned fields are string literals.
  *
- * @param gallery_config Configuration to initialize. Must not be `NULL`.
+ * @param site_config Configuration to initialize. Must not be `NULL`.
  */
-static void init_test_gallery_config(struct GalleryConfig* gallery_config) {
-  gallery_config_init(gallery_config);
-  gallery_config->title = S("Gallery");
-  gallery_config->description = S("Description");
-  gallery_config->author = S("Ada");
+static void init_test_site_config(struct SiteConfig* site_config) {
+  site_config_init(site_config);
+  site_config->title = S("Gallery");
+  site_config->description = S("Description");
+  site_config->author = S("Ada");
 }
 
 /**
@@ -115,17 +115,17 @@ static void test_renders_gallery_tree_with_page_relative_urls(void) {
   struct Os* os = os_memory();
   os_memory_write(
       os, TEMPLATES_DIR "/album.html",
-      "{{gallery.title}}|{{album.title}}|{{#breadcrumbs}}[{{title}}={{url}}]{{/breadcrumbs}}|"
+      "{{site.title}}|{{album.title}}|{{#breadcrumbs}}[{{title}}={{url}}]{{/breadcrumbs}}|"
       "{{#media}}{{title}}={{s.url}}/{{s.width}}x{{s.height}},"
-      "{{card.url}}/{{card.width}}x{{card.height}},{{original_url}}{{#is_image}}I{{/is_image}};"
+      "{{m.url}}/{{m.width}}x{{m.height}},{{url}}{{#is_image}}I{{/is_image}};"
       "{{/media}}");
 
-  struct GalleryConfig gallery_config;
-  gallery_config_init(&gallery_config);
-  gallery_config.title = S("A & B");
-  gallery_config.description = S("Description");
-  gallery_config.author = S("Ada");
-  gallery_config.templates_dir = S(TEMPLATES_DIR);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  site_config.title = S("A & B");
+  site_config.description = S("Description");
+  site_config.author = S("Ada");
+  site_config.templates_dir = S(TEMPLATES_DIR);
 
   struct Album root = {.source_dir = S(""),
                        .title = S("Root"),
@@ -134,14 +134,12 @@ static void test_renders_gallery_tree_with_page_relative_urls(void) {
                        .depth = 0};
   struct MediaDerivative derivatives[] = {
       {.name = S("s"), .url = S("_fram/r/s/x.jpg"), .width_px = 120, .height_px = 120},
-      {.name = S("card"), .url = S("_fram/r/card/x.jpg"), .width_px = 480, .height_px = 320},
-      // A configured name cannot shadow a built-in media field.
-      {.name = S("title"), .url = S("_fram/r/title/x.jpg"), .width_px = 1, .height_px = 1},
+      {.name = S("m"), .url = S("_fram/r/m/x.jpg"), .width_px = 480, .height_px = 320},
   };
   struct MediaItem media = {.title = S("x<y.jpg"),
                             .kind = MEDIA_KIND_IMAGE,
                             .derivatives = derivatives,
-                            .derivative_count = 3,
+                            .derivative_count = 2,
                             .original_url = S("_fram/originals/x.jpg")};
   struct MediaItem* media_items[] = {&media};
   struct Album child = {.source_dir = S("trip"),
@@ -153,35 +151,70 @@ static void test_renders_gallery_tree_with_page_relative_urls(void) {
                         .parent = &root,
                         .depth = 1};
   const struct TemplateContext context = {
-      .gallery_config = &gallery_config, .album_current = &child, .is_album_page = true};
+      .site_config = &site_config, .album_current = &child, .is_album_page = true};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html,
                     "A &amp; B|Trip|[Root=../index.html][Trip=]|"
                     "x&lt;y.jpg=../_fram/r/s/x.jpg/120x120,"
-                    "../_fram/r/card/x.jpg/480x320,"
+                    "../_fram/r/m/x.jpg/480x320,"
                     "../_fram/originals/x.jpgI;") == 0);
 }
 
 // Every `gallery` field resolves to its configured value, escaped like any other scalar.
-static void test_renders_gallery_fields(void) {
+static void test_renders_site_fields(void) {
   struct Arena perm = test_arena();
   struct Os* os = os_memory();
   os_memory_write(os, TEMPLATES_DIR "/album.html",
-                  "{{gallery.title}}|{{gallery.description}}|{{gallery.author}}|"
-                  "{{gallery.base_url}}");
+                  "{{site.title}}|{{site.description}}|{{site.author}}|"
+                  "{{site.base_url}}");
 
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
-  gallery_config.description = S("Photos <& videos>");
-  gallery_config.base_url = S("https://example.com/gallery");
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
+  site_config.description = S("Photos <& videos>");
+  site_config.base_url = S("https://example.com/gallery");
   struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
-  const struct TemplateContext context = {.gallery_config = &gallery_config,
-                                          .album_current = &root};
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html,
                     "Gallery|Photos &lt;&amp; videos&gt;|Ada|https://example.com/gallery") == 0);
+}
+
+// An album, a media item and a derivative each give `absolute_url`, their path below `base_url`,
+// beside the `url` relative to the page, and an empty one when the gallery sets no `base_url`.
+static void test_renders_absolute_urls_below_base_url(void) {
+  struct Arena perm = test_arena();
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html",
+                  "{{album.absolute_url}}|{{#media}}{{absolute_url}}|{{s.absolute_url}}{{/media}}|"
+                  "{{^album.absolute_url}}local{{/album.absolute_url}}");
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
+  struct MediaDerivative derivatives[] = {{.name = S("s"), .url = S("_fram/r/s/x.webp")}};
+  struct MediaItem media = {.kind = MEDIA_KIND_IMAGE,
+                            .derivatives = derivatives,
+                            .derivative_count = 1,
+                            .original_url = S("_fram/originals/x.jpg")};
+  struct MediaItem* media_items[] = {&media};
+  struct Album trip = {.title = S("Trip"),
+                       .url_path = S("trip/index.html"),
+                       .path_to_root = S("../"),
+                       .media = media_items,
+                       .media_count = 1,
+                       .depth = 1};
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &trip};
+  char* rendered_html = NULL;
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
+  TEST_CHECK(strcmp(rendered_html, "|||local") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
+  site_config.base_url = S("https://example.com/photos");
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
+  TEST_CHECK(strcmp(rendered_html,
+                    "https://example.com/photos/trip/index.html|"
+                    "https://example.com/photos/_fram/originals/x.jpg|"
+                    "https://example.com/photos/_fram/r/s/x.webp|") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
 }
 
 // Sub-album links and inherited covers are materialized relative to the page being rendered.
@@ -192,8 +225,8 @@ static void test_renders_sub_album_cover(void) {
                   "{{#sub_albums}}{{title}}={{url}}={{cover.s.url}}={{cover.s.width}}x"
                   "{{cover.s.height}}={{media_count_total}};"
                   "{{/sub_albums}}");
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
   struct MediaDerivative cover_derivatives[] = {
       {.name = S("s"), .url = S("_fram/r/s/trip/x.jpg"), .width_px = 120, .height_px = 120},
   };
@@ -210,8 +243,7 @@ static void test_renders_sub_album_cover(void) {
                        .sub_albums = children,
                        .sub_album_count = 1};
   child.parent = &root;
-  const struct TemplateContext context = {.gallery_config = &gallery_config,
-                                          .album_current = &root};
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "Trip=trip/index.html=_fram/r/s/trip/x.jpg=120x120=3;") == 0);
@@ -228,8 +260,8 @@ static void test_path_to_root_is_the_page_prefix_in_every_context(void) {
                   "{{#sub_albums}}[{{path_to_root}}]{{/sub_albums}}|"
                   "{{#breadcrumbs}}[{{path_to_root}}]{{/breadcrumbs}}|"
                   "{{#parent}}[{{path_to_root}}]{{/parent}}");
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
   struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
   struct Album trip = {.title = S("Trip"),
                        .url_path = S("trip/index.html"),
@@ -249,7 +281,7 @@ static void test_path_to_root_is_the_page_prefix_in_every_context(void) {
                       .parent = &trip,
                       .depth = 2};
   dawn.parent = &day;
-  const struct TemplateContext context = {.gallery_config = &gallery_config, .album_current = &day};
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &day};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "../../|[../../]|[../../][../../][../../]|[../../]") == 0);
@@ -266,8 +298,8 @@ static void test_breadcrumbs_mark_the_current_album_last(void) {
                   "{{#breadcrumbs}}[{{title}}:{{url}}:{{#is_last}}last{{/is_last}}]"
                   "{{/breadcrumbs}}|{{#sub_albums}}[{{title}}:{{url}}:"
                   "{{#is_last}}last{{/is_last}}]{{/sub_albums}}");
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
   struct Album root = {.title = S("Root"), .url_path = S("index.html")};
   struct Album dawn = {.title = S("Dawn"), .url_path = S("trip/day/dawn/index.html"), .depth = 3};
   struct Album* children[] = {&dawn};
@@ -282,11 +314,10 @@ static void test_breadcrumbs_mark_the_current_album_last(void) {
                       .depth = 2};
   dawn.parent = &day;
   const struct TemplateContext context = {
-      .gallery_config = &gallery_config, .album_current = &day, .is_album_page = true};
+      .site_config = &site_config, .album_current = &day, .is_album_page = true};
   // An aggregate renders against the root album without being its page, so its one crumb is not
   // last and keeps its link.
-  const struct TemplateContext aggregate = {.gallery_config = &gallery_config,
-                                            .album_current = &root};
+  const struct TemplateContext aggregate = {.site_config = &site_config, .album_current = &root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html,
@@ -306,8 +337,8 @@ static void test_renders_generator(void) {
   os_memory_write(os, TEMPLATES_DIR "/album.html",
                   "{{generator}}|{{#media}}{{generator}}{{/media}}");
 
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
   struct MediaItem item = {0};
   struct MediaItem* media[] = {&item};
   struct Album root = {.title = S("Root"),
@@ -315,8 +346,7 @@ static void test_renders_generator(void) {
                        .path_to_root = S(""),
                        .media = media,
                        .media_count = 1};
-  const struct TemplateContext context = {.gallery_config = &gallery_config,
-                                          .album_current = &root};
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
   char* rendered_html = NULL;
   const int render_rc = render(os, "album.html", &context, &perm, &rendered_html, NULL);
   const struct Str version = fram_version_string();
@@ -333,13 +363,12 @@ static void test_renders_generator(void) {
 static void test_unknown_variable_renders_empty(void) {
   struct Arena perm = test_arena();
   struct Os* os = os_memory();
-  os_memory_write(os, TEMPLATES_DIR "/album.html", "[{{typo}}|{{gallery.typo}}]\n");
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "[{{typo}}|{{site.typo}}]\n");
 
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
   struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
-  const struct TemplateContext context = {.gallery_config = &gallery_config,
-                                          .album_current = &root};
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[|]\n") == 0);
@@ -351,11 +380,11 @@ static void test_inverted_section_renders_when_list_empty(void) {
   struct Os* os = os_memory();
   os_memory_write(os, TEMPLATES_DIR "/album.html", "{{#media}}x{{/media}}{{^media}}none{{/media}}");
 
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
 
   struct Album empty = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
-  const struct TemplateContext context_empty = {.gallery_config = &gallery_config,
+  const struct TemplateContext context_empty = {.site_config = &site_config,
                                                 .album_current = &empty};
   struct MediaItem item = {.title = S("x.jpg")};
   struct MediaItem* media[] = {&item};
@@ -364,8 +393,7 @@ static void test_inverted_section_renders_when_list_empty(void) {
                        .path_to_root = S(""),
                        .media = media,
                        .media_count = 1};
-  const struct TemplateContext context_full = {.gallery_config = &gallery_config,
-                                               .album_current = &full};
+  const struct TemplateContext context_full = {.site_config = &site_config, .album_current = &full};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context_empty, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "none") == 0);
@@ -375,18 +403,18 @@ static void test_inverted_section_renders_when_list_empty(void) {
 }
 
 // An empty field value is falsey as a section, so an unset field reads as absent. Were an empty
-// scalar truthy, `{{#original_url}}` would render for every item and `{{^original_url}}` for none,
-// so both branches are asserted here. `gallery.base_url` is empty unless configured, so a template
-// guarding it relies on this rule.
+// scalar truthy, `{{#url}}` would render for every item and `{{^url}}` for none, so both branches
+// are asserted here. `site.base_url` is empty unless configured, so a template guarding it relies
+// on this rule.
 static void test_empty_field_is_falsey_as_section(void) {
   struct Arena perm = test_arena();
   struct Os* os = os_memory();
   os_memory_write(os, TEMPLATES_DIR "/album.html",
-                  "{{#media}}[{{#original_url}}U:{{original_url}}{{/original_url}}"
-                  "{{^original_url}}NONE{{/original_url}}]{{/media}}");
+                  "{{#media}}[{{#url}}U:{{url}}{{/url}}"
+                  "{{^url}}NONE{{/url}}]{{/media}}");
 
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
   struct MediaItem first = {.original_url = S("")};
   struct MediaItem second = {.original_url = S("_fram/originals/b.jpg")};
   struct MediaItem* media[] = {&first, &second};
@@ -395,8 +423,7 @@ static void test_empty_field_is_falsey_as_section(void) {
                        .path_to_root = S(""),
                        .media = media,
                        .media_count = 2};
-  const struct TemplateContext context = {.gallery_config = &gallery_config,
-                                          .album_current = &root};
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[NONE][U:_fram/originals/b.jpg]") == 0);
@@ -419,8 +446,8 @@ static void test_absent_value_does_not_resolve_from_enclosing_album(void) {
       "{{/media}}|"
       "{{#breadcrumbs}}[{{title}}:{{parent.title}}{{^parent}}top{{/parent}}]{{/"
       "breadcrumbs}}");
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
   struct MediaDerivative photo_derivatives[] = {
       {.name = S("s"), .url = S("_fram/r/s/trip/x.jpg"), .width_px = 120, .height_px = 120},
   };
@@ -442,8 +469,7 @@ static void test_absent_value_does_not_resolve_from_enclosing_album(void) {
                        .parent = &root,
                        .depth = 1};
   empty.parent = &trip;
-  const struct TemplateContext context = {.gallery_config = &gallery_config,
-                                          .album_current = &trip};
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &trip};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html,
@@ -452,23 +478,22 @@ static void test_absent_value_does_not_resolve_from_enclosing_album(void) {
 }
 
 // A name that no media item has is looked up in the enclosing scopes, as Mustache asks, so inside
-// `media` a bare `url` names the album's page. Only the fields an album, item or derivative has
-// stop the lookup.
+// `media` a bare `has_media` is the album's, and `url` is the item's own. Only the fields an album,
+// item or derivative has stop the lookup.
 static void test_unknown_name_resolves_from_enclosing_album(void) {
   struct Arena perm = test_arena();
   struct Os* os = os_memory();
-  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{#media}}[{{url}}]{{/media}}");
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
-  struct MediaItem photo = {.kind = MEDIA_KIND_IMAGE};
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{#media}}[{{has_media}}|{{url}}]{{/media}}");
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
+  struct MediaItem photo = {.kind = MEDIA_KIND_IMAGE, .original_url = S("_fram/originals/a.jpg")};
   struct MediaItem* media[] = {&photo};
   struct Album root = {
       .title = S("Root"), .url_path = S("index.html"), .media = media, .media_count = 1};
-  const struct TemplateContext context = {.gallery_config = &gallery_config,
-                                          .album_current = &root};
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
-  TEST_CHECK(strcmp(rendered_html, "[index.html]") == 0);
+  TEST_CHECK(strcmp(rendered_html, "[true|_fram/originals/a.jpg]") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
 }
 
@@ -479,15 +504,14 @@ static void test_media_names_its_kind(void) {
   os_memory_write(os, TEMPLATES_DIR "/album.html",
                   "{{#media}}[{{kind}}:{{#is_image}}I{{/is_image}}"
                   "{{#is_video}}V{{/is_video}}]{{/media}}");
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
   struct MediaItem image = {.kind = MEDIA_KIND_IMAGE};
   struct MediaItem video = {.kind = MEDIA_KIND_VIDEO};
   struct MediaItem* media[] = {&image, &video};
   struct Album root = {
       .title = S("Root"), .url_path = S("index.html"), .media = media, .media_count = 2};
-  const struct TemplateContext context = {.gallery_config = &gallery_config,
-                                          .album_current = &root};
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[image:I][video:V]") == 0);
@@ -501,15 +525,14 @@ static void test_duration_is_empty_for_an_image(void) {
   struct Os* os = os_memory();
   os_memory_write(os, TEMPLATES_DIR "/album.html",
                   "{{#media}}[{{#duration}}D{{duration}}{{/duration}}]{{/media}}");
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
   struct MediaItem image = {.kind = MEDIA_KIND_IMAGE};
   struct MediaItem video = {.kind = MEDIA_KIND_VIDEO, .duration_ms = 0};
   struct MediaItem* media[] = {&image, &video};
   struct Album root = {
       .title = S("Root"), .url_path = S("index.html"), .media = media, .media_count = 2};
-  const struct TemplateContext context = {.gallery_config = &gallery_config,
-                                          .album_current = &root};
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[][D0]") == 0);
@@ -521,13 +544,12 @@ static void test_duration_is_empty_for_an_image(void) {
 static void test_rejects_unescaped_interpolation(void) {
   struct Arena perm = test_arena();
   struct Os* os = os_memory();
-  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{{gallery.title}}}");
+  os_memory_write(os, TEMPLATES_DIR "/album.html", "{{{site.title}}}");
 
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
   struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
-  const struct TemplateContext context = {.gallery_config = &gallery_config,
-                                          .album_current = &root};
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
 
   static const struct {
     const char* template_name;
@@ -537,7 +559,7 @@ static void test_rejects_unescaped_interpolation(void) {
       {"ampersand.html", UNESCAPED_FAILURE " (in 'ampersand.html')"},
       {"outer.html", UNESCAPED_FAILURE " (in 'outer.html')"},
   };
-  os_memory_write(os, TEMPLATES_DIR "/ampersand.html", "{{& gallery.title}}");
+  os_memory_write(os, TEMPLATES_DIR "/ampersand.html", "{{& site.title}}");
   os_memory_write(os, TEMPLATES_DIR "/outer.html", "{{>raw}}");
   os_memory_write(os, TEMPLATES_DIR "/partials/raw.html", "{{{album.title}}}");
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
@@ -555,8 +577,8 @@ static void test_rejects_unescaped_interpolation_of_any_value(void) {
   struct Os* os = os_memory();
   os_memory_write(os, TEMPLATES_DIR "/album.html", "{{{album.parent}}}");
 
-  struct GalleryConfig gallery_config;
-  init_test_gallery_config(&gallery_config);
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
   struct Album root = {.title = S("Root"), .url_path = S("index.html")};
   struct Album trip = {.title = S("Trip"),
                        .url_path = S("trip/index.html"),
@@ -565,7 +587,7 @@ static void test_rejects_unescaped_interpolation_of_any_value(void) {
                        .depth = 1};
   const struct Album* albums[] = {&root, &trip};
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(albums) / sizeof(albums[0])); i++) {
-    const struct TemplateContext context = {.gallery_config = &gallery_config,
+    const struct TemplateContext context = {.site_config = &site_config,
                                             .album_current = albums[i]};
     struct Log log = test_log();
     TEST_CHECK(render(os, "album.html", &context, &perm, NULL, &log) == -1);
@@ -577,7 +599,8 @@ static void test_rejects_unescaped_interpolation_of_any_value(void) {
 TEST_LIST = {
     {"renders gallery tree with page-relative URLs",
      test_renders_gallery_tree_with_page_relative_urls},
-    {"renders gallery fields", test_renders_gallery_fields},
+    {"renders site fields", test_renders_site_fields},
+    {"renders absolute urls below base url", test_renders_absolute_urls_below_base_url},
     {"renders sub-album cover", test_renders_sub_album_cover},
     {"path to root is the page prefix in every context",
      test_path_to_root_is_the_page_prefix_in_every_context},

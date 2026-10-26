@@ -14,7 +14,7 @@
 #include "core/path_list.h"
 #include "core/str.h"
 #include "domain/build_cache.h"
-#include "domain/gallery_config.h"
+#include "domain/site_config.h"
 #include "media/image.h"
 #include "os/oom.h"
 #include "os/os.h"
@@ -36,7 +36,7 @@
 enum { TINY_ARENA_SIZE = 128 };
 
 /** Config body every fixture shares. Derivatives stay small so encoding stays cheap. */
-static const char* const GALLERY_CONFIG =
+static const char* const SITE_CONFIG =
     "title = \"Test Gallery\"\n"
     "description = \"Test description\"\n"
     "author = \"Tests\"\n"
@@ -46,7 +46,7 @@ static const char* const GALLERY_CONFIG =
 
 /** Minimal album template. It renders without naming any derivative, so sizes stay free. */
 static const char* const ALBUM_TEMPLATE =
-    "<!doctype html><title>{{album.title}} - {{gallery.title}}</title>"
+    "<!doctype html><title>{{album.title}} - {{site.title}}</title>"
     "{{#has_media}}<ul>{{#media}}<li>{{title}}</li>{{/media}}</ul>{{/has_media}}";
 
 /**
@@ -54,9 +54,9 @@ static const char* const ALBUM_TEMPLATE =
  * its links, its derivatives' URLs and dimensions, and its title.
  */
 static const char* const LARGE_ALBUM_TEMPLATE =
-    "<!doctype html><title>{{album.title}} - {{gallery.title}}</title><main>"
+    "<!doctype html><title>{{album.title}} - {{site.title}}</title><main>"
     "{{#media}}<a class=\"item{{#is_image}} item--image{{/is_image}}"
-    "{{#is_video}} item--video{{/is_video}}\" href=\"{{original_url}}\" download=\"{{title}}\" "
+    "{{#is_video}} item--video{{/is_video}}\" href=\"{{url}}\" download=\"{{title}}\" "
     "data-small-src=\"{{s.url}}\" data-small-width=\"{{s.width}}\" "
     "data-small-height=\"{{s.height}}\"><img src=\"{{m.url}}\" width=\"{{m.width}}\" "
     "height=\"{{m.height}}\" alt=\"{{title}}\"><span>{{title}}</span></a>{{/media}}</main>";
@@ -92,7 +92,7 @@ static void write_gallery_fixture(struct Os* os, const char* config_extra) {
   if (config_extra != NULL) {
     buf_append(&config, str_from_cstr(config_extra));
   }
-  buf_append(&config, str_from_cstr(GALLERY_CONFIG));
+  buf_append(&config, str_from_cstr(SITE_CONFIG));
   os_memory_write(os, "fram.toml", buf_cstr(&config));
 }
 
@@ -164,7 +164,7 @@ static int execute_build_with_options(const struct BuildOptions* options,
  * @return `0` on success, or `-1` on build failure.
  */
 static int execute_build(struct Os* os, struct Log* log) {
-  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT};
   return execute_build_with_options(&options, os, log);
 }
 
@@ -176,8 +176,7 @@ static int execute_build(struct Os* os, struct Log* log) {
  * @return `0` on success, or `-1` on build failure.
  */
 static int execute_dry_run(struct Os* os, struct Log* log) {
-  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
-                                       .is_dry_run = true};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .is_dry_run = true};
   return execute_build_with_options(&options, os, log);
 }
 
@@ -356,8 +355,7 @@ static void build_in_tiny_arena(void* userdata) {
   struct JobArenas worker_arenas[1] = {
       {.perm = arena_split(&rest, sizeof(memory) / 4), .scratch = rest}};
   struct Log log = test_log();
-  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
-                                       .worker_count = 1};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .worker_count = 1};
   (void)cmd_build_execute(&options, worker_arenas, userdata, perm, scratch, &log);
 }
 
@@ -423,7 +421,7 @@ static void test_tolerates_trailing_slash_on_media_dir(void) {
 // `sub/public`, and nothing lands beside `sub`.
 static void test_builds_from_config_in_a_subdirectory(void) {
   struct Os* os = os_memory();
-  os_memory_write(os, "sub/fram.toml", GALLERY_CONFIG);
+  os_memory_write(os, "sub/fram.toml", SITE_CONFIG);
   os_memory_write(os, "sub/templates/album.html", ALBUM_TEMPLATE);
   os_memory_write(os, "sub/static/fram.css", "body{}\n");
   write_jpeg(os, "sub/photos/album/one.jpg");
@@ -734,8 +732,7 @@ static void test_force_probes_every_source(void) {
   TEST_CHECK(execute_build(os, &log) == 0);
   os_memory_fail(os, OS_MEMORY_OP_READ, "photos", EACCES);
 
-  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
-                                       .is_forced = true};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .is_forced = true};
   TEST_CHECK(execute_build_with_options(&options, os, &log) == -1);
   TEST_CHECK(
       test_log_is(&log, "failed to probe media: %s ('photos/album/one.jpg')\n", strerror(EACCES)));
@@ -786,8 +783,7 @@ static void test_ignores_build_cache_of_another_build(void) {
   os_memory_write_bytes(os, str_from_cstr(cache_file), buf_str(&other));
   os_memory_fail(os, OS_MEMORY_OP_READ, "photos", EACCES);
 
-  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
-                                       .is_verbose = true};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .is_verbose = true};
   TEST_CHECK(execute_build_with_options(&options, os, &log) == -1);
   TEST_CHECK(
       test_log_is(&log, "failed to probe media: %s ('photos/album/one.jpg')\n", strerror(EACCES)));
@@ -871,7 +867,7 @@ static void test_honors_requested_worker_count(void) {
     for (ptrdiff_t j = 0; j < (ptrdiff_t)(sizeof(photo_paths) / sizeof(photo_paths[0])); j++) {
       write_jpeg(os, photo_paths[j]);
     }
-    const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
+    const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT,
                                          .worker_count = worker_counts[i],
                                          .is_verbose = true};
     TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
@@ -901,7 +897,7 @@ static void test_caps_the_worker_count_at_four_per_cpu(void) {
   write_gallery_fixture(os, NULL);
   write_jpeg(os, "photos/one.jpg");
   const struct BuildOptions options = {
-      .config_path = GALLERY_CONFIG_PATH_DEFAULT, .worker_count = 100000, .is_verbose = true};
+      .config_path = SITE_CONFIG_PATH_DEFAULT, .worker_count = 100000, .is_verbose = true};
   TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
   static const char* const phases[] = {"probing media", "generating derivatives",
                                        "rendering albums"};
@@ -931,7 +927,7 @@ static void test_cuts_workers_before_arenas_under_limit(void) {
     write_gallery_fixture(os, NULL);
     write_jpeg(os, "photos/one.jpg");
     const struct BuildOptions options = {
-        .config_path = GALLERY_CONFIG_PATH_DEFAULT, .worker_count = 4, .is_verbose = true};
+        .config_path = SITE_CONFIG_PATH_DEFAULT, .worker_count = 4, .is_verbose = true};
     arena_reserve_len_max = cases[i].len_max;
     TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
     arena_reserve_len_max = PTRDIFF_MAX;
@@ -961,8 +957,7 @@ static void test_builds_a_large_album(void) {
     (void)snprintf(path, sizeof(path), "photos/big/%05d.jpg", i);
     os_memory_write_bytes(os, str_from_cstr(path), jpeg);
   }
-  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
-                                       .worker_count = 1};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .worker_count = 1};
   struct Log log = test_log();
   TEST_CHECK(execute_build_with_options(&options, os, &log) == 0);
   TEST_MSG("errors: %s", buf_cstr(&log.buf));
@@ -978,7 +973,7 @@ static void test_skips_empty_phases_in_verbose_output(void) {
   // A file that is not media keeps `media_dir` present while the gallery holds no media.
   os_memory_write(os, "photos/notes.txt", "not media\n");
   const struct BuildOptions options = {
-      .config_path = GALLERY_CONFIG_PATH_DEFAULT, .worker_count = 3, .is_verbose = true};
+      .config_path = SITE_CONFIG_PATH_DEFAULT, .worker_count = 3, .is_verbose = true};
 
   TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
@@ -1022,7 +1017,7 @@ static void test_leaves_log_empty_on_success(void) {
 static void test_run_prints_diagnostic_once_and_fails(void) {
   // No `fram.toml`, the earliest failure, so the diagnostic is a single known line.
   struct Os* os = os_memory();
-  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT};
 
   TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_FAILURE);
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
@@ -1073,7 +1068,7 @@ static void test_reports_absent_media_dir(void) {
 // one that happened to be checked first. A root that cannot be inspected reports its own cause.
 static void test_reports_absent_templates_dir(void) {
   struct Os* os = os_memory();
-  os_memory_write(os, "fram.toml", GALLERY_CONFIG);
+  os_memory_write(os, "fram.toml", SITE_CONFIG);
   write_jpeg(os, "photos/album/one.jpg");
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == -1);
@@ -1139,7 +1134,7 @@ static void test_reports_a_rejected_static_dir_once(void) {
 static void test_reports_templates_dir_that_is_a_file(void) {
   struct Os* os = os_memory();
   struct Log log = test_log();
-  os_memory_write(os, "fram.toml", GALLERY_CONFIG);
+  os_memory_write(os, "fram.toml", SITE_CONFIG);
   write_jpeg(os, "photos/album/one.jpg");
   os_memory_write(os, "templates", "not a directory\n");
 
@@ -1193,8 +1188,7 @@ static void test_rejects_output_dir_inside_media_dir(void) {
   struct Os* os = os_memory();
   write_gallery_fixture(os, "output_dir = \"photos/generated/site\"\n");
   write_jpeg(os, "photos/album/one.jpg");
-  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
-                                       .is_verbose = true};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .is_verbose = true};
 
   TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_FAILURE);
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
@@ -1212,8 +1206,7 @@ static void test_rejects_output_dir_holding_media_dir(void) {
   struct Os* os = os_memory();
   write_gallery_fixture(os, "output_dir = \".\"\n");
   write_jpeg(os, "photos/album/one.jpg");
-  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
-                                       .is_verbose = true};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .is_verbose = true};
 
   TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_FAILURE);
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
@@ -1453,8 +1446,7 @@ static void test_rejects_oversize_source_at_probe(void) {
   write_gallery_fixture(os, NULL);
   write_jpeg(os, "photos/big.jpg");
   os_memory_truncate(os, "photos/big.jpg", big_source_len);
-  const struct BuildOptions options = {.config_path = GALLERY_CONFIG_PATH_DEFAULT,
-                                       .worker_count = 1};
+  const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .worker_count = 1};
   struct Log log = test_log();
 
   TEST_CHECK(execute_build_with_options(&options, os, &log) == -1);

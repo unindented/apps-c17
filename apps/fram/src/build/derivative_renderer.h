@@ -7,7 +7,7 @@
 #include "core/arena.h"
 #include "media/image.h"
 
-struct GalleryConfig;
+struct SiteConfig;
 struct JobArenas;
 struct Log;
 struct MediaItem;
@@ -37,28 +37,28 @@ struct VideoFrame;
  * Each finished job reports progress when `is_verbose`. Failing jobs' errors go to `log` in media
  * order, as `job_run` collects them.
  *
- * @param writer         Writer every output is written through, by every worker at once. Must not
- *                       be `NULL`.
- * @param gallery_config Configured derivative sizes, crops, and qualities shared by every job. Must
- *                       not be `NULL`.
- * @param media          Probed media items, one job per item. Must not be `NULL`.
- * @param media_count    Number of items in `media`.
- * @param video_frames   Frame slots, one per item in `media`, filled by the probe for a video it
- *                       probed, and by the job for one the build cache answered for. Must not be
- *                       `NULL`.
- * @param worker_count   Requested worker threads, as for `pool_run`.
- * @param worker_arenas  One `JobArenas` per requested worker, as for `job_run`. Must not be `NULL`.
- * @param is_verbose     Whether progress is printed to `stderr`.
- * @param os             Host the sources, frames and outputs are read from and progress printed on,
- *                       by every worker at once. Must not be `NULL`.
- * @param scratch        Arena for the phase's own bookkeeping, as for `job_run`.
- * @param log            Log that receives the collected derivative errors. Its arena must be none
- *                       of the others. Must not be `NULL`.
+ * @param writer        Writer every output is written through, by every worker at once. Must not be
+ *                      `NULL`.
+ * @param site_config   Configured derivative sizes, crops, and qualities shared by every job. Must
+ *                      not be `NULL`.
+ * @param media         Probed media items, one job per item. Must not be `NULL`.
+ * @param media_count   Number of items in `media`.
+ * @param video_frames  Frame slots, one per item in `media`, filled by the probe for a video it
+ *                      probed, and by the job for one the build cache answered for. Must not be
+ *                      `NULL`.
+ * @param worker_count  Requested worker threads, as for `pool_run`.
+ * @param worker_arenas One `JobArenas` per requested worker, as for `job_run`. Must not be `NULL`.
+ * @param is_verbose    Whether progress is printed to `stderr`.
+ * @param os            Host the sources, frames and outputs are read from and progress printed on,
+ *                      by every worker at once. Must not be `NULL`.
+ * @param scratch       Arena for the phase's own bookkeeping, as for `job_run`.
+ * @param log           Log that receives the collected derivative errors. Its arena must be none of
+ *                      the others. Must not be `NULL`.
  * @return `0` when every job succeeded, or `-1` when a derivative job failed or the worker pool
  *         could not start.
  */
 int derivative_renderer_generate(const struct OutputWriter* writer,
-                                 const struct GalleryConfig* gallery_config,
+                                 const struct SiteConfig* site_config,
                                  struct MediaItem* const* media,
                                  ptrdiff_t media_count,
                                  struct VideoFrame* video_frames,
@@ -77,16 +77,16 @@ int derivative_renderer_generate(const struct OutputWriter* writer,
  * decoder's DCT reduction, does the final reduction. A source too small for that at any reduced
  * scale decodes at full size.
  *
- * @param gallery_config Configured derivatives. Must not be `NULL`.
- * @param item           Media item, with one derivative per configured one. Must not be `NULL`.
- * @param is_stale       One flag per derivative of the item, `true` where the output is rewritten.
- *                       Must not be `NULL`.
- * @param width_px       Stored width of the source, as its JPEG header gives it.
- * @param height_px      Stored height of the source, as its JPEG header gives it.
- * @param orientation    Orientation the decoded source is given.
+ * @param site_config Configured derivatives. Must not be `NULL`.
+ * @param item        Media item, with one derivative per configured one. Must not be `NULL`.
+ * @param is_stale    One flag per derivative of the item, `true` where the output is rewritten.
+ *                    Must not be `NULL`.
+ * @param width_px    Stored width of the source, as its JPEG header gives it.
+ * @param height_px   Stored height of the source, as its JPEG header gives it.
+ * @param orientation Orientation the decoded source is given.
  * @return The decode scale, in eighths, from 1 through `IMAGE_SCALE_FULL`.
  */
-ptrdiff_t derivative_renderer_decode_scale(const struct GalleryConfig* gallery_config,
+ptrdiff_t derivative_renderer_decode_scale(const struct SiteConfig* site_config,
                                            const struct MediaItem* item,
                                            const bool* is_stale,
                                            ptrdiff_t width_px,

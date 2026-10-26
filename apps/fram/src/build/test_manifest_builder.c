@@ -13,8 +13,8 @@
 #include "core/path_list.h"
 #include "core/str.h"
 #include "domain/album.h"
-#include "domain/gallery_config.h"
 #include "domain/media_item.h"
+#include "domain/site_config.h"
 #include "os/os_memory.h"
 #include "output/manifest.h"
 #include "testing/test_support.h"
@@ -34,15 +34,15 @@
  * `gallery/templates`, and `static_dir` is `gallery/static`. No aggregate template is configured.
  * Only the two files exist, so no source, static file, or output is present.
  *
- * @param gallery_config Configuration to initialize. Must not be `NULL`.
+ * @param site_config Configuration to initialize. Must not be `NULL`.
  * @return The host.
  */
-static struct Os* init_manifest_fixture(struct GalleryConfig* gallery_config) {
-  gallery_config_init(gallery_config);
-  gallery_config->media_dir = S("gallery/photos");
-  gallery_config->output_dir = S("gallery/public");
-  gallery_config->templates_dir = S("gallery/templates");
-  gallery_config->static_dir = S("gallery/static");
+static struct Os* init_manifest_fixture(struct SiteConfig* site_config) {
+  site_config_init(site_config);
+  site_config->media_dir = S("gallery/photos");
+  site_config->output_dir = S("gallery/public");
+  site_config->templates_dir = S("gallery/templates");
+  site_config->static_dir = S("gallery/static");
   struct Os* os = os_memory();
   os_memory_write(os, "gallery/fram.toml", "title = 'x'\n");
   os_memory_write(os, "gallery/templates/album.html", "album");
@@ -55,18 +55,18 @@ static struct Os* init_manifest_fixture(struct GalleryConfig* gallery_config) {
  * The manifest's data goes in a reservation of its own, never in the log's arena, so a failure the
  * log records cannot grow over the paths the populate is still using.
  *
- * @param manifest       Manifest that receives the outputs. Must not be `NULL`.
- * @param gallery_config Configuration to populate from. Must not be `NULL`.
- * @param source_paths   Claimed media sources, or `NULL` for none.
- * @param static_paths   Enumerated static files, or `NULL` for none.
- * @param albums         Array of `album_count` albums. Must not be `NULL`.
- * @param album_count    Number of albums.
- * @param os             Host the fixture is on. Must not be `NULL`.
- * @param log            Log that receives every error. Must not be `NULL`.
+ * @param manifest     Manifest that receives the outputs. Must not be `NULL`.
+ * @param site_config  Configuration to populate from. Must not be `NULL`.
+ * @param source_paths Claimed media sources, or `NULL` for none.
+ * @param static_paths Enumerated static files, or `NULL` for none.
+ * @param albums       Array of `album_count` albums. Must not be `NULL`.
+ * @param album_count  Number of albums.
+ * @param os           Host the fixture is on. Must not be `NULL`.
+ * @param log          Log that receives every error. Must not be `NULL`.
  * @return The result of `manifest_builder_populate`.
  */
 static int populate(struct Manifest* manifest,
-                    const struct GalleryConfig* gallery_config,
+                    const struct SiteConfig* site_config,
                     const struct PathList* source_paths,
                     const struct PathList* static_paths,
                     const struct Album* const* albums,
@@ -75,7 +75,7 @@ static int populate(struct Manifest* manifest,
                     struct Log* log) {
   static const struct PathList empty = {0};
   struct Arena perm = test_arena();
-  return manifest_builder_populate(manifest, gallery_config, CONFIG_PATH,
+  return manifest_builder_populate(manifest, site_config, CONFIG_PATH,
                                    source_paths != NULL ? source_paths : &empty,
                                    static_paths != NULL ? static_paths : &empty, albums,
                                    album_count, os, &perm, test_arena(), log);
@@ -84,12 +84,12 @@ static int populate(struct Manifest* manifest,
 /**
  * @brief Populates a manifest with one root album page and checks the input-root rejection.
  *
- * @param gallery_config Configuration whose roots the page is checked against. Must not be `NULL`.
- * @param output_path    Terminated output path of the root album page. Must not be `NULL`.
- * @param root_key       Config key of the root the diagnostic must name. Must not be `NULL`.
- * @param os             Host the fixture is on. Must not be `NULL`.
+ * @param site_config Configuration whose roots the page is checked against. Must not be `NULL`.
+ * @param output_path Terminated output path of the root album page. Must not be `NULL`.
+ * @param root_key    Config key of the root the diagnostic must name. Must not be `NULL`.
+ * @param os          Host the fixture is on. Must not be `NULL`.
  */
-static void check_rejects_output_in_root(const struct GalleryConfig* gallery_config,
+static void check_rejects_output_in_root(const struct SiteConfig* site_config,
                                          const char* output_path,
                                          const char* root_key,
                                          struct Os* os) {
@@ -97,31 +97,31 @@ static void check_rejects_output_in_root(const struct GalleryConfig* gallery_con
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
   struct Log log = test_log();
-  TEST_CHECK(populate(&manifest, gallery_config, NULL, NULL, albums, 1, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log, "output path would write inside '%s' for '%.*s': '%s'\n", root_key,
-                         STR_FMT(gallery_config->media_dir), output_path));
+                         STR_FMT(site_config->media_dir), output_path));
 }
 
 /**
- * @brief Checks that `manifest_builder_check_output_dir` rejects `gallery_config->output_dir` and
+ * @brief Checks that `manifest_builder_check_output_dir` rejects `site_config->output_dir` and
  *        creates nothing.
  *
- * @param gallery_config Configuration whose `output_dir` lies at or below an input root. Must not
- *                       be `NULL`.
- * @param root_key       Config key of the root the diagnostic must name. Must not be `NULL`.
- * @param os             Host the fixture is on. Must not be `NULL`.
+ * @param site_config Configuration whose `output_dir` lies at or below an input root. Must not be
+ *                    `NULL`.
+ * @param root_key    Config key of the root the diagnostic must name. Must not be `NULL`.
+ * @param os          Host the fixture is on. Must not be `NULL`.
  */
-static void check_rejects_output_dir_in_root(const struct GalleryConfig* gallery_config,
+static void check_rejects_output_dir_in_root(const struct SiteConfig* site_config,
                                              const char* root_key,
                                              struct Os* os) {
   struct Arena arena = test_arena();
-  const char* output_dir = str_cstr(gallery_config->output_dir, &arena);
+  const char* output_dir = str_cstr(site_config->output_dir, &arena);
   const bool had_output_dir = os_memory_has_path(os, output_dir);
   struct Log log = test_log();
-  TEST_CHECK(
-      manifest_builder_check_output_dir(gallery_config, CONFIG_PATH, os, test_arena(), &log) == -1);
+  TEST_CHECK(manifest_builder_check_output_dir(site_config, CONFIG_PATH, os, test_arena(), &log) ==
+             -1);
   TEST_CHECK(test_log_is(&log, "output directory would write inside '%s': '%.*s'\n", root_key,
-                         STR_FMT(gallery_config->output_dir)));
+                         STR_FMT(site_config->output_dir)));
   TEST_CHECK(os_memory_has_path(os, output_dir) == had_output_dir);
   TEST_MSG("output_dir: '%s'", output_dir);
 }
@@ -130,33 +130,33 @@ static void check_rejects_output_dir_in_root(const struct GalleryConfig* gallery
  * @brief Checks that `manifest_builder_check_output_dir` rejects an `output_dir` that holds an
  *        input.
  *
- * @param gallery_config Configuration whose `output_dir` holds an input root or the configuration
- *                       file. Must not be `NULL`.
- * @param held           Held input as the diagnostic names it, such as `'media_dir'` or
- *                       `the config`. Must not be `NULL`.
- * @param os             Host the fixture is on. Must not be `NULL`.
+ * @param site_config Configuration whose `output_dir` holds an input root or the configuration
+ *                    file. Must not be `NULL`.
+ * @param held        Held input as the diagnostic names it, such as `'media_dir'` or `the config`.
+ *                    Must not be `NULL`.
+ * @param os          Host the fixture is on. Must not be `NULL`.
  */
-static void check_rejects_output_dir_holding(const struct GalleryConfig* gallery_config,
+static void check_rejects_output_dir_holding(const struct SiteConfig* site_config,
                                              const char* held,
                                              struct Os* os) {
   struct Log log = test_log();
-  TEST_CHECK(
-      manifest_builder_check_output_dir(gallery_config, CONFIG_PATH, os, test_arena(), &log) == -1);
+  TEST_CHECK(manifest_builder_check_output_dir(site_config, CONFIG_PATH, os, test_arena(), &log) ==
+             -1);
   TEST_CHECK(test_log_is(&log, "output directory would hold %s: '%.*s'\n", held,
-                         STR_FMT(gallery_config->output_dir)));
-  TEST_MSG("output_dir: '%.*s'", STR_FMT(gallery_config->output_dir));
+                         STR_FMT(site_config->output_dir)));
+  TEST_MSG("output_dir: '%.*s'", STR_FMT(site_config->output_dir));
 }
 
 // Every album, derivative, original, aggregate, and static file output is registered exactly once.
 static void test_registers_complete_output_set(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/photos/x.jpg", "source");
   os_memory_write(os, "gallery/templates/map.xml", "map");
   os_memory_write(os, "gallery/static/a.txt", "static");
   static const struct Str aggregates[] = {STR_INIT("map.xml")};
-  gallery_config.aggregate_templates = aggregates;
-  gallery_config.aggregate_template_count = 1;
+  site_config.aggregate_templates = aggregates;
+  site_config.aggregate_template_count = 1;
   struct MediaDerivative derivatives[] = {
       {.name = S("s"), .path = S("gallery/public/_fram/r/s/x.jpg")},
       {.name = S("m"), .path = S("gallery/public/_fram/r/m/x.jpg")},
@@ -180,8 +180,7 @@ static void test_registers_complete_output_set(void) {
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, &sources, &static_paths, albums, 1, os, &log) ==
-             0);
+  TEST_CHECK(populate(&manifest, &site_config, &sources, &static_paths, albums, 1, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   // The seven outputs of the gallery, and the build cache.
   TEST_CHECK(manifest.count == 7 + 1);
@@ -192,15 +191,15 @@ static void test_registers_complete_output_set(void) {
 // manifest runs, as `test_reports_absent_templates_dir` in `src/app/test_cmd_build.c` pins, so this
 // is the module's own contract rather than a path the build reaches.
 static void test_accepts_missing_templates_dir(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
-  gallery_config.templates_dir = S("gallery/missing");
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
+  site_config.templates_dir = S("gallery/missing");
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 1, os, &log) == 0);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   // The root page and the build cache.
   TEST_CHECK(manifest.count == 2);
@@ -209,12 +208,12 @@ static void test_accepts_missing_templates_dir(void) {
 // An output beside an input root, in a directory whose name only starts with the root's name, is
 // accepted, because the root check compares whole directories rather than path prefixes.
 static void test_accepts_output_beside_input_roots(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/photos/x.jpg", "source");
   os_memory_write(os, "gallery/static/a.css", "static");
   os_memory_write(os, "gallery/photosx/old.html", "old");
-  gallery_config.output_dir = S("gallery");
+  site_config.output_dir = S("gallery");
   struct Album photos_album = {.source_dir = S("a"),
                                .output_path = S("gallery/photosx/index.html")};
   struct Album templates_album = {.source_dir = S("b"),
@@ -225,7 +224,7 @@ static void test_accepts_output_beside_input_roots(void) {
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 3, os, &log) == 0);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 3, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
 }
 
@@ -233,8 +232,8 @@ static void test_accepts_output_beside_input_roots(void) {
 // whether or not it exists yet. That includes a directory whose name only starts with a root's
 // name.
 static void test_check_output_dir_accepts_dir_outside_input_roots(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/photos/x.jpg", "source");
   os_memory_write(os, "gallery/static/a.css", "static");
   os_memory_mkdir(os, "gallery/public");
@@ -244,10 +243,10 @@ static void test_check_output_dir_accepts_dir_outside_input_roots(void) {
       STR_INIT("gallery/photos/../public/new"),
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(output_dirs) / sizeof(output_dirs[0])); i++) {
-    gallery_config.output_dir = output_dirs[i];
+    site_config.output_dir = output_dirs[i];
     struct Log log = test_log();
-    TEST_CHECK(manifest_builder_check_output_dir(&gallery_config, CONFIG_PATH, os, test_arena(),
-                                                 &log) == 0);
+    TEST_CHECK(
+        manifest_builder_check_output_dir(&site_config, CONFIG_PATH, os, test_arena(), &log) == 0);
     TEST_CHECK(test_log_is_empty(&log));
     TEST_MSG("output_dir: '%.*s'", STR_FMT(output_dirs[i]));
   }
@@ -255,8 +254,8 @@ static void test_check_output_dir_accepts_dir_outside_input_roots(void) {
 
 // Two albums claiming the same output path are rejected with a diagnostic naming the path.
 static void test_rejects_duplicate(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   struct Album first_album = {.source_dir = S("a"),
                               .output_path = S("gallery/public/trip/index.html")};
   struct Album second_album = {.source_dir = S("b"),
@@ -265,7 +264,7 @@ static void test_rejects_duplicate(void) {
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 2, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 2, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "duplicate output path for 'gallery/photos/a' and 'gallery/photos/b': "
                          "'gallery/public/trip/index.html'\n"));
@@ -274,8 +273,8 @@ static void test_rejects_duplicate(void) {
 // Every collision is reported in one run, in registration order, rather than only the first. A
 // rejected claim is not recorded, so the manifest keeps one path from each pair.
 static void test_reports_every_collision(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   struct Album album_a = {.source_dir = S("a"), .output_path = S("gallery/public/one/index.html")};
   struct Album album_b = {.source_dir = S("b"), .output_path = S("gallery/public/one/index.html")};
   struct Album album_c = {.source_dir = S("c"), .output_path = S("gallery/public/two/index.html")};
@@ -284,7 +283,7 @@ static void test_reports_every_collision(void) {
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 4, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 4, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "duplicate output path for 'gallery/photos/a' and 'gallery/photos/b': "
                          "'gallery/public/one/index.html'\n"
@@ -300,8 +299,8 @@ static void test_reports_every_collision(void) {
 // They are rejected as a duplicate on every platform, so a gallery that builds on Linux does not
 // break on macOS. The trailing path is the second claim's own spelling.
 static void test_rejects_case_folded_duplicate(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   struct Album first_album = {.source_dir = S("a"),
                               .output_path = S("gallery/public/Trip/index.html")};
   struct Album second_album = {.source_dir = S("b"),
@@ -310,7 +309,7 @@ static void test_rejects_case_folded_duplicate(void) {
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 2, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 2, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "duplicate output path for 'gallery/photos/a' and 'gallery/photos/b': "
                          "'gallery/public/trip/index.html'\n"));
@@ -321,8 +320,8 @@ static void test_rejects_case_folded_duplicate(void) {
 // message and the path trails. The ancestor path is not repeated because it is a prefix of the path
 // that is printed.
 static void test_rejects_prefix_collision(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   struct Album file_album = {.source_dir = S("a"), .output_path = S("gallery/public/trip")};
   struct Album nested_album = {.source_dir = S("b"),
                                .output_path = S("gallery/public/trip/index.html")};
@@ -330,7 +329,7 @@ static void test_rejects_prefix_collision(void) {
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 2, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 2, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "output path for 'gallery/photos/b' nests under output path for "
                          "'gallery/photos/a': 'gallery/public/trip/index.html'\n"));
@@ -338,8 +337,8 @@ static void test_rejects_prefix_collision(void) {
 
 // Every output that nests under another is reported in one run, not only the first.
 static void test_rejects_every_prefix_collision(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   static const char* const names[][2] = {{"a", "gallery/public/trip"},
                                          {"b", "gallery/public/trip/index.html"},
                                          {"c", "gallery/public/walk"},
@@ -354,7 +353,7 @@ static void test_rejects_every_prefix_collision(void) {
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, album_list, 4, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, album_list, 4, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "output path for 'gallery/photos/b' nests under output path for "
                          "'gallery/photos/a': 'gallery/public/trip/index.html'\n"
@@ -366,18 +365,18 @@ static void test_rejects_every_prefix_collision(void) {
 // The root album and a configured `index.html` aggregate collide before any writer runs. The root
 // is labeled by `media_dir`, a real path, rather than a placeholder a sub-album could share.
 static void test_rejects_album_aggregate_collision(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/templates/index.html", "aggregate");
   static const struct Str aggregates[] = {STR_INIT("index.html")};
-  gallery_config.aggregate_templates = aggregates;
-  gallery_config.aggregate_template_count = 1;
+  site_config.aggregate_templates = aggregates;
+  site_config.aggregate_template_count = 1;
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 1, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "duplicate output path for 'gallery/photos' and 'aggregate_templates[0]': "
                          "'gallery/public/index.html'\n"));
@@ -387,17 +386,17 @@ static void test_rejects_album_aggregate_collision(void) {
 // rather than by its own name. A bare template name reports it as `for 'dup.html' and 'dup.html'`,
 // which reads as a value colliding with itself and says nothing about which entry to remove.
 static void test_rejects_duplicate_template(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   static const struct Str aggregates[] = {STR_INIT("dup.html"), STR_INIT("dup.html")};
-  gallery_config.aggregate_templates = aggregates;
-  gallery_config.aggregate_template_count = 2;
+  site_config.aggregate_templates = aggregates;
+  site_config.aggregate_template_count = 2;
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 1, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "duplicate output path for 'aggregate_templates[0]' and "
                          "'aggregate_templates[1]': 'gallery/public/dup.html'\n"));
@@ -408,8 +407,8 @@ static void test_rejects_duplicate_template(void) {
 // media source, so the two paths differ and only filesystem identity sees the collision. An output
 // inside `media_dir` fails the root check first, as `test_rejects_output_in_media_dir` pins.
 static void test_rejects_input_overwrite(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/photos/x.jpg", "source");
   os_memory_link(os, "gallery/photos/x.jpg", "gallery/public/x.jpg");
   struct MediaDerivative derivatives[] = {
@@ -432,7 +431,7 @@ static void test_rejects_input_overwrite(void) {
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, &sources, NULL, albums, 1, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, &sources, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "output path would overwrite build input for 'gallery/photos/x.jpg': "
                          "'gallery/public/x.jpg'\n"));
@@ -444,8 +443,8 @@ static void test_rejects_input_overwrite(void) {
 // original is a hard link to its source, for the reason `test_rejects_input_overwrite` gives.
 static void test_rejects_input_overwrite_among_many_inputs(void) {
   enum { SOURCE_COUNT = 32 };
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/public/existing.jpg", "output");
   struct Arena arena = test_arena();
   struct PathList sources = {0};
@@ -482,7 +481,7 @@ static void test_rejects_input_overwrite_among_many_inputs(void) {
     struct Manifest manifest = {0};
     struct Log log = test_log();
 
-    TEST_CHECK(populate(&manifest, &gallery_config, &sources, NULL, albums, 1, os, &log) == -1);
+    TEST_CHECK(populate(&manifest, &site_config, &sources, NULL, albums, 1, os, &log) == -1);
     const struct Str original_path = buf_str(&original);
     TEST_CHECK(test_log_is(&log, "output path would overwrite build input for '%.*s': '%.*s'\n",
                            STR_FMT(target), STR_FMT(original_path)));
@@ -495,18 +494,18 @@ static void test_rejects_input_overwrite_among_many_inputs(void) {
 // the gallery root plus an aggregate template named `fram.toml` is all it takes, and the loss is
 // unrecoverable.
 static void test_rejects_config_overwrite(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   static const struct Str aggregates[] = {STR_INIT("fram.toml")};
-  gallery_config.output_dir = S("gallery");
-  gallery_config.aggregate_templates = aggregates;
-  gallery_config.aggregate_template_count = 1;
+  site_config.output_dir = S("gallery");
+  site_config.aggregate_templates = aggregates;
+  site_config.aggregate_template_count = 1;
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 1, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "output path would overwrite build input for 'aggregate_templates[0]': "
                          "'gallery/fram.toml'\n"));
@@ -519,8 +518,8 @@ static void test_rejects_config_overwrite(void) {
 // configuration, so only the walk of the template tree can claim it, which is the case a claim of
 // just the configured templates would miss.
 static void test_rejects_template_overwrite(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/templates/partials/card.html", "card");
   os_memory_link(os, "gallery/templates/album.html", "gallery/public/index.html");
   os_memory_link(os, "gallery/templates/partials/card.html", "gallery/public/card.html");
@@ -531,7 +530,7 @@ static void test_rejects_template_overwrite(void) {
   const struct Album* template_albums[] = {&template_album};
   struct Manifest template_manifest = {0};
   struct Log template_log = test_log();
-  TEST_CHECK(populate(&template_manifest, &gallery_config, NULL, NULL, template_albums, 1, os,
+  TEST_CHECK(populate(&template_manifest, &site_config, NULL, NULL, template_albums, 1, os,
                       &template_log) == -1);
   TEST_CHECK(test_log_is(&template_log,
                          "output path would overwrite build input for 'gallery/photos': "
@@ -539,13 +538,13 @@ static void test_rejects_template_overwrite(void) {
 
   // Second case: an aggregate lands on a hard link to an unconfigured partial.
   static const struct Str aggregates[] = {STR_INIT("card.html")};
-  gallery_config.aggregate_templates = aggregates;
-  gallery_config.aggregate_template_count = 1;
+  site_config.aggregate_templates = aggregates;
+  site_config.aggregate_template_count = 1;
   struct Album partial_album = {.source_dir = S(""), .output_path = S("gallery/public/page.html")};
   const struct Album* partial_albums[] = {&partial_album};
   struct Manifest partial_manifest = {0};
   struct Log partial_log = test_log();
-  TEST_CHECK(populate(&partial_manifest, &gallery_config, NULL, NULL, partial_albums, 1, os,
+  TEST_CHECK(populate(&partial_manifest, &site_config, NULL, NULL, partial_albums, 1, os,
                       &partial_log) == -1);
   TEST_CHECK(test_log_is(&partial_log,
                          "output path would overwrite build input for 'aggregate_templates[0]': "
@@ -557,8 +556,8 @@ static void test_rejects_template_overwrite(void) {
 // directory it would be created in, so a nested path, a `..` past a missing component, and a path
 // through a symlinked root all land where `os_mkdirs` would put them.
 static void test_check_output_dir_rejects_dir_in_input_root(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/photos/public/old.html", "old");
   os_memory_write(os, "gallery/static/a.css", "static");
   os_memory_symlink(os, "photos", "gallery/photos-link");
@@ -571,14 +570,14 @@ static void test_check_output_dir_rejects_dir_in_input_root(void) {
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(input_output_dirs) / sizeof(input_output_dirs[0]));
        i++) {
-    gallery_config.output_dir = input_output_dirs[i];
-    check_rejects_output_dir_in_root(&gallery_config, "media_dir", os);
+    site_config.output_dir = input_output_dirs[i];
+    check_rejects_output_dir_in_root(&site_config, "media_dir", os);
   }
 
-  gallery_config.output_dir = S("gallery/templates/partials");
-  check_rejects_output_dir_in_root(&gallery_config, "templates_dir", os);
-  gallery_config.output_dir = S("gallery/static/generated");
-  check_rejects_output_dir_in_root(&gallery_config, "static_dir", os);
+  site_config.output_dir = S("gallery/templates/partials");
+  check_rejects_output_dir_in_root(&site_config, "templates_dir", os);
+  site_config.output_dir = S("gallery/static/generated");
+  check_rejects_output_dir_in_root(&site_config, "static_dir", os);
 }
 
 // An `output_dir` that holds an input root or the configuration file is rejected, because deleting
@@ -586,8 +585,8 @@ static void test_check_output_dir_rejects_dir_in_input_root(void) {
 // a `..` spelling and a symlink to the holding directory are rejected the same way. Each root is
 // reported while it is held, and the configuration file once no root is.
 static void test_check_output_dir_rejects_dir_holding_input(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/photos/x.jpg", "source");
   os_memory_write(os, "gallery/static/a.css", "static");
   os_memory_write(os, "elsewhere/photos/x.jpg", "source");
@@ -601,17 +600,17 @@ static void test_check_output_dir_rejects_dir_holding_input(void) {
       STR_INIT("gallery-link"),
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(holding_dirs) / sizeof(holding_dirs[0])); i++) {
-    gallery_config.output_dir = holding_dirs[i];
-    check_rejects_output_dir_holding(&gallery_config, "'media_dir'", os);
+    site_config.output_dir = holding_dirs[i];
+    check_rejects_output_dir_holding(&site_config, "'media_dir'", os);
   }
 
-  gallery_config.output_dir = S("gallery");
-  gallery_config.media_dir = S("elsewhere/photos");
-  check_rejects_output_dir_holding(&gallery_config, "'templates_dir'", os);
-  gallery_config.templates_dir = S("elsewhere/templates");
-  check_rejects_output_dir_holding(&gallery_config, "'static_dir'", os);
-  gallery_config.static_dir = S("elsewhere/static");
-  check_rejects_output_dir_holding(&gallery_config, "the config", os);
+  site_config.output_dir = S("gallery");
+  site_config.media_dir = S("elsewhere/photos");
+  check_rejects_output_dir_holding(&site_config, "'templates_dir'", os);
+  site_config.templates_dir = S("elsewhere/templates");
+  check_rejects_output_dir_holding(&site_config, "'static_dir'", os);
+  site_config.static_dir = S("elsewhere/static");
+  check_rejects_output_dir_holding(&site_config, "the config", os);
 }
 
 // An output that would land below `media_dir` is rejected even though no file sits at its path yet,
@@ -619,46 +618,46 @@ static void test_check_output_dir_rejects_dir_holding_input(void) {
 // alternate spelling of it, a symlink to it, a symlink inside `output_dir` that leads into it, and
 // an `output_dir` inside it are rejected the same way.
 static void test_rejects_output_in_media_dir(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/photos/x.jpg", "source");
   os_memory_symlink(os, "photos", "gallery/photos-link");
   os_memory_mkdir(os, "gallery/out");
   os_memory_symlink(os, "../photos", "gallery/out/link");
 
   // The output is a new file below the root, reached from an `output_dir` that holds the root.
-  gallery_config.output_dir = S("gallery");
-  check_rejects_output_in_root(&gallery_config, "gallery/photos/b.html", "media_dir", os);
+  site_config.output_dir = S("gallery");
+  check_rejects_output_in_root(&site_config, "gallery/photos/b.html", "media_dir", os);
 
   // The root is configured through a symlink and spelled with a `./` component.
-  gallery_config.media_dir = S("gallery/./photos-link");
-  check_rejects_output_in_root(&gallery_config, "gallery/photos/sub/b.html", "media_dir", os);
+  site_config.media_dir = S("gallery/./photos-link");
+  check_rejects_output_in_root(&site_config, "gallery/photos/sub/b.html", "media_dir", os);
 
   // A symlink inside `output_dir` leads into the root.
-  gallery_config.media_dir = S("gallery/photos");
-  gallery_config.output_dir = S("gallery/out");
-  check_rejects_output_in_root(&gallery_config, "gallery/out/link/b.html", "media_dir", os);
+  site_config.media_dir = S("gallery/photos");
+  site_config.output_dir = S("gallery/out");
+  check_rejects_output_in_root(&site_config, "gallery/out/link/b.html", "media_dir", os);
 }
 
 // An output that would land below `templates_dir` is rejected even though no file sits at its path
 // yet, because the same build's render could read it back as a partial. The check covers configured
 // aggregate outputs as well as album pages.
 static void test_rejects_output_in_templates_dir(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
-  gallery_config.output_dir = S("gallery");
-  check_rejects_output_in_root(&gallery_config, "gallery/templates/partials/b.html",
-                               "templates_dir", os);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
+  site_config.output_dir = S("gallery");
+  check_rejects_output_in_root(&site_config, "gallery/templates/partials/b.html", "templates_dir",
+                               os);
 
   // A configured aggregate whose name leads into the template tree is rejected by its list entry.
   static const struct Str aggregates[] = {STR_INIT("templates/index.html")};
-  gallery_config.aggregate_templates = aggregates;
-  gallery_config.aggregate_template_count = 1;
+  site_config.aggregate_templates = aggregates;
+  site_config.aggregate_template_count = 1;
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
   struct Log log = test_log();
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 1, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "output path would write inside 'templates_dir' for "
                          "'aggregate_templates[0]': 'gallery/templates/index.html'\n"));
@@ -667,11 +666,11 @@ static void test_rejects_output_in_templates_dir(void) {
 // An output that would land below `static_dir` is rejected, because the next build would copy it as
 // a static file.
 static void test_rejects_output_in_static_dir(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/static/a.css", "static");
-  gallery_config.output_dir = S("gallery");
-  check_rejects_output_in_root(&gallery_config, "gallery/static/b.html", "static_dir", os);
+  site_config.output_dir = S("gallery");
+  check_rejects_output_in_root(&site_config, "gallery/static/b.html", "static_dir", os);
 }
 
 // An output inside an input root is reported once for the album that leads there: a sub-album or a
@@ -679,14 +678,14 @@ static void test_rejects_output_in_static_dir(void) {
 // Every other source is reported, in whichever root it lands, because its output may land there for
 // a reason of its own, like the static file here.
 static void test_reports_input_root_once_per_album(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/photos/x.jpg", "source");
   os_memory_write(os, "gallery/static/link/y.css", "y");
   os_memory_mkdir(os, "gallery/out");
   os_memory_symlink(os, "../photos", "gallery/out/link");
   os_memory_symlink(os, "../templates", "gallery/out/tlink");
-  gallery_config.output_dir = S("gallery/out");
+  site_config.output_dir = S("gallery/out");
 
   struct Album root = {.source_dir = S(""), .output_path = S("gallery/out/link/index.html")};
   struct Album a = {.source_dir = S("a"), .output_path = S("gallery/out/link/a/index.html")};
@@ -699,7 +698,7 @@ static void test_reports_input_root_once_per_album(void) {
   path_list_push(&static_paths, S("gallery/static/link/y.css"), &arena);
   struct Manifest manifest = {0};
   struct Log log = test_log();
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, &static_paths, albums, 4, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, &static_paths, albums, 4, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "output path would write inside 'media_dir' for 'gallery/photos': "
                          "'gallery/out/link/index.html'\n"
@@ -715,16 +714,16 @@ static void test_reports_input_root_once_per_album(void) {
 // path the walk failed on, so the configured root is not repeated ahead of it. A regular file in
 // place of the directory and a subdirectory that refuses to be listed fail the same way.
 static void test_rejects_unlistable_templates_dir(void) {
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/templates-file", "not a directory");
-  gallery_config.templates_dir = S("gallery/templates-file");
+  site_config.templates_dir = S("gallery/templates-file");
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 1, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(
       &log, "failed to list templates: cannot open directory: %s ('gallery/templates-file')\n",
       strerror(ENOTDIR)));
@@ -732,9 +731,9 @@ static void test_rejects_unlistable_templates_dir(void) {
 
   os_memory_write(os, "gallery/templates/partials/card.html", "card");
   os_memory_fail(os, OS_MEMORY_OP_LIST, "gallery/templates/partials", EACCES);
-  gallery_config.templates_dir = S("gallery/templates");
+  site_config.templates_dir = S("gallery/templates");
   log = test_log();
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 1, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(
       &log, "failed to list templates: cannot open directory: %s ('gallery/templates/partials')\n",
       strerror(EACCES)));
@@ -748,15 +747,15 @@ static void test_rejects_oversize_template_path(void) {
   name[sizeof(name) - 1] = '\0';
   const struct Str aggregates[] = {{name, (ptrdiff_t)sizeof(name) - 1}};
 
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
-  gallery_config.aggregate_templates = aggregates;
-  gallery_config.aggregate_template_count = 1;
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
+  site_config.aggregate_templates = aggregates;
+  site_config.aggregate_template_count = 1;
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
   struct Log log = test_log();
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 1, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "output path for 'aggregate_templates[0]' exceeds max output path length "
                          "(%d bytes) at %td bytes: '%.*s'\n",
@@ -771,16 +770,16 @@ static void test_rejects_oversize_template_segment(void) {
   name[sizeof(name) - 1] = '\0';
   const struct Str aggregates[] = {{name, (ptrdiff_t)sizeof(name) - 1}};
 
-  struct GalleryConfig gallery_config;
-  struct Os* os = init_manifest_fixture(&gallery_config);
-  gallery_config.aggregate_templates = aggregates;
-  gallery_config.aggregate_template_count = 1;
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
+  site_config.aggregate_templates = aggregates;
+  site_config.aggregate_template_count = 1;
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(populate(&manifest, &gallery_config, NULL, NULL, albums, 1, os, &log) == -1);
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "output path segment for 'aggregate_templates[0]' exceeds max filename "
                          "length (%d bytes) at %zu bytes: '%s'\n",

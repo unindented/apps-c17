@@ -87,9 +87,9 @@ This table lists every key that the config file can contain. `fram` rejects any 
 
 | Key | Default | Bounds | Meaning |
 | --- | --- | --- | --- |
-| `title` | Required | A string | The title of the gallery, `gallery.title` in templates. The root album also uses this title. |
-| `description` | Required | A string | The description of the gallery, `gallery.description` in templates. |
-| `author` | Required | A string | The name of the gallery's author, `gallery.author` in templates. |
+| `title` | Required | A string | The title of the gallery, `site.title` in templates. The root album also uses this title. |
+| `description` | Required | A string | The description of the gallery, `site.description` in templates. |
+| `author` | Required | A string | The name of the gallery's author, `site.author` in templates. |
 | `base_url` | `""` | Empty, which is the same as absent, or an `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. | The absolute URL where you deploy the gallery. `fram` removes any trailing `/`. If it is not set, a template can read it as an empty section. |
 | `media_dir` | `"media"` | Must be a directory | The directory that contains the media files. |
 | `output_dir` | `"public"` | Not empty | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
@@ -97,7 +97,7 @@ This table lists every key that the config file can contain. `fram` rejects any 
 | `static_dir` | `"static"` | A directory, if it exists | The directory of files that the build copies into `output_dir` without changes. A build skips it when it does not exist. |
 | `album_template` | `"album.html"` | A safe relative template name | The template for each album page. |
 | `aggregate_templates` | `[]` | An array of safe relative template names | The templates that the build renders once, with the context of the root album. |
-| `derivatives` | `s`, `m`, and `l` | One to six derivatives | The named derivatives. See [Derivatives](#derivatives). |
+| `derivatives` | `s`, `m`, and `l` | One to six derivatives, named `xs`, `s`, `m`, `l`, `xl` or `xxl` | The named derivatives. See [Derivatives](#derivatives). |
 | `sort` | `{ albums = "asc", media = "asc" }` | `"asc"` or `"desc"` for each | The order of the immediate child albums and the direct media items of each album, by source filename. |
 | `video_frame_seconds` | `1` | 0 to 86400 | The preferred position of the video poster frame, in seconds. A video that is shorter than this uses its midpoint. |
 
@@ -219,7 +219,7 @@ derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, m 
 
 A `derivatives` table replaces the defaults and does not add to them, so a gallery that adds a derivative such as `xl` must also list each default derivative that it still uses.
 
-A gallery can define from one through six derivatives. A derivative name must be at most 15 bytes long, must start with an ASCII letter, and can contain only ASCII letters, digits, and `_`. Each name becomes a template field and an output directory. Each derivative must set `width` and `height`, each at most 16,383, which define a bounding box, and `quality`, the WebP quality, from 1 through 100. With `crop = true`, `fram` crops the image around its center to the aspect ratio of the bounding box before it resizes the image. The default value of `crop` is `false`. `fram` does not enlarge a media file that is smaller than the bounding box.
+A gallery can define from one through six derivatives, named after their size: `xs`, `s`, `m`, `l`, `xl` and `xxl`. Each name becomes a field of each media item and an output directory, and a fixed name never hides another key of the template data. Each derivative must set `width` and `height`, each at most 16,383, which define a bounding box, and `quality`, the WebP quality, from 1 through 100. With `crop = true`, `fram` crops the image around its center to the aspect ratio of the bounding box before it resizes the image. The default value of `crop` is `false`. `fram` does not enlarge a media file that is smaller than the bounding box.
 
 `fram` applies the EXIF orientation before it sizes the derivatives, and then applies the crop policy of each derivative separately. It decodes each media file at a smaller scale, in eighths, and uses the smallest scale that still gives each stale derivative of the file at least twice its own size to resize from. So `fram` decodes only a fraction of the pixels of a large photo. The derivative workers share one memory budget of about 2 GiB to decode media files and write derivatives, so this memory does not increase with `--workers`. The budget lets at least two images of the maximum size decode at the same time, and more images of a smaller size. If a derivative has more than about 55 million pixels, each job that writes it runs alone.
 
@@ -229,7 +229,7 @@ The directory segments of generated albums and the filenames of generated media 
 
 Derivatives are at `_fram/<recipe>/<album-slug>/<media-slug>-<derivative>.webp`. The media slug includes the source extension, so `foo.jpg` becomes `foo-jpg`. All derivatives of one media item are thus in one album directory. The recipe name includes the name, dimensions, crop policy, and WebP quality of each derivative, the poster-frame position, and the version of the derivative algorithm. Thus a build never reuses derivatives from an older recipe after you change a setting that affects the output. Originals are at `_fram/originals/<album-slug>/<media-slug>.<source-extension>`.
 
-Every URL that `fram` generates is relative and uses the slugs of the output names, so the same output works through `file://`, or on a server below any URL prefix.
+Every `url` that `fram` generates is relative and uses the slugs of the output names, so the same output works through `file://`, or on a server below any URL prefix. Each `absolute_url` is the same path below `base_url`, and is empty when `base_url` is not set.
 
 ## Templates
 
@@ -244,17 +244,17 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 
 Every page and aggregate that `fram` renders is valid UTF-8 without the characters that XML 1.0 forbids, so a browser and a feed reader accept it. `fram` replaces each invalid sequence in a value or a template with U+FFFD, and drops the C0 control characters but tab, line feed and carriage return, and U+FFFE and U+FFFF.
 
-Each album, media item and derivative sets every one of its fields, and an absent value or a false flag is empty, so a section over it is skipped, and the field never resolves from an enclosing album. A name that the album, item or derivative does not have is looked up in the enclosing scopes, as Mustache does.
+Each album, media item and derivative sets every one of its fields, and an absent value or a false flag is empty, so a section over it is skipped, and the field never resolves from an enclosing album. A name that the album, item or derivative does not have is looked up in the enclosing scopes, as Mustache does. A flag such as `is_last` is `true` when it holds, and empty otherwise, so it works both as a section and as text.
 
 Every template gets these keys:
 
 | Key | Value |
 | --- | --- |
-| `gallery.title`, `gallery.description`, `gallery.author`, `gallery.base_url` | The values from the configuration. |
-| `album.title`, `album.url`, `album.media_count_total`, `album.cover`, `album.has_media`, `album.has_sub_albums`, `album.parent` | The fields of the current album. They are also available at the top level. `album.media_count_total` counts the media items of the album and of every album below it. `album.cover` is a media value, so its named derivatives are available in the same way as for `media`. It is empty for an album with no media below it. `album.parent` is empty for the root album. |
+| `site.title`, `site.description`, `site.author`, `site.base_url` | The values from the configuration. |
+| `album.title`, `album.url`, `album.absolute_url`, `album.media_count_total`, `album.cover`, `album.has_media`, `album.has_sub_albums`, `album.parent` | The fields of the current album. They are also available at the top level. `album.media_count_total` counts the media items of the album and of every album below it. `album.cover` is a media value, so its named derivatives are available in the same way as for `media`. It is empty for an album with no media below it. `album.parent` is empty for the root album. |
 | `sub_albums` | The immediate child albums, each with the album fields. |
-| `breadcrumbs` | The albums from the root album through the current album, each with the album fields and `is_last`, which is true only for the current album on its own page. Its `url` is empty there, so the page does not link to itself. An aggregate is not an album's page, so no crumb of it is last. |
-| `media` | The media items directly in the current album. Each item has `title`, `kind` (`image` or `video`), `is_image`, `is_video`, `original_url`, and `duration`, the length of a video in milliseconds, empty for an image. Each configured derivative is also a named child with `url`, `width`, and `height`, so the defaults give `s.url`, `s.width`, `s.height`, `m.url`, and so on. If a derivative has the same name as a built-in media field, the built-in field takes precedence. |
+| `breadcrumbs` | The albums from the root album through the current album, each with the album fields and `is_last`, which is true only for the current album on its own page. Its `url` is empty there, so the page does not link to itself, and its `absolute_url` still names the page. An aggregate is not an album's page, so no crumb of it is last. |
+| `media` | The media items directly in the current album. Each item has `title`, `kind` (`image` or `video`), `is_image`, `is_video`, `url` (the copied original), `absolute_url`, and `duration`, the length of a video in milliseconds, empty for an image. Each configured derivative is also a named child with `url`, `absolute_url`, `width`, and `height`, so the defaults give `s.url`, `s.width`, `s.height`, `m.url`, and so on. Each `absolute_url` is its `url`'s path below `base_url`, for a sitemap or a feed, and is empty when `base_url` is not set. |
 | `generator` | The name and version of `fram`, for a tag such as `<meta name="generator" content="{{generator}}">`. |
 | `path_to_root` | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. It stays the page's prefix inside `sub_albums`, `breadcrumbs` and `parent`. |
 
@@ -266,7 +266,7 @@ A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A p
   <h1>{{album.title}}</h1>
   <ul>
     {{#media}}
-    <li><a href="{{original_url}}"><img src="{{s.url}}" width="{{s.width}}" height="{{s.height}}" alt="{{title}}"></a></li>
+    <li><a href="{{url}}"><img src="{{s.url}}" width="{{s.width}}" height="{{s.height}}" alt="{{title}}"></a></li>
     {{/media}}
   </ul>
 </main>

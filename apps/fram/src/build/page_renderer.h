@@ -10,7 +10,7 @@
 struct Album;
 struct JobArenas;
 struct Log;
-struct GalleryConfig;
+struct SiteConfig;
 struct Os;
 struct TemplateSet;
 
@@ -33,7 +33,7 @@ struct RenderedPage {
  * reports progress when `is_verbose`. Failing jobs' errors go to `log` in album order, as `job_run`
  * collects them.
  *
- * @param gallery_config Configuration supplying the album template name. Must not be `NULL`.
+ * @param site_config    Configuration supplying the album template name. Must not be `NULL`.
  * @param template_set   Templates every page renders from, read by every worker at once. Must not
  *                       be `NULL`.
  * @param albums         Albums to render, one job per element. Read-only during the run. Must not
@@ -54,7 +54,7 @@ struct RenderedPage {
  * @return `0` when every job succeeded, or `-1` when a render job failed or the worker pool could
  *         not start.
  */
-int page_renderer_render_pages(const struct GalleryConfig* gallery_config,
+int page_renderer_render_pages(const struct SiteConfig* site_config,
                                const struct TemplateSet* template_set,
                                const struct Album* const* albums,
                                ptrdiff_t album_count,

@@ -10,7 +10,7 @@
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
-#include "domain/gallery_config.h"
+#include "domain/site_config.h"
 #include "media/image.h"
 #include "os/os_memory.h"
 #include "testing/test_support.h"
@@ -37,47 +37,47 @@ enum { EXPECTED_SIZE = 8192 };
  * Each call reserves its own two arenas, so the loaded values stay valid for the rest of the test
  * and never overlap the scratch the load worked in.
  *
- * @param gallery_config Initialized config that receives the values. Must not be `NULL`.
- * @param config_path    Terminated path of the config to load. Must not be `NULL`.
- * @param os             Host that holds the config. Must not be `NULL`.
- * @param log            Log that receives every error the load records. Must not be `NULL`.
+ * @param site_config Initialized config that receives the values. Must not be `NULL`.
+ * @param config_path Terminated path of the config to load. Must not be `NULL`.
+ * @param os          Host that holds the config. Must not be `NULL`.
+ * @param log         Log that receives every error the load records. Must not be `NULL`.
  * @return `0` when the config was loaded with no error, or `-1` when it could not be read or
- *         parsed, or any key was rejected. `gallery_config_load` itself returns `0` in the last
- *         case, which `test_load_returns_zero_with_key_errors` pins.
+ *         parsed, or any key was rejected. `site_config_load` itself returns `0` in the last case,
+ *         which `test_load_returns_zero_with_key_errors` pins.
  */
-static int load_gallery_config(struct GalleryConfig* gallery_config,
-                               const char* config_path,
-                               struct Os* os,
-                               struct Log* log) {
+static int load_site_config(struct SiteConfig* site_config,
+                            const char* config_path,
+                            struct Os* os,
+                            struct Log* log) {
   struct Arena perm = test_arena();
   const int rc =
-      gallery_config_load(gallery_config, str_from_cstr(config_path), os, &perm, test_arena(), log);
+      site_config_load(site_config, str_from_cstr(config_path), os, &perm, test_arena(), log);
   return rc != 0 || log->errors > 0 ? -1 : 0;
 }
 
 /**
- * @brief Writes TOML to `CONFIG_PATH` on a fresh host and loads it, as `load_gallery_config` does.
+ * @brief Writes TOML to `CONFIG_PATH` on a fresh host and loads it, as `load_site_config` does.
  *
- * @param gallery_config Initialized config that receives the values. Must not be `NULL`.
- * @param toml           Terminated TOML text of the config. Must not be `NULL`.
- * @param log            Log that receives every error the load records. Must not be `NULL`.
- * @return The result of `load_gallery_config`.
+ * @param site_config Initialized config that receives the values. Must not be `NULL`.
+ * @param toml        Terminated TOML text of the config. Must not be `NULL`.
+ * @param log         Log that receives every error the load records. Must not be `NULL`.
+ * @return The result of `load_site_config`.
  */
-static int load_text(struct GalleryConfig* gallery_config, const char* toml, struct Log* log) {
+static int load_text(struct SiteConfig* site_config, const char* toml, struct Log* log) {
   struct Os* os = os_memory();
   os_memory_write(os, CONFIG_PATH, toml);
-  return load_gallery_config(gallery_config, CONFIG_PATH, os, log);
+  return load_site_config(site_config, CONFIG_PATH, os, log);
 }
 
 /**
  * @brief Prints a gallery configuration on a fresh host.
  *
- * @param gallery_config Configuration to print. Must not be `NULL`.
- * @return The host, whose standard output holds what `gallery_config_print` wrote.
+ * @param site_config Configuration to print. Must not be `NULL`.
+ * @return The host, whose standard output holds what `site_config_print` wrote.
  */
-static struct Os* print_config(const struct GalleryConfig* gallery_config) {
+static struct Os* print_config(const struct SiteConfig* site_config) {
   struct Os* os = os_memory();
-  TEST_CHECK(gallery_config_print(gallery_config, os, test_arena()) == 0);
+  TEST_CHECK(site_config_print(site_config, os, test_arena()) == 0);
   return os;
 }
 
@@ -100,13 +100,13 @@ static bool is_resolved(struct Str dir, const char* relative_path) {
  * @brief Loads a config and checks it fails with one diagnostic.
  *
  * @param toml     Terminated TOML of the whole config.
- * @param expected Exact diagnostic `gallery_config_load` must report.
+ * @param expected Exact diagnostic `site_config_load` must report.
  */
 static void check_load_rejects_whole(const char* toml, const char* expected) {
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == -1);
+  TEST_CHECK(load_text(&site_config, toml, &log) == -1);
   TEST_CHECK(test_log_is_one(&log, expected));
 }
 
@@ -114,7 +114,7 @@ static void check_load_rejects_whole(const char* toml, const char* expected) {
  * @brief Loads a config with the given extra TOML and checks it fails with one diagnostic.
  *
  * @param toml_extra Terminated TOML appended to the required keys of an otherwise valid config.
- * @param expected   Exact diagnostic `gallery_config_load` must report.
+ * @param expected   Exact diagnostic `site_config_load` must report.
  */
 static void check_load_rejects(const char* toml_extra, const char* expected) {
   char toml[4096];
@@ -128,7 +128,7 @@ static void check_load_rejects(const char* toml_extra, const char* expected) {
   check_load_rejects_whole(toml, expected);
 }
 
-// Loading a file with only the required keys fills the rest from `gallery_config_init`'s defaults,
+// Loading a file with only the required keys fills the rest from `site_config_init`'s defaults,
 // each directory resolved against the config's directory.
 static void test_load_applies_required_and_defaults(void) {
   const char toml[] =
@@ -136,41 +136,41 @@ static void test_load_applies_required_and_defaults(void) {
       "description = \"Example Description\"\n"
       "author = \"Example Author\"\n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == 0);
+  TEST_CHECK(load_text(&site_config, toml, &log) == 0);
 
-  TEST_CHECK(str_eq(config.title, S("Example Gallery")));
-  TEST_CHECK(str_eq(config.description, S("Example Description")));
-  TEST_CHECK(str_eq(config.author, S("Example Author")));
-  TEST_CHECK(str_eq(config.base_url, S("")));
-  TEST_CHECK(is_resolved(config.media_dir, "media"));
-  TEST_CHECK(is_resolved(config.output_dir, "public"));
-  TEST_CHECK(is_resolved(config.templates_dir, "templates"));
-  TEST_CHECK(is_resolved(config.static_dir, "static"));
-  TEST_CHECK(str_eq(config.album_template, S("album.html")));
-  TEST_CHECK(config.aggregate_templates != NULL);
-  TEST_CHECK(config.aggregate_template_count == 0);
-  TEST_ASSERT(config.derivative_count == 3);
-  TEST_CHECK(str_eq(config.derivatives[0].name, S("s")));
-  TEST_CHECK(config.derivatives[0].width_px == 120);
-  TEST_CHECK(config.derivatives[0].height_px == 120);
-  TEST_CHECK(config.derivatives[0].quality == 70);
-  TEST_CHECK(config.derivatives[0].is_crop);
-  TEST_CHECK(str_eq(config.derivatives[1].name, S("m")));
-  TEST_CHECK(config.derivatives[1].width_px == 520);
-  TEST_CHECK(config.derivatives[1].height_px == 360);
-  TEST_CHECK(config.derivatives[1].quality == 80);
-  TEST_CHECK(config.derivatives[1].is_crop);
-  TEST_CHECK(str_eq(config.derivatives[2].name, S("l")));
-  TEST_CHECK(config.derivatives[2].width_px == 792);
-  TEST_CHECK(config.derivatives[2].height_px == 594);
-  TEST_CHECK(config.derivatives[2].quality == 85);
-  TEST_CHECK(!config.derivatives[2].is_crop);
-  TEST_CHECK(config.album_sort_order == GALLERY_SORT_ASC);
-  TEST_CHECK(config.media_sort_order == GALLERY_SORT_ASC);
-  TEST_CHECK(config.video_frame_seconds == 1);
+  TEST_CHECK(str_eq(site_config.title, S("Example Gallery")));
+  TEST_CHECK(str_eq(site_config.description, S("Example Description")));
+  TEST_CHECK(str_eq(site_config.author, S("Example Author")));
+  TEST_CHECK(str_eq(site_config.base_url, S("")));
+  TEST_CHECK(is_resolved(site_config.media_dir, "media"));
+  TEST_CHECK(is_resolved(site_config.output_dir, "public"));
+  TEST_CHECK(is_resolved(site_config.templates_dir, "templates"));
+  TEST_CHECK(is_resolved(site_config.static_dir, "static"));
+  TEST_CHECK(str_eq(site_config.album_template, S("album.html")));
+  TEST_CHECK(site_config.aggregate_templates != NULL);
+  TEST_CHECK(site_config.aggregate_template_count == 0);
+  TEST_ASSERT(site_config.derivative_count == 3);
+  TEST_CHECK(str_eq(site_config.derivatives[0].name, S("s")));
+  TEST_CHECK(site_config.derivatives[0].width_px == 120);
+  TEST_CHECK(site_config.derivatives[0].height_px == 120);
+  TEST_CHECK(site_config.derivatives[0].quality == 70);
+  TEST_CHECK(site_config.derivatives[0].is_crop);
+  TEST_CHECK(str_eq(site_config.derivatives[1].name, S("m")));
+  TEST_CHECK(site_config.derivatives[1].width_px == 520);
+  TEST_CHECK(site_config.derivatives[1].height_px == 360);
+  TEST_CHECK(site_config.derivatives[1].quality == 80);
+  TEST_CHECK(site_config.derivatives[1].is_crop);
+  TEST_CHECK(str_eq(site_config.derivatives[2].name, S("l")));
+  TEST_CHECK(site_config.derivatives[2].width_px == 792);
+  TEST_CHECK(site_config.derivatives[2].height_px == 594);
+  TEST_CHECK(site_config.derivatives[2].quality == 85);
+  TEST_CHECK(!site_config.derivatives[2].is_crop);
+  TEST_CHECK(site_config.album_sort_order == GALLERY_SORT_ASC);
+  TEST_CHECK(site_config.media_sort_order == GALLERY_SORT_ASC);
+  TEST_CHECK(site_config.video_frame_seconds == 1);
 }
 
 // Loading a file that sets every optional key overrides each corresponding default.
@@ -186,39 +186,39 @@ static void test_load_overrides_optional_keys(void) {
       "static_dir = \"files\"\n"
       "album_template = \"pages/album.html\"\n"
       "aggregate_templates = [\"sitemap.xml\", \"about/index.html\"]\n"
-      "derivatives = { tiny = { width = 200, height = 150, quality = 61, crop = true }, "
-      "display = { width = 1200, height = 900, quality = 93 } }\n"
+      "derivatives = { xs = { width = 200, height = 150, quality = 61, crop = true }, "
+      "xl = { width = 1200, height = 900, quality = 93 } }\n"
       "sort = { albums = \"desc\", media = \"desc\" }\n"
       "video_frame_seconds = 17\n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == 0);
+  TEST_CHECK(load_text(&site_config, toml, &log) == 0);
 
-  TEST_CHECK(str_eq(config.base_url, S("https://example.com")));
-  TEST_CHECK(is_resolved(config.media_dir, "photos"));
-  TEST_CHECK(is_resolved(config.output_dir, "dist"));
-  TEST_CHECK(is_resolved(config.templates_dir, "layouts"));
-  TEST_CHECK(is_resolved(config.static_dir, "files"));
-  TEST_CHECK(str_eq(config.album_template, S("pages/album.html")));
-  TEST_ASSERT(config.aggregate_template_count == 2);
-  TEST_CHECK(str_eq(config.aggregate_templates[0], S("sitemap.xml")));
-  TEST_CHECK(str_eq(config.aggregate_templates[1], S("about/index.html")));
-  TEST_ASSERT(config.derivative_count == 2);
-  TEST_CHECK(str_eq(config.derivatives[0].name, S("tiny")));
-  TEST_CHECK(config.derivatives[0].width_px == 200);
-  TEST_CHECK(config.derivatives[0].height_px == 150);
-  TEST_CHECK(config.derivatives[0].quality == 61);
-  TEST_CHECK(config.derivatives[0].is_crop);
-  TEST_CHECK(str_eq(config.derivatives[1].name, S("display")));
-  TEST_CHECK(config.derivatives[1].width_px == 1200);
-  TEST_CHECK(config.derivatives[1].height_px == 900);
-  TEST_CHECK(config.derivatives[1].quality == 93);
-  TEST_CHECK(!config.derivatives[1].is_crop);
-  TEST_CHECK(config.album_sort_order == GALLERY_SORT_DESC);
-  TEST_CHECK(config.media_sort_order == GALLERY_SORT_DESC);
-  TEST_CHECK(config.video_frame_seconds == 17);
+  TEST_CHECK(str_eq(site_config.base_url, S("https://example.com")));
+  TEST_CHECK(is_resolved(site_config.media_dir, "photos"));
+  TEST_CHECK(is_resolved(site_config.output_dir, "dist"));
+  TEST_CHECK(is_resolved(site_config.templates_dir, "layouts"));
+  TEST_CHECK(is_resolved(site_config.static_dir, "files"));
+  TEST_CHECK(str_eq(site_config.album_template, S("pages/album.html")));
+  TEST_ASSERT(site_config.aggregate_template_count == 2);
+  TEST_CHECK(str_eq(site_config.aggregate_templates[0], S("sitemap.xml")));
+  TEST_CHECK(str_eq(site_config.aggregate_templates[1], S("about/index.html")));
+  TEST_ASSERT(site_config.derivative_count == 2);
+  TEST_CHECK(str_eq(site_config.derivatives[0].name, S("xs")));
+  TEST_CHECK(site_config.derivatives[0].width_px == 200);
+  TEST_CHECK(site_config.derivatives[0].height_px == 150);
+  TEST_CHECK(site_config.derivatives[0].quality == 61);
+  TEST_CHECK(site_config.derivatives[0].is_crop);
+  TEST_CHECK(str_eq(site_config.derivatives[1].name, S("xl")));
+  TEST_CHECK(site_config.derivatives[1].width_px == 1200);
+  TEST_CHECK(site_config.derivatives[1].height_px == 900);
+  TEST_CHECK(site_config.derivatives[1].quality == 93);
+  TEST_CHECK(!site_config.derivatives[1].is_crop);
+  TEST_CHECK(site_config.album_sort_order == GALLERY_SORT_DESC);
+  TEST_CHECK(site_config.media_sort_order == GALLERY_SORT_DESC);
+  TEST_CHECK(site_config.video_frame_seconds == 17);
 }
 
 // Directory keys have trailing separators trimmed at load. Left in place, a trailing slash defeats
@@ -235,15 +235,15 @@ static void test_load_normalizes_directory_keys(void) {
       "templates_dir = \"../shared/templates/\"\n"
       "static_dir = \"files/\"\n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == 0);
+  TEST_CHECK(load_text(&site_config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(is_resolved(config.media_dir, "media"));
-  TEST_CHECK(str_eq(config.output_dir, S("/srv/www")));
-  TEST_CHECK(is_resolved(config.templates_dir, "../shared/templates"));
-  TEST_CHECK(is_resolved(config.static_dir, "files"));
+  TEST_CHECK(is_resolved(site_config.media_dir, "media"));
+  TEST_CHECK(str_eq(site_config.output_dir, S("/srv/www")));
+  TEST_CHECK(is_resolved(site_config.templates_dir, "../shared/templates"));
+  TEST_CHECK(is_resolved(site_config.static_dir, "files"));
 }
 
 // An absolute `base_url` keeps its scheme, host, port and path, and loses only a trailing `/`,
@@ -268,12 +268,12 @@ static void test_load_normalizes_base_url(void) {
                            cases[i][0]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml));
 
-    struct GalleryConfig config;
-    gallery_config_init(&config);
+    struct SiteConfig site_config;
+    site_config_init(&site_config);
     struct Log log = test_log();
-    TEST_CHECK(load_text(&config, toml, &log) == 0);
+    TEST_CHECK(load_text(&site_config, toml, &log) == 0);
     TEST_CHECK(log.errors == 0);
-    TEST_CHECK(str_eq(config.base_url, str_from_cstr(cases[i][1])));
+    TEST_CHECK(str_eq(site_config.base_url, str_from_cstr(cases[i][1])));
   }
 }
 
@@ -286,12 +286,12 @@ static void test_load_accepts_empty_base_url(void) {
       "author = \"Example Author\"\n"
       "base_url = \"\"\n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == 0);
+  TEST_CHECK(load_text(&site_config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(config.base_url.len == 0);
+  TEST_CHECK(site_config.base_url.len == 0);
 }
 
 // Overlapping directories load, because comparing path text cannot tell whether two directories
@@ -304,13 +304,13 @@ static void test_load_leaves_directory_overlap_to_the_build(void) {
       "media_dir = \"photos\"\n"
       "output_dir = \"photos/generated\"\n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == 0);
+  TEST_CHECK(load_text(&site_config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(is_resolved(config.media_dir, "photos"));
-  TEST_CHECK(is_resolved(config.output_dir, "photos/generated"));
+  TEST_CHECK(is_resolved(site_config.media_dir, "photos"));
+  TEST_CHECK(is_resolved(site_config.output_dir, "photos/generated"));
 }
 
 // A relative directory, given or default, resolves against the config's directory, and an absolute
@@ -324,15 +324,15 @@ static void test_load_resolves_paths_against_config_dir(void) {
                   "media_dir = \"../photos\"\n"
                   "templates_dir = \"tpl\"\n"
                   "static_dir = \"/srv/static\"\n");
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, "sub/fram.toml", os, &log) == 0);
+  TEST_CHECK(load_site_config(&site_config, "sub/fram.toml", os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  TEST_CHECK(str_eq(config.media_dir, S("sub/../photos")));
-  TEST_CHECK(str_eq(config.output_dir, S("sub/public")));
-  TEST_CHECK(str_eq(config.templates_dir, S("sub/tpl")));
-  TEST_CHECK(str_eq(config.static_dir, S("/srv/static")));
+  TEST_CHECK(str_eq(site_config.media_dir, S("sub/../photos")));
+  TEST_CHECK(str_eq(site_config.output_dir, S("sub/public")));
+  TEST_CHECK(str_eq(site_config.templates_dir, S("sub/tpl")));
+  TEST_CHECK(str_eq(site_config.static_dir, S("/srv/static")));
 }
 
 // Each `sort` key is read on its own. Each case sets the two keys to different orders, so a load
@@ -353,12 +353,12 @@ static void test_load_reads_sort_orders_independently(void) {
     TEST_ASSERT(snprintf(toml, sizeof(toml),
                          "title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\n%s",
                          cases[i].toml_extra) > 0);
-    struct GalleryConfig config;
-    gallery_config_init(&config);
+    struct SiteConfig site_config;
+    site_config_init(&site_config);
     struct Log log = test_log();
-    TEST_CHECK(load_text(&config, toml, &log) == 0);
-    TEST_CHECK(config.album_sort_order == cases[i].album_sort_order);
-    TEST_CHECK(config.media_sort_order == cases[i].media_sort_order);
+    TEST_CHECK(load_text(&site_config, toml, &log) == 0);
+    TEST_CHECK(site_config.album_sort_order == cases[i].album_sort_order);
+    TEST_CHECK(site_config.media_sort_order == cases[i].media_sort_order);
     TEST_MSG("case %td", i);
   }
 }
@@ -372,12 +372,12 @@ static void test_load_accepts_empty_sort_table(void) {
       "author = \"Example Author\"\n"
       "[sort]\n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == 0);
-  TEST_CHECK(config.album_sort_order == GALLERY_SORT_ASC);
-  TEST_CHECK(config.media_sort_order == GALLERY_SORT_ASC);
+  TEST_CHECK(load_text(&site_config, toml, &log) == 0);
+  TEST_CHECK(site_config.album_sort_order == GALLERY_SORT_ASC);
+  TEST_CHECK(site_config.media_sort_order == GALLERY_SORT_ASC);
 }
 
 // Zero is accepted, which is the boundary below every other accepting case in this file. A guard of
@@ -390,20 +390,20 @@ static void test_load_accepts_zero_video_frame_seconds(void) {
       "author = \"Example Author\"\n"
       "video_frame_seconds = 0\n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == 0);
+  TEST_CHECK(load_text(&site_config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_CHECK(config.video_frame_seconds == 0);
+  TEST_CHECK(site_config.video_frame_seconds == 0);
 }
 
 // Loading a config path that does not exist reports a read failure naming the path and cause.
 static void test_load_rejects_missing_file(void) {
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, CONFIG_PATH, os_memory(), &log) == -1);
+  TEST_CHECK(load_site_config(&site_config, CONFIG_PATH, os_memory(), &log) == -1);
   // The cause distinguishes a missing file from an unreadable or malformed one. Derived from the
   // running libc rather than hardcoded, so the assertion is the whole claim and stays portable.
   char reason[ERROR_SYSTEM_MESSAGE_SIZE];
@@ -416,18 +416,18 @@ static void test_load_rejects_missing_file(void) {
 }
 
 // A config larger than `CONFIG_FILE_LEN_MAX` is rejected at the read, from its size, naming the
-// limit and the size. The constant is file-local to `gallery_config.c`, so the 1 MiB below is
-// spelled out and must change with it. The host stores only the size of the bytes past the end, so
-// the fixture costs no memory.
+// limit and the size. The constant is file-local to `site_config.c`, so the 1 MiB below is spelled
+// out and must change with it. The host stores only the size of the bytes past the end, so the
+// fixture costs no memory.
 static void test_load_rejects_oversize_file(void) {
   enum { CONFIG_FILE_LEN_MAX = 1024 * 1024 };
   struct Os* os = os_memory();
   os_memory_write(os, CONFIG_PATH, "title = \"Gallery\"\n");
   os_memory_truncate(os, CONFIG_PATH, CONFIG_FILE_LEN_MAX + 1);
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, CONFIG_PATH, os, &log) == -1);
+  TEST_CHECK(load_site_config(&site_config, CONFIG_PATH, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "failed to read config: exceeds max file size (%d bytes) at %d bytes "
                          "('" CONFIG_PATH "')\n",
@@ -442,24 +442,24 @@ static void test_load_rejects_nul_in_file(void) {
   static const char config_data[] = "title = \"Gallery\"\0author = \"Example Author\"\n";
   struct Os* os = os_memory();
   os_memory_write_bytes(os, S(CONFIG_PATH), (struct Str){config_data, sizeof(config_data) - 1});
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&config, CONFIG_PATH, os, &log) == -1);
+  TEST_CHECK(load_site_config(&site_config, CONFIG_PATH, os, &log) == -1);
   TEST_CHECK(test_log_is_one(
       &log, "failed to read config: contains an embedded NUL byte ('" CONFIG_PATH "')"));
 }
 
-// `gallery_config_load` reports a syntactically malformed config as a parse failure naming the
-// config path, rather than reaching the field pass with an empty table and reporting a false
-// missing-key error.
+// `site_config_load` reports a syntactically malformed config as a parse failure naming the config
+// path, rather than reaching the field pass with an empty table and reporting a false missing-key
+// error.
 static void test_load_rejects_malformed_toml(void) {
   const char toml[] = "title = \n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == -1);
+  TEST_CHECK(load_text(&site_config, toml, &log) == -1);
   // The prefix and the trailing attribution are this module's own contribution. The text between
   // them is the vendored parser's `errmsg`, left unpinned so rewording it upstream does not fail
   // this test. The two together are still the whole first-party claim, which neither the
@@ -493,10 +493,10 @@ static const char TOML_KEYS_INVALID[] =
 // Every invalid key in one config is reported in one load, in the order the load checks them, not
 // only the first.
 static void test_load_reports_every_invalid_key(void) {
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, TOML_KEYS_INVALID, &log) == -1);
+  TEST_CHECK(load_text(&site_config, TOML_KEYS_INVALID, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "unknown config key 'colour'\n"
                          "config key 'title' must be a string\n"
@@ -515,36 +515,36 @@ static void test_load_reports_every_invalid_key(void) {
 static void test_load_returns_zero_with_key_errors(void) {
   struct Os* os = os_memory();
   os_memory_write(os, CONFIG_PATH, TOML_KEYS_INVALID);
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
   struct Arena perm = test_arena();
-  TEST_CHECK(gallery_config_load(&config, S(CONFIG_PATH), os, &perm, test_arena(), &log) == 0);
+  TEST_CHECK(site_config_load(&site_config, S(CONFIG_PATH), os, &perm, test_arena(), &log) == 0);
   TEST_CHECK(log.errors == 7);
 }
 
-// A rejected value is never stored. Each rejected key keeps the default `gallery_config_init` gave
-// it, so later checks run against a usable config, while the valid keys around them still load. A
+// A rejected value is never stored. Each rejected key keeps the default `site_config_init` gave it,
+// so later checks run against a usable config, while the valid keys around them still load. A
 // derivative table with one bad entry keeps the default derivatives whole. A rejected directory key
 // is marked as such.
 static void test_load_keeps_defaults_for_rejected_keys(void) {
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, TOML_KEYS_INVALID, &log) == -1);
-  TEST_CHECK(is_resolved(config.media_dir, "media"));
-  TEST_CHECK(config.is_media_dir_rejected);
-  TEST_CHECK(!config.is_output_dir_rejected);
-  TEST_CHECK(!config.is_templates_dir_rejected);
-  TEST_CHECK(!config.is_static_dir_rejected);
-  TEST_CHECK(str_eq(config.album_template, S("album.html")));
-  TEST_CHECK(config.base_url.len == 0);
-  TEST_CHECK(config.derivative_count == 3);
-  TEST_CHECK(config.derivatives[0].width_px == 120);
-  TEST_CHECK(config.video_frame_seconds == 1);
-  TEST_CHECK(config.title.len == 0);
-  TEST_CHECK(str_eq(config.description, S("Example Description")));
-  TEST_CHECK(str_eq(config.author, S("Example Author")));
+  TEST_CHECK(load_text(&site_config, TOML_KEYS_INVALID, &log) == -1);
+  TEST_CHECK(is_resolved(site_config.media_dir, "media"));
+  TEST_CHECK(site_config.is_media_dir_rejected);
+  TEST_CHECK(!site_config.is_output_dir_rejected);
+  TEST_CHECK(!site_config.is_templates_dir_rejected);
+  TEST_CHECK(!site_config.is_static_dir_rejected);
+  TEST_CHECK(str_eq(site_config.album_template, S("album.html")));
+  TEST_CHECK(site_config.base_url.len == 0);
+  TEST_CHECK(site_config.derivative_count == 3);
+  TEST_CHECK(site_config.derivatives[0].width_px == 120);
+  TEST_CHECK(site_config.video_frame_seconds == 1);
+  TEST_CHECK(site_config.title.len == 0);
+  TEST_CHECK(str_eq(site_config.description, S("Example Description")));
+  TEST_CHECK(str_eq(site_config.author, S("Example Author")));
 }
 
 // Omitting a required key is reported as missing rather than as a type error.
@@ -576,12 +576,12 @@ static void test_load_rejects_wrong_key_type(void) {
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct GalleryConfig config;
-    gallery_config_init(&config);
+    struct SiteConfig site_config;
+    site_config_init(&site_config);
     struct Log log = test_log();
-    TEST_CHECK(load_text(&config, cases[i][0], &log) == -1);
+    TEST_CHECK(load_text(&site_config, cases[i][0], &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i][1]));
-    const struct Str fields[] = {config.title, config.description, config.author};
+    const struct Str fields[] = {site_config.title, site_config.description, site_config.author};
     TEST_CHECK(fields[i].len == 0);
     TEST_MSG("case %td", i);
   }
@@ -615,10 +615,10 @@ static void test_load_rejects_unknown_keys(void) {
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct GalleryConfig config;
-    gallery_config_init(&config);
+    struct SiteConfig site_config;
+    site_config_init(&site_config);
     struct Log log = test_log();
-    TEST_CHECK(load_text(&config, cases[i][0], &log) == -1);
+    TEST_CHECK(load_text(&site_config, cases[i][0], &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i][1]));
     TEST_MSG("case %td", i);
   }
@@ -645,10 +645,10 @@ static void test_load_rejects_table_values(void) {
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct GalleryConfig config;
-    gallery_config_init(&config);
+    struct SiteConfig site_config;
+    site_config_init(&site_config);
     struct Log log = test_log();
-    TEST_CHECK(load_text(&config, cases[i][0], &log) == -1);
+    TEST_CHECK(load_text(&site_config, cases[i][0], &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i][1]));
     TEST_MSG("case %td", i);
   }
@@ -688,10 +688,10 @@ static void test_load_rejects_nul_in_string_values(void) {
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct GalleryConfig config;
-    gallery_config_init(&config);
+    struct SiteConfig site_config;
+    site_config_init(&site_config);
     struct Log log = test_log();
-    TEST_CHECK(load_text(&config, cases[i][0], &log) == -1);
+    TEST_CHECK(load_text(&site_config, cases[i][0], &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i][1]));
   }
 }
@@ -719,15 +719,15 @@ static void test_load_rejects_base_url_without_host(void) {
       "author = \"Example Author\"\n"
       "base_url = \"https:///path\"\n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == -1);
+  TEST_CHECK(load_text(&site_config, toml, &log) == -1);
   TEST_CHECK(test_log_is_one(
       &log,
       "config key 'base_url' must be an absolute 'http://' or 'https://' URL with a "
       "host: 'https:///path'"));
-  TEST_CHECK(config.base_url.len == 0);
+  TEST_CHECK(site_config.base_url.len == 0);
 }
 
 // A `base_url` with a query, a fragment, a space or a control byte would break every link below it,
@@ -739,14 +739,14 @@ static void test_load_rejects_base_url_with_path_breaking_byte(void) {
       "author = \"Example Author\"\n"
       "base_url = \"https://example.com/x?y=1\"\n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == -1);
+  TEST_CHECK(load_text(&site_config, toml, &log) == -1);
   TEST_CHECK(test_log_is_one(&log,
                              "config key 'base_url' must not hold '?', '#', a space or a control "
                              "character: 'https://example.com/x?y=1'"));
-  TEST_CHECK(config.base_url.len == 0);
+  TEST_CHECK(site_config.base_url.len == 0);
 }
 
 // An unsafe `album_template` is rejected at load, in the singular wording that names the key,
@@ -792,12 +792,12 @@ static void test_load_reports_every_invalid_template_name(void) {
       "aggregate_templates = [\"../a.xml\", 1, \"a\\u0000b\", \"ok.xml\", \"/b.xml\", "
       "2, \"c\\u0000d\"]\n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
-  const struct Str* const aggregate_templates_default = config.aggregate_templates;
-  const ptrdiff_t aggregate_template_count_default = config.aggregate_template_count;
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  const struct Str* const aggregate_templates_default = site_config.aggregate_templates;
+  const ptrdiff_t aggregate_template_count_default = site_config.aggregate_template_count;
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == -1);
+  TEST_CHECK(load_text(&site_config, toml, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "config key 'aggregate_templates' must contain only safe relative "
                          "template names: '../a.xml'\n"
@@ -806,8 +806,8 @@ static void test_load_reports_every_invalid_template_name(void) {
                          "config key 'aggregate_templates' must contain only safe relative "
                          "template names: '/b.xml'\n"));
   TEST_CHECK(log.errors == 4);
-  TEST_CHECK(config.aggregate_templates == aggregate_templates_default);
-  TEST_CHECK(config.aggregate_template_count == aggregate_template_count_default);
+  TEST_CHECK(site_config.aggregate_templates == aggregate_templates_default);
+  TEST_CHECK(site_config.aggregate_template_count == aggregate_template_count_default);
 }
 
 // Dimension, quality, and video-frame upper bounds are exact and named in diagnostics.
@@ -824,8 +824,8 @@ static void test_load_rejects_integer_upper_bounds(void) {
 
   check_load_rejects("derivatives = { l = { width = 1, height = 1, quality = 101 } }\n",
                      "config key 'derivatives.l.quality' exceeds max WebP quality (100) at 101");
-  // `VIDEO_FRAME_SECONDS_MAX` is file-local to `gallery_config.c`, so the one day below is spelled
-  // out and must change with it.
+  // `VIDEO_FRAME_SECONDS_MAX` is file-local to `site_config.c`, so the one day below is spelled out
+  // and must change with it.
   check_load_rejects("video_frame_seconds = 86401\n",
                      "config key 'video_frame_seconds' exceeds max video frame seconds (86400) at "
                      "86401");
@@ -835,47 +835,51 @@ static void test_load_rejects_integer_upper_bounds(void) {
 static void test_load_rejects_dimension_product_overflow(void) {
   char toml_extra[256];
   TEST_ASSERT(snprintf(toml_extra, sizeof(toml_extra),
-                       "derivatives = { huge = { width = %d, height = %d, quality = 85 } }\n",
+                       "derivatives = { xxl = { width = %d, height = %d, quality = 85 } }\n",
                        IMAGE_ENCODED_DIMENSION_MAX, IMAGE_ENCODED_DIMENSION_MAX) > 0);
   char expected[EXPECTED_SIZE];
   TEST_ASSERT(snprintf(expected, sizeof(expected),
-                       "config key 'derivatives.huge' dimensions exceed max pixel count (%d "
+                       "config key 'derivatives.xxl' dimensions exceed max pixel count (%d "
                        "pixels) at %d x %d",
                        IMAGE_PIXEL_COUNT_MAX, IMAGE_ENCODED_DIMENSION_MAX,
                        IMAGE_ENCODED_DIMENSION_MAX) > 0);
   check_load_rejects(toml_extra, expected);
 }
 
-// Derivative tables require bounded identifiers, dimensions, and boolean crop flags. A name that
+// Derivative tables require one of the fixed names, dimensions, and boolean crop flags. A name that
 // holds a `NUL` byte is rejected without being named, since printing it would stop at the `NUL`.
 static void test_load_rejects_invalid_derivative_tables(void) {
   check_load_rejects("derivatives = { s = { width = 120, quality = 70 } }\n",
                      "missing required config key 'derivatives.s.height'");
   check_load_rejects("derivatives = { s = { width = 120, height = 120 } }\n",
                      "missing required config key 'derivatives.s.quality'");
-  char expected_name[EXPECTED_SIZE];
-  TEST_ASSERT(snprintf(expected_name, sizeof(expected_name),
-                       "config key 'derivatives' name must match [A-Za-z][A-Za-z0-9_]* and be at "
-                       "most %d bytes: 'not.safe'",
-                       GALLERY_DERIVATIVE_NAME_LEN_MAX) > 0);
-  check_load_rejects("derivatives = { \"not.safe\" = { width = 1, height = 1 } }\n", expected_name);
+  check_load_rejects("derivatives = { XL = { width = 1, height = 1, quality = 1 } }\n",
+                     "config key 'derivatives' name must be one of 'xs', 's', 'm', 'l', 'xl' or "
+                     "'xxl': 'XL'");
+  check_load_rejects("derivatives = { thumb = { width = 1, height = 1, quality = 1 } }\n",
+                     "config key 'derivatives' name must be one of 'xs', 's', 'm', 'l', 'xl' or "
+                     "'xxl': 'thumb'");
   check_load_rejects("derivatives = { \"a\\u0000b\" = { width = 1, height = 1, quality = 1 } }\n",
                      "config key 'derivatives' name must not contain a NUL byte");
   check_load_rejects("derivatives = { s = { width = 1, height = 1, quality = 70, crop = 1 } }\n",
                      "config key 'derivatives.s.crop' must be a boolean");
-  char expected_count[EXPECTED_SIZE];
-  TEST_ASSERT(snprintf(expected_count, sizeof(expected_count),
-                       "config key 'derivatives' exceeds max derivative count (%d) at %d",
-                       GALLERY_DERIVATIVE_COUNT_MAX, GALLERY_DERIVATIVE_COUNT_MAX + 1) > 0);
-  check_load_rejects(
-      "derivatives = { a = { width = 1, height = 1, quality = 1 }, "
-      "b = { width = 1, height = 1, quality = 1 }, "
-      "c = { width = 1, height = 1, quality = 1 }, "
-      "d = { width = 1, height = 1, quality = 1 }, "
-      "e = { width = 1, height = 1, quality = 1 }, "
-      "f = { width = 1, height = 1, quality = 1 }, "
-      "g = { width = 1, height = 1, quality = 1 } }\n",
-      expected_count);
+}
+
+// A derivative with a wrong name still has its keys checked, so one run reports the name and every
+// mistake in the entry, and a gallery keeps its default derivatives.
+static void test_load_checks_the_keys_of_a_wrongly_named_derivative(void) {
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  struct Log log = test_log();
+  TEST_CHECK(load_text(&site_config,
+                       "title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\n"
+                       "derivatives = { thumb = { width = 1, height = 1 } }\n",
+                       &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "config key 'derivatives' name must be one of 'xs', 's', 'm', 'l', 'xl' "
+                         "or 'xxl': 'thumb'\n"
+                         "missing required config key 'derivatives.thumb.quality'\n"));
+  TEST_CHECK(site_config.derivative_count == 3);
 }
 
 // The `sort` table must be a table, holds only its two keys, and each key takes exactly the
@@ -906,35 +910,35 @@ static void test_load_reports_every_invalid_sort_key(void) {
       "author = \"Example Author\"\n"
       "sort = { albums = \"up\", order = \"asc\", media = 1 }\n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
-  config.album_sort_order = GALLERY_SORT_DESC;
-  config.media_sort_order = GALLERY_SORT_DESC;
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  site_config.album_sort_order = GALLERY_SORT_DESC;
+  site_config.media_sort_order = GALLERY_SORT_DESC;
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == -1);
+  TEST_CHECK(load_text(&site_config, toml, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "unknown config key 'sort.order'\n"
                          "config key 'sort.albums' must be 'asc' or 'desc': 'up'\n"
                          "config key 'sort.media' must be a string\n"));
   TEST_CHECK(log.errors == 3);
-  TEST_CHECK(config.album_sort_order == GALLERY_SORT_DESC);
-  TEST_CHECK(config.media_sort_order == GALLERY_SORT_DESC);
+  TEST_CHECK(site_config.album_sort_order == GALLERY_SORT_DESC);
+  TEST_CHECK(site_config.media_sort_order == GALLERY_SORT_DESC);
 }
 
-// Printing emits every key, with the defaults `gallery_config_init` supplies for the optional ones.
+// Printing emits every key, with the defaults `site_config_init` supplies for the optional ones.
 // `title`, `description`, and `author` have no default and are set here so the output shows each. A
 // derivative prints `crop` only when it crops.
 static void test_print_defaults(void) {
-  struct GalleryConfig config;
-  gallery_config_init(&config);
-  config.title = S("Example Gallery");
-  config.description = S("Example Description");
-  config.author = S("Example Author");
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  site_config.title = S("Example Gallery");
+  site_config.description = S("Example Description");
+  site_config.author = S("Example Author");
 
   // The whole output, not a set of per-line searches: only an exact comparison can catch a key that
   // is missing, duplicated, extra, or emitted in the wrong order.
   TEST_CHECK(os_memory_is_printed(
-      print_config(&config), 1,
+      print_config(&site_config), 1,
       "title = \"Example Gallery\"\n"
       "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
@@ -954,16 +958,16 @@ static void test_print_defaults(void) {
 // Printing escapes quotes, backslashes, and every named control escape (\t \b \n \f \r). It uses
 // the `\uXXXX` fallback for a sub-`0x20` byte and `U+007F` (`DEL`).
 static void test_print_escapes_strings(void) {
-  struct GalleryConfig config;
-  gallery_config_init(&config);
-  config.title = S("Quote \" and \\ backslash");
-  config.description = S("Example Description");
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  site_config.title = S("Quote \" and \\ backslash");
+  site_config.description = S("Example Description");
   // Each hex escape is followed by a non-hex-digit char ('Z', 'G') so it ends after one byte.
-  config.author = S("a\tA\bB\nC\fD\rE\x01Z\x7FG");
+  site_config.author = S("a\tA\bB\nC\fD\rE\x01Z\x7FG");
 
   // Compared whole, so an escape leaking into a neighboring field cannot hide.
   TEST_CHECK(os_memory_is_printed(
-      print_config(&config), 1,
+      print_config(&site_config), 1,
       "title = \"Quote \\\" and \\\\ backslash\"\n"
       "description = \"Example Description\"\n"
       "author = \"a\\tA\\bB\\nC\\fD\\rE\\u0001Z\\u007FG\"\n"
@@ -981,7 +985,7 @@ static void test_print_escapes_strings(void) {
 }
 
 // Printing a config and loading the printed output back yields the same field values, exercising
-// the round-trip invariant documented on `gallery_config_print` across escaped strings (including a
+// the round-trip invariant documented on `site_config_print` across escaped strings (including a
 // `U+007F` byte), multi-element template arrays, cropping and non-cropping derivatives, and two
 // different sort orders. The printed output is loaded from `CONFIG_DIR`, not the working directory,
 // so its relative directories come back resolved against that directory, and only the absolute one
@@ -989,50 +993,46 @@ static void test_print_escapes_strings(void) {
 static void test_print_load_round_trips(void) {
   static const struct Str aggregates[] = {STR_INIT("sitemap.xml"), STR_INIT("about/index.html")};
   static const struct GalleryDerivative derivatives[] = {
-      {.name = STR_INIT("tiny"), .width_px = 200, .height_px = 150, .quality = 61, .is_crop = true},
-      {.name = STR_INIT("display"),
-       .width_px = 1200,
-       .height_px = 900,
-       .quality = 93,
-       .is_crop = false},
+      {.name = STR_INIT("xs"), .width_px = 200, .height_px = 150, .quality = 61, .is_crop = true},
+      {.name = STR_INIT("xl"), .width_px = 1200, .height_px = 900, .quality = 93, .is_crop = false},
   };
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   // '!' after `\x7F` is not a hex digit, so the escape ends after the single `DEL` byte.
-  config.title = S("Quote \" back\\slash\nnewline\ttab\x7F!");
-  config.description = S("Example Description");
-  config.author = S("Example Author");
-  config.base_url = S("https://example.com/gallery");
-  config.media_dir = S("photos");
-  config.output_dir = S("dist");
-  config.templates_dir = S("layouts");
-  config.static_dir = S("/srv/files");
-  config.album_template = S("pages/album.html");
-  config.aggregate_templates = aggregates;
-  config.aggregate_template_count = 2;
-  config.derivatives = derivatives;
-  config.derivative_count = 2;
-  config.album_sort_order = GALLERY_SORT_DESC;
-  config.media_sort_order = GALLERY_SORT_ASC;
-  config.video_frame_seconds = 0;
+  site_config.title = S("Quote \" back\\slash\nnewline\ttab\x7F!");
+  site_config.description = S("Example Description");
+  site_config.author = S("Example Author");
+  site_config.base_url = S("https://example.com/gallery");
+  site_config.media_dir = S("photos");
+  site_config.output_dir = S("dist");
+  site_config.templates_dir = S("layouts");
+  site_config.static_dir = S("/srv/files");
+  site_config.album_template = S("pages/album.html");
+  site_config.aggregate_templates = aggregates;
+  site_config.aggregate_template_count = 2;
+  site_config.derivatives = derivatives;
+  site_config.derivative_count = 2;
+  site_config.album_sort_order = GALLERY_SORT_DESC;
+  site_config.media_sort_order = GALLERY_SORT_ASC;
+  site_config.video_frame_seconds = 0;
 
   struct Os* os = os_memory();
-  os_memory_write_bytes(os, S(CONFIG_PATH), os_memory_printed(print_config(&config), 1));
-  struct GalleryConfig reloaded;
-  gallery_config_init(&reloaded);
+  os_memory_write_bytes(os, S(CONFIG_PATH), os_memory_printed(print_config(&site_config), 1));
+  struct SiteConfig reloaded;
+  site_config_init(&reloaded);
   struct Log log = test_log();
-  TEST_CHECK(load_gallery_config(&reloaded, CONFIG_PATH, os, &log) == 0);
+  TEST_CHECK(load_site_config(&reloaded, CONFIG_PATH, os, &log) == 0);
 
-  TEST_CHECK(str_eq(reloaded.title, config.title));
-  TEST_CHECK(str_eq(reloaded.description, config.description));
-  TEST_CHECK(str_eq(reloaded.author, config.author));
-  TEST_CHECK(str_eq(reloaded.base_url, config.base_url));
+  TEST_CHECK(str_eq(reloaded.title, site_config.title));
+  TEST_CHECK(str_eq(reloaded.description, site_config.description));
+  TEST_CHECK(str_eq(reloaded.author, site_config.author));
+  TEST_CHECK(str_eq(reloaded.base_url, site_config.base_url));
   TEST_CHECK(is_resolved(reloaded.media_dir, "photos"));
   TEST_CHECK(is_resolved(reloaded.output_dir, "dist"));
   TEST_CHECK(is_resolved(reloaded.templates_dir, "layouts"));
-  TEST_CHECK(str_eq(reloaded.static_dir, config.static_dir));
-  TEST_CHECK(str_eq(reloaded.album_template, config.album_template));
+  TEST_CHECK(str_eq(reloaded.static_dir, site_config.static_dir));
+  TEST_CHECK(str_eq(reloaded.album_template, site_config.album_template));
   TEST_ASSERT(reloaded.aggregate_template_count == 2);
   TEST_CHECK(str_eq(reloaded.aggregate_templates[0], S("sitemap.xml")));
   TEST_CHECK(str_eq(reloaded.aggregate_templates[1], S("about/index.html")));
@@ -1044,9 +1044,9 @@ static void test_print_load_round_trips(void) {
     TEST_CHECK(reloaded.derivatives[i].quality == derivatives[i].quality);
     TEST_CHECK(reloaded.derivatives[i].is_crop == derivatives[i].is_crop);
   }
-  TEST_CHECK(reloaded.album_sort_order == config.album_sort_order);
-  TEST_CHECK(reloaded.media_sort_order == config.media_sort_order);
-  TEST_CHECK(reloaded.video_frame_seconds == config.video_frame_seconds);
+  TEST_CHECK(reloaded.album_sort_order == site_config.album_sort_order);
+  TEST_CHECK(reloaded.media_sort_order == site_config.media_sort_order);
+  TEST_CHECK(reloaded.video_frame_seconds == site_config.video_frame_seconds);
 }
 
 // An empty template array survives a load followed by a print, and prints as `[]`. Neither
@@ -1059,20 +1059,20 @@ static void test_print_empty_template_array(void) {
       "author = \"Example Author\"\n"
       "aggregate_templates = []\n";
 
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, toml, &log) == 0);
+  TEST_CHECK(load_text(&site_config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_ASSERT(config.aggregate_template_count == 0);
+  TEST_ASSERT(site_config.aggregate_template_count == 0);
   // The empty array is a distinct non-`NULL` pointer, which the `nonnull` consumers need.
-  TEST_CHECK(config.aggregate_templates != NULL);
+  TEST_CHECK(site_config.aggregate_templates != NULL);
 
   // Compared whole: an empty array must print as `[]` and must not disturb its neighbors. The
   // directories print resolved against `CONFIG_DIR`, which holds the config.
   TEST_CHECK(
       os_memory_is_printed(
-          print_config(&config), 1,
+          print_config(&site_config), 1,
           "title = \"Example Gallery\"\n"
           "description = \"Example Description\"\n"
           "author = \"Example Author\"\n"
@@ -1089,21 +1089,21 @@ static void test_print_empty_template_array(void) {
           "video_frame_seconds = 1\n"));
 }
 
-// A standard output that refuses the write makes `gallery_config_print` report `-1` with the
-// write's own `errno`, which is what lets `cmd_config_run` name a reason instead of reporting
-// success over lost output. The same shape is asserted for `cli_print_version` by
+// A standard output that refuses the write makes `site_config_print` report `-1` with the write's
+// own `errno`, which is what lets `cmd_config_run` name a reason instead of reporting success over
+// lost output. The same shape is asserted for `cli_print_version` by
 // `test_print_version_reports_write_failure`.
 static void test_print_reports_write_failure(void) {
-  struct GalleryConfig config;
-  gallery_config_init(&config);
-  config.title = S("Example Gallery");
-  config.description = S("Example Description");
-  config.author = S("Example Author");
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  site_config.title = S("Example Gallery");
+  site_config.description = S("Example Description");
+  site_config.author = S("Example Author");
 
   struct Os* os = os_memory();
   os_memory_fail_print(os, 1, 0, EBADF);
   errno = 0;
-  TEST_CHECK(gallery_config_print(&config, os, test_arena()) == -1);
+  TEST_CHECK(site_config_print(&site_config, os, test_arena()) == -1);
   TEST_CHECK(errno == EBADF);
 }
 
@@ -1111,25 +1111,21 @@ static void test_print_reports_write_failure(void) {
 // name, box, crop flag, and quality in configuration order, and the video frame time in
 // milliseconds.
 static void test_derivative_recipe_encodes_output_values(void) {
-  struct GalleryConfig config;
-  gallery_config_init(&config);
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
   struct Arena arena = test_arena();
-  struct Str recipe = gallery_config_derivative_recipe(&config, &arena);
+  struct Str recipe = site_config_derivative_recipe(&site_config, &arena);
   TEST_CHECK(str_eq(recipe, S("v2-s-120x120c-q70-m-520x360c-q80-l-792x594-q85-f1000")));
 
   const struct GalleryDerivative custom[] = {
-      {.name = STR_INIT("tiny1"), .width_px = 7, .height_px = 8, .quality = 42, .is_crop = true},
-      {.name = STR_INIT("screen"),
-       .width_px = 90,
-       .height_px = 100,
-       .quality = 91,
-       .is_crop = false},
+      {.name = STR_INIT("xs"), .width_px = 7, .height_px = 8, .quality = 42, .is_crop = true},
+      {.name = STR_INIT("xl"), .width_px = 90, .height_px = 100, .quality = 91, .is_crop = false},
   };
-  config.derivatives = custom;
-  config.derivative_count = sizeof(custom) / sizeof(custom[0]);
-  config.video_frame_seconds = 0;
-  recipe = gallery_config_derivative_recipe(&config, &arena);
-  TEST_CHECK(str_eq(recipe, S("v2-tiny1-7x8c-q42-screen-90x100-q91-f0")));
+  site_config.derivatives = custom;
+  site_config.derivative_count = sizeof(custom) / sizeof(custom[0]);
+  site_config.video_frame_seconds = 0;
+  recipe = site_config_derivative_recipe(&site_config, &arena);
+  TEST_CHECK(str_eq(recipe, S("v2-xs-7x8c-q42-xl-90x100-q91-f0")));
 }
 
 TEST_LIST = {
@@ -1167,6 +1163,8 @@ TEST_LIST = {
     {"load rejects integer upper bounds", test_load_rejects_integer_upper_bounds},
     {"load rejects dimension product overflow", test_load_rejects_dimension_product_overflow},
     {"load rejects invalid derivative tables", test_load_rejects_invalid_derivative_tables},
+    {"load checks the keys of a wrongly named derivative",
+     test_load_checks_the_keys_of_a_wrongly_named_derivative},
     {"load rejects invalid sort tables", test_load_rejects_invalid_sort_tables},
     {"load reports every invalid sort key", test_load_reports_every_invalid_sort_key},
     {"print defaults", test_print_defaults},

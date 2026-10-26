@@ -13,8 +13,8 @@
 #include "core/text.h"
 #include "domain/album.h"
 #include "domain/build_cache.h"
-#include "domain/gallery_config.h"
 #include "domain/media_item.h"
+#include "domain/site_config.h"
 #include "media/exif.h"
 #include "media/image.h"
 #include "media/video.h"
@@ -65,7 +65,7 @@ struct SkeletonState {
  */
 struct ProbeContext {
   /** Configured derivatives each probed item is sized against. Read-only during the run. */
-  const struct GalleryConfig* gallery_config;
+  const struct SiteConfig* site_config;
 
   /**
    * Media items to probe, one per job index. The array is read-only during the run. A job writes
@@ -139,17 +139,17 @@ static ptrdiff_t find_album_position(struct Album* const* albums,
  * sub-album below it. A sub-album of a rejected album is rejected without a report of its own. The
  * album is not linked into `parent`. `finish_relationships` builds the child arrays.
  *
- * @param gallery_config Gallery configuration supplying the gallery title and output directory.
- *                       Must not be `NULL`.
- * @param source_dir     Directory relative to `media_dir`, empty for the root album.
- * @param parent         Album whose `slug_path` prefixes this one, or `NULL` for the root.
- * @param arena          Arena that owns the album and its strings. Must not be `NULL`.
- * @param scratch        Arena for the page path relative to `output_dir`.
- * @param album_out      Receives the new album. Must not be `NULL`.
- * @param log            Log that receives the error. Must not be `NULL`.
+ * @param site_config Gallery configuration supplying the gallery title and output directory. Must
+ *                    not be `NULL`.
+ * @param source_dir  Directory relative to `media_dir`, empty for the root album.
+ * @param parent      Album whose `slug_path` prefixes this one, or `NULL` for the root.
+ * @param arena       Arena that owns the album and its strings. Must not be `NULL`.
+ * @param scratch     Arena for the page path relative to `output_dir`.
+ * @param album_out   Receives the new album. Must not be `NULL`.
+ * @param log         Log that receives the error. Must not be `NULL`.
  * @return `0` on success, or `-1` on an output-limit rejection of the album or of `parent`.
  */
-static int make_album(const struct GalleryConfig* gallery_config,
+static int make_album(const struct SiteConfig* site_config,
                       struct Str source_dir,
                       struct Album* parent,
                       struct Arena* arena,
@@ -164,17 +164,16 @@ static int make_album(const struct GalleryConfig* gallery_config,
  * already exists and inserting a newly created one otherwise. `state->albums[0]` must already hold
  * the root album.
  *
- * @param state          Skeleton state whose album array is searched and extended. Must not be
- *                       `NULL`.
- * @param gallery_config Gallery configuration passed to each created album. Must not be `NULL`.
- * @param source_dir     Directory relative to `media_dir`, empty for the root.
- * @param scratch        Arena for each created album's temporaries.
- * @param album_out      Receives the album for `source_dir`, owned by `state`. Must not be `NULL`.
- * @param log            Log that receives every error. Must not be `NULL`.
+ * @param state       Skeleton state whose album array is searched and extended. Must not be `NULL`.
+ * @param site_config Gallery configuration passed to each created album. Must not be `NULL`.
+ * @param source_dir  Directory relative to `media_dir`, empty for the root.
+ * @param scratch     Arena for each created album's temporaries.
+ * @param album_out   Receives the album for `source_dir`, owned by `state`. Must not be `NULL`.
+ * @param log         Log that receives every error. Must not be `NULL`.
  * @return `0` on success, or `-1` when an album it created exceeds an output-path limit.
  */
 static int ensure_source_albums(struct SkeletonState* state,
-                                const struct GalleryConfig* gallery_config,
+                                const struct SiteConfig* site_config,
                                 struct Str source_dir,
                                 struct Arena scratch,
                                 struct Album** album_out,
@@ -192,7 +191,7 @@ static int ensure_source_albums(struct SkeletonState* state,
  *
  * @param state           Skeleton state whose flat media array receives the item. Must not be
  *                        `NULL`.
- * @param gallery_config  Gallery configuration supplying the derivatives and output directory. Must
+ * @param site_config     Gallery configuration supplying the derivatives and output directory. Must
  *                        not be `NULL`.
  * @param album           Album the item belongs to, which counts it. Must not be `NULL`.
  * @param media_index     Slot in `state->media` to publish to. Must be below `state->media_count`.
@@ -205,7 +204,7 @@ static int ensure_source_albums(struct SkeletonState* state,
  *         rejected `album`, which reported the limit already.
  */
 static int add_media(struct SkeletonState* state,
-                     const struct GalleryConfig* gallery_config,
+                     const struct SiteConfig* site_config,
                      struct Album* album,
                      ptrdiff_t media_index,
                      struct Str source_path,
@@ -224,13 +223,12 @@ static int add_media(struct SkeletonState* state,
  * `state->albums[0]` must be the root, and `state->media_albums[i]` must name the album owning
  * `state->media[i]`.
  *
- * @param state          Skeleton state holding every album and the media-to-album mapping. Must not
- *                       be `NULL`.
- * @param gallery_config Gallery configuration supplying the album and media orders. Must not be
- *                       `NULL`.
+ * @param state       Skeleton state holding every album and the media-to-album mapping. Must not be
+ *                    `NULL`.
+ * @param site_config Gallery configuration supplying the album and media orders. Must not be
+ *                    `NULL`.
  */
-static void finish_relationships(struct SkeletonState* state,
-                                 const struct GalleryConfig* gallery_config)
+static void finish_relationships(struct SkeletonState* state, const struct SiteConfig* site_config)
     __attribute__((nonnull(1, 2)));
 
 /**
@@ -365,20 +363,20 @@ static int probe_image(struct MediaItem* item,
  * top-left because the extracted frame is already auto-rotated. A failure to read the extracted
  * frame still leaves the frame's file for the caller to remove.
  *
- * @param item           Item whose `duration_ms`, `orientation`, `width_px`, and `height_px` are
- *                       written. Must not be `NULL`.
- * @param frame          Frame slot that receives the extracted frame. Must not be `NULL`.
- * @param gallery_config Gallery configuration supplying `video_frame_seconds`. Must not be `NULL`.
- * @param os             Host the frame is read from, which is the real one wherever a video is
- *                       probed. Must not be `NULL`.
- * @param scratch        Arena for the process arguments and the frame bytes.
- * @param operation      Operation leading the failure message, which names the source or the frame.
- * @param log            Log that receives the failure. Must not be `NULL`.
+ * @param item        Item whose `duration_ms`, `orientation`, `width_px`, and `height_px` are
+ *                    written. Must not be `NULL`.
+ * @param frame       Frame slot that receives the extracted frame. Must not be `NULL`.
+ * @param site_config Gallery configuration supplying `video_frame_seconds`. Must not be `NULL`.
+ * @param os          Host the frame is read from, which is the real one wherever a video is probed.
+ *                    Must not be `NULL`.
+ * @param scratch     Arena for the process arguments and the frame bytes.
+ * @param operation   Operation leading the failure message, which names the source or the frame.
+ * @param log         Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` on a duration probe, frame extraction, or frame read failure.
  */
 static int probe_video(struct MediaItem* item,
                        struct VideoFrame* frame,
-                       const struct GalleryConfig* gallery_config,
+                       const struct SiteConfig* site_config,
                        struct Os* os,
                        struct Arena scratch,
                        struct Str operation,
@@ -406,7 +404,7 @@ static int probe_frame(struct Str source_path,
                        struct Str operation,
                        struct Log* log) __attribute__((nonnull(3, 5, 6, 8)));
 
-int album_scan_build_skeleton(const struct GalleryConfig* gallery_config,
+int album_scan_build_skeleton(const struct SiteConfig* site_config,
                               const struct PathList* source_paths,
                               struct Arena* perm,
                               struct Arena scratch,
@@ -422,22 +420,22 @@ int album_scan_build_skeleton(const struct GalleryConfig* gallery_config,
   // Every source is planned even after one fails, so each path-limit failure in the gallery is
   // reported in one run.
   struct Album* root = NULL;
-  int rc = make_album(gallery_config, S(""), NULL, &state.perm, scratch, &root, log);
+  int rc = make_album(site_config, S(""), NULL, &state.perm, scratch, &root, log);
   insert_album(&state, root);
-  const struct Str recipe = gallery_config_derivative_recipe(gallery_config, &scratch);
+  const struct Str recipe = site_config_derivative_recipe(site_config, &scratch);
   const struct Str recipe_root = path_join(S("_fram"), recipe, &scratch);
 
   for (ptrdiff_t i = 0; i < source_paths->count; i++) {
     const struct Str source_path = source_paths->items[i];
     // The walk lists only files below `media_dir`, so this always finds the relative part.
     struct Str relative = {0};
-    (void)path_is_below(source_path, gallery_config->media_dir, &relative);
+    (void)path_is_below(source_path, site_config->media_dir, &relative);
     const struct Str source_dir = path_parent(relative);
     struct Album* album = NULL;
-    if (ensure_source_albums(&state, gallery_config, source_dir, scratch, &album, log) != 0) {
+    if (ensure_source_albums(&state, site_config, source_dir, scratch, &album, log) != 0) {
       rc = -1;
     }
-    if (add_media(&state, gallery_config, album, i, source_path, relative, recipe_root, scratch,
+    if (add_media(&state, site_config, album, i, source_path, relative, recipe_root, scratch,
                   log) != 0) {
       rc = -1;
     }
@@ -447,7 +445,7 @@ int album_scan_build_skeleton(const struct GalleryConfig* gallery_config,
     return -1;
   }
 
-  finish_relationships(&state, gallery_config);
+  finish_relationships(&state, site_config);
   *perm = state.perm;
   *albums_out = state.albums;
   *album_count_out = state.album_count;
@@ -456,7 +454,7 @@ int album_scan_build_skeleton(const struct GalleryConfig* gallery_config,
   return 0;
 }
 
-int album_scan_probe_media(const struct GalleryConfig* gallery_config,
+int album_scan_probe_media(const struct SiteConfig* site_config,
                            struct MediaItem* const* media,
                            ptrdiff_t media_count,
                            const struct BuildCache* build_cache,
@@ -469,7 +467,7 @@ int album_scan_probe_media(const struct GalleryConfig* gallery_config,
                            struct OsStat* source_stats,
                            struct Log* log) {
   struct ProbeContext context = {
-      .gallery_config = gallery_config,
+      .site_config = site_config,
       .media = media,
       .build_cache = build_cache,
       .video_frames = video_frames,
@@ -525,7 +523,7 @@ static ptrdiff_t find_album_position(struct Album* const* albums,
   return low;
 }
 
-static int make_album(const struct GalleryConfig* gallery_config,
+static int make_album(const struct SiteConfig* site_config,
                       struct Str source_dir,
                       struct Album* parent,
                       struct Arena* arena,
@@ -543,19 +541,19 @@ static int make_album(const struct GalleryConfig* gallery_config,
   struct Album* album = arena_new(arena, 1, struct Album);
   album->source_dir = str_clone(source_dir, arena);
   album->slug_path = slug_path;
-  album->title = make_album_title(source_dir, gallery_config->title, arena);
+  album->title = make_album_title(source_dir, site_config->title, arena);
   album->depth = path_depth(source_dir);
   album->parent = parent;
   album->path_to_root = output_path_to_root(page_relative, arena);
   album->url_path = str_clone(page_relative, arena);
-  album->output_path = path_join(gallery_config->output_dir, page_relative, arena);
+  album->output_path = path_join(site_config->output_dir, page_relative, arena);
   album->is_path_rejected = is_path_rejected;
   *album_out = album;
   return is_path_rejected ? -1 : 0;
 }
 
 static int ensure_source_albums(struct SkeletonState* state,
-                                const struct GalleryConfig* gallery_config,
+                                const struct SiteConfig* site_config,
                                 struct Str source_dir,
                                 struct Arena scratch,
                                 struct Album** album_out,
@@ -571,7 +569,7 @@ static int ensure_source_albums(struct SkeletonState* state,
     const struct Str prefix = str_head(source_dir, end);
     struct Album* next = find_album(state->albums, state->album_count, prefix);
     if (next == NULL) {
-      if (make_album(gallery_config, prefix, current, &state->perm, scratch, &next, log) != 0) {
+      if (make_album(site_config, prefix, current, &state->perm, scratch, &next, log) != 0) {
         rc = -1;
       }
       insert_album(state, next);
@@ -583,7 +581,7 @@ static int ensure_source_albums(struct SkeletonState* state,
 }
 
 static int add_media(struct SkeletonState* state,
-                     const struct GalleryConfig* gallery_config,
+                     const struct SiteConfig* site_config,
                      struct Album* album,
                      ptrdiff_t media_index,
                      struct Str source_path,
@@ -604,7 +602,7 @@ static int add_media(struct SkeletonState* state,
   item->source_path = str_clone(source_path, arena);
   item->title = humanize_underscores(file_name, arena);
   item->kind = kind;
-  item->derivative_count = gallery_config->derivative_count;
+  item->derivative_count = site_config->derivative_count;
   item->derivatives = arena_new(arena, item->derivative_count, struct MediaDerivative);
 
   const struct Str file_slug = text_slugify(file_name, &scratch);
@@ -621,7 +619,7 @@ static int add_media(struct SkeletonState* state,
   // output.
   for (ptrdiff_t i = 0; i < item->derivative_count; i++) {
     struct MediaDerivative* derivative = &item->derivatives[i];
-    const struct Str name = gallery_config->derivatives[i].name;
+    const struct Str name = site_config->derivatives[i].name;
     derivative->name = str_clone(name, arena);
     const struct Str derivative_name = make_derivative_name(file_slug, name, &scratch);
     const struct Str derivative_media_relative =
@@ -630,13 +628,13 @@ static int add_media(struct SkeletonState* state,
     if (rc == 0 && output_path_check_limits(relative, source_path, log) != 0) {
       rc = -1;
     }
-    derivative->path = path_join(gallery_config->output_dir, relative, arena);
+    derivative->path = path_join(site_config->output_dir, relative, arena);
     derivative->url = str_clone(relative, arena);
   }
   if (rc == 0 && output_path_check_limits(original_relative, source_path, log) != 0) {
     rc = -1;
   }
-  item->original_path = path_join(gallery_config->output_dir, original_relative, arena);
+  item->original_path = path_join(site_config->output_dir, original_relative, arena);
   item->original_url = str_clone(original_relative, arena);
 
   state->media[media_index] = item;
@@ -645,7 +643,7 @@ static int add_media(struct SkeletonState* state,
 }
 
 static void finish_relationships(struct SkeletonState* state,
-                                 const struct GalleryConfig* gallery_config) {
+                                 const struct SiteConfig* site_config) {
   // Both passes over parents re-find the parent rather than following `child->parent`, which points
   // at the same album. The lookup is what yields a mutable pointer: `Album::parent` is a
   // `const struct Album*`, because a child does not own its parent, and these passes have to write
@@ -682,10 +680,10 @@ static void finish_relationships(struct SkeletonState* state,
   // order.
   for (ptrdiff_t i = 0; i < state->album_count; i++) {
     struct Album* album = state->albums[i];
-    if (gallery_config->media_sort_order == GALLERY_SORT_DESC) {
+    if (site_config->media_sort_order == GALLERY_SORT_DESC) {
       reverse_media(album->media, album->media_count);
     }
-    if (gallery_config->album_sort_order == GALLERY_SORT_DESC) {
+    if (site_config->album_sort_order == GALLERY_SORT_DESC) {
       reverse_albums(album->sub_albums, album->sub_album_count);
     }
   }
@@ -795,7 +793,7 @@ static int probe_media_job(ptrdiff_t index,
   const struct BuildCacheEntry* entry = NULL;
   if (os_stat(context->os, item->source_path, source_stat) == 0) {
     struct Str relative = {0};
-    (void)path_is_below(item->source_path, context->gallery_config->media_dir, &relative);
+    (void)path_is_below(item->source_path, context->site_config->media_dir, &relative);
     entry = build_cache_find(context->build_cache, relative, source_stat);
   }
   int rc = 0;
@@ -807,14 +805,14 @@ static int probe_media_job(ptrdiff_t index,
   } else if (item->kind == MEDIA_KIND_IMAGE) {
     rc = probe_image(item, context->os, arenas->scratch, operation, log);
   } else {
-    rc = probe_video(item, &context->video_frames[index], context->gallery_config, context->os,
+    rc = probe_video(item, &context->video_frames[index], context->site_config, context->os,
                      arenas->scratch, operation, log);
   }
   if (rc != 0) {
     return -1;
   }
   for (ptrdiff_t i = 0; i < item->derivative_count; i++) {
-    const struct GalleryDerivative* config_derivative = &context->gallery_config->derivatives[i];
+    const struct GalleryDerivative* config_derivative = &context->site_config->derivatives[i];
     struct MediaDerivative* derivative = &item->derivatives[i];
     ptrdiff_t source_width = item->width_px;
     ptrdiff_t source_height = item->height_px;
@@ -865,7 +863,7 @@ static int probe_image(struct MediaItem* item,
 
 static int probe_video(struct MediaItem* item,
                        struct VideoFrame* frame,
-                       const struct GalleryConfig* gallery_config,
+                       const struct SiteConfig* site_config,
                        struct Os* os,
                        struct Arena scratch,
                        struct Str operation,
@@ -874,7 +872,7 @@ static int probe_video(struct MediaItem* item,
     return -1;
   }
   const ptrdiff_t position_ms =
-      video_frame_position_ms(gallery_config->video_frame_seconds, item->duration_ms);
+      video_frame_position_ms(site_config->video_frame_seconds, item->duration_ms);
   if (video_extract_frame(frame, item->source_path, position_ms, scratch, operation, log) != 0) {
     return -1;
   }

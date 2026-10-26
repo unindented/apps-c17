@@ -10,8 +10,8 @@
 #include "core/error.h"
 #include "core/log.h"
 #include "core/str.h"
-#include "domain/gallery_config.h"
 #include "domain/media_item.h"
+#include "domain/site_config.h"
 #include "media/exif.h"
 #include "media/image.h"
 #include "media/video.h"
@@ -74,7 +74,7 @@ static struct DecodeBudget decode_budget = {
  */
 struct DerivativeContext {
   /** Configured derivative sizes, crops, and qualities. Read-only during the run. */
-  const struct GalleryConfig* gallery_config;
+  const struct SiteConfig* site_config;
 
   /**
    * Media items to render, one per job index. Read-only during the run: this phase reads the paths
@@ -355,7 +355,7 @@ static int write_derivative(const struct OutputWriter* writer,
                             struct Log* log) __attribute__((nonnull(1, 2, 13)));
 
 int derivative_renderer_generate(const struct OutputWriter* writer,
-                                 const struct GalleryConfig* gallery_config,
+                                 const struct SiteConfig* site_config,
                                  struct MediaItem* const* media,
                                  ptrdiff_t media_count,
                                  struct VideoFrame* video_frames,
@@ -366,7 +366,7 @@ int derivative_renderer_generate(const struct OutputWriter* writer,
                                  struct Arena scratch,
                                  struct Log* log) {
   struct DerivativeContext context = {
-      .gallery_config = gallery_config,
+      .site_config = site_config,
       .media = media,
       .video_frames = video_frames,
       .os = os,
@@ -376,7 +376,7 @@ int derivative_renderer_generate(const struct OutputWriter* writer,
                  S("generating derivatives"), (struct Str){0}, is_verbose, os, scratch, log);
 }
 
-ptrdiff_t derivative_renderer_decode_scale(const struct GalleryConfig* gallery_config,
+ptrdiff_t derivative_renderer_decode_scale(const struct SiteConfig* site_config,
                                            const struct MediaItem* item,
                                            const bool* is_stale,
                                            ptrdiff_t width_px,
@@ -398,7 +398,7 @@ ptrdiff_t derivative_renderer_decode_scale(const struct GalleryConfig* gallery_c
       ptrdiff_t region_y = 0;
       ptrdiff_t region_width = 0;
       ptrdiff_t region_height = 0;
-      derivative_source_region(&gallery_config->derivatives[i], width, height, &region_x, &region_y,
+      derivative_source_region(&site_config->derivatives[i], width, height, &region_x, &region_y,
                                &region_width, &region_height);
       is_enough = region_width >= DECODE_SCALE_HEADROOM * item->derivatives[i].width_px &&
                   region_height >= DECODE_SCALE_HEADROOM * item->derivatives[i].height_px;
@@ -509,7 +509,7 @@ static int render_derivatives_images(const struct DerivativeContext* context,
   if (item->kind == MEDIA_KIND_VIDEO && !frame->is_created &&
       video_extract_frame(
           frame, item->source_path,
-          video_frame_position_ms(context->gallery_config->video_frame_seconds, item->duration_ms),
+          video_frame_position_ms(context->site_config->video_frame_seconds, item->duration_ms),
           scratch, S("failed to extract video frame"), log) != 0) {
     return -1;
   }
@@ -533,7 +533,7 @@ static int render_derivatives_images(const struct DerivativeContext* context,
   const enum ImageOrientation orientation =
       item->kind == MEDIA_KIND_IMAGE ? exif_read_orientation(data) : IMAGE_ORIENTATION_TOP_LEFT;
   const ptrdiff_t scale_eighths = derivative_renderer_decode_scale(
-      context->gallery_config, item, is_stale, header.width_px, header.height_px, orientation);
+      context->site_config, item, is_stale, header.width_px, header.height_px, orientation);
   // The reservation uses the header of the bytes about to be decoded, not the dimensions the probe
   // phase recorded, so a source replaced since then cannot reserve less than it decodes. A
   // reservation above the budget, which only a derivative of more than about 55 million pixels
@@ -609,7 +609,7 @@ static int write_stale_derivatives(const struct DerivativeContext* context,
       continue;
     }
     const struct MediaDerivative* derivative = &item->derivatives[i];
-    const struct GalleryDerivative* config_derivative = &context->gallery_config->derivatives[i];
+    const struct GalleryDerivative* config_derivative = &context->site_config->derivatives[i];
     ptrdiff_t crop_x = 0;
     ptrdiff_t crop_y = 0;
     ptrdiff_t crop_width = 0;

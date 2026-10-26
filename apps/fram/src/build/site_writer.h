@@ -8,7 +8,7 @@
 
 struct Album;
 struct Log;
-struct GalleryConfig;
+struct SiteConfig;
 struct OutputWriter;
 struct PathList;
 struct RenderedPage;
@@ -48,21 +48,21 @@ int site_writer_write_album_pages(const struct OutputWriter* writer,
  * rebased onto the aggregate's own output depth, so a page-relative URL resolves from the directory
  * the aggregate is written to.
  *
- * @param writer         Writer every output is written through. Must not be `NULL`.
- * @param gallery_config Configuration supplying `output_dir` and the aggregate template list. Must
- *                       not be `NULL`.
- * @param template_set   Templates the aggregates render from. Must not be `NULL`.
- * @param root_album     Root album whose data every aggregate renders against. Must not be `NULL`.
- * @param output         Arena whose free space holds each rendered output until it is written.
- *                       Nothing in it outlives the call. Must not overlap `scratch`.
- * @param scratch        Arena for each render's temporaries.
- * @param log            Log that receives the first failure. Its arena must be none of the others.
- *                       Must not be `NULL`.
+ * @param writer       Writer every output is written through. Must not be `NULL`.
+ * @param site_config  Configuration supplying `output_dir` and the aggregate template list. Must
+ *                     not be `NULL`.
+ * @param template_set Templates the aggregates render from. Must not be `NULL`.
+ * @param root_album   Root album whose data every aggregate renders against. Must not be `NULL`.
+ * @param output       Arena whose free space holds each rendered output until it is written.
+ *                     Nothing in it outlives the call. Must not overlap `scratch`.
+ * @param scratch      Arena for each render's temporaries.
+ * @param log          Log that receives the first failure. Its arena must be none of the others.
+ *                     Must not be `NULL`.
  * @return `0` on success, including when no aggregate is configured, or `-1` on the first template
  *         that fails to render or write.
  */
 int site_writer_write_aggregates(const struct OutputWriter* writer,
-                                 const struct GalleryConfig* gallery_config,
+                                 const struct SiteConfig* site_config,
                                  const struct TemplateSet* template_set,
                                  const struct Album* root_album,
                                  struct Arena output,
@@ -75,18 +75,18 @@ int site_writer_write_aggregates(const struct OutputWriter* writer,
  * Each static file keeps its path relative to `root_dir` below `output_dir`, the path
  * `manifest_builder_populate` registered.
  *
- * @param writer         Writer every copy is made through. Must not be `NULL`.
- * @param gallery_config Configuration supplying `output_dir`. Must not be `NULL`.
- * @param static_paths   Every enumerated file below `root_dir`, each already accepted by
- *                       `manifest_builder_populate`. Must not be `NULL`.
- * @param root_dir       Directory the paths are below, such as `static_dir`.
- * @param scratch        Arena for each output path.
- * @param log            Log that receives the first failure, which names the path that could not be
- *                       read or written. Must not be `NULL`.
+ * @param writer       Writer every copy is made through. Must not be `NULL`.
+ * @param site_config  Configuration supplying `output_dir`. Must not be `NULL`.
+ * @param static_paths Every enumerated file below `root_dir`, each already accepted by
+ *                     `manifest_builder_populate`. Must not be `NULL`.
+ * @param root_dir     Directory the paths are below, such as `static_dir`.
+ * @param scratch      Arena for each output path.
+ * @param log          Log that receives the first failure, which names the path that could not be
+ *                     read or written. Must not be `NULL`.
  * @return `0` on success, or `-1` on the first copy failure.
  */
 int site_writer_copy_static_files(const struct OutputWriter* writer,
-                                  const struct GalleryConfig* gallery_config,
+                                  const struct SiteConfig* site_config,
                                   const struct PathList* static_paths,
                                   struct Str root_dir,
                                   struct Arena scratch,

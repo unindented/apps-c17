@@ -15,7 +15,7 @@
 #include "core/parse.h"
 #include "core/str.h"
 #include "domain/fram_version.h"
-#include "domain/gallery_config.h"
+#include "domain/site_config.h"
 #include "os/os.h"
 
 /**
@@ -188,8 +188,7 @@ static void reject_unsupported_flags(struct CliOptions* options,
                                      struct Arena* arena) __attribute__((nonnull(1, 3)));
 
 void cli_parse(struct CliOptions* options, int argc, char** argv, struct Arena* arena) {
-  *options =
-      (struct CliOptions){.action = CLI_ACTION_RUN, .config_path = GALLERY_CONFIG_PATH_DEFAULT};
+  *options = (struct CliOptions){.action = CLI_ACTION_RUN, .config_path = SITE_CONFIG_PATH_DEFAULT};
 
   bool has_version = false;
   bool has_help = false;
