@@ -1,9 +1,12 @@
 #include <acutest.h>
+#include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <string.h>
 
 #include "core/arena.h"
 #include "core/log.h"
+#include "core/path_list.h"
 #include "core/str.h"
 #include "os/os.h"
 #include "os/os_memory.h"
@@ -52,6 +55,113 @@ static void test_marks_writes_and_keeps(void) {
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_file(writer.os, "public/b.html", "old"));
   TEST_CHECK(manifest_find_mark(&manifest, S("public/b.html")) == MANIFEST_MARK_KEPT);
+}
+
+// A copy whose source the build cache vouches for, and whose output is a file of the source's size,
+// is kept. Every other copy is written from its source: one the cache does not vouch for, and one
+// whose output has another size.
+static void test_copy_files_keeps_current_copies(void) {
+  struct Arena arena = test_arena();
+  struct Manifest manifest = {0};
+  struct OutputWriter writer;
+  init_writer(&writer, &manifest, false, &arena);
+  os_memory_write(writer.os, "static/a.html", "aaa");
+  os_memory_write(writer.os, "static/b.html", "bbb");
+  os_memory_write(writer.os, "public/a.html", "old");
+  os_memory_write(writer.os, "public/b.html", "longer");
+  struct PathList sources = {0};
+  path_list_push(&sources, S("static/a.html"), &arena);
+  path_list_push(&sources, S("static/b.html"), &arena);
+  const struct OsStat stats[] = {{.len = 3}, {.len = 3}};
+  const bool is_unchanged[] = {true, true};
+
+  struct Log log = test_log();
+  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, is_unchanged, S("static"),
+                                      S("public"), test_arena(), S("failed to copy file"),
+                                      &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_file(writer.os, "public/a.html", "old"));
+  TEST_CHECK(manifest_find_mark(&manifest, S("public/a.html")) == MANIFEST_MARK_KEPT);
+  TEST_CHECK(os_memory_is_file(writer.os, "public/b.html", "bbb"));
+  TEST_CHECK(manifest_find_mark(&manifest, S("public/b.html")) == MANIFEST_MARK_WRITTEN);
+
+  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, NULL, S("static"), S("public"),
+                                      test_arena(), S("failed to copy file"), &log) == 0);
+  TEST_CHECK(os_memory_is_file(writer.os, "public/a.html", "aaa"));
+}
+
+// A copy keeps its path below the root of its sources, nested directories included, below the
+// output directory.
+static void test_copy_files_keeps_the_path_below_the_root(void) {
+  struct Arena arena = test_arena();
+  struct Manifest manifest = {0};
+  TEST_CHECK(manifest_add(&manifest, S("public/nested/a.svg"), S("a"), &arena, NULL) == 0);
+  struct OutputWriter writer = {.manifest = &manifest, .os = os_memory(), .perm = &arena};
+  os_memory_write(writer.os, "other/nested/a.svg", "<svg/>");
+  struct PathList sources = {0};
+  path_list_push(&sources, S("other/nested/a.svg"), &arena);
+  const struct OsStat stats[] = {{.len = 6}};
+  struct Log log = test_log();
+  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, NULL, S("other"), S("public"),
+                                      test_arena(), S("failed to copy file"), &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_file(writer.os, "public/nested/a.svg", "<svg/>"));
+}
+
+// A dry run of the copies marks a stale copy written and a current one kept, and changes neither.
+static void test_copy_files_dry_run_changes_nothing(void) {
+  struct Arena arena = test_arena();
+  struct Manifest manifest = {0};
+  struct OutputWriter writer;
+  init_writer(&writer, &manifest, true, &arena);
+  os_memory_write(writer.os, "static/a.html", "aaa");
+  os_memory_write(writer.os, "static/b.html", "bbb");
+  os_memory_write(writer.os, "public/a.html", "old");
+  os_memory_write(writer.os, "public/b.html", "old");
+  struct PathList sources = {0};
+  path_list_push(&sources, S("static/a.html"), &arena);
+  path_list_push(&sources, S("static/b.html"), &arena);
+  const struct OsStat stats[] = {{.len = 3}, {.len = 3}};
+  const bool is_unchanged[] = {true, false};
+
+  struct Log log = test_log();
+  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, is_unchanged, S("static"),
+                                      S("public"), test_arena(), S("failed to copy file"),
+                                      &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(manifest_find_mark(&manifest, S("public/a.html")) == MANIFEST_MARK_KEPT);
+  TEST_CHECK(manifest_find_mark(&manifest, S("public/b.html")) == MANIFEST_MARK_WRITTEN);
+  TEST_CHECK(os_memory_is_file(writer.os, "public/a.html", "old"));
+  TEST_CHECK(os_memory_is_file(writer.os, "public/b.html", "old"));
+}
+
+// A failed copy names the operation and the cause, then the path that failed: the destination when
+// it is an existing directory, and the source when it is gone. A directory is no current copy, even
+// of a source of its size that the build cache vouches for.
+static void test_copy_files_reports_a_failed_copy(void) {
+  struct Arena arena = test_arena();
+  struct Manifest manifest = {0};
+  struct OutputWriter writer;
+  init_writer(&writer, &manifest, false, &arena);
+  // The source is empty, as the in-memory host's directory is, so only the type tells them apart.
+  os_memory_write(writer.os, "static/a.html", "");
+  os_memory_mkdir(writer.os, "public/a.html");
+  struct PathList sources = {0};
+  path_list_push(&sources, S("static/a.html"), &arena);
+  const struct OsStat stats[] = {{.len = 0}};
+  const bool is_unchanged[] = {true};
+  struct Log log = test_log();
+  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, is_unchanged, S("static"),
+                                      S("public"), test_arena(), S("failed to copy file"),
+                                      &log) == -1);
+  TEST_CHECK(test_log_is(&log, "failed to copy file: %s ('public/a.html')\n", strerror(EISDIR)));
+
+  sources = (struct PathList){0};
+  path_list_push(&sources, S("static/b.html"), &arena);
+  log = test_log();
+  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, NULL, S("static"), S("public"),
+                                      test_arena(), S("failed to copy file"), &log) == -1);
+  TEST_CHECK(test_log_is(&log, "failed to copy file: %s ('static/b.html')\n", strerror(ENOENT)));
 }
 
 // A real build's writer makes each change: it creates directories and removes files and
@@ -164,6 +274,10 @@ static void test_report_rejects_pending_output(void) {
 
 TEST_LIST = {
     {"marks writes and keeps", test_marks_writes_and_keeps},
+    {"copy files keeps current copies", test_copy_files_keeps_current_copies},
+    {"copy files keeps the path below the root", test_copy_files_keeps_the_path_below_the_root},
+    {"copy files dry run changes nothing", test_copy_files_dry_run_changes_nothing},
+    {"copy files reports a failed copy", test_copy_files_reports_a_failed_copy},
     {"makes changes", test_makes_changes},
     {"dry run withholds changes", test_dry_run_withholds_changes},
     {"reports marks and sorted removals", test_reports_marks_and_sorted_removals},

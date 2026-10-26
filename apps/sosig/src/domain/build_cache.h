@@ -41,6 +41,12 @@ enum BuildCacheKind {
 
   /** A file below `templates_dir`, named by its path relative to it. */
   BUILD_CACHE_KIND_TEMPLATE,
+
+  /** A file below `static_dir`, named by its path relative to it. */
+  BUILD_CACHE_KIND_STATIC,
+
+  /** An asset below `content_dir`, named by its path relative to it. */
+  BUILD_CACHE_KIND_ASSET,
 };
 
 /** The stat of one input the pages depend on, as the build that wrote the row saw it. */
@@ -48,7 +54,7 @@ struct BuildCacheEntry {
   /** What the row names. */
   enum BuildCacheKind kind;
 
-  /** Output path of the page, or path of the template, as `kind` says. */
+  /** Output path of the page, or path of the template, static file or asset, as `kind` says. */
   struct Str name;
 
   /** Size of the input in bytes. */
@@ -62,7 +68,7 @@ struct BuildCacheEntry {
 
   /**
    * For a content row, whether the page read the entry list, `content_entries`, so that it changes
-   * when any other entry does. `false` for a template row.
+   * when any other entry does. `false` for any other row.
    */
   bool is_entry_list_read;
 };

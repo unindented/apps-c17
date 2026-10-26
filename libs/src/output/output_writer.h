@@ -69,6 +69,40 @@ int output_writer_keep(const struct OutputWriter* writer, struct Str file_path, 
     __attribute__((nonnull(1, 3)));
 
 /**
+ * @brief Copies each of `source_paths` to the same path below `output_dir` that it has below
+ *        `root_dir`, or keeps a copy that is current.
+ *
+ * A copy is current when `is_unchanged` says that its source matches what the build cache recorded,
+ * and the output exists as a file of the source's size. A current copy is kept, as
+ * `output_writer_keep` keeps it, so its modification time and a deploy's upload are left alone, and
+ * any other is streamed from its source. A tool that changes a file but keeps its size and
+ * modification time defeats the check, as it does every row of a build cache. Each copy names its
+ * source to `oom_set_job`, which names no file once every copy succeeds.
+ *
+ * @param writer       Writer of the build. Must not be `NULL`.
+ * @param source_paths Files to copy, each below `root_dir`. Must not be `NULL`.
+ * @param source_stats Stat of each of `source_paths`, parallel to them. Must not be `NULL` unless
+ *                     `is_unchanged` is `NULL`.
+ * @param is_unchanged For each of `source_paths`, whether its source matches the build cache, or
+ *                     `NULL` when none does.
+ * @param root_dir     Directory the sources are below.
+ * @param output_dir   Directory the copies go below.
+ * @param scratch      Arena for each output path.
+ * @param operation    Operation leading the message of a copy that fails.
+ * @param log          Log that receives the first failure. Must not be `NULL`.
+ * @return `0` on success, or `-1` on the first copy or keep that fails.
+ */
+int output_writer_copy_files(const struct OutputWriter* writer,
+                             const struct PathList* source_paths,
+                             const struct OsStat* source_stats,
+                             const bool* is_unchanged,
+                             struct Str root_dir,
+                             struct Str output_dir,
+                             struct Arena scratch,
+                             struct Str operation,
+                             struct Log* log) __attribute__((nonnull(1, 2, 9)));
+
+/**
  * @brief Creates `dir_path` and any missing parents, as `os_mkdirs` does, unless the build is a dry
  *        run.
  *

@@ -116,12 +116,14 @@ A template name in the configuration, or in the `template` field of an entry, mu
 > [!caution]
 > The first build into a directory removes everything in that directory that the build did not write, including hidden files. Set `output_dir` to a directory that you use for nothing else.
 
-When a build writes an output, it replaces any file that is already at that path. After a successful build, the build removes every file and directory below `output_dir` that it did not write, so `output_dir` contains only the outputs of the current inputs. For example, the build removes the pages of deleted or renamed entries, the outputs of removed templates, removed static files and removed assets, and anything that you added by hand. If a symlink does not lead to a current output, the build removes the symlink itself. It does not change the file or directory that the symlink points to. A failed build removes nothing. If rendering or writing fails before the build completes, some outputs can be new while other outputs stay unchanged.
+When a build writes an output, it replaces any file that is already at that path. It keeps an output that the [build cache](#build-cache) shows is current, such as the copy of a static file or an asset whose size and modification time did not change. After a successful build, the build removes every file and directory below `output_dir` that it did not write, so `output_dir` contains only the outputs of the current inputs. For example, the build removes the pages of deleted or renamed entries, the outputs of removed templates, removed static files and removed assets, and anything that you added by hand. If a symlink does not lead to a current output, the build removes the symlink itself. It does not change the file or directory that the symlink points to. A failed build removes nothing. If rendering or writing fails before the build completes, some outputs can be new while other outputs stay unchanged.
 
 Before a build searches the content directory, `sosig` rejects `output_dir` in these cases:
 
 - `output_dir` is at or below `content_dir`, `templates_dir`, or `static_dir`. `sosig` also makes this check when `output_dir` does not exist yet.
 - `output_dir` exists and contains one of those directories or the config file, for example with `output_dir = "."`.
+
+`sosig` makes this check even when one of those directories is missing or is not a directory, so one run reports both errors.
 
 Every search of an input directory skips `output_dir`, so a symlink that leads into `output_dir` cannot make the build read generated files as inputs.
 
@@ -152,7 +154,7 @@ remove	public/notes/old-post.html
 | Mark | Meaning |
 | --- | --- |
 | `write` | The build would write this output. |
-| `keep` | The build would not change this content page, aggregate, or feed, because the [build cache](#build-cache) shows that it is current. |
+| `keep` | The build would not change this content page, aggregate, or feed, because the [build cache](#build-cache) shows that it is current, or this static file or asset, because its source is unchanged and the copy has the source's size. |
 | `remove` | The build would remove this path, because the current inputs no longer produce it. The path can be a directory. |
 
 The `write` and `keep` lines come first, in the order that the build plans them:
@@ -174,19 +176,19 @@ A dry run writes nothing, so a build can still fail after a dry run succeeds. A 
 
 ### Build cache
 
-A build writes the build cache to `_sosig/v1-build-cache.tsv` below `output_dir`. The build cache records the size and modification time of every input that the pages depend on: each content file and each file below `templates_dir`. Its first line records the configuration values that rendering reads, the `sosig` version, and the grammars that the binary includes.
+A build writes the build cache to `_sosig/v1-build-cache.tsv` below `output_dir`. The build cache records the size and modification time of every input that the outputs depend on: each content file, each file below `templates_dir`, and each static file and asset. Its first line records the configuration values that rendering reads, the `sosig` version, and the grammars that the binary includes.
 
-The next build keeps a content page, and does not render it again, if its content file, its templates, and the configuration did not change. The build keeps the aggregates and feeds if no content file changed. Some changes make the build render pages again:
+The next build keeps a content page, and does not render it again, if its content file, its templates, and the configuration did not change. The build keeps the aggregates and feeds if no content file changed, and keeps the copy of a static file or an asset whose source did not change. Some changes make the build render pages again:
 
 - If any entry changes, the build renders again each page whose template reads `content_entries`, and each page whose body [links another content file](#links-between-content-files).
-- If a page has a denote link to an asset in its body, the build renders that page in every build, because the build cache does not record assets. An aggregate or a feed that shows the body is made again only when an entry changes, so after you rename the asset, it keeps the old link until then.
+- If a page has a denote link to an asset in its body, the build renders that page in every build, because no row records which asset a page links. An aggregate or a feed that shows the body is made again only when an entry changes, so after you rename the asset, it keeps the old link until then.
 - If any file below `templates_dir` changes, such as a partial, the build renders every page again.
 
 Every build still converts the Markdown or Org of every content file.
 
-Some tools change a file but keep its size and modification time. After such a change, the build can keep a page that no longer matches its content file. To correct this, run `sosig build --force` once. That build renders every page again and writes a new build cache.
+Some tools change a file but keep its size and modification time. After such a change, the build can keep a page that no longer matches its content file. To correct this, run `sosig build --force` once. That build renders every page again, copies every static file and asset again, and writes a new build cache.
 
-When you publish `output_dir`, you also publish the build cache. Its output paths are already public, but it also contains the names of the template files, and the size and modification time of each content file and template. If you do not want to publish this information, exclude `_sosig/v1-build-cache.tsv` when you deploy.
+When you publish `output_dir`, you also publish the build cache. Its output paths are already public, but it also contains the names of the template files, and the size and modification time of each content file, template, static file and asset. If you do not want to publish this information, exclude `_sosig/v1-build-cache.tsv` when you deploy.
 
 ### Limits
 

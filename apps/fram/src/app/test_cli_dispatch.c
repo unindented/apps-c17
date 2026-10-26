@@ -136,6 +136,7 @@ static void test_build_command_receives_parsed_options(void) {
                                   "probing media, workers: 1\n"
                                   "\rprobing media 1/2\rprobing media 2/2\n"
                                   "building output manifest\n"
+                                  "copying static files\n"
                                   "writing build cache\n"
                                   "generating derivatives, workers: 1\n"
                                   "\rgenerating derivatives 1/2\rgenerating derivatives 2/2\n"
@@ -143,7 +144,6 @@ static void test_build_command_receives_parsed_options(void) {
                                   "\rrendering albums 1/1\n"
                                   "writing album pages\n"
                                   "rendering aggregate templates\n"
-                                  "copying static files\n"
                                   "removing stale outputs\n"
                                   "removed stale outputs: 0\n"
                                   "build complete\n"));

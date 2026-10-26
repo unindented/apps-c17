@@ -41,14 +41,16 @@ static struct OsStat stat_of(const struct BuildCacheEntry* entry) {
 
 /** Two rows, an image and a video, in path order. */
 static const struct BuildCacheEntry ENTRIES[] = {
-    {.path = STR_INIT("album/a.jpg"),
+    {.kind = BUILD_CACHE_KIND_MEDIA,
+     .name = STR_INIT("album/a.jpg"),
      .len = 1234,
      .mtime_s = 1782864000,
      .mtime_ns = 5,
      .width_px = 24,
      .height_px = 12,
      .orientation = IMAGE_ORIENTATION_RIGHT_TOP},
-    {.path = STR_INIT("clip.mp4"),
+    {.kind = BUILD_CACHE_KIND_MEDIA,
+     .name = STR_INIT("clip.mp4"),
      .len = 99,
      .mtime_s = 1782864001,
      .mtime_ns = 999999999,
@@ -70,19 +72,20 @@ static void test_round_trips_and_finds_matching_rows(void) {
   TEST_CHECK(cache.count == 2);
 
   struct OsStat stat = stat_of(&ENTRIES[1]);
-  const struct BuildCacheEntry* found = build_cache_find(&cache, S("clip.mp4"), &stat);
+  const struct BuildCacheEntry* found =
+      build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("clip.mp4"), &stat);
   TEST_CHECK(found != NULL && found->width_px == 640 && found->height_px == 360 &&
              found->orientation == IMAGE_ORIENTATION_TOP_LEFT && found->duration_ms == 1500);
   stat = stat_of(&ENTRIES[0]);
-  found = build_cache_find(&cache, S("album/a.jpg"), &stat);
+  found = build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("album/a.jpg"), &stat);
   TEST_CHECK(found != NULL && found->orientation == IMAGE_ORIENTATION_RIGHT_TOP);
 
   stat.len++;
-  TEST_CHECK(build_cache_find(&cache, S("album/a.jpg"), &stat) == NULL);
+  TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("album/a.jpg"), &stat) == NULL);
   stat = stat_of(&ENTRIES[0]);
   stat.mtime_ns++;
-  TEST_CHECK(build_cache_find(&cache, S("album/a.jpg"), &stat) == NULL);
-  TEST_CHECK(build_cache_find(&cache, S("album/b.jpg"), &stat) == NULL);
+  TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("album/a.jpg"), &stat) == NULL);
+  TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("album/b.jpg"), &stat) == NULL);
 }
 
 // A file dated before 1970 has negative seconds, and its row parses and matches like any other, so
@@ -90,7 +93,8 @@ static void test_round_trips_and_finds_matching_rows(void) {
 static void test_round_trips_a_time_before_1970(void) {
   struct Arena arena = test_arena();
   const struct BuildCacheEntry entries[] = {
-      {.path = S("old.jpg"),
+      {.kind = BUILD_CACHE_KIND_MEDIA,
+       .name = S("old.jpg"),
        .len = 3,
        .mtime_s = -315590400,
        .width_px = 4,
@@ -102,8 +106,30 @@ static void test_round_trips_a_time_before_1970(void) {
   struct Log log = test_log();
   TEST_ASSERT(build_cache_parse(text, &arena, &cache, &log) == 0);
   struct OsStat stat = stat_of(&entries[0]);
-  TEST_CHECK(build_cache_find(&cache, S("old.jpg"), &stat) != NULL);
+  TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("old.jpg"), &stat) != NULL);
 }
+
+// A static file's row holds only its stat, sorts after every media row, and is found by its kind,
+// so a media source and a static file of one name are two rows.
+static void test_round_trips_static_rows_after_media_rows(void) {
+  struct Arena arena = test_arena();
+  const struct BuildCacheEntry entries[] = {
+      ENTRIES[0],
+      {.kind = BUILD_CACHE_KIND_STATIC, .name = STR_INIT("album/a.jpg"), .len = 7, .mtime_s = 9},
+  };
+  const struct Str text = format_cache(entries, 2, &arena);
+  struct BuildCache cache = {0};
+  struct Log log = test_log();
+  TEST_ASSERT(build_cache_parse(text, &arena, &cache, &log) == 0);
+  const struct OsStat stat = {.len = 7, .mtime_s = 9};
+  const struct BuildCacheEntry* found =
+      build_cache_find(&cache, BUILD_CACHE_KIND_STATIC, S("album/a.jpg"), &stat);
+  TEST_CHECK(found != NULL && found->kind == BUILD_CACHE_KIND_STATIC);
+  TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_MEDIA, S("album/a.jpg"), &stat) == NULL);
+  const struct BuildCacheEntry reversed[] = {entries[1], entries[0]};
+  TEST_CHECK(build_cache_parse(format_cache(reversed, 2, &arena), &arena, &cache, &log) == -1);
+}
+
 // A gallery with no media writes the first line alone, which parses as an empty build cache.
 static void test_parses_first_line_alone(void) {
   struct Arena arena = test_arena();
@@ -120,9 +146,9 @@ static void test_skips_path_with_tab_or_newline(void) {
   struct Arena arena = test_arena();
   struct Buf text = {.arena = &arena};
   struct BuildCacheEntry entry = ENTRIES[0];
-  entry.path = S("album/a\tb.jpg");
+  entry.name = S("album/a\tb.jpg");
   build_cache_format_entry(&text, &entry);
-  entry.path = S("album/a\nb.jpg");
+  entry.name = S("album/a\nb.jpg");
   build_cache_format_entry(&text, &entry);
   TEST_CHECK(buf_str(&text).len == 0);
 }
@@ -144,12 +170,14 @@ static void test_rejects_rows_that_do_not_parse(void) {
   struct Arena arena = test_arena();
   const struct Str text = format_cache(ENTRIES, 2, &arena);
   static const char* const bad_rows[] = {
-      "album/a.jpg\t1\t2\t3\t4\t5\t1\t0",             // no newline
-      "album/a.jpg\t1\t2\t3\t4\t5\t9\t0\n",           // orientation out of range
-      "album/a.jpg\t1\t2\t1000000000\t4\t5\t1\t0\n",  // nanoseconds out of range
-      "album/a.jpg\t1\t2\t3\t4\t5\t1\n",              // a field missing
-      "album/a.jpg\t1\t2\t3\t4\t5\t1\t0\t0\n",        // a field extra
-      "album/a.jpg\t-1\t2\t3\t4\t5\t1\t0\n",          // a negative size
+      "media\talbum/a.jpg\t1\t2\t3\t4\t5\t1\t0",             // no newline
+      "media\talbum/a.jpg\t1\t2\t3\t4\t5\t9\t0\n",           // orientation out of range
+      "media\talbum/a.jpg\t1\t2\t1000000000\t4\t5\t1\t0\n",  // nanoseconds out of range
+      "media\talbum/a.jpg\t1\t2\t3\t4\t5\t1\n",              // a field missing
+      "media\talbum/a.jpg\t1\t2\t3\t4\t5\t1\t0\t0\n",        // a field extra
+      "media\talbum/a.jpg\t-1\t2\t3\t4\t5\t1\t0\n",          // a negative size
+      "album/a.jpg\t1\t2\t3\t4\t5\t1\t0\n",                  // no kind
+      "static\ta.css\t1\t2\t3\t4\n",                         // a static field extra
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(bad_rows) / sizeof(bad_rows[0])); i++) {
     struct Buf bad = {.arena = &arena};
@@ -171,6 +199,7 @@ static void test_rejects_rows_that_do_not_parse(void) {
 TEST_LIST = {
     {"round trips and finds matching rows", test_round_trips_and_finds_matching_rows},
     {"round trips a time before 1970", test_round_trips_a_time_before_1970},
+    {"round trips static rows after media rows", test_round_trips_static_rows_after_media_rows},
     {"parses first line alone", test_parses_first_line_alone},
     {"skips path with tab or newline", test_skips_path_with_tab_or_newline},
     {"rejects another build", test_rejects_another_build},

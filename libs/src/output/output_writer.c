@@ -9,8 +9,10 @@
 #include "core/buf.h"
 #include "core/error.h"
 #include "core/log.h"
+#include "core/path.h"
 #include "core/path_list.h"
 #include "core/str.h"
+#include "os/oom.h"
 #include "os/os.h"
 #include "output/manifest.h"
 
@@ -58,6 +60,41 @@ int output_writer_write(const struct OutputWriter* writer,
 
 int output_writer_keep(const struct OutputWriter* writer, struct Str file_path, struct Log* log) {
   return mark_output(writer, file_path, MANIFEST_MARK_KEPT, S("failed to keep output"), log);
+}
+
+int output_writer_copy_files(const struct OutputWriter* writer,
+                             const struct PathList* source_paths,
+                             const struct OsStat* source_stats,
+                             const bool* is_unchanged,
+                             struct Str root_dir,
+                             struct Str output_dir,
+                             struct Arena scratch,
+                             struct Str operation,
+                             struct Log* log) {
+  for (ptrdiff_t i = 0; i < source_paths->count; i++) {
+    const struct Str source_path = source_paths->items[i];
+    oom_set_job(source_path, NULL);
+    // Each copy works in its own copy of `scratch`, so one file's path is dead before the next.
+    struct Arena copy_scratch = scratch;
+    struct Str relative = {0};
+    (void)path_is_below(source_path, root_dir, &relative);
+    const struct Str output_path = path_join(output_dir, relative, &copy_scratch);
+    struct OsStat output_stat;
+    const bool is_current = is_unchanged != NULL && is_unchanged[i] &&
+                            os_stat(writer->os, output_path, &output_stat) == 0 &&
+                            !output_stat.is_dir && output_stat.len == source_stats[i].len;
+    // The copy names the path that failed, the source or its destination, which mirrors it.
+    const int rc = is_current ? output_writer_keep(writer, output_path, log)
+                              : output_writer_write(writer, output_path,
+                                                    (struct OsSource){.kind = OS_SOURCE_FILE,
+                                                                      .file_path = source_path},
+                                                    operation, log);
+    if (rc != 0) {
+      return -1;
+    }
+  }
+  oom_set_job((struct Str){0}, NULL);
+  return 0;
 }
 
 int output_writer_mkdirs(const struct OutputWriter* writer,

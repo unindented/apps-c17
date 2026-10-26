@@ -15,7 +15,6 @@
 #include "build/site_writer.h"
 #include "core/arena.h"
 #include "core/buf.h"
-#include "core/error.h"
 #include "core/log.h"
 #include "core/path.h"
 #include "core/path_list.h"
@@ -34,6 +33,7 @@
 #include "output/output_writer.h"
 #include "runtime/job.h"
 #include "runtime/pool.h"
+#include "runtime/read_root.h"
 #include "runtime/walk.h"
 #include "templates/template_set.h"
 
@@ -69,21 +69,6 @@ _Static_assert(BUILD_SCRATCH_LEN > (ptrdiff_t)IMAGE_INPUT_LEN_MAX + IMAGE_ENCODE
 
 /** Most workers the build starts for each online CPU, however many are requested. */
 enum { BUILD_WORKER_PER_CPU_MAX = 4 };
-
-/** One configured directory the build reads, which must be a usable directory when present. */
-struct ReadRoot {
-  /** Configured path, already slash-trimmed by the config load. */
-  struct Str path;
-
-  /** Config key naming `path`, used by every diagnostic so the user knows what to edit. */
-  const char* key;
-
-  /** Whether a gallery may legitimately not have this directory. */
-  bool is_optional;
-
-  /** Whether the config load rejected `key`, so `path` is its default and is not checked. */
-  bool is_rejected;
-};
 
 /** The build's one reservation and the arenas `cmd_build_run` splits it into. */
 struct BuildMemory {
@@ -143,6 +128,9 @@ struct BuildState {
 
   /** Discovered static file paths below `static_dir`, left empty when that directory is absent. */
   struct PathList static_paths;
+
+  /** What `os_stat` reported for each of `static_paths`, parallel to it, in `perm`. */
+  struct OsStat* static_stats;
 
   /** Intended output paths for this build, populated before any file is written. */
   struct Manifest manifest;
@@ -285,10 +273,10 @@ static int load_build_inputs_static(struct BuildState* state, struct Log* log)
 /**
  * @brief Requires every configured read root to be a usable directory.
  *
- * Walks the `ReadRoot` spec table, so each diagnostic names the config key the user has to edit. An
- * optional root that is not there is skipped, and any other root that cannot be resolved is
- * reported with its cause, and every root is checked except one whose key the config load rejected,
- * which it has reported already.
+ * `read_root_require` checks each root under its config key, which each diagnostic names, so the
+ * user knows what to edit. An optional root that is not there is usable, and a root whose key the
+ * config load rejected is not checked, because the load has reported it. Every other root that
+ * cannot be resolved is reported with its cause.
  *
  * @param state Build state supplying the configured read roots. Must not be `NULL`.
  * @param log   Log that receives every error. Must not be `NULL`.
@@ -374,6 +362,19 @@ static int build_album_skeleton(struct BuildState* state, struct Log* log)
 static void load_build_cache(struct BuildState* state) __attribute__((nonnull(1)));
 
 /**
+ * @brief Returns what `os_stat` reports for each of `paths`, for the rows of the build cache.
+ *
+ * @param paths Files to inspect. Must not be `NULL`.
+ * @param os    Host the files are on. Must not be `NULL`.
+ * @param perm  Arena that owns the stats. Must not be `NULL`.
+ * @return One stat per path, zeroed for a file that cannot be inspected.
+ */
+static struct OsStat* load_build_cache_stats(const struct PathList* paths,
+                                             struct Os* os,
+                                             struct Arena* perm)
+    __attribute__((nonnull(1, 2, 3), returns_nonnull));
+
+/**
  * @brief Probes every media item's metadata, dispatching jobs across worker threads.
  *
  * A gallery with no media skips the phase, so it prints no status line and starts no pool.
@@ -411,17 +412,38 @@ static int prepare_output_dir(const struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Writes the build cache, with a row for every current media source.
+ * @brief Copies every static file into the output, or keeps each copy whose source did not change.
  *
- * It runs as soon as `output_dir` exists, because the probe facts stay correct when a later phase
- * fails, so the next build can still reuse them. A source that is gone has no row.
+ * It runs before `write_build_cache`, so a `static` row only ever vouches for a copy that the build
+ * has made or kept. A build interrupted before it writes the cache leaves the previous rows, which
+ * do not match a source that changed since.
  *
- * @param state Build state holding the probed media items and their stats. Must not be `NULL`.
+ * @param state Build state holding the static files and the previous build cache. Must not be
+ *              `NULL`.
  * @param log   Log that receives the failure. Must not be `NULL`.
+ * @return `0` on success, or `-1` when a copy fails.
+ */
+static int copy_static_files(const struct BuildState* state, struct Log* log)
+    __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Writes the build cache, with a row for every current media source and static file.
+ *
+ * It runs as soon as the static files are copied, even when a copy failed, because the probe facts
+ * stay correct when a later phase fails, so the next build can still reuse them. A source that is
+ * gone has no row.
+ *
+ * @param state              Build state holding the probed media items and their stats. Must not be
+ *                           `NULL`.
+ * @param is_static_complete Whether every static file was copied or kept. Without it the cache gets
+ *                           no `static` row, because the copy that failed is unknown, so the next
+ *                           build copies every static file again, which costs far less than probing
+ *                           every media source again.
+ * @param log                Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` when the write fails.
  */
-static int write_build_cache(struct BuildState* state, struct Log* log)
-    __attribute__((nonnull(1, 2)));
+static int write_build_cache(struct BuildState* state, bool is_static_complete, struct Log* log)
+    __attribute__((nonnull(1, 3)));
 
 /**
  * @brief Generates every media item's derivatives, dispatching jobs across worker threads.
@@ -450,10 +472,9 @@ static int render_album_pages(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Writes the album pages, the aggregate template outputs, and the copied static files.
+ * @brief Writes the album pages and the aggregate template outputs.
  *
- * @param state Build state holding the rendered pages, the scanned albums, and the static file
- *              paths. Must not be `NULL`.
+ * @param state Build state holding the rendered pages and the scanned albums. Must not be `NULL`.
  * @param log   Log that receives the failure. Must not be `NULL`.
  * @return `0` when every output was written, or `-1` on the first render or write failure.
  */
@@ -616,13 +637,15 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
   // A rejected directory key holds a default the user never chose, so the build stops before the
   // checks and the walks that would report that default as a second error.
   const struct SiteConfig* site_config = &state->site_config;
-  if (load_build_inputs_require_read_roots(state, log) != 0 || site_config->is_media_dir_rejected ||
-      site_config->is_output_dir_rejected || site_config->is_templates_dir_rejected ||
-      site_config->is_static_dir_rejected) {
+  const int roots_rc = load_build_inputs_require_read_roots(state, log);
+  if (site_config->is_media_dir_rejected || site_config->is_output_dir_rejected ||
+      site_config->is_templates_dir_rejected || site_config->is_static_dir_rejected) {
     return -1;
   }
+  // A directory that failed its check still lets the overlap check run, so one run reports both.
   if (manifest_builder_check_output_dir(&state->site_config, state->config_path, state->os,
-                                        state->scratch, log) != 0) {
+                                        state->scratch, log) != 0 ||
+      roots_rc != 0) {
     return -1;
   }
 
@@ -673,45 +696,20 @@ static int load_build_inputs_static(struct BuildState* state, struct Log* log) {
 }
 
 static int load_build_inputs_require_read_roots(const struct BuildState* state, struct Log* log) {
-  const struct ReadRoot roots[] = {
-      {state->site_config.media_dir, "media_dir", false, state->site_config.is_media_dir_rejected},
-      {state->site_config.templates_dir, "templates_dir", false,
-       state->site_config.is_templates_dir_rejected},
-      {state->site_config.static_dir, "static_dir", true,
-       state->site_config.is_static_dir_rejected},
+  const struct SiteConfig* site_config = &state->site_config;
+  struct ReadRoot roots[] = {
+      {.dir_path = site_config->media_dir,
+       .key = S("media_dir"),
+       .is_rejected = site_config->is_media_dir_rejected},
+      {.dir_path = site_config->templates_dir,
+       .key = S("templates_dir"),
+       .is_rejected = site_config->is_templates_dir_rejected},
+      {.dir_path = site_config->static_dir,
+       .key = S("static_dir"),
+       .is_optional = true,
+       .is_rejected = site_config->is_static_dir_rejected},
   };
-  int rc = 0;
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(roots) / sizeof(roots[0])); i++) {
-    // A root whose key the config load rejected holds its default, and the load has reported it.
-    // Any other root gets two questions in order, because the second presupposes the first answer.
-    //
-    // Is it there at all? Only an optional root may answer no, and for that root absence is the
-    // expected case rather than a failure, so it is skipped without a message. Only `ENOENT`
-    // answers no. A root that cannot be inspected, such as one below a directory the user may not
-    // search, may well be there, so it is reported like any other.
-    //
-    // Is it usable? The message carries the cause. `ENOENT` and `EACCES` call for different fixes,
-    // and nothing after this point would report either, because the build stops once a root is
-    // unusable. The cause carries no verb of its own, so the operation names what was being
-    // resolved, as in
-    // `failed to resolve config directory 'media_dir': No such file or directory ('photos')`.
-    if (roots[i].is_rejected) {
-      continue;
-    }
-    struct OsStat st;
-    if (os_stat(state->os, roots[i].path, &st) != 0) {
-      if (roots[i].is_optional && errno == ENOENT) {
-        continue;
-      }
-      char message[ERROR_SYSTEM_MESSAGE_SIZE];
-      rc = log_error(log, "failed to resolve config directory '%s': %s ('%.*s')", roots[i].key,
-                     error_system_message(message, sizeof(message), errno), STR_FMT(roots[i].path));
-    } else if (!st.is_dir) {
-      rc = log_error(log, "failed to resolve config directory '%s': not a directory ('%.*s')",
-                     roots[i].key, STR_FMT(roots[i].path));
-    }
-  }
-  return rc;
+  return read_root_require(roots, (ptrdiff_t)(sizeof(roots) / sizeof(roots[0])), state->os, log);
 }
 
 static int load_build_inputs_require_video_tools(const struct BuildState* state, struct Log* log) {
@@ -745,6 +743,7 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
     return -1;
   }
   int rc = -1;
+  int copy_rc = -1;
   load_build_cache(state);
   (void)probe_media(state, log);
   (void)populate_output_manifest(state, log);
@@ -754,7 +753,12 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
 
   // Nothing before this point writes, so a build stopped above leaves the filesystem as it found
   // it. From here on a failure stops the phase it happens in.
-  if (prepare_output_dir(state, log) != 0 || write_build_cache(state, log) != 0) {
+  if (prepare_output_dir(state, log) != 0) {
+    goto cleanup;
+  }
+  // A failed copy still lets the build cache keep the probe facts.
+  copy_rc = copy_static_files(state, log);
+  if (write_build_cache(state, copy_rc == 0, log) != 0 || copy_rc != 0) {
     goto cleanup;
   }
   if (generate_derivatives(state, log) != 0 || render_album_pages(state, log) != 0) {
@@ -822,6 +826,8 @@ static int build_album_skeleton(struct BuildState* state, struct Log* log) {
 
 static void load_build_cache(struct BuildState* state) {
   state->build_cache_path = build_cache_path(state->site_config.output_dir, &state->perm);
+  // The static files' rows are written whether or not the build cache is read.
+  state->static_stats = load_build_cache_stats(&state->static_paths, state->os, &state->perm);
   if (state->is_forced) {
     build_verbose(state, "ignoring build cache, probing every source");
     return;
@@ -847,6 +853,18 @@ static void load_build_cache(struct BuildState* state) {
     const struct Str reason = str_clone(str_head(logged, logged.len - 1), &state->perm);
     build_verbose(state, "build cache not used, probing every source: %.*s", STR_FMT(reason));
   }
+}
+
+static struct OsStat* load_build_cache_stats(const struct PathList* paths,
+                                             struct Os* os,
+                                             struct Arena* perm) {
+  struct OsStat* stats = arena_new(perm, paths->count, struct OsStat);
+  for (ptrdiff_t i = 0; i < paths->count; i++) {
+    // A file that cannot be inspected keeps a zeroed stat, which no row matches, so it is copied,
+    // and the copy reports why it cannot be read.
+    (void)os_stat(os, paths->items[i], &stats[i]);
+  }
+  return stats;
 }
 
 static int probe_media(struct BuildState* state, struct Log* log) {
@@ -884,7 +902,23 @@ static int prepare_output_dir(const struct BuildState* state, struct Log* log) {
                               S("failed to prepare output directory"), log);
 }
 
-static int write_build_cache(struct BuildState* state, struct Log* log) {
+static int copy_static_files(const struct BuildState* state, struct Log* log) {
+  build_verbose(state, "copying static files");
+  struct Arena scratch = state->scratch;
+  bool* is_unchanged = arena_new(&scratch, state->static_paths.count, bool);
+  for (ptrdiff_t i = 0; i < state->static_paths.count; i++) {
+    struct Str relative = {0};
+    (void)path_is_below(state->static_paths.items[i], state->site_config.static_dir, &relative);
+    is_unchanged[i] = build_cache_find(&state->build_cache, BUILD_CACHE_KIND_STATIC, relative,
+                                       &state->static_stats[i]) != NULL;
+  }
+  return output_writer_copy_files(&state->writer, &state->static_paths, state->static_stats,
+                                  is_unchanged, state->site_config.static_dir,
+                                  state->site_config.output_dir, scratch,
+                                  S("failed to copy static file"), log);
+}
+
+static int write_build_cache(struct BuildState* state, bool is_static_complete, struct Log* log) {
   build_verbose(state, "writing build cache");
   struct Arena scratch = state->scratch;
   struct Buf text = {.arena = &scratch};
@@ -896,7 +930,8 @@ static int write_build_cache(struct BuildState* state, struct Log* log) {
     struct Str relative = {0};
     (void)path_is_below(item->source_path, state->site_config.media_dir, &relative);
     const struct BuildCacheEntry entry = {
-        .path = relative,
+        .kind = BUILD_CACHE_KIND_MEDIA,
+        .name = relative,
         .len = source_stat->len,
         .mtime_s = source_stat->mtime_s,
         .mtime_ns = source_stat->mtime_ns,
@@ -904,6 +939,21 @@ static int write_build_cache(struct BuildState* state, struct Log* log) {
         .height_px = item->height_px,
         .orientation = item->orientation,
         .duration_ms = item->duration_ms,
+    };
+    build_cache_format_entry(&text, &entry);
+  }
+  // The static rows follow the media rows, as their kind sorts after media. The walk sorted the
+  // paths bytewise, and they share the `static_dir` prefix, so these rows are sorted too.
+  for (ptrdiff_t i = 0; is_static_complete && i < state->static_paths.count; i++) {
+    const struct OsStat* source_stat = &state->static_stats[i];
+    struct Str relative = {0};
+    (void)path_is_below(state->static_paths.items[i], state->site_config.static_dir, &relative);
+    const struct BuildCacheEntry entry = {
+        .kind = BUILD_CACHE_KIND_STATIC,
+        .name = relative,
+        .len = source_stat->len,
+        .mtime_s = source_stat->mtime_s,
+        .mtime_ns = source_stat->mtime_ns,
     };
     build_cache_format_entry(&text, &entry);
   }
@@ -938,13 +988,8 @@ static int write_generated_site(struct BuildState* state, struct Log* log) {
     return -1;
   }
   build_verbose(state, "rendering aggregate templates");
-  if (site_writer_write_aggregates(&state->writer, &state->site_config, state->template_set,
-                                   state->albums[0], state->perm, state->scratch, log) != 0) {
-    return -1;
-  }
-  build_verbose(state, "copying static files");
-  return site_writer_copy_static_files(&state->writer, &state->site_config, &state->static_paths,
-                                       state->site_config.static_dir, state->scratch, log);
+  return site_writer_write_aggregates(&state->writer, &state->site_config, state->template_set,
+                                      state->albums[0], state->perm, state->scratch, log);
 }
 
 static int prune_stale_outputs(struct BuildState* state, struct Log* log) {

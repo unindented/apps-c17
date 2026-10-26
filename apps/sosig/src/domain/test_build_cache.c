@@ -95,7 +95,31 @@ static void test_round_trips_sorted_rows(void) {
   TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_TEMPLATE, S("content.html"), &stat) != NULL);
 }
 
-// A row whose name holds a tab or a newline is left out, so its input is made every build and no
+// A static file's row and an asset's row hold only their stat, sort after the content and template
+// rows, and are found by their kind, so a static file and an asset of one name are two rows.
+static void test_round_trips_static_and_asset_rows(void) {
+  struct Arena arena = test_arena();
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  const struct BuildCacheEntry entries[] = {
+      {.kind = BUILD_CACHE_KIND_ASSET, .name = STR_INIT("a.png"), .len = 5, .mtime_s = 8},
+      ENTRIES[0],
+      {.kind = BUILD_CACHE_KIND_STATIC, .name = STR_INIT("a.png"), .len = 7, .mtime_s = 9},
+  };
+  const struct Str text = format_cache(entries, 3, &site_config, &arena);
+  struct BuildCache cache = {0};
+  struct Log log = test_log();
+  TEST_ASSERT(build_cache_parse(text, &site_config, &arena, &cache, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(cache.count == 3 && cache.entries[0].kind == BUILD_CACHE_KIND_TEMPLATE &&
+             cache.entries[1].kind == BUILD_CACHE_KIND_STATIC &&
+             cache.entries[2].kind == BUILD_CACHE_KIND_ASSET);
+  const struct OsStat static_stat = {.len = 7, .mtime_s = 9};
+  TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_STATIC, S("a.png"), &static_stat) != NULL);
+  TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_ASSET, S("a.png"), &static_stat) == NULL);
+  const struct OsStat asset_stat = {.len = 5, .mtime_s = 8};
+  TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_ASSET, S("a.png"), &asset_stat) != NULL);
+}
 
 // A file dated before 1970 has negative seconds, and its row parses and matches like any other, so
 // one such file does not make the whole build cache unreadable.
@@ -113,6 +137,8 @@ static void test_round_trips_a_time_before_1970(void) {
   const struct OsStat stat = {.len = 3, .mtime_s = -315590400};
   TEST_CHECK(build_cache_find(&cache, BUILD_CACHE_KIND_CONTENT, S("old.html"), &stat) != NULL);
 }
+
+// A row whose name holds a tab or a newline is left out, so its input is made every build and no
 // name needs escaping.
 static void test_leaves_out_name_with_tab_or_newline(void) {
   struct Arena arena = test_arena();
@@ -282,6 +308,7 @@ static void test_rejects_rows_that_do_not_parse(void) {
 
 TEST_LIST = {
     {"round trips sorted rows", test_round_trips_sorted_rows},
+    {"round trips static and asset rows", test_round_trips_static_and_asset_rows},
     {"round trips a time before 1970", test_round_trips_a_time_before_1970},
     {"leaves out name with tab or newline", test_leaves_out_name_with_tab_or_newline},
     {"recipe starts with site fields", test_recipe_starts_with_site_fields},

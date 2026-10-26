@@ -25,6 +25,8 @@ enum { BUILD_CACHE_NS_PER_S = 1000000000 };
 static const struct Str BUILD_CACHE_KIND_NAMES[] = {
     [BUILD_CACHE_KIND_CONTENT] = STR_INIT("content"),
     [BUILD_CACHE_KIND_TEMPLATE] = STR_INIT("template"),
+    [BUILD_CACHE_KIND_STATIC] = STR_INIT("static"),
+    [BUILD_CACHE_KIND_ASSET] = STR_INIT("asset"),
 };
 
 /**
@@ -224,13 +226,16 @@ static int parse_entry(struct Str line, struct BuildCacheEntry* entry_out) {
   if (!take_field(&rest, &kind_name) || !take_field(&rest, &entry.name) || entry.name.len == 0) {
     return -1;
   }
-  if (str_eq(kind_name, BUILD_CACHE_KIND_NAMES[BUILD_CACHE_KIND_CONTENT])) {
-    entry.kind = BUILD_CACHE_KIND_CONTENT;
-  } else if (str_eq(kind_name, BUILD_CACHE_KIND_NAMES[BUILD_CACHE_KIND_TEMPLATE])) {
-    entry.kind = BUILD_CACHE_KIND_TEMPLATE;
-  } else {
+  ptrdiff_t kind_index = 0;
+  const ptrdiff_t kind_count =
+      (ptrdiff_t)(sizeof(BUILD_CACHE_KIND_NAMES) / sizeof(BUILD_CACHE_KIND_NAMES[0]));
+  while (kind_index < kind_count && !str_eq(kind_name, BUILD_CACHE_KIND_NAMES[kind_index])) {
+    kind_index++;
+  }
+  if (kind_index == kind_count) {
     return -1;
   }
+  entry.kind = (enum BuildCacheKind)kind_index;
   struct Str fields[3] = {0};
   for (ptrdiff_t i = 0; i < 3; i++) {
     if (!take_field(&rest, &fields[i])) {

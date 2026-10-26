@@ -14,7 +14,6 @@
 #include "build/site_writer.h"
 #include "core/arena.h"
 #include "core/buf.h"
-#include "core/error.h"
 #include "core/log.h"
 #include "core/path.h"
 #include "core/path_list.h"
@@ -31,6 +30,7 @@
 #include "output/output_writer.h"
 #include "runtime/job.h"
 #include "runtime/pool.h"
+#include "runtime/read_root.h"
 #include "runtime/walk.h"
 #include "templates/template_set.h"
 
@@ -78,21 +78,6 @@ _Static_assert(9 * (ptrdiff_t)CONTENT_FILE_LEN_MAX + 2 * (ptrdiff_t)HIGHLIGHT_ME
 
 /** Most workers the build starts for each online CPU, however many are requested. */
 enum { BUILD_WORKER_PER_CPU_MAX = 4 };
-
-/** One configured directory the build reads, which must be a usable directory when present. */
-struct ReadRoot {
-  /** Configured path, already slash-trimmed by the config load. */
-  struct Str path;
-
-  /** Config key naming `path`, used by every diagnostic so the user knows what to edit. */
-  const char* key;
-
-  /** Whether a site may legitimately not have this directory. */
-  bool is_optional;
-
-  /** Whether the config load rejected `key`, so `path` is its default and is not checked. */
-  bool is_rejected;
-};
 
 /** The build's one reservation and the arenas `cmd_build_run` splits it into. */
 struct BuildMemory {
@@ -159,8 +144,14 @@ struct BuildState {
    */
   struct PathList asset_paths;
 
+  /** What `os_stat` reported for each of `asset_paths`, parallel to it, in `perm`. */
+  struct OsStat* asset_stats;
+
   /** Discovered static file paths below `static_dir`, left empty when that directory is absent. */
   struct PathList static_paths;
+
+  /** What `os_stat` reported for each of `static_paths`, parallel to it, in `perm`. */
+  struct OsStat* static_stats;
 
   /** Intended output paths for this build, populated before any file is written. */
   struct Manifest manifest;
@@ -317,10 +308,10 @@ static int load_build_inputs_static(struct BuildState* state, struct Log* log)
 /**
  * @brief Requires every configured read root to be a usable directory.
  *
- * Walks the `ReadRoot` spec table, so each diagnostic names the config key the user has to edit. An
- * optional root that is not there is skipped, and any other root that cannot be resolved is
- * reported with its cause, and every root is checked except one whose key the config load rejected,
- * which it has reported already.
+ * `read_root_require` checks each root under its config key, which each diagnostic names, so the
+ * user knows what to edit. An optional root that is not there is usable, and a root whose key the
+ * config load rejected is not checked, because the load has reported it. Every other root that
+ * cannot be resolved is reported with its cause.
  *
  * @param state Build state supplying the configured read roots. Must not be `NULL`.
  * @param log   Log that receives every error. Must not be `NULL`.
@@ -455,6 +446,19 @@ static int load_build_cache_templates(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
+ * @brief Returns what `os_stat` reports for each of `paths`, for the rows of the build cache.
+ *
+ * @param paths Files to inspect. Must not be `NULL`.
+ * @param os    Host the files are on. Must not be `NULL`.
+ * @param perm  Arena that owns the stats. Must not be `NULL`.
+ * @return One stat per path, zeroed for a file that cannot be inspected.
+ */
+static struct OsStat* load_build_cache_stats(const struct PathList* paths,
+                                             struct Os* os,
+                                             struct Arena* perm)
+    __attribute__((nonnull(1, 2, 3), returns_nonnull));
+
+/**
  * @brief Decides which outputs the build cache vouches for.
  *
  * Every row needs the page recipe to match, which a parsed build cache does, and every template row
@@ -557,6 +561,28 @@ static int write_generated_site(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
+ * @brief Copies each of `paths` below `output_dir`, or keeps a copy whose row of `kind` matches its
+ *        source, as `output_writer_copy_files` does.
+ *
+ * @param state     Build state holding the build cache and the writer. Must not be `NULL`.
+ * @param kind      Kind of the rows that vouch for the sources.
+ * @param paths     Files to copy, each below `root_dir`. Must not be `NULL`.
+ * @param stats     Stat of each of `paths`, parallel to them. Must not be `NULL` unless there are
+ *                  none.
+ * @param root_dir  Directory the files are below.
+ * @param operation Operation leading the message of a copy that fails.
+ * @param log       Log that receives the first failure. Must not be `NULL`.
+ * @return `0` on success, or `-1` on the first copy that fails.
+ */
+static int write_generated_site_copy(const struct BuildState* state,
+                                     enum BuildCacheKind kind,
+                                     const struct PathList* paths,
+                                     const struct OsStat* stats,
+                                     struct Str root_dir,
+                                     struct Str operation,
+                                     struct Log* log) __attribute__((nonnull(1, 3, 7)));
+
+/**
  * @brief Writes the build cache once every output is written or kept, with a row for every current
  *        entry and template.
  *
@@ -567,6 +593,22 @@ static int write_generated_site(struct BuildState* state, struct Log* log)
  */
 static int write_build_cache(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Appends a row of `kind` for each of `paths`, named by its path below `root_dir`.
+ *
+ * @param cache    Cache that receives the rows, with room for them. Must not be `NULL`.
+ * @param kind     Kind of the rows.
+ * @param paths    Files the rows record. Must not be `NULL`.
+ * @param stats    Stat of each of `paths`, parallel to them. Must not be `NULL` unless there are
+ *                 none.
+ * @param root_dir Directory the files are below.
+ */
+static void write_build_cache_files(struct BuildCache* cache,
+                                    enum BuildCacheKind kind,
+                                    const struct PathList* paths,
+                                    const struct OsStat* stats,
+                                    struct Str root_dir) __attribute__((nonnull(1, 3)));
 
 /**
  * @brief Removes every entry below `output_dir` that this build did not write.
@@ -723,14 +765,16 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
   // the build stops before the checks and the walks that would report that default as a second
   // error, such as a collision with an output the user's own config does not name.
   const struct SiteConfig* site_config = &state->site_config;
-  if (load_build_inputs_require_read_roots(state, log) != 0 ||
-      site_config->is_content_dir_rejected || site_config->is_output_dir_rejected ||
+  const int roots_rc = load_build_inputs_require_read_roots(state, log);
+  if (site_config->is_content_dir_rejected || site_config->is_output_dir_rejected ||
       site_config->is_templates_dir_rejected || site_config->is_static_dir_rejected ||
       site_config->is_output_key_rejected) {
     return -1;
   }
+  // A directory that failed its check still lets the overlap check run, so one run reports both.
   if (manifest_builder_check_output_dir(&state->site_config, state->config_path, state->os,
-                                        state->scratch, log) != 0) {
+                                        state->scratch, log) != 0 ||
+      roots_rc != 0) {
     return -1;
   }
 
@@ -789,46 +833,20 @@ static int load_build_inputs_static(struct BuildState* state, struct Log* log) {
 }
 
 static int load_build_inputs_require_read_roots(const struct BuildState* state, struct Log* log) {
-  const struct ReadRoot roots[] = {
-      {state->site_config.content_dir, "content_dir", false,
-       state->site_config.is_content_dir_rejected},
-      {state->site_config.templates_dir, "templates_dir", false,
-       state->site_config.is_templates_dir_rejected},
-      {state->site_config.static_dir, "static_dir", true,
-       state->site_config.is_static_dir_rejected},
+  const struct SiteConfig* site_config = &state->site_config;
+  struct ReadRoot roots[] = {
+      {.dir_path = site_config->content_dir,
+       .key = S("content_dir"),
+       .is_rejected = site_config->is_content_dir_rejected},
+      {.dir_path = site_config->templates_dir,
+       .key = S("templates_dir"),
+       .is_rejected = site_config->is_templates_dir_rejected},
+      {.dir_path = site_config->static_dir,
+       .key = S("static_dir"),
+       .is_optional = true,
+       .is_rejected = site_config->is_static_dir_rejected},
   };
-  int rc = 0;
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(roots) / sizeof(roots[0])); i++) {
-    // A root whose key the config load rejected holds its default, and the load has reported it.
-    // Any other root gets two questions in order, because the second presupposes the first answer.
-    //
-    // Is it there at all? Only an optional root may answer no, and for that root absence is the
-    // expected case rather than a failure, so it is skipped without a message. Only `ENOENT`
-    // answers no. A root that cannot be inspected, such as one below a directory the user may not
-    // search, may well be there, so it is reported like any other.
-    //
-    // Is it usable? The message carries the cause. `ENOENT` and `EACCES` call for different fixes,
-    // and nothing after this point would report either, because the build stops once a root is
-    // unusable. The cause carries no verb of its own, so the operation names what was being
-    // resolved, as in
-    // `failed to resolve config directory 'content_dir': No such file or directory ('content')`.
-    if (roots[i].is_rejected) {
-      continue;
-    }
-    struct OsStat st;
-    if (os_stat(state->os, roots[i].path, &st) != 0) {
-      if (roots[i].is_optional && errno == ENOENT) {
-        continue;
-      }
-      char message[ERROR_SYSTEM_MESSAGE_SIZE];
-      rc = log_error(log, "failed to resolve config directory '%s': %s ('%.*s')", roots[i].key,
-                     error_system_message(message, sizeof(message), errno), STR_FMT(roots[i].path));
-    } else if (!st.is_dir) {
-      rc = log_error(log, "failed to resolve config directory '%s': not a directory ('%.*s')",
-                     roots[i].key, STR_FMT(roots[i].path));
-    }
-  }
-  return rc;
+  return read_root_require(roots, (ptrdiff_t)(sizeof(roots) / sizeof(roots[0])), state->os, log);
 }
 
 static int run_build_phases(struct BuildState* state, struct Log* log) {
@@ -987,6 +1005,8 @@ static int load_build_cache(struct BuildState* state, struct Log* log) {
   if (load_build_cache_templates(state, log) != 0) {
     return -1;
   }
+  state->static_stats = load_build_cache_stats(&state->static_paths, state->os, &state->perm);
+  state->asset_stats = load_build_cache_stats(&state->asset_paths, state->os, &state->perm);
   load_build_cache_find_fresh(state);
   return 0;
 }
@@ -1031,6 +1051,18 @@ static int load_build_cache_templates(struct BuildState* state, struct Log* log)
     (void)os_stat(state->os, state->template_paths.items[i], &state->template_stats[i]);
   }
   return 0;
+}
+
+static struct OsStat* load_build_cache_stats(const struct PathList* paths,
+                                             struct Os* os,
+                                             struct Arena* perm) {
+  struct OsStat* stats = arena_new(perm, paths->count, struct OsStat);
+  for (ptrdiff_t i = 0; i < paths->count; i++) {
+    // A file that cannot be inspected keeps a zeroed stat, which no row matches, so it is copied,
+    // and the copy reports why it cannot be read.
+    (void)os_stat(os, paths->items[i], &stats[i]);
+  }
+  return stats;
 }
 
 static void load_build_cache_find_fresh(struct BuildState* state) {
@@ -1170,19 +1202,41 @@ static int write_generated_site(struct BuildState* state, struct Log* log) {
   }
   build_verbose(state, "copying static files");
   // An asset is a static file whose root is `content_dir`, so it is copied the same way.
-  if (site_writer_copy_static_files(&state->writer, site_config, &state->static_paths,
-                                    site_config->static_dir, state->scratch, log) != 0) {
+  if (write_generated_site_copy(state, BUILD_CACHE_KIND_STATIC, &state->static_paths,
+                                state->static_stats, site_config->static_dir,
+                                S("failed to copy static file"), log) != 0) {
     return -1;
   }
-  return site_writer_copy_static_files(&state->writer, site_config, &state->asset_paths,
-                                       site_config->content_dir, state->scratch, log);
+  return write_generated_site_copy(state, BUILD_CACHE_KIND_ASSET, &state->asset_paths,
+                                   state->asset_stats, site_config->content_dir,
+                                   S("failed to copy static file"), log);
+}
+
+static int write_generated_site_copy(const struct BuildState* state,
+                                     enum BuildCacheKind kind,
+                                     const struct PathList* paths,
+                                     const struct OsStat* stats,
+                                     struct Str root_dir,
+                                     struct Str operation,
+                                     struct Log* log) {
+  struct Arena scratch = state->scratch;
+  bool* is_unchanged = arena_new(&scratch, paths->count, bool);
+  for (ptrdiff_t i = 0; i < paths->count; i++) {
+    struct Str relative = {0};
+    (void)path_is_below(paths->items[i], root_dir, &relative);
+    is_unchanged[i] = build_cache_find(&state->build_cache, kind, relative, &stats[i]) != NULL;
+  }
+  return output_writer_copy_files(&state->writer, paths, stats, is_unchanged, root_dir,
+                                  state->site_config.output_dir, scratch, operation, log);
 }
 
 static int write_build_cache(struct BuildState* state, struct Log* log) {
   build_verbose(state, "writing build cache");
   struct Arena scratch = state->scratch;
   struct BuildCache cache = {
-      .entries = arena_new(&scratch, state->content_entry_count + state->template_paths.count,
+      .entries = arena_new(&scratch,
+                           state->content_entry_count + state->template_paths.count +
+                               state->static_paths.count + state->asset_paths.count,
                            struct BuildCacheEntry),
   };
   for (ptrdiff_t i = 0; i < state->source_paths.count; i++) {
@@ -1215,11 +1269,33 @@ static int write_build_cache(struct BuildState* state, struct Log* log) {
         .mtime_ns = state->template_stats[i].mtime_ns,
     };
   }
+  write_build_cache_files(&cache, BUILD_CACHE_KIND_STATIC, &state->static_paths,
+                          state->static_stats, state->site_config.static_dir);
+  write_build_cache_files(&cache, BUILD_CACHE_KIND_ASSET, &state->asset_paths, state->asset_stats,
+                          state->site_config.content_dir);
   struct Buf text = {.arena = &scratch};
   build_cache_format(&text, &state->site_config, &cache);
   return output_writer_write(&state->writer, state->build_cache_path,
                              (struct OsSource){.bytes = buf_str(&text)},
                              S("failed to write build cache"), log);
+}
+
+static void write_build_cache_files(struct BuildCache* cache,
+                                    enum BuildCacheKind kind,
+                                    const struct PathList* paths,
+                                    const struct OsStat* stats,
+                                    struct Str root_dir) {
+  for (ptrdiff_t i = 0; i < paths->count; i++) {
+    struct Str relative = {0};
+    (void)path_is_below(paths->items[i], root_dir, &relative);
+    cache->entries[cache->count++] = (struct BuildCacheEntry){
+        .kind = kind,
+        .name = relative,
+        .len = stats[i].len,
+        .mtime_s = stats[i].mtime_s,
+        .mtime_ns = stats[i].mtime_ns,
+    };
+  }
 }
 
 static int prune_stale_outputs(struct BuildState* state, struct Log* log) {

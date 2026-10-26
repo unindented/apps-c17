@@ -674,6 +674,75 @@ static void test_dry_run_lists_stale_recipe_and_keeps_it(void) {
   TEST_CHECK(!os_memory_has_path(os, "public/_fram/v2-s-4x4c-q70-m-16x16-q75-f1000"));
 }
 
+// After a build, a dry run keeps a static file whose source is unchanged, and writes one whose size
+// or modification time changed, so a rebuild rewrites only what changed.
+static void test_dry_run_keeps_unchanged_static_files(void) {
+  struct Os* os = every_output_kind_fixture();
+  os_memory_write(os, "static/robots.txt", "User-agent: *\n");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  os_memory_touch(os, "static/robots.txt");
+
+  TEST_CHECK(execute_dry_run(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_printed(
+      os, 1,
+      "write\tpublic/index.html\n"
+      "write\tpublic/album/index.html\n"
+      "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp\n"
+      "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
+      "keep\tpublic/_fram/originals/album/one-jpg.jpg\n"
+      "write\tpublic/sitemap.xml\n"
+      "keep\tpublic/fram.css\n"
+      "write\tpublic/robots.txt\n"
+      "write\tpublic/_fram/v1-build-cache.tsv\n"));
+}
+
+// A build that fails after it copied the static files still records each copy it made. A source
+// edited to the same size is copied before the render fails, so the next build keeps a copy that
+// matches its source rather than one the cache vouches for but the build never made.
+static void test_failed_render_keeps_the_static_copies_it_made(void) {
+  struct Os* os = every_output_kind_fixture();
+  os_memory_write(os, "static/robots.txt", "User-agent: *\n");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  os_memory_write(os, "static/robots.txt", "User-agent: a\n");
+  os_memory_write(os, "templates/album.html", "{{{album.title}}}");
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(
+      test_log_is(&log,
+                  "unescaped Mustache interpolation is supported only for a key that ends "
+                  "in '_html' (in 'album.html') (while rendering 'index.html')\n\xE2\x80\xA6 "
+                  "and 1 more failures\n"));
+
+  os_memory_write(os, "templates/album.html", ALBUM_TEMPLATE);
+  log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(os_memory_is_file(os, "public/robots.txt", "User-agent: a\n"));
+}
+
+// A failed static copy leaves the build cache with no static row, so the next build copies every
+// static file again, and the cache still keeps the probe facts of every media source, so the next
+// build probes none again.
+static void test_failed_static_copy_keeps_the_probe_facts(void) {
+  struct Os* os = every_output_kind_fixture();
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  const char* cache_file = build_cache_file(&arena);
+  const struct Str cache = file_contents(os, cache_file, &arena);
+  os_memory_write(os, "static/fram.css", "body{x}\n");
+  os_memory_fail(os, OS_MEMORY_OP_READ, "static/fram.css", EACCES);
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(
+      test_log_is(&log, "failed to copy static file: %s ('static/fram.css')\n", strerror(EACCES)));
+  const char* rewritten = str_cstr(file_contents(os, cache_file, &arena), &arena);
+  TEST_CHECK(strstr(rewritten, "\nmedia\talbum/one.jpg\t") != NULL);
+  TEST_CHECK(strstr(str_cstr(cache, &arena), "\nstatic\tfram.css\t") != NULL);
+  TEST_CHECK(strstr(rewritten, "\nstatic\tfram.css\t") == NULL);
+}
+
 // A dry run over an existing tree, with a new photo to write and a stale file to remove, where
 // every write and every removal below `output_dir` would fail, still succeeds, so it attempts
 // neither.
@@ -759,9 +828,9 @@ static void test_rewrites_build_cache_without_deleted_sources(void) {
   struct StrCut cut = str_cut(cache, '\n');
   TEST_CHECK(str_eq(str_head(cache, cut.head.len + 1), buf_str(&header)));
   cut = str_cut(cut.tail, '\n');
-  TEST_CHECK(str_startswith(cut.head, S("album/a.jpg\t")));
+  TEST_CHECK(str_startswith(cut.head, S("media\talbum/a.jpg\t")));
   cut = str_cut(cut.tail, '\n');
-  TEST_CHECK(str_startswith(cut.head, S("album/c.jpg\t")));
+  TEST_CHECK(str_startswith(cut.head, S("media\talbum/c.jpg\t")));
   TEST_CHECK(cut.tail.len == 0);
   TEST_MSG("build cache: '%.*s'", STR_FMT(cache));
 }
@@ -986,12 +1055,12 @@ static void test_skips_empty_phases_in_verbose_output(void) {
                                   "loading build cache\n"
                                   "no build cache, probing every source\n"
                                   "building output manifest\n"
+                                  "copying static files\n"
                                   "writing build cache\n"
                                   "rendering albums, workers: 3\n"
                                   "\rrendering albums 1/1\n"
                                   "writing album pages\n"
                                   "rendering aggregate templates\n"
-                                  "copying static files\n"
                                   "removing stale outputs\n"
                                   "removed stale outputs: 0\n"
                                   "build complete\n"));
@@ -1083,6 +1152,21 @@ static void test_reports_absent_templates_dir(void) {
                          "failed to resolve config directory 'media_dir': %s ('photos')\nfailed "
                          "to resolve config directory 'templates_dir': %s ('templates')\n",
                          strerror(EACCES), strerror(ENOENT)));
+}
+
+// A root that fails its check still lets the overlap check run, so one run reports a missing
+// `media_dir` together with an `output_dir` inside `templates_dir`, and the user fixes both at
+// once.
+static void test_reports_a_bad_root_with_an_overlapping_output_dir(void) {
+  struct Os* os = os_memory();
+  write_gallery_fixture(os, "output_dir = \"templates/site\"\n");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to resolve config directory 'media_dir': %s ('photos')\n"
+                         "output directory would write inside 'templates_dir': 'templates/site'\n",
+                         strerror(ENOENT)));
+  TEST_CHECK(!os_memory_has_path(os, "templates/site"));
 }
 
 // A directory key the config load rejects is reported once. Its default names a directory the user
@@ -1532,6 +1616,7 @@ TEST_LIST = {
      test_dry_run_lists_every_output_and_writes_nothing},
     {"dry run keeps fresh media", test_dry_run_keeps_fresh_media},
     {"dry run lists stale recipe and keeps it", test_dry_run_lists_stale_recipe_and_keeps_it},
+    {"dry run keeps unchanged static files", test_dry_run_keeps_unchanged_static_files},
     {"dry run attempts no change", test_dry_run_attempts_no_change},
     {"dry run leaves no state", test_dry_run_leaves_no_state},
     {"warm build reads no source and repeats its bytes",
@@ -1554,6 +1639,8 @@ TEST_LIST = {
     {"reports missing config", test_reports_missing_config},
     {"reports absent input dir", test_reports_absent_media_dir},
     {"reports absent templates dir", test_reports_absent_templates_dir},
+    {"reports a bad root with an overlapping output dir",
+     test_reports_a_bad_root_with_an_overlapping_output_dir},
     {"reports a rejected directory key once", test_reports_a_rejected_directory_key_once},
     {"reports a rejected static dir once", test_reports_a_rejected_static_dir_once},
     {"reports templates dir that is a file", test_reports_templates_dir_that_is_a_file},
@@ -1573,6 +1660,9 @@ TEST_LIST = {
     {"reports stale output that cannot be removed",
      test_reports_stale_output_that_cannot_be_removed},
     {"reports a shared render failure once", test_reports_a_shared_render_failure_once},
+    {"failed render keeps the static copies it made",
+     test_failed_render_keeps_the_static_copies_it_made},
+    {"failed static copy keeps the probe facts", test_failed_static_copy_keeps_the_probe_facts},
     {"reports one line per failing media item", test_reports_one_line_per_failing_media_item},
     {"reports every independent error", test_reports_every_independent_error},
     {"rejects oversize source at probe", test_rejects_oversize_source_at_probe},

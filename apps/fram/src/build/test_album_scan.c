@@ -714,7 +714,8 @@ static void test_probe_media_reuses_matching_row(void) {
   struct OsStat stats[1] = {0};
   struct OsStat source_stat;
   TEST_ASSERT(os_stat(os, item.source_path, &source_stat) == 0);
-  struct BuildCacheEntry entry = {.path = S("a.jpg"),
+  struct BuildCacheEntry entry = {.kind = BUILD_CACHE_KIND_MEDIA,
+                                  .name = S("a.jpg"),
                                   .len = source_stat.len,
                                   .mtime_s = source_stat.mtime_s,
                                   .mtime_ns = source_stat.mtime_ns,
@@ -749,7 +750,8 @@ static void test_probe_media_probes_changed_source(void) {
   struct OsStat stats[1] = {0};
   struct OsStat source_stat;
   TEST_ASSERT(os_stat(os, item.source_path, &source_stat) == 0);
-  struct BuildCacheEntry entries[2] = {{.path = S("a.jpg"),
+  struct BuildCacheEntry entries[2] = {{.kind = BUILD_CACHE_KIND_MEDIA,
+                                        .name = S("a.jpg"),
                                         .len = source_stat.len + 1,
                                         .mtime_s = source_stat.mtime_s,
                                         .mtime_ns = source_stat.mtime_ns,

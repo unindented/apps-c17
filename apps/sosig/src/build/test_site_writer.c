@@ -16,8 +16,8 @@
 #include "templates/template_set.h"
 #include "testing/test_support.h"
 
-// Every test here runs against the in-memory host: the writers read static files and write their
-// outputs only through `os/os.h`, from templates that each test loads first.
+// Every test here runs against the in-memory host: the writers write their outputs only through
+// `os/os.h`, from templates that each test loads first.
 
 /**
  * @brief Initializes a configuration rooted at `templates` and `public`, with no outputs.
@@ -113,8 +113,9 @@ static void test_writes_complete_output_layer(void) {
                                          &log) == 0);
   TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds_set, feeds, 1, entries, 1,
                                          true, false, os, output, test_arena(), &log) == 0);
-  TEST_CHECK(site_writer_copy_static_files(&writer, &site_config, &static_paths,
-                                           site_config.static_dir, test_arena(), &log) == 0);
+  TEST_CHECK(output_writer_copy_files(&writer, &static_paths, NULL, NULL, site_config.static_dir,
+                                      site_config.output_dir, test_arena(),
+                                      S("failed to copy static file"), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_file(os, "public/index.html", "<h1>Site &amp; Co</h1>Newer;Older;"));
   TEST_CHECK(os_memory_is_file(os, "public/nested/links.html",
@@ -228,28 +229,6 @@ static void test_write_templates_renders_path_to_root_per_template(void) {
   template_set_release(feeds_set);
 }
 
-// A file below another root keeps its path relative to that root, not to `static_dir`.
-static void test_copy_static_files_keeps_path_below_root(void) {
-  struct Os* os = os_memory();
-  os_memory_write(os, "other/nested/a.svg", "<svg/>");
-  struct SiteConfig site_config;
-  init_config(&site_config);
-  site_config.static_dir = S("static");
-  struct Arena paths = test_arena();
-  struct PathList static_paths = {0};
-  path_list_push(&static_paths, S("other/nested/a.svg"), &paths);
-  static const char* const output_paths[] = {"public/nested/a.svg"};
-  struct Manifest manifest = {0};
-  struct OutputWriter writer;
-  init_writer(&writer, &manifest, output_paths, 1, os, &paths);
-  struct Log log = test_log();
-
-  TEST_CHECK(site_writer_copy_static_files(&writer, &site_config, &static_paths, S("other"),
-                                           test_arena(), &log) == 0);
-  TEST_CHECK(test_log_is_empty(&log));
-  TEST_CHECK(os_memory_is_file(os, "public/nested/a.svg", "<svg/>"));
-}
-
 // A failed write names the operation and the cause, then the destination. The destination is an
 // existing directory, so opening it for writing fails.
 static void test_write_templates_reports_write_failure(void) {
@@ -275,45 +254,11 @@ static void test_write_templates_reports_write_failure(void) {
   template_set_release(aggregates_set);
 }
 
-// A failed static copy names the operation and the cause, then the path that failed: the
-// destination when it is an existing directory, and the static file when it is gone.
-static void test_copy_static_files_reports_copy_failure(void) {
-  struct Os* os = os_memory();
-  os_memory_write(os, "static/a.css", "a {}");
-  os_memory_mkdir(os, "public/a.css");
-  struct SiteConfig site_config;
-  init_config(&site_config);
-  site_config.static_dir = S("static");
-  struct Arena paths = test_arena();
-  struct PathList static_paths = {0};
-  path_list_push(&static_paths, S("static/a.css"), &paths);
-  static const char* const output_paths[] = {"public/a.css", "public/gone.css"};
-  struct Manifest manifest = {0};
-  struct OutputWriter writer;
-  init_writer(&writer, &manifest, output_paths, 2, os, &paths);
-  struct Log log = test_log();
-
-  TEST_CHECK(site_writer_copy_static_files(&writer, &site_config, &static_paths,
-                                           site_config.static_dir, test_arena(), &log) == -1);
-  TEST_CHECK(
-      test_log_is(&log, "failed to copy static file: %s ('public/a.css')\n", strerror(EISDIR)));
-
-  static_paths = (struct PathList){0};
-  path_list_push(&static_paths, S("static/gone.css"), &paths);
-  log = test_log();
-  TEST_CHECK(site_writer_copy_static_files(&writer, &site_config, &static_paths,
-                                           site_config.static_dir, test_arena(), &log) == -1);
-  TEST_CHECK(
-      test_log_is(&log, "failed to copy static file: %s ('static/gone.css')\n", strerror(ENOENT)));
-}
-
 TEST_LIST = {
     {"writes complete output layer", test_writes_complete_output_layer},
     {"write templates gives feed data", test_write_templates_gives_feed_data},
     {"write templates renders path to root per template",
      test_write_templates_renders_path_to_root_per_template},
-    {"copy static files keeps path below root", test_copy_static_files_keeps_path_below_root},
     {"write templates reports write failure", test_write_templates_reports_write_failure},
-    {"copy static files reports copy failure", test_copy_static_files_reports_copy_failure},
     {NULL, NULL},
 };

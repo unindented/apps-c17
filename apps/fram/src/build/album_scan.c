@@ -794,7 +794,7 @@ static int probe_media_job(ptrdiff_t index,
   if (os_stat(context->os, item->source_path, source_stat) == 0) {
     struct Str relative = {0};
     (void)path_is_below(item->source_path, context->site_config->media_dir, &relative);
-    entry = build_cache_find(context->build_cache, relative, source_stat);
+    entry = build_cache_find(context->build_cache, BUILD_CACHE_KIND_MEDIA, relative, source_stat);
   }
   int rc = 0;
   if (entry != NULL) {

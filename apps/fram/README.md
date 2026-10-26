@@ -110,12 +110,14 @@ A template name in the configuration must be a safe relative path. It can contai
 > [!caution]
 > The first build into a directory removes everything in that directory that the build did not write, including hidden files. Set `output_dir` to a directory that you use for nothing else.
 
-When a build writes an output, it replaces any file that is already at that path. The build compares the metadata of each media file with the metadata of its outputs, and it skips a derivative or a copied original that is current. After a successful build, the build removes every file and directory below `output_dir` that it did not write, so `output_dir` contains only the outputs of the current inputs. For example, the build removes the pages of removed albums, the outputs of deleted media files and removed static files, the derivatives of an earlier configuration, and anything that you added by hand. If a symlink does not lead to a current output, the build removes the symlink itself. It does not change the file or directory that the symlink points to. A failed build removes nothing. If rendering or writing fails before the build completes, some outputs can be new while other outputs stay unchanged.
+When a build writes an output, it replaces any file that is already at that path. The build compares the metadata of each media file with the metadata of its outputs, and it skips a derivative or a copied original that is current. It also keeps the copy of a static file whose size and modification time match what the [build cache](#build-cache) recorded. After a successful build, the build removes every file and directory below `output_dir` that it did not write, so `output_dir` contains only the outputs of the current inputs. For example, the build removes the pages of removed albums, the outputs of deleted media files and removed static files, the derivatives of an earlier configuration, and anything that you added by hand. If a symlink does not lead to a current output, the build removes the symlink itself. It does not change the file or directory that the symlink points to. A failed build removes nothing. If rendering or writing fails before the build completes, some outputs can be new while other outputs stay unchanged.
 
 Before a build searches the media directory, `fram` rejects `output_dir` in these cases:
 
 - `output_dir` is at or below `media_dir`, `templates_dir`, or `static_dir`. `fram` also makes this check when `output_dir` does not exist yet.
 - `output_dir` exists and contains one of those directories or the config file, for example with `output_dir = "."`.
+
+`fram` makes this check even when one of those directories is missing or is not a directory, so one run reports both errors.
 
 Every search of an input directory skips `output_dir`, so a symlink that leads into `output_dir` cannot make the build read generated files as inputs.
 
@@ -144,7 +146,7 @@ remove	public/_fram/v1-s-120x120c-q70-m-1200x800-q85-f1000/album/one-jpg-m.webp
 | Mark | Meaning |
 | --- | --- |
 | `write` | The build would write this output. |
-| `keep` | The build would not change this derivative or copied original, because it is current. |
+| `keep` | The build would not change this derivative, copied original or static file, because it is current. |
 | `remove` | The build would remove this path, because the current inputs no longer produce it. The path can be a directory. |
 
 The `write` and `keep` lines come first, in the order that the build plans them:
@@ -166,11 +168,11 @@ A dry run writes nothing, so a build can still fail after a dry run succeeds. A 
 
 ### Build cache
 
-A build writes the build cache to `_fram/v1-build-cache.tsv` below `output_dir`. The build cache records what the build read from each media file: its dimensions, its EXIF orientation, and the duration of a video. The next build reuses the row of a media file if the size and modification time of the file did not change. Thus the build does not read an unchanged photo, does not run `ffprobe` for an unchanged video, and does not read the whole source tree after you edit a template. After a new release, or when the build cache is missing or damaged, the build probes every media file again.
+A build writes the build cache to `_fram/v1-build-cache.tsv` below `output_dir`. The build cache records what the build read from each media file: its dimensions, its EXIF orientation, and the duration of a video. It also records the size and modification time of each static file, so a build keeps a copy whose source did not change. The next build reuses the row of a media file if the size and modification time of the file did not change. Thus the build does not read an unchanged photo, does not run `ffprobe` for an unchanged video, and does not read the whole source tree after you edit a template. After a new release, or when the build cache is missing or damaged, the build probes every media file again.
 
-Some tools, such as `exiftool -P`, change a file but keep its size and modification time. After such a change, the build cache can keep a row that no longer describes the file. To correct this, run `fram build --force` once. That build probes every media file again and writes a new build cache.
+Some tools, such as `exiftool -P`, change a file but keep its size and modification time. After such a change, the build cache can keep a row that no longer describes the file. To correct this, run `fram build --force` once. That build probes every media file again, copies every static file again, and writes a new build cache.
 
-When you publish `output_dir`, you also publish the build cache. It contains the path of each media file relative to `media_dir`, with the raw filename that page titles and URL slugs change. It also contains the size and modification time of each media file, which no other published file contains. If you do not want to publish this information, exclude `_fram/v1-build-cache.tsv` when you deploy.
+When you publish `output_dir`, you also publish the build cache. It contains the path of each media file relative to `media_dir`, with the raw filename that page titles and URL slugs change. It also contains the size and modification time of each media file and static file, which no other published file contains. If you do not want to publish this information, exclude `_fram/v1-build-cache.tsv` when you deploy.
 
 ### Limits
 

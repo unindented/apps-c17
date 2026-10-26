@@ -852,9 +852,26 @@ static void test_dry_run_keeps_every_page_after_an_unchanged_build(void) {
                         "keep\tpublic/beta.html\n"
                         "keep\tpublic/index.html\n"
                         "keep\tpublic/feed.xml\n"
-                        "write\tpublic/sosig.css\n"
+                        "keep\tpublic/sosig.css\n"
                         "write\tpublic/_sosig/v1-build-cache.tsv\n"));
   TEST_CHECK(os_memory_is_file(os, "public/_sosig/v1-build-cache.tsv", str_cstr(cache, &arena)));
+}
+
+// A static file whose size or modification time changed is copied again, and the others are kept,
+// so a rebuild rewrites only what changed.
+static void test_changed_static_file_is_copied_again(void) {
+  struct Os* os = every_output_kind_fixture();
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  os_memory_touch(os, "static/sosig.css");
+  TEST_CHECK(is_listing(dry_run_listing(os, false, &arena),
+                        "keep\tpublic/alpha.html\n"
+                        "keep\tpublic/beta.html\n"
+                        "keep\tpublic/index.html\n"
+                        "keep\tpublic/feed.xml\n"
+                        "write\tpublic/sosig.css\n"
+                        "write\tpublic/_sosig/v1-build-cache.tsv\n"));
 }
 
 // A changed source makes its own page again, and every aggregate and feed, which read every entry.
@@ -871,7 +888,7 @@ static void test_changed_source_makes_its_page_and_the_aggregates(void) {
                         "keep\tpublic/beta.html\n"
                         "write\tpublic/index.html\n"
                         "write\tpublic/feed.xml\n"
-                        "write\tpublic/sosig.css\n"
+                        "keep\tpublic/sosig.css\n"
                         "write\tpublic/_sosig/v1-build-cache.tsv\n"));
 }
 
@@ -958,8 +975,8 @@ static void test_page_linking_an_asset_is_made_every_build(void) {
                         "write\tpublic/gamma.html\n"
                         "keep\tpublic/index.html\n"
                         "keep\tpublic/feed.xml\n"
-                        "write\tpublic/sosig.css\n"
-                        "write\tpublic/20240105T000000--paper.pdf\n"
+                        "keep\tpublic/sosig.css\n"
+                        "keep\tpublic/20240105T000000--paper.pdf\n"
                         "write\tpublic/_sosig/v1-build-cache.tsv\n"));
   os_memory_touch(os, "content/beta.md");
   TEST_CHECK(is_listing(dry_run_listing(os, false, &arena),
@@ -968,8 +985,8 @@ static void test_page_linking_an_asset_is_made_every_build(void) {
                         "write\tpublic/gamma.html\n"
                         "write\tpublic/index.html\n"
                         "write\tpublic/feed.xml\n"
-                        "write\tpublic/sosig.css\n"
-                        "write\tpublic/20240105T000000--paper.pdf\n"
+                        "keep\tpublic/sosig.css\n"
+                        "keep\tpublic/20240105T000000--paper.pdf\n"
                         "write\tpublic/_sosig/v1-build-cache.tsv\n"));
 }
 
@@ -1334,6 +1351,20 @@ static void test_reports_absent_templates_dir(void) {
                          "failed to resolve config directory 'content_dir': %s ('content')\nfailed "
                          "to resolve config directory 'templates_dir': %s ('templates')\n",
                          strerror(EACCES), strerror(ENOENT)));
+}
+
+// A root that fails its check still lets the overlap check run, so one run reports a missing
+// `content_dir` together with an `output_dir` inside `templates_dir`, and the user fixes both at
+// once.
+static void test_reports_a_bad_root_with_an_overlapping_output_dir(void) {
+  struct Os* os = site_fixture("output_dir = \"templates/site\"\n");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to resolve config directory 'content_dir': %s ('content')\n"
+                         "output directory would write inside 'templates_dir': 'templates/site'\n",
+                         strerror(ENOENT)));
+  TEST_CHECK(!os_memory_has_path(os, "templates/site"));
 }
 
 // A directory key the config load rejects is reported once. Its default names a directory the user
@@ -1928,6 +1959,7 @@ TEST_LIST = {
     {"unchanged rebuild changes nothing", test_unchanged_rebuild_changes_nothing},
     {"dry run keeps every page after an unchanged build",
      test_dry_run_keeps_every_page_after_an_unchanged_build},
+    {"changed static file is copied again", test_changed_static_file_is_copied_again},
     {"changed source makes its page and the aggregates",
      test_changed_source_makes_its_page_and_the_aggregates},
     {"page reading the entry list follows every entry",
@@ -1952,6 +1984,8 @@ TEST_LIST = {
     {"reports missing config", test_reports_missing_config},
     {"reports absent content dir", test_reports_absent_content_dir},
     {"reports absent templates dir", test_reports_absent_templates_dir},
+    {"reports a bad root with an overlapping output dir",
+     test_reports_a_bad_root_with_an_overlapping_output_dir},
     {"reports a rejected directory key once", test_reports_a_rejected_directory_key_once},
     {"reports a rejected static dir once", test_reports_a_rejected_static_dir_once},
     {"reports templates dir that is a file", test_reports_templates_dir_that_is_a_file},

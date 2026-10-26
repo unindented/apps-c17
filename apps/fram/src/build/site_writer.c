@@ -7,7 +7,6 @@
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/path.h"
-#include "core/path_list.h"
 #include "core/str.h"
 #include "domain/album.h"
 #include "domain/site_config.h"
@@ -86,29 +85,6 @@ int site_writer_write_aggregates(const struct OutputWriter* writer,
   for (ptrdiff_t i = 0; i < site_config->aggregate_template_count; i++) {
     if (write_rendered_template(writer, site_config, template_set, root_album,
                                 site_config->aggregate_templates[i], output, scratch, log) != 0) {
-      return -1;
-    }
-  }
-  return 0;
-}
-
-int site_writer_copy_static_files(const struct OutputWriter* writer,
-                                  const struct SiteConfig* site_config,
-                                  const struct PathList* static_paths,
-                                  struct Str root_dir,
-                                  struct Arena scratch,
-                                  struct Log* log) {
-  for (ptrdiff_t i = 0; i < static_paths->count; i++) {
-    oom_set_job(static_paths->items[i], NULL);
-    // Each copy works in its own copy of `scratch`, so one file's path is dead before the next.
-    struct Arena copy_scratch = scratch;
-    struct Str relative = {0};
-    (void)path_is_below(static_paths->items[i], root_dir, &relative);
-    const struct Str output_path = path_join(site_config->output_dir, relative, &copy_scratch);
-    // The copy names the path that failed, the static file or its destination, which mirrors it.
-    const struct OsSource source = {.kind = OS_SOURCE_FILE, .file_path = static_paths->items[i]};
-    if (output_writer_write(writer, output_path, source, S("failed to copy static file"), log) !=
-        0) {
       return -1;
     }
   }
