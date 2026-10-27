@@ -30,7 +30,7 @@ struct VideoFrame;
  * stale one written. A dry run marks each stale output written without making it, so it decodes and
  * encodes nothing.
  *
- * Call this only after `manifest_builder_populate` accepts every output path. Jobs write
+ * Call this only after `output_manifest_populate` accepts every output path. Jobs write
  * concurrently, and the manifest is what guarantees that no two of them target the same file, so
  * each job marks only its own item's paths in it.
  *

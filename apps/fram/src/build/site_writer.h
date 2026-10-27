@@ -13,7 +13,7 @@ struct OutputWriter;
 struct RenderedPage;
 struct TemplateSet;
 
-// These are declared in the order `cmd_build` runs them. The manifest phase in `manifest_builder`
+// These are declared in the order `cmd_build` runs them. The manifest phase in `output_manifest`
 // claims every intended output path before this module writes anything.
 
 /**

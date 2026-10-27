@@ -1,5 +1,5 @@
-#ifndef SOSIG_MANIFEST_BUILDER_H
-#define SOSIG_MANIFEST_BUILDER_H
+#ifndef SOSIG_OUTPUT_MANIFEST_H
+#define SOSIG_OUTPUT_MANIFEST_H
 
 #include <stddef.h>
 
@@ -41,11 +41,11 @@ struct SiteConfig;
  * @param log         Log that receives the error. Must not be `NULL`.
  * @return `0` when `output_dir` and the inputs are apart, or `-1` when one holds the other.
  */
-int manifest_builder_check_output_dir(const struct SiteConfig* site_config,
-                                      struct Str config_path,
-                                      struct Os* os,
-                                      struct Arena scratch,
-                                      struct Log* log) __attribute__((nonnull(1, 3, 5)));
+int output_manifest_check_output_dir(const struct SiteConfig* site_config,
+                                     struct Str config_path,
+                                     struct Os* os,
+                                     struct Arena scratch,
+                                     struct Log* log) __attribute__((nonnull(1, 3, 5)));
 
 /**
  * @brief Records every intended output path in the build manifest, rejecting duplicates and any
@@ -64,7 +64,7 @@ int manifest_builder_check_output_dir(const struct SiteConfig* site_config,
  * new content source file below `content_dir` is parsed as a source by the next build and one below
  * `static_dir` is copied as a static file by the next build, and a new file below `templates_dir`
  * can be read as a partial by the render of this same build. The caller has already run
- * `manifest_builder_check_output_dir`, so this compares each root by `(device, inode)` against each
+ * `output_manifest_check_output_dir`, so this compares each root by `(device, inode)` against each
  * existing directory between `output_dir` and the output. That catches a symlink inside
  * `output_dir` that leads into a root. A root that does not exist holds nothing to protect and is
  * skipped.
@@ -115,19 +115,19 @@ int manifest_builder_check_output_dir(const struct SiteConfig* site_config,
  *         and nests under no other, or `-1` on an output inside an input tree, a duplicate, a
  *         prefix collision, an input overwrite, or an oversize path.
  */
-int manifest_builder_populate(struct Manifest* manifest,
-                              const struct SiteConfig* site_config,
-                              struct Str config_path,
-                              const struct PathList* source_paths,
-                              const struct PathList* static_paths,
-                              const struct PathList* asset_paths,
-                              const struct PathList* template_paths,
-                              const struct ContentEntry* const* content_entries,
-                              ptrdiff_t content_entry_count,
-                              struct Os* os,
-                              struct Arena* perm,
-                              struct Arena scratch,
-                              struct Log* log)
+int output_manifest_populate(struct Manifest* manifest,
+                             const struct SiteConfig* site_config,
+                             struct Str config_path,
+                             const struct PathList* source_paths,
+                             const struct PathList* static_paths,
+                             const struct PathList* asset_paths,
+                             const struct PathList* template_paths,
+                             const struct ContentEntry* const* content_entries,
+                             ptrdiff_t content_entry_count,
+                             struct Os* os,
+                             struct Arena* perm,
+                             struct Arena scratch,
+                             struct Log* log)
     __attribute__((nonnull(1, 2, 4, 5, 6, 7, 10, 11, 13)));
 
 #endif

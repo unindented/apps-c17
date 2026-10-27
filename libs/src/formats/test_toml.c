@@ -594,12 +594,13 @@ static void test_copy_base_url_trims_and_accepts_an_empty_optional_url(void) {
 
 // A base URL that is not an absolute `http` URL with a host, or that holds a byte that would break
 // the path a link appends, is reported with its key and value and never stored, and so is a
-// required one that is empty. A mistyped one is reported once, as `toml_copy_string` reports it.
+// required one that is empty. A mistyped one, one with a NUL byte and a missing required one are
+// reported once, as `toml_copy_string` reports them.
 static void test_copy_base_url_rejects_an_unusable_url(void) {
   toml_result_t result;
   const toml_datum_t table = parse_table(
       "ftp = \"ftp://example.com\"\nquery = \"https://example.com/?a\"\nempty = \"\"\n"
-      "number = 1\n",
+      "number = 1\nnul = \"https://a\\u0000b\"\n",
       &result);
   struct Arena arena = test_arena();
   struct Log log = test_log();
@@ -608,6 +609,8 @@ static void test_copy_base_url_rejects_an_unusable_url(void) {
   TEST_CHECK(toml_copy_base_url(table, S("site."), "query", true, &arena, &url, &log) == -1);
   TEST_CHECK(toml_copy_base_url(table, S("site."), "empty", true, &arena, &url, &log) == -1);
   TEST_CHECK(toml_copy_base_url(table, S("site."), "number", true, &arena, &url, &log) == -1);
+  TEST_CHECK(toml_copy_base_url(table, S("site."), "nul", true, &arena, &url, &log) == -1);
+  TEST_CHECK(toml_copy_base_url(table, S("site."), "absent", true, &arena, &url, &log) == -1);
   TEST_CHECK(test_log_is(
       &log,
       "config key 'site.ftp' must be an absolute 'http://' or 'https://' URL with a host: "
@@ -615,7 +618,9 @@ static void test_copy_base_url_rejects_an_unusable_url(void) {
       "config key 'site.query' must not hold '?', '#', a space or a control character: "
       "'https://example.com/?a'\n"
       "config key 'site.empty' must be an absolute 'http://' or 'https://' URL with a host: ''\n"
-      "config key 'site.number' must be a string\n"));
+      "config key 'site.number' must be a string\n"
+      "config key 'site.nul' must not contain a NUL byte\n"
+      "missing required config key 'site.absent'\n"));
   TEST_CHECK(str_eq(url, S("kept")));
   toml_free(result);
 }

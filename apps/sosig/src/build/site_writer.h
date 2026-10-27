@@ -14,7 +14,7 @@ struct OutputWriter;
 struct SiteConfig;
 struct TemplateSet;
 
-// The manifest phase in `manifest_builder` claims every intended output path before this module
+// The manifest phase in `output_manifest` claims every intended output path before this module
 // writes anything. Content pages are written earlier, by `page_renderer_render_pages`. Ordering the
 // entries happens earlier still, in `content_entry` (`content_entry_sort`).
 

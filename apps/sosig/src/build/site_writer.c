@@ -15,8 +15,8 @@
 
 // This module's two writers are unit-tested in `src/build/test_site_writer.c`, and CTest's golden
 // test suite exercises them end to end by building every fixture site and comparing each result
-// with its `tests/expected/<site>` tree. Collision checks live in `manifest_builder`, unit-tested
-// in `src/build/test_manifest_builder.c`.
+// with its `tests/expected/<site>` tree. Collision checks live in `output_manifest`, unit-tested in
+// `src/build/test_output_manifest.c`.
 
 /**
  * @brief Renders one configured template and writes it to its matching output path, or keeps an
@@ -25,7 +25,7 @@
  * @param writer          Writer the output is written or kept through. Must not be `NULL`.
  * @param template_set    Templates the output renders from. Must not be `NULL`.
  * @param output_dir      Output directory the template name is rooted under.
- * @param template_name   Safe relative template name to render. `manifest_builder_populate` already
+ * @param template_name   Safe relative template name to render. `output_manifest_populate` already
  *                        checked it against the output-path limits, because every call site runs
  *                        the manifest phase over the same configured lists first. This function
  *                        does not re-check, so an overlong name reaching here fails as an opaque

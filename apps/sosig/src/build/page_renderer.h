@@ -34,7 +34,7 @@ struct TemplateSet;
  * finished job reports progress when `is_verbose`. Failing jobs' errors go to `log` in entry order,
  * as `job_run` collects them.
  *
- * Call this only after `manifest_builder_populate` accepts every output path. Jobs write
+ * Call this only after `output_manifest_populate` accepts every output path. Jobs write
  * concurrently, and the manifest is what guarantees that no two of them target the same file, so
  * each job marks only its own path in it.
  *

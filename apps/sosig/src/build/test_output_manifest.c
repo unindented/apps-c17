@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "build/manifest_builder.h"
+#include "build/output_manifest.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/log.h"
@@ -93,7 +93,7 @@ static struct PathList list_templates(const struct SiteConfig* site_config,
  * @param content_entry_count Number of entries.
  * @param os                  Host the fixture is on. Must not be `NULL`.
  * @param log                 Log that receives every error. Must not be `NULL`.
- * @return The result of `manifest_builder_populate`.
+ * @return The result of `output_manifest_populate`.
  */
 static int populate(struct Manifest* manifest,
                     const struct SiteConfig* site_config,
@@ -107,7 +107,7 @@ static int populate(struct Manifest* manifest,
   static const struct PathList empty = {0};
   struct Arena perm = test_arena();
   const struct PathList template_paths = list_templates(site_config, os, &perm);
-  return manifest_builder_populate(
+  return output_manifest_populate(
       manifest, site_config, CONFIG_PATH, source_paths != NULL ? source_paths : &empty,
       static_paths != NULL ? static_paths : &empty, asset_paths != NULL ? asset_paths : &empty,
       &template_paths, content_entries, content_entry_count, os, &perm, test_arena(), log);
@@ -136,7 +136,7 @@ static void check_rejects_output_in_root(const struct SiteConfig* site_config,
 }
 
 /**
- * @brief Checks that `manifest_builder_check_output_dir` rejects `site_config->output_dir` and
+ * @brief Checks that `output_manifest_check_output_dir` rejects `site_config->output_dir` and
  *        creates nothing.
  *
  * @param site_config Configuration whose `output_dir` lies at or below an input root. Must not be
@@ -151,7 +151,7 @@ static void check_rejects_output_dir_in_root(const struct SiteConfig* site_confi
   const char* output_dir = str_cstr(site_config->output_dir, &arena);
   const bool had_output_dir = os_memory_has_path(os, output_dir);
   struct Log log = test_log();
-  TEST_CHECK(manifest_builder_check_output_dir(site_config, CONFIG_PATH, os, test_arena(), &log) ==
+  TEST_CHECK(output_manifest_check_output_dir(site_config, CONFIG_PATH, os, test_arena(), &log) ==
              -1);
   TEST_CHECK(test_log_is(&log, "output directory would write inside '%s': '%.*s'\n", root_key,
                          STR_FMT(site_config->output_dir)));
@@ -160,7 +160,7 @@ static void check_rejects_output_dir_in_root(const struct SiteConfig* site_confi
 }
 
 /**
- * @brief Checks that `manifest_builder_check_output_dir` rejects an `output_dir` that holds an
+ * @brief Checks that `output_manifest_check_output_dir` rejects an `output_dir` that holds an
  *        input.
  *
  * @param site_config Configuration whose `output_dir` holds an input root or the configuration
@@ -173,7 +173,7 @@ static void check_rejects_output_dir_holding(const struct SiteConfig* site_confi
                                              const char* held,
                                              struct Os* os) {
   struct Log log = test_log();
-  TEST_CHECK(manifest_builder_check_output_dir(site_config, CONFIG_PATH, os, test_arena(), &log) ==
+  TEST_CHECK(output_manifest_check_output_dir(site_config, CONFIG_PATH, os, test_arena(), &log) ==
              -1);
   TEST_CHECK(test_log_is(&log, "output directory would hold %s: '%.*s'\n", held,
                          STR_FMT(site_config->output_dir)));
@@ -265,7 +265,7 @@ static void test_check_output_dir_accepts_dir_outside_input_roots(void) {
     site_config.output_dir = output_dirs[i];
     struct Log log = test_log();
     TEST_CHECK(
-        manifest_builder_check_output_dir(&site_config, CONFIG_PATH, os, test_arena(), &log) == 0);
+        output_manifest_check_output_dir(&site_config, CONFIG_PATH, os, test_arena(), &log) == 0);
     TEST_CHECK(test_log_is_empty(&log));
     TEST_MSG("output_dir: '%.*s'", STR_FMT(output_dirs[i]));
   }
@@ -392,7 +392,7 @@ static void test_rejects_entry_aggregate_collision(void) {
                          "'aggregate_templates[0]': 'site/public/index.html'\n"));
 }
 
-// `manifest_builder_populate` rejects two configured templates that claim one output path. It names
+// `output_manifest_populate` rejects two configured templates that claim one output path. It names
 // each by its list entry rather than by its own name. These two configurations are different
 // mistakes with different fixes. A bare template name reports both as
 // `for 'dup.html' and 'dup.html'`, which reads as a value colliding with itself and says nothing
@@ -429,7 +429,7 @@ static void test_rejects_duplicate_template(void) {
                          "'feed_templates[0]': 'site/public/dup.html'\n"));
 }
 
-// `manifest_builder_populate` rejects an output path that names one of the build's own input files,
+// `output_manifest_populate` rejects an output path that names one of the build's own input files,
 // so a build cannot overwrite its own source. Here an entry's output is a hard link to its own
 // content source, so the two paths differ and only file identity sees the collision. An output
 // inside `content_dir` fails the root check first, as `test_rejects_output_in_content_dir` pins.

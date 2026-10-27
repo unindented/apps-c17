@@ -18,7 +18,7 @@
 // This module's three exported writers are unit-tested in `src/build/test_site_writer.c`, and
 // CTest's golden test suite exercises them end to end by building every fixture gallery and
 // comparing each result with its `tests/expected/<gallery>` tree. Collision checks live in
-// `manifest_builder`, unit-tested in `src/build/test_manifest_builder.c`.
+// `output_manifest`, unit-tested in `src/build/test_output_manifest.c`.
 
 /**
  * @brief Renders one configured template against the root album and writes it to its matching
@@ -28,7 +28,7 @@
  * @param site_config   Configuration supplying `output_dir`. Must not be `NULL`.
  * @param template_set  Templates the output renders from. Must not be `NULL`.
  * @param root_album    Root album whose data the template renders against. Must not be `NULL`.
- * @param template_name Safe relative template name to render. `manifest_builder_populate` already
+ * @param template_name Safe relative template name to render. `output_manifest_populate` already
  *                      checked it against the output-path limits, because every call site runs the
  *                      manifest phase over the same configured list first. This function does not
  *                      re-check, so an overlong name reaching here fails as an opaque write error

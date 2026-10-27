@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 #include "build/entry_renderer.h"
-#include "build/manifest_builder.h"
+#include "build/output_manifest.h"
 #include "build/page_renderer.h"
 #include "build/site_writer.h"
 #include "core/arena.h"
@@ -720,8 +720,8 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
     return -1;
   }
   // A directory that failed its check still lets the overlap check run, so one run reports both.
-  if (manifest_builder_check_output_dir(&state->site_config, state->config_path, state->os,
-                                        state->scratch, log) != 0 ||
+  if (output_manifest_check_output_dir(&state->site_config, state->config_path, state->os,
+                                       state->scratch, log) != 0 ||
       roots_rc != 0) {
     return -1;
   }
@@ -947,7 +947,7 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log) {
   // adds `const`, at both levels, and the deep `const` is a thread-safety requirement. A
   // `TemplateContext` with only `const` pointers keeps one render job from writing an entry another
   // job is reading.
-  return manifest_builder_populate(
+  return output_manifest_populate(
       &state->manifest, &state->site_config, state->config_path, &state->source_paths,
       &state->static_paths, &state->asset_paths, &state->template_paths,
       (const struct ContentEntry* const*)state->content_entries, state->content_entry_count,

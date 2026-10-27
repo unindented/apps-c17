@@ -6,11 +6,13 @@ target_sources(
   output
   PRIVATE build_cache_file.c
           manifest.c
+          manifest_builder.c
           output_path.c
           output_pruner.c
           output_writer.c
           build_cache_file.h
           manifest.h
+          manifest_builder.h
           output_path.h
           output_pruner.h
           output_writer.h
@@ -25,6 +27,8 @@ set_property(
            "${CMAKE_CURRENT_SOURCE_DIR}/build_cache_file.h"
            "${CMAKE_CURRENT_SOURCE_DIR}/manifest.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/manifest.h"
+           "${CMAKE_CURRENT_SOURCE_DIR}/manifest_builder.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/manifest_builder.h"
            "${CMAKE_CURRENT_SOURCE_DIR}/output_path.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/output_path.h"
            "${CMAKE_CURRENT_SOURCE_DIR}/output_pruner.c"
@@ -33,6 +37,7 @@ set_property(
            "${CMAKE_CURRENT_SOURCE_DIR}/output_writer.h"
            "${CMAKE_CURRENT_SOURCE_DIR}/test_build_cache_file.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/test_manifest.c"
+           "${CMAKE_CURRENT_SOURCE_DIR}/test_manifest_builder.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/test_output_path.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/test_output_pruner.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/test_output_pruner_case.c"
@@ -54,6 +59,6 @@ foreach(module IN ITEMS manifest output_path output_pruner_case)
   libs_add_unit_test(output ${module} OS posix LIBRARIES testing)
 endforeach()
 # These read and write only through `os/os.h`, so they run against the in-memory host.
-foreach(module IN ITEMS build_cache_file output_pruner output_writer)
+foreach(module IN ITEMS build_cache_file manifest_builder output_pruner output_writer)
   libs_add_unit_test(output ${module} OS memory LIBRARIES testing)
 endforeach()
