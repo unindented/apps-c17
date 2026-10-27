@@ -1,12 +1,9 @@
 #include "app/cmd_build.h"
 
-#include <assert.h>
 #include <errno.h>
-#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 
 #include "build/album_scan.h"
 #include "build/derivative_renderer.h"
@@ -32,9 +29,10 @@
 #include "output/manifest.h"
 #include "output/output_pruner.h"
 #include "output/output_writer.h"
+#include "runtime/build_run.h"
 #include "runtime/job.h"
-#include "runtime/pool.h"
 #include "runtime/read_root.h"
+#include "runtime/verbose.h"
 #include "runtime/walk.h"
 #include "templates/template_set.h"
 
@@ -68,28 +66,13 @@ _Static_assert(PTRDIFF_MAX > 0xffffffff, "the arenas below need a 64-bit address
 _Static_assert(BUILD_SCRATCH_LEN > (ptrdiff_t)IMAGE_INPUT_LEN_MAX + IMAGE_ENCODED_LEN_MAX,
                "a worker's scratch must hold a source beside its encoded derivative");
 
-/** Most workers the build starts for each online CPU, however many are requested. */
-enum { BUILD_WORKER_PER_CPU_MAX = 4 };
+/** The build cache rows of one kind that a copy of files checks its sources against. */
+struct CopyRows {
+  /** Rows an earlier build left. */
+  const struct BuildCache* cache;
 
-/** The build's one reservation and the arenas `cmd_build_run` splits it into. */
-struct BuildMemory {
-  /** The whole reservation, which the build releases at its end. */
-  struct Arena block;
-
-  /** Workers the reservation has arenas for, at most the count asked for. */
-  ptrdiff_t worker_count;
-
-  /** Arena of the build's log, which no other code allocates from. */
-  struct Arena log_arena;
-
-  /** The main thread's perm. */
-  struct Arena perm;
-
-  /** The main thread's scratch, with room for one log share per worker and one more. */
-  struct Arena scratch;
-
-  /** One perm and one scratch per worker, in `perm`. */
-  struct JobArenas* worker_arenas;
+  /** Kind of the rows the sources have. */
+  enum BuildCacheKind kind;
 };
 
 /** Mutable state owned by one `cmd_build_execute` invocation. */
@@ -186,31 +169,32 @@ struct BuildState {
   /** Whether phase progress and status messages are printed to `stderr`. */
   bool is_verbose;
 
+  /** Where the build's status lines go, which `--verbose` enables. */
+  struct Verbose verbose;
+
   /** Whether the build ignores the build cache, and writes it afresh. */
   bool is_forced;
 };
 
 /**
- * @brief Resolves the worker count: the requested one, or the CPU count when unset, and at most
- *        `BUILD_WORKER_PER_CPU_MAX` per online CPU, because a worker waiting for a CPU only adds a
- *        thread and its arenas.
+ * @brief Runs the build in the arenas `build_run` reserved, as `BuildRunExecuteFn`.
  *
- * @param count_requested Workers the command line asks for, or `0` for the CPU count.
- * @return The number of workers the build reserves arenas for.
+ * @param worker_count  Workers there are arenas for.
+ * @param worker_arenas One perm and one scratch per worker. Must not be `NULL`.
+ * @param os            Host the build runs on. Must not be `NULL`.
+ * @param perm          The main thread's perm.
+ * @param scratch       The main thread's scratch.
+ * @param log           Log that receives every error. Must not be `NULL`.
+ * @param userdata      The `struct BuildOptions` of the build, which receives the worker count.
+ * @return `0` on a complete build, or `-1` on any error.
  */
-static ptrdiff_t cmd_build_run_worker_count(ptrdiff_t count_requested);
-
-/**
- * @brief Reserves the build's memory in one block: the log, and a perm and a scratch for the main
- *        thread and for each worker.
- *
- * A reservation the system refuses halves the worker count, down to one, and only one worker's
- * reservation is halved, every arena with it, as `arena_reserve_halving` describes.
- *
- * @param worker_count Workers to reserve arenas for. Must be positive.
- * @return The reservation, its arenas, and the worker count they are for.
- */
-static struct BuildMemory cmd_build_run_reserve(ptrdiff_t worker_count);
+static int cmd_build_run_execute(ptrdiff_t worker_count,
+                                 struct JobArenas* worker_arenas,
+                                 struct Os* os,
+                                 struct Arena perm,
+                                 struct Arena scratch,
+                                 struct Log* log,
+                                 void* userdata) __attribute__((nonnull(2, 3, 6, 7)));
 
 /**
  * @brief Initializes a build state over the caller's arenas.
@@ -392,19 +376,6 @@ static int load_build_cache_parse(struct Str text,
                                   void* userdata) __attribute__((nonnull(2, 3, 4)));
 
 /**
- * @brief Returns what `os_stat` reports for each of `paths`, for the rows of the build cache.
- *
- * @param paths Files to inspect. Must not be `NULL`.
- * @param os    Host the files are on. Must not be `NULL`.
- * @param perm  Arena that owns the stats. Must not be `NULL`.
- * @return One stat per path, zeroed for a file that cannot be inspected.
- */
-static struct OsStat* load_build_cache_stats(const struct PathList* paths,
-                                             struct Os* os,
-                                             struct Arena* perm)
-    __attribute__((nonnull(1, 2, 3), returns_nonnull));
-
-/**
  * @brief Probes every media item's metadata, dispatching jobs across worker threads.
  *
  * A gallery with no media skips the phase, so it prints no status line and starts no pool.
@@ -455,6 +426,19 @@ static int prepare_output_dir(const struct BuildState* state, struct Log* log)
  */
 static int copy_static_files(const struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Reports whether a source has a row of the copy's kind with its stat, as
+ *        `OutputWriterIsUnchangedFn`.
+ *
+ * @param name        Path of the source below the root of the copies.
+ * @param source_stat What `os_stat` reported for the source. Must not be `NULL`.
+ * @param userdata    The `struct CopyRows`.
+ * @return `true` when the build cache records the source with that stat.
+ */
+static bool copy_static_files_is_unchanged(struct Str name,
+                                           const struct OsStat* source_stat,
+                                           void* userdata) __attribute__((nonnull(2, 3)));
 
 /**
  * @brief Writes the build cache, with a row for every current media source and static file.
@@ -535,39 +519,27 @@ static int prune_stale_outputs(struct BuildState* state, struct Log* log)
  */
 static int report_dry_run(struct BuildState* state, struct Log* log) __attribute__((nonnull(1, 2)));
 
-/**
- * @brief Prints a formatted status line to `stderr` when the build is verbose.
- *
- * The line is formatted in a copy of the main thread's scratch arena and printed in one `os_print`
- * call.
- *
- * @param state  Build state whose verbosity gates the output. Must not be `NULL`.
- * @param format `printf` format of the line, without the newline. Must not be `NULL`.
- * @param ...    Arguments that the format converts.
- */
-static void build_verbose(const struct BuildState* state, const char* format, ...)
-    __attribute__((format(printf, 2, 3), nonnull(1, 2)));
-
 enum ExitCode cmd_build_run(const struct BuildOptions* options, struct Os* os) {
-  struct BuildMemory memory =
-      cmd_build_run_reserve(cmd_build_run_worker_count(options->worker_count));
+  const struct BuildRunLens lens = {
+      .log_len = BUILD_LOG_LEN,
+      .perm_len = BUILD_PERM_LEN,
+      .scratch_len = BUILD_SCRATCH_LEN,
+  };
   // Every option is carried as it was asked for, except the worker count the memory allows.
   struct BuildOptions resolved = *options;
-  resolved.worker_count = memory.worker_count;
-  struct Log log = {.buf = {.arena = &memory.log_arena}};
-  oom_set_log(&log);
-  enum ExitCode rc = EXIT_CODE_OK;
-  if (cmd_build_execute(&resolved, memory.worker_arenas, os, memory.perm, memory.scratch, &log) !=
-      0) {
-    // The log is the whole report, each error on its own line.
-    (void)os_print(os, 2, buf_str(&log.buf));
-    rc = EXIT_CODE_FAILURE;
-  }
-  // The names point into memory released below.
-  oom_set_log(NULL);
-  oom_set_job((struct Str){0}, NULL);
-  arena_release(memory.block);
-  return rc;
+  return build_run(&lens, options->worker_count, cmd_build_run_execute, &resolved, os);
+}
+
+static int cmd_build_run_execute(ptrdiff_t worker_count,
+                                 struct JobArenas* worker_arenas,
+                                 struct Os* os,
+                                 struct Arena perm,
+                                 struct Arena scratch,
+                                 struct Log* log,
+                                 void* userdata) {
+  struct BuildOptions* resolved = userdata;
+  resolved->worker_count = worker_count;
+  return cmd_build_execute(resolved, worker_arenas, os, perm, scratch, log);
 }
 
 int cmd_build_execute(const struct BuildOptions* options,
@@ -591,41 +563,6 @@ int cmd_build_execute(const struct BuildOptions* options,
   }
   template_set_release(state.template_set);
   return rc;
-}
-
-static ptrdiff_t cmd_build_run_worker_count(ptrdiff_t count_requested) {
-  const ptrdiff_t cpu_count = pool_resolve_worker_count();
-  const ptrdiff_t count = count_requested != 0 ? count_requested : cpu_count;
-  const ptrdiff_t count_max = BUILD_WORKER_PER_CPU_MAX * cpu_count;
-  return count < count_max ? count : count_max;
-}
-
-static struct BuildMemory cmd_build_run_reserve(ptrdiff_t worker_count) {
-  // The main thread's scratch also holds a parallel phase's job logs, which `job_run` splits into
-  // one share per worker and one for the pool's bookkeeping. So the main thread has the log, its
-  // perm, its scratch and the pool's share, and each worker adds its perm, scratch and share.
-  const ptrdiff_t main_len = BUILD_LOG_LEN + BUILD_PERM_LEN + BUILD_SCRATCH_LEN + BUILD_LOG_LEN;
-  const ptrdiff_t worker_len = BUILD_PERM_LEN + BUILD_SCRATCH_LEN + BUILD_LOG_LEN;
-  struct BuildMemory memory = {0};
-  // A limit costs workers before it costs room.
-  while (worker_count > 1 &&
-         arena_reserve(main_len + worker_len * worker_count, &memory.block) != 0) {
-    worker_count /= 2;
-  }
-  const int shift =
-      worker_count > 1 ? 0 : arena_reserve_halving(main_len + worker_len, &memory.block);
-  memory.worker_count = worker_count;
-  struct Arena rest = memory.block;
-  memory.log_arena = arena_split(&rest, BUILD_LOG_LEN >> shift);
-  memory.perm = arena_split(&rest, BUILD_PERM_LEN >> shift);
-  memory.scratch =
-      arena_split(&rest, (BUILD_SCRATCH_LEN + BUILD_LOG_LEN * (worker_count + 1)) >> shift);
-  memory.worker_arenas = arena_new(&memory.perm, worker_count, struct JobArenas);
-  for (ptrdiff_t i = 0; i < worker_count; i++) {
-    memory.worker_arenas[i].perm = arena_split(&rest, BUILD_PERM_LEN >> shift);
-    memory.worker_arenas[i].scratch = arena_split(&rest, BUILD_SCRATCH_LEN >> shift);
-  }
-  return memory;
 }
 
 static void build_state_init(struct BuildState* state,
@@ -653,13 +590,14 @@ static void build_state_init(struct BuildState* state,
           },
       .worker_count = options->worker_count,
       .is_verbose = options->is_verbose,
+      .verbose = {.os = os, .is_enabled = options->is_verbose, .scratch = &state->scratch},
       .is_forced = options->is_forced,
   };
   site_config_init(&state->site_config);
 }
 
 static int load_build_inputs(struct BuildState* state, struct Log* log) {
-  build_verbose(state, "loading config");
+  verbose_printf(&state->verbose, "loading config");
   if (site_config_load(&state->site_config, state->config_path, state->os, &state->perm,
                        state->scratch, log) != 0) {
     return -1;
@@ -679,11 +617,11 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
     return -1;
   }
 
-  build_verbose(state, "discovering media");
+  verbose_printf(&state->verbose, "discovering media");
   if (load_build_inputs_media(state, log) != 0) {
     return -1;
   }
-  build_verbose(state, "discovering templates and static files");
+  verbose_printf(&state->verbose, "discovering templates and static files");
   if (load_build_inputs_templates(state, log) != 0 || load_build_inputs_static(state, log) != 0) {
     return -1;
   }
@@ -811,7 +749,7 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
     goto cleanup;
   }
 
-  build_verbose(state, "build complete");
+  verbose_printf(&state->verbose, "build complete");
   rc = 0;
 
 cleanup:
@@ -820,7 +758,7 @@ cleanup:
 }
 
 static int load_templates(struct BuildState* state, struct Log* log) {
-  build_verbose(state, "compiling templates");
+  verbose_printf(&state->verbose, "compiling templates");
   const struct SiteConfig* site_config = &state->site_config;
   const ptrdiff_t name_count_max = 1 + site_config->aggregate_template_count;
   struct Arena scratch = state->scratch;
@@ -845,7 +783,7 @@ static void load_templates_add(struct Str* names, ptrdiff_t* name_count, struct 
 }
 
 static int build_album_skeleton(struct BuildState* state, struct Log* log) {
-  build_verbose(state, "planning albums");
+  verbose_printf(&state->verbose, "planning albums");
   if (album_scan_build_skeleton(&state->site_config, &state->source_paths, &state->perm,
                                 state->scratch, &state->albums, &state->album_count, &state->media,
                                 &state->media_count, log) != 0) {
@@ -867,20 +805,21 @@ static int build_album_skeleton(struct BuildState* state, struct Log* log) {
 static void load_build_cache(struct BuildState* state) {
   state->build_cache_path = build_cache_path(state->site_config.output_dir, &state->perm);
   // The static files' rows are written whether or not the build cache is read.
-  state->static_stats = load_build_cache_stats(&state->static_paths, state->os, &state->perm);
+  state->static_stats = walk_stat_paths(&state->static_paths, state->os, &state->perm);
   if (state->is_forced) {
-    build_verbose(state, "ignoring build cache, probing every source");
+    verbose_printf(&state->verbose, "ignoring build cache, probing every source");
     return;
   }
-  build_verbose(state, "loading build cache");
+  verbose_printf(&state->verbose, "loading build cache");
   struct Str reason = {0};
   const enum BuildCacheFileState cache_state = build_cache_file_load(
       state->build_cache_path, BUILD_CACHE_FILE_LEN_MAX, load_build_cache_parse, state, state->os,
       &state->perm, state->scratch, &reason);
   if (cache_state == BUILD_CACHE_FILE_MISSING) {
-    build_verbose(state, "no build cache, probing every source");
+    verbose_printf(&state->verbose, "no build cache, probing every source");
   } else if (cache_state == BUILD_CACHE_FILE_UNUSABLE) {
-    build_verbose(state, "build cache not used, probing every source: %.*s", STR_FMT(reason));
+    verbose_printf(&state->verbose, "build cache not used, probing every source: %.*s",
+                   STR_FMT(reason));
   }
 }
 
@@ -892,23 +831,11 @@ static int load_build_cache_parse(struct Str text,
   return build_cache_parse(text, perm, &state->build_cache, log);
 }
 
-static struct OsStat* load_build_cache_stats(const struct PathList* paths,
-                                             struct Os* os,
-                                             struct Arena* perm) {
-  struct OsStat* stats = arena_new(perm, paths->count, struct OsStat);
-  for (ptrdiff_t i = 0; i < paths->count; i++) {
-    // A file that cannot be inspected keeps a zeroed stat, which no row matches, so it is copied,
-    // and the copy reports why it cannot be read.
-    (void)os_stat(os, paths->items[i], &stats[i]);
-  }
-  return stats;
-}
-
 static int probe_media(struct BuildState* state, struct Log* log) {
   if (state->media_count == 0) {
     return 0;
   }
-  build_verbose(state, "probing media, workers: %td", state->worker_count);
+  verbose_printf(&state->verbose, "probing media, workers: %td", state->worker_count);
   return album_scan_probe_media(&state->site_config, state->media, state->media_count,
                                 &state->build_cache, state->video_frames, state->worker_count,
                                 state->worker_arenas, state->is_verbose, state->os, state->scratch,
@@ -916,7 +843,7 @@ static int probe_media(struct BuildState* state, struct Log* log) {
 }
 
 static int populate_output_manifest(struct BuildState* state, struct Log* log) {
-  build_verbose(state, "building output manifest");
+  verbose_printf(&state->verbose, "building output manifest");
   // This runs ahead of the derivative and page renders, so a duplicate output path fails before
   // rendering is wasted. It also runs ahead of every write, `output_dir` itself included, so an
   // output aimed at one of this build's own inputs is refused before it can destroy the file.
@@ -940,23 +867,23 @@ static int prepare_output_dir(const struct BuildState* state, struct Log* log) {
 }
 
 static int copy_static_files(const struct BuildState* state, struct Log* log) {
-  build_verbose(state, "copying static files");
-  struct Arena scratch = state->scratch;
-  bool* is_unchanged = arena_new(&scratch, state->static_paths.count, bool);
-  for (ptrdiff_t i = 0; i < state->static_paths.count; i++) {
-    struct Str relative = {0};
-    (void)path_is_below(state->static_paths.items[i], state->site_config.static_dir, &relative);
-    is_unchanged[i] = build_cache_find(&state->build_cache, BUILD_CACHE_KIND_STATIC, relative,
-                                       &state->static_stats[i]) != NULL;
-  }
+  verbose_printf(&state->verbose, "copying static files");
+  struct CopyRows rows = {.cache = &state->build_cache, .kind = BUILD_CACHE_KIND_STATIC};
   return output_writer_copy_files(&state->writer, &state->static_paths, state->static_stats,
-                                  is_unchanged, state->site_config.static_dir,
-                                  state->site_config.output_dir, scratch,
-                                  S("failed to copy static file"), log);
+                                  copy_static_files_is_unchanged, &rows,
+                                  state->site_config.static_dir, state->site_config.output_dir,
+                                  state->scratch, S("failed to copy static file"), log);
+}
+
+static bool copy_static_files_is_unchanged(struct Str name,
+                                           const struct OsStat* source_stat,
+                                           void* userdata) {
+  const struct CopyRows* rows = userdata;
+  return build_cache_find(rows->cache, rows->kind, name, source_stat) != NULL;
 }
 
 static int write_build_cache(struct BuildState* state, bool is_static_complete, struct Log* log) {
-  build_verbose(state, "writing build cache");
+  verbose_printf(&state->verbose, "writing build cache");
   oom_set_job(state->build_cache_path, NULL);
   struct Arena scratch = state->scratch;
   struct Buf text = {.arena = &scratch};
@@ -1004,14 +931,14 @@ static int generate_derivatives(struct BuildState* state, struct Log* log) {
   if (state->media_count == 0) {
     return 0;
   }
-  build_verbose(state, "generating derivatives, workers: %td", state->worker_count);
+  verbose_printf(&state->verbose, "generating derivatives, workers: %td", state->worker_count);
   return derivative_renderer_generate(
       &state->writer, &state->site_config, state->media, state->media_count, state->video_frames,
       state->worker_count, state->worker_arenas, state->is_verbose, state->os, state->scratch, log);
 }
 
 static int render_album_pages(struct BuildState* state, struct Log* log) {
-  build_verbose(state, "rendering albums, workers: %td", state->worker_count);
+  verbose_printf(&state->verbose, "rendering albums, workers: %td", state->worker_count);
   return page_renderer_render_pages(&state->site_config, state->template_set,
                                     (const struct Album* const*)state->albums, state->album_count,
                                     state->worker_count, state->worker_arenas, state->is_verbose,
@@ -1019,19 +946,19 @@ static int render_album_pages(struct BuildState* state, struct Log* log) {
 }
 
 static int write_generated_site(struct BuildState* state, struct Log* log) {
-  build_verbose(state, "writing album pages");
+  verbose_printf(&state->verbose, "writing album pages");
   if (site_writer_write_album_pages(&state->writer, (const struct Album* const*)state->albums,
                                     state->album_count, state->rendered_pages, state->scratch,
                                     log) != 0) {
     return -1;
   }
-  build_verbose(state, "rendering aggregate templates");
+  verbose_printf(&state->verbose, "rendering aggregate templates");
   return site_writer_write_aggregates(&state->writer, &state->site_config, state->template_set,
                                       state->albums[0], state->perm, state->scratch, log);
 }
 
 static int prune_stale_outputs(struct BuildState* state, struct Log* log) {
-  build_verbose(state, "removing stale outputs");
+  verbose_printf(&state->verbose, "removing stale outputs");
   oom_set_job((struct Str){0}, NULL);
   ptrdiff_t removed_count = 0;
   const struct SiteConfig* site_config = &state->site_config;
@@ -1040,7 +967,7 @@ static int prune_stale_outputs(struct BuildState* state, struct Log* log) {
   const int rc = output_pruner_prune(&state->writer, site_config->output_dir, root_dirs,
                                      (ptrdiff_t)(sizeof(root_dirs) / sizeof(root_dirs[0])),
                                      state->os, state->scratch, &removed_count, log);
-  build_verbose(state, "removed stale outputs: %td", removed_count);
+  verbose_printf(&state->verbose, "removed stale outputs: %td", removed_count);
   return rc;
 }
 
@@ -1057,24 +984,3 @@ static int report_dry_run(struct BuildState* state, struct Log* log) {
 // The print is unchecked. These lines are status, not diagnostics, and a build that otherwise
 // succeeded should not fail because `stderr` was a closed pipe. The cost is that an `EPIPE` here
 // goes unnoticed, unlike `site_config_print`, which reports it.
-static void build_verbose(const struct BuildState* state, const char* format, ...) {
-  if (!state->is_verbose) {
-    return;
-  }
-  // The first pass measures the line and the second writes it, as `buf_printf` does. Starting the
-  // list twice needs no `va_copy`, and forwarding it to a formatter that copies it with `va_copy`
-  // instead makes Clang's analyzer report a false `va_end` on AArch64 Linux.
-  va_list args;
-  va_start(args, format);
-  const int line_len = vsnprintf(NULL, 0, format, args);
-  va_end(args);
-  assert(line_len >= 0);
-  struct Arena scratch = state->scratch;
-  char* line = arena_new(&scratch, (ptrdiff_t)line_len + 1, char);
-  va_start(args, format);
-  (void)vsnprintf(line, (size_t)line_len + 1, format, args);
-  va_end(args);
-  // The terminator `vsnprintf` wrote becomes the newline, so the line prints in one call.
-  line[line_len] = '\n';
-  (void)os_print(state->os, 2, (struct Str){line, (ptrdiff_t)line_len + 1});
-}

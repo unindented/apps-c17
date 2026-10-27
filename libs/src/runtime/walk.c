@@ -218,6 +218,13 @@ int walk_files_with_suffixes(struct PathList* paths,
   }
   return 0;
 }
+struct OsStat* walk_stat_paths(const struct PathList* paths, struct Os* os, struct Arena* perm) {
+  struct OsStat* stats = arena_new(perm, paths->count, struct OsStat);
+  for (ptrdiff_t i = 0; i < paths->count; i++) {
+    (void)os_stat(os, paths->items[i], &stats[i]);
+  }
+  return stats;
+}
 
 static void walk_files_with_suffixes_exclude(struct Walk* walk, struct Str excluded_dir) {
   struct OsStat st;

@@ -9,6 +9,7 @@
 
 struct Log;
 struct Os;
+struct OsStat;
 struct PathList;
 
 /**
@@ -70,5 +71,19 @@ int walk_files_with_suffixes(struct PathList* paths,
                              struct Arena scratch,
                              struct Str operation,
                              struct Log* log) __attribute__((nonnull(1, 7, 8, 11)));
+
+/**
+ * @brief Returns what `os_stat` reports for each of `paths`, which a build cache's rows record.
+ *
+ * A file that cannot be inspected keeps a zeroed stat, which no row of a file a build read matches,
+ * so the build makes its outputs again, and the read that follows reports why.
+ *
+ * @param paths Files to inspect. Must not be `NULL`.
+ * @param os    Host the files are on. Must not be `NULL`.
+ * @param perm  Arena that owns the stats. Must not be `NULL`.
+ * @return One stat per path, parallel to `paths`.
+ */
+struct OsStat* walk_stat_paths(const struct PathList* paths, struct Os* os, struct Arena* perm)
+    __attribute__((nonnull(1, 2, 3), returns_nonnull));
 
 #endif

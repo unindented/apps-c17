@@ -65,7 +65,8 @@ int output_writer_keep(const struct OutputWriter* writer, struct Str file_path, 
 int output_writer_copy_files(const struct OutputWriter* writer,
                              const struct PathList* source_paths,
                              const struct OsStat* source_stats,
-                             const bool* is_unchanged,
+                             OutputWriterIsUnchangedFn is_unchanged,
+                             void* userdata,
                              struct Str root_dir,
                              struct Str output_dir,
                              struct Arena scratch,
@@ -80,7 +81,8 @@ int output_writer_copy_files(const struct OutputWriter* writer,
     (void)path_is_below(source_path, root_dir, &relative);
     const struct Str output_path = path_join(output_dir, relative, &copy_scratch);
     struct OsStat output_stat;
-    const bool is_current = is_unchanged != NULL && is_unchanged[i] &&
+    const bool is_current = is_unchanged != NULL &&
+                            is_unchanged(relative, &source_stats[i], userdata) &&
                             os_stat(writer->os, output_path, &output_stat) == 0 &&
                             !output_stat.is_dir && output_stat.len == source_stats[i].len;
     // The copy names the path that failed, the source or its destination, which mirrors it.

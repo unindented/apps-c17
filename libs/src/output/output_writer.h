@@ -69,6 +69,18 @@ int output_writer_keep(const struct OutputWriter* writer, struct Str file_path, 
     __attribute__((nonnull(1, 3)));
 
 /**
+ * @brief Reports whether a source matches what the build cache recorded for it.
+ *
+ * @param name        Path of the source below the root of the copies.
+ * @param source_stat What `os_stat` reported for the source. Must not be `NULL`.
+ * @param userdata    Opaque pointer the copy was given.
+ * @return `true` when the build cache records the source with that stat.
+ */
+typedef bool (*OutputWriterIsUnchangedFn)(struct Str name,
+                                          const struct OsStat* source_stat,
+                                          void* userdata);
+
+/**
  * @brief Copies each of `source_paths` to the same path below `output_dir` that it has below
  *        `root_dir`, or keeps a copy that is current.
  *
@@ -83,8 +95,9 @@ int output_writer_keep(const struct OutputWriter* writer, struct Str file_path, 
  * @param source_paths Files to copy, each below `root_dir`. Must not be `NULL`.
  * @param source_stats Stat of each of `source_paths`, parallel to them. Must not be `NULL` unless
  *                     `is_unchanged` is `NULL`.
- * @param is_unchanged For each of `source_paths`, whether its source matches the build cache, or
- *                     `NULL` when none does.
+ * @param is_unchanged Asked for each source whether it matches the build cache, or `NULL` when none
+ *                     does, as in a build that ignores its cache.
+ * @param userdata     Opaque pointer passed to `is_unchanged`.
  * @param root_dir     Directory the sources are below.
  * @param output_dir   Directory the copies go below.
  * @param scratch      Arena for each output path.
@@ -95,12 +108,13 @@ int output_writer_keep(const struct OutputWriter* writer, struct Str file_path, 
 int output_writer_copy_files(const struct OutputWriter* writer,
                              const struct PathList* source_paths,
                              const struct OsStat* source_stats,
-                             const bool* is_unchanged,
+                             OutputWriterIsUnchangedFn is_unchanged,
+                             void* userdata,
                              struct Str root_dir,
                              struct Str output_dir,
                              struct Arena scratch,
                              struct Str operation,
-                             struct Log* log) __attribute__((nonnull(1, 2, 9)));
+                             struct Log* log) __attribute__((nonnull(1, 2, 10)));
 
 /**
  * @brief Creates `dir_path` and any missing parents, as `os_mkdirs` does, unless the build is a dry

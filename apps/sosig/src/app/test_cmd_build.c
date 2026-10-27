@@ -1181,8 +1181,8 @@ static void test_honors_requested_worker_count(void) {
 }
 
 // A build runs at most four workers per online CPU, however many it is asked for, and the verbose
-// phase lines name that count. `BUILD_WORKER_PER_CPU_MAX` is file-local to `cmd_build.c`, so the
-// four is spelled here, and changing it must change this test.
+// phase lines name that count. The four is `BUILD_RUN_WORKER_PER_CPU_MAX` of the `runtime` library,
+// spelled here so that changing it must change this test.
 static void test_caps_the_worker_count_at_four_per_cpu(void) {
   struct Os* os = site_fixture(NULL);
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);

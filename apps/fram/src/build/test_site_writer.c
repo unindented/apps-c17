@@ -106,8 +106,8 @@ static void test_writes_complete_output_layer(void) {
   TEST_CHECK(site_writer_write_aggregates(&writer, &site_config, template_set, albums[0], output,
                                           scratch, &log) == 0);
   template_set_release(template_set);
-  TEST_CHECK(output_writer_copy_files(&writer, &static_paths, NULL, NULL, site_config.static_dir,
-                                      site_config.output_dir, scratch,
+  TEST_CHECK(output_writer_copy_files(&writer, &static_paths, NULL, NULL, NULL,
+                                      site_config.static_dir, site_config.output_dir, scratch,
                                       S("failed to copy static file"), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_file(os, "public/index.html", "<h1>Root</h1>"));

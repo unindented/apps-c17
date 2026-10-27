@@ -34,6 +34,25 @@ static void init_writer(struct OutputWriter* writer,
       .manifest = manifest, .os = os_memory(), .is_dry_run = is_dry_run, .perm = arena};
 }
 
+/**
+ * @brief Reports whether `name` is one of the names `userdata` lists, as
+ *        `OutputWriterIsUnchangedFn`.
+ *
+ * @param name        Name of the source below the root.
+ * @param source_stat Stat of the source, unused.
+ * @param userdata    `NULL`-terminated array of the names of the unchanged sources.
+ * @return `true` when `name` is listed.
+ */
+static bool is_listed(struct Str name, const struct OsStat* source_stat, void* userdata) {
+  (void)source_stat;
+  for (const char* const* listed = userdata; *listed != NULL; listed++) {
+    if (str_eq(name, str_from_cstr(*listed))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // A write writes its bytes and marks its path written, and a keep marks its path kept and leaves
 // the file as it is. A path neither touched stays pending.
 static void test_marks_writes_and_keeps(void) {
@@ -73,10 +92,10 @@ static void test_copy_files_keeps_current_copies(void) {
   path_list_push(&sources, S("static/a.html"), &arena);
   path_list_push(&sources, S("static/b.html"), &arena);
   const struct OsStat stats[] = {{.len = 3}, {.len = 3}};
-  const bool is_unchanged[] = {true, true};
+  const char* unchanged[] = {"a.html", "b.html", NULL};
 
   struct Log log = test_log();
-  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, is_unchanged, S("static"),
+  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, is_listed, unchanged, S("static"),
                                       S("public"), test_arena(), S("failed to copy file"),
                                       &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
@@ -85,8 +104,9 @@ static void test_copy_files_keeps_current_copies(void) {
   TEST_CHECK(os_memory_is_file(writer.os, "public/b.html", "bbb"));
   TEST_CHECK(manifest_find_mark(&manifest, S("public/b.html")) == MANIFEST_MARK_WRITTEN);
 
-  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, NULL, S("static"), S("public"),
-                                      test_arena(), S("failed to copy file"), &log) == 0);
+  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, NULL, NULL, S("static"),
+                                      S("public"), test_arena(), S("failed to copy file"),
+                                      &log) == 0);
   TEST_CHECK(os_memory_is_file(writer.os, "public/a.html", "aaa"));
 }
 
@@ -102,7 +122,7 @@ static void test_copy_files_keeps_the_path_below_the_root(void) {
   path_list_push(&sources, S("other/nested/a.svg"), &arena);
   const struct OsStat stats[] = {{.len = 6}};
   struct Log log = test_log();
-  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, NULL, S("other"), S("public"),
+  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, NULL, NULL, S("other"), S("public"),
                                       test_arena(), S("failed to copy file"), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_file(writer.os, "public/nested/a.svg", "<svg/>"));
@@ -122,10 +142,10 @@ static void test_copy_files_dry_run_changes_nothing(void) {
   path_list_push(&sources, S("static/a.html"), &arena);
   path_list_push(&sources, S("static/b.html"), &arena);
   const struct OsStat stats[] = {{.len = 3}, {.len = 3}};
-  const bool is_unchanged[] = {true, false};
+  const char* unchanged[] = {"a.html", NULL};
 
   struct Log log = test_log();
-  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, is_unchanged, S("static"),
+  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, is_listed, unchanged, S("static"),
                                       S("public"), test_arena(), S("failed to copy file"),
                                       &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
@@ -149,9 +169,9 @@ static void test_copy_files_reports_a_failed_copy(void) {
   struct PathList sources = {0};
   path_list_push(&sources, S("static/a.html"), &arena);
   const struct OsStat stats[] = {{.len = 0}};
-  const bool is_unchanged[] = {true};
+  const char* unchanged[] = {"a.html", NULL};
   struct Log log = test_log();
-  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, is_unchanged, S("static"),
+  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, is_listed, unchanged, S("static"),
                                       S("public"), test_arena(), S("failed to copy file"),
                                       &log) == -1);
   TEST_CHECK(test_log_is(&log, "failed to copy file: %s ('public/a.html')\n", strerror(EISDIR)));
@@ -159,8 +179,9 @@ static void test_copy_files_reports_a_failed_copy(void) {
   sources = (struct PathList){0};
   path_list_push(&sources, S("static/b.html"), &arena);
   log = test_log();
-  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, NULL, S("static"), S("public"),
-                                      test_arena(), S("failed to copy file"), &log) == -1);
+  TEST_CHECK(output_writer_copy_files(&writer, &sources, stats, NULL, NULL, S("static"),
+                                      S("public"), test_arena(), S("failed to copy file"),
+                                      &log) == -1);
   TEST_CHECK(test_log_is(&log, "failed to copy file: %s ('static/b.html')\n", strerror(ENOENT)));
 }
 

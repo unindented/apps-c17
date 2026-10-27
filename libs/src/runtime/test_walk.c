@@ -335,6 +335,20 @@ static void test_walk_rejects_unlistable_subdir(void) {
       test_log_is(&log, "op: cannot open directory: %s ('site/sealed')\n", strerror(EACCES)));
 }
 
+// Each listed path gets its stat, and one that cannot be inspected gets a zeroed stat, which no
+// build cache row of a file the build read matches.
+static void test_stat_paths_zeroes_an_uninspectable_path(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "static/a.css", "abc");
+  struct Arena arena = test_arena();
+  struct PathList paths = {0};
+  path_list_push(&paths, S("static/a.css"), &arena);
+  path_list_push(&paths, S("static/gone.css"), &arena);
+  const struct OsStat* stats = walk_stat_paths(&paths, os, &arena);
+  TEST_CHECK(stats[0].len == 3 && stats[0].mtime_s != 0);
+  TEST_CHECK(stats[1].len == 0 && stats[1].mtime_s == 0 && stats[1].mtime_ns == 0);
+}
+
 // An entry that exists but cannot be inspected fails the walk and names that entry, rather than
 // being dropped from the listing while the walk still reports success.
 static void test_walk_rejects_unstatable_entry(void) {
@@ -391,6 +405,7 @@ TEST_LIST = {
     {"walk rejects missing dir", test_walk_rejects_missing_dir},
     {"walk rejects file root", test_walk_rejects_file_root},
     {"walk rejects unlistable subdir", test_walk_rejects_unlistable_subdir},
+    {"stat paths zeroes an uninspectable path", test_stat_paths_zeroes_an_uninspectable_path},
     {"walk rejects unstatable entry", test_walk_rejects_unstatable_entry},
     {"walk reports uninspectable entries in order",
      test_walk_reports_uninspectable_entries_in_order},

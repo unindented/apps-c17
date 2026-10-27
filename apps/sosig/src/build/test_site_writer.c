@@ -113,8 +113,8 @@ static void test_writes_complete_output_layer(void) {
                                          &log) == 0);
   TEST_CHECK(site_writer_write_templates(&writer, &site_config, feeds_set, feeds, 1, entries, 1,
                                          true, false, os, output, test_arena(), &log) == 0);
-  TEST_CHECK(output_writer_copy_files(&writer, &static_paths, NULL, NULL, site_config.static_dir,
-                                      site_config.output_dir, test_arena(),
+  TEST_CHECK(output_writer_copy_files(&writer, &static_paths, NULL, NULL, NULL,
+                                      site_config.static_dir, site_config.output_dir, test_arena(),
                                       S("failed to copy static file"), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_file(os, "public/index.html", "<h1>Site &amp; Co</h1>Newer;Older;"));
