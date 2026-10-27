@@ -1252,7 +1252,7 @@ static void test_skips_empty_phases_in_verbose_output(void) {
   TEST_CHECK(os_memory_is_printed(os, 2,
                                   "loading config\n"
                                   "discovering content\n"
-                                  "discovering static files\n"
+                                  "discovering templates and static files\n"
                                   "collecting content entries\n"
                                   "compiling templates\n"
                                   "building output manifest\n"
@@ -1351,6 +1351,22 @@ static void test_reports_absent_templates_dir(void) {
                          "failed to resolve config directory 'content_dir': %s ('content')\nfailed "
                          "to resolve config directory 'templates_dir': %s ('templates')\n",
                          strerror(EACCES), strerror(ENOENT)));
+}
+
+// A `templates_dir` whose subdirectory cannot be listed stops the build while it lists the inputs,
+// because a partial the walk could not see could be neither compiled nor protected. The reason
+// names the directory that failed, so the configured root is not repeated ahead of it.
+static void test_reports_an_unlistable_templates_subdirectory(void) {
+  struct Os* os = site_fixture(NULL);
+  os_memory_write(os, "content/hello.md", HELLO_ENTRY);
+  os_memory_write(os, "templates/partials/card.html", "card");
+  os_memory_fail(os, OS_MEMORY_OP_LIST, "templates/partials", EACCES);
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(
+      &log, "failed to list templates: cannot open directory: %s ('templates/partials')\n",
+      strerror(EACCES)));
+  TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
 // A root that fails its check still lets the overlap check run, so one run reports a missing
@@ -1984,6 +2000,8 @@ TEST_LIST = {
     {"reports missing config", test_reports_missing_config},
     {"reports absent content dir", test_reports_absent_content_dir},
     {"reports absent templates dir", test_reports_absent_templates_dir},
+    {"reports an unlistable templates subdirectory",
+     test_reports_an_unlistable_templates_subdirectory},
     {"reports a bad root with an overlapping output dir",
      test_reports_a_bad_root_with_an_overlapping_output_dir},
     {"reports a rejected directory key once", test_reports_a_rejected_directory_key_once},

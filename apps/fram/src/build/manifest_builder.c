@@ -17,7 +17,6 @@
 #include "os/os.h"
 #include "output/manifest.h"
 #include "output/output_path.h"
-#include "runtime/walk.h"
 
 /**
  * Identities of the files this build reads, gathered before any output path is registered so an
@@ -135,58 +134,24 @@ struct InputRoots {
  * and the render reports a missing template with a template-specific diagnostic, so failing here
  * would only report an absence earlier and with less context.
  *
- * The template tree is listed first, so the set is allocated once with a slot for every candidate.
+ * The set is allocated once, with a slot for every candidate.
  *
- * The listed template paths are needed only until their identities are claimed, so they go into
- * `scratch`. They cannot go into `perm`, because the walk gets a copy of `perm` by value for its
- * bookkeeping, and a path list growing in `perm` would overlap it. The identity set goes into
- * `perm` itself after the walk has returned, so the set outlives this call and overlaps only memory
- * the walk is done with.
- *
- * @param inputs       Empty identity set that receives one entry per readable input file. Must not
- *                     be `NULL`.
- * @param site_config  Configuration supplying `templates_dir`. Must not be `NULL`.
- * @param config_path  Path the configuration was loaded from.
- * @param source_paths Every discovered media source path. Must not be `NULL`.
- * @param static_paths Every enumerated file below `static_dir`. Must not be `NULL`.
- * @param os           Host the inputs are on. Must not be `NULL`.
- * @param perm         Arena that owns the identity set. Must not be `NULL`.
- * @param scratch      Arena for the template paths, which must not overlap `perm`.
- * @param log          Log that receives every error. Must not be `NULL`.
- * @return `0` when every readable input was claimed, or `-1` when the template tree cannot be
- *         walked.
+ * @param inputs         Empty identity set that receives one entry per readable input file. Must
+ *                       not be `NULL`.
+ * @param config_path    Path the configuration was loaded from.
+ * @param source_paths   Every discovered media source path. Must not be `NULL`.
+ * @param static_paths   Every enumerated file below `static_dir`. Must not be `NULL`.
+ * @param template_paths Every file below `templates_dir`, partials included. Must not be `NULL`.
+ * @param os             Host the inputs are on. Must not be `NULL`.
+ * @param perm           Arena that owns the identity set. Must not be `NULL`.
  */
-static int claim_build_inputs(struct InputIdentities* inputs,
-                              const struct SiteConfig* site_config,
-                              struct Str config_path,
-                              const struct PathList* source_paths,
-                              const struct PathList* static_paths,
-                              struct Os* os,
-                              struct Arena* perm,
-                              struct Arena scratch,
-                              struct Log* log) __attribute__((nonnull(1, 2, 4, 5, 6, 7, 9)));
-
-/**
- * @brief Lists every file below `templates_dir`, partials included.
- *
- * @param template_paths Empty path list that receives the files. Must not be `NULL`.
- * @param templates_dir  Template directory root to walk. A path with no identity lists nothing.
- * @param output_dir     Output directory the walk leaves out, so a generated file reached through a
- *                       symlink is not claimed as a template.
- * @param os             Host the tree is on. Must not be `NULL`.
- * @param perm           Arena that owns the listed paths. Must not be `NULL`.
- * @param scratch        Arena for the walk's bookkeeping. Must not overlap `perm`.
- * @param log            Log that receives every error. Must not be `NULL`.
- * @return `0` when every file in the tree was listed or `templates_dir` has no identity, or `-1`
- *         when the walk fails.
- */
-static int claim_build_inputs_list_templates(struct PathList* template_paths,
-                                             struct Str templates_dir,
-                                             struct Str output_dir,
-                                             struct Os* os,
-                                             struct Arena* perm,
-                                             struct Arena scratch,
-                                             struct Log* log) __attribute__((nonnull(1, 4, 5, 7)));
+static void claim_build_inputs(struct InputIdentities* inputs,
+                               struct Str config_path,
+                               const struct PathList* source_paths,
+                               const struct PathList* static_paths,
+                               const struct PathList* template_paths,
+                               struct Os* os,
+                               struct Arena* perm) __attribute__((nonnull(1, 3, 4, 5, 6, 7)));
 
 /**
  * @brief Claims one path's identity, ignoring a path that has none.
@@ -583,6 +548,7 @@ int manifest_builder_populate(struct Manifest* manifest,
                               struct Str config_path,
                               const struct PathList* source_paths,
                               const struct PathList* static_paths,
+                              const struct PathList* template_paths,
                               const struct Album* const* albums,
                               ptrdiff_t album_count,
                               struct Os* os,
@@ -592,13 +558,8 @@ int manifest_builder_populate(struct Manifest* manifest,
   struct InputIdentities inputs = {0};
   struct InputRoots roots;
 
-  // An input failure makes every output path suspect, so it stops the check rather than reporting
-  // the same cause once per output.
   claim_input_roots(&roots, site_config, os);
-  if (claim_build_inputs(&inputs, site_config, config_path, source_paths, static_paths, os,
-                         &scratch, *perm, log) != 0) {
-    return -1;
-  }
+  claim_build_inputs(&inputs, config_path, source_paths, static_paths, template_paths, os, perm);
 
   // Every output is checked even after one fails, so each collision in the gallery is reported in
   // one run. A rejected path is not recorded, so it cannot cause a second report against a later
@@ -630,24 +591,17 @@ int manifest_builder_populate(struct Manifest* manifest,
   return rc;
 }
 
-static int claim_build_inputs(struct InputIdentities* inputs,
-                              const struct SiteConfig* site_config,
-                              struct Str config_path,
-                              const struct PathList* source_paths,
-                              const struct PathList* static_paths,
-                              struct Os* os,
-                              struct Arena* perm,
-                              struct Arena scratch,
-                              struct Log* log) {
-  struct PathList template_paths = {0};
-  if (claim_build_inputs_list_templates(&template_paths, site_config->templates_dir,
-                                        site_config->output_dir, os, &scratch, *perm, log) != 0) {
-    return -1;
-  }
+static void claim_build_inputs(struct InputIdentities* inputs,
+                               struct Str config_path,
+                               const struct PathList* source_paths,
+                               const struct PathList* static_paths,
+                               const struct PathList* template_paths,
+                               struct Os* os,
+                               struct Arena* perm) {
   // One slot for the configuration file, then one per source, per static file and per template
   // file. The counts index arrays already in memory, so their sum cannot overflow.
   inputs->items =
-      arena_new(perm, 1 + source_paths->count + static_paths->count + template_paths.count,
+      arena_new(perm, 1 + source_paths->count + static_paths->count + template_paths->count,
                 struct OsIdentity);
   claim_build_inputs_identity(inputs, config_path, os);
   for (ptrdiff_t i = 0; i < source_paths->count; i++) {
@@ -656,38 +610,10 @@ static int claim_build_inputs(struct InputIdentities* inputs,
   for (ptrdiff_t i = 0; i < static_paths->count; i++) {
     claim_build_inputs_identity(inputs, static_paths->items[i], os);
   }
-  for (ptrdiff_t i = 0; i < template_paths.count; i++) {
-    claim_build_inputs_identity(inputs, template_paths.items[i], os);
+  for (ptrdiff_t i = 0; i < template_paths->count; i++) {
+    claim_build_inputs_identity(inputs, template_paths->items[i], os);
   }
   qsort(inputs->items, (size_t)inputs->count, sizeof(*inputs->items), os_identity_compare);
-  return 0;
-}
-
-static int claim_build_inputs_list_templates(struct PathList* template_paths,
-                                             struct Str templates_dir,
-                                             struct Str output_dir,
-                                             struct Os* os,
-                                             struct Arena* perm,
-                                             struct Arena scratch,
-                                             struct Log* log) {
-  // A `templates_dir` with no identity holds no file to overwrite, so there is nothing to claim.
-  // This is the same skip `claim_build_inputs_identity` applies to a single missing path. A full
-  // build never gets here with one, because `cmd_build` rejects a missing `templates_dir` while
-  // loading the build inputs, so reporting it is left to that earlier check. An existing root that
-  // cannot be walked still fails, because a partial the walk could not see would stay overwritable.
-  struct OsIdentity templates_dir_identity;
-  if (identify(templates_dir, os, &templates_dir_identity) != 0) {
-    return 0;
-  }
-  // An empty suffix matches every filename, so the walk lists the whole tree.
-  static const struct Str all_suffixes[] = {STR_INIT("")};
-  if (walk_files_with_suffixes(template_paths, templates_dir, output_dir, all_suffixes, 1, false,
-                               os, perm, scratch, S("failed to list templates"), log) != 0) {
-    // The failure names the directory or entry that failed, which is more precise than the
-    // configured root, so the root is not repeated here.
-    return -1;
-  }
-  return 0;
 }
 
 static void claim_build_inputs_identity(struct InputIdentities* inputs,

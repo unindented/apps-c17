@@ -14,8 +14,10 @@
 #include "core/str.h"
 #include "domain/content_entry.h"
 #include "domain/site_config.h"
+#include "os/os.h"
 #include "os/os_memory.h"
 #include "output/manifest.h"
+#include "runtime/walk.h"
 #include "testing/test_support.h"
 
 // Every test here runs against the in-memory host. The identity checks see what they would see on
@@ -51,6 +53,31 @@ static struct Os* init_manifest_fixture(struct SiteConfig* site_config) {
 }
 
 /**
+ * @brief Lists every file below the fixture's `templates_dir`, as the build does before the
+ *        manifest, or none when it does not exist.
+ *
+ * @param site_config Configuration naming `templates_dir` and `output_dir`. Must not be `NULL`.
+ * @param os          Host the fixture is on. Must not be `NULL`.
+ * @param perm        Arena that owns the paths. Must not be `NULL`.
+ * @return The paths.
+ */
+static struct PathList list_templates(const struct SiteConfig* site_config,
+                                      struct Os* os,
+                                      struct Arena* perm) {
+  struct PathList template_paths = {0};
+  struct OsStat st;
+  if (os_stat(os, site_config->templates_dir, &st) != 0) {
+    return template_paths;
+  }
+  static const struct Str all_suffixes[] = {STR_INIT("")};
+  struct Log log = test_log();
+  TEST_CHECK(walk_files_with_suffixes(&template_paths, site_config->templates_dir,
+                                      site_config->output_dir, all_suffixes, 1, false, os, perm,
+                                      test_arena(), S("failed to list templates"), &log) == 0);
+  return template_paths;
+}
+
+/**
  * @brief Populates a manifest from content entries, as the build does, with no sources claimed.
  *
  * The manifest's data goes in a reservation of its own, never in the log's arena, so a failure the
@@ -79,10 +106,11 @@ static int populate(struct Manifest* manifest,
                     struct Log* log) {
   static const struct PathList empty = {0};
   struct Arena perm = test_arena();
+  const struct PathList template_paths = list_templates(site_config, os, &perm);
   return manifest_builder_populate(
       manifest, site_config, CONFIG_PATH, source_paths != NULL ? source_paths : &empty,
       static_paths != NULL ? static_paths : &empty, asset_paths != NULL ? asset_paths : &empty,
-      content_entries, content_entry_count, os, &perm, test_arena(), log);
+      &template_paths, content_entries, content_entry_count, os, &perm, test_arena(), log);
 }
 
 /**
@@ -196,25 +224,6 @@ static void test_registers_complete_output_set(void) {
   TEST_CHECK(test_log_is_empty(&log));
   // The five outputs of the site, and the build cache.
   TEST_CHECK(manifest.count == 5 + 1);
-}
-
-// A `templates_dir` that does not exist holds no file an output could overwrite, so it claims
-// nothing and the manifest still populates. The build refuses a missing `templates_dir` before the
-// manifest runs, as `test_reports_absent_templates_dir` in `src/app/test_cmd_build.c` pins, so this
-// is the module's own contract rather than a path the build reaches.
-static void test_accepts_missing_templates_dir(void) {
-  struct SiteConfig site_config;
-  struct Os* os = init_manifest_fixture(&site_config);
-  site_config.templates_dir = S("site/missing");
-  const struct ContentEntry entry = entry_at("site/public/a.html", "content/a.md");
-  const struct ContentEntry* entries[] = {&entry};
-  struct Manifest manifest = {0};
-  struct Log log = test_log();
-
-  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, NULL, entries, 1, os, &log) == 0);
-  TEST_CHECK(test_log_is_empty(&log));
-  // The one output and the build cache.
-  TEST_CHECK(manifest.count == 2);
 }
 
 // An output beside an input root, in a directory whose name only starts with the root's name, is
@@ -770,33 +779,6 @@ static void test_rejects_asset_overwrite(void) {
                          "'site/public/b.html'\n"));
 }
 
-// A `templates_dir` that exists but cannot be walked fails the manifest rather than claiming
-// nothing, because a partial the walk could not see would stay overwritable. The reason names the
-// path the walk failed on, so the configured root is not repeated ahead of it. A regular file in
-// place of the directory and a subdirectory that refuses to be listed fail the same way.
-static void test_rejects_unlistable_templates_dir(void) {
-  struct SiteConfig site_config;
-  struct Os* os = init_manifest_fixture(&site_config);
-  os_memory_write(os, "site/templates-file", "not a directory");
-  site_config.templates_dir = S("site/templates-file");
-  struct Manifest manifest = {0};
-  struct Log log = test_log();
-  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, NULL, NULL, 0, os, &log) == -1);
-  TEST_CHECK(test_log_is(
-      &log, "failed to list templates: cannot open directory: %s ('site/templates-file')\n",
-      strerror(ENOTDIR)));
-  TEST_CHECK(manifest.count == 0);
-
-  os_memory_write(os, "site/templates/partials/card.html", "card");
-  os_memory_fail(os, OS_MEMORY_OP_LIST, "site/templates/partials", EACCES);
-  site_config.templates_dir = S("site/templates");
-  log = test_log();
-  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, NULL, NULL, 0, os, &log) == -1);
-  TEST_CHECK(test_log_is(
-      &log, "failed to list templates: cannot open directory: %s ('site/templates/partials')\n",
-      strerror(EACCES)));
-}
-
 // A configured template whose output path exceeds the whole-path limit is rejected with a message
 // naming the limit, the measured length, the list entry, and the whole name.
 static void test_rejects_oversize_template_path(void) {
@@ -846,7 +828,6 @@ static void test_rejects_oversize_template_segment(void) {
 
 TEST_LIST = {
     {"registers complete output set", test_registers_complete_output_set},
-    {"accepts missing templates dir", test_accepts_missing_templates_dir},
     {"accepts output beside input roots", test_accepts_output_beside_input_roots},
     {"check output dir accepts dir outside input roots",
      test_check_output_dir_accepts_dir_outside_input_roots},
@@ -870,7 +851,6 @@ TEST_LIST = {
     {"rejects asset entry collision", test_rejects_asset_entry_collision},
     {"rejects asset static collision", test_rejects_asset_static_collision},
     {"rejects asset overwrite", test_rejects_asset_overwrite},
-    {"rejects unlistable templates dir", test_rejects_unlistable_templates_dir},
     {"rejects oversize template path", test_rejects_oversize_template_path},
     {"rejects oversize template segment", test_rejects_oversize_template_segment},
     {NULL, NULL},

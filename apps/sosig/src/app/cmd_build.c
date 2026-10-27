@@ -185,7 +185,7 @@ struct BuildState {
   /** Rows an earlier build left, empty when there are none or the build ignores them. */
   struct BuildCache build_cache;
 
-  /** Every file below `templates_dir`, sorted, which the build cache records a row for. */
+  /** Every file below `templates_dir`, sorted, which the manifest claims and the cache records. */
   struct PathList template_paths;
 
   /** What `os_stat` reported for each of `template_paths`, parallel to it, in `perm`. */
@@ -293,6 +293,18 @@ static int load_build_inputs(struct BuildState* state, struct Log* log)
  */
 static void load_build_inputs_split_sources(struct BuildState* state,
                                             const struct PathList* content_paths)
+    __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Lists every file below `templates_dir`, partials included, which the manifest claims as
+ *        inputs and the build cache records a row for.
+ *
+ * @param state Build state that receives the template paths. Must not be `NULL`.
+ * @param log   Log that receives the failure, which names the path the walk failed on. Must not be
+ *              `NULL`.
+ * @return `0` on success, or `-1` on a directory or entry failure.
+ */
+static int load_build_inputs_templates(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
@@ -416,18 +428,15 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log)
  * @brief Reads the build cache an earlier build left, unless the build ignores it, and decides
  *        which outputs it vouches for.
  *
- * Stats every file below `templates_dir` either way, for the rows the build writes. A missing build
- * cache, one that cannot be read, and one that does not parse or was written for another page
- * recipe are each an empty build cache, never an error: the verbose log says which, and every page
- * is made.
+ * Stats every template that the load inputs phase listed either way, for the rows the build writes.
+ * A missing build cache, one that cannot be read, and one that does not parse or was written for
+ * another page recipe are each an empty build cache, never an error: the verbose log says which,
+ * and every page is made.
  *
- * @param state Build state holding the parsed entries, which receives the build cache, the template
- *              stats and the fresh rows. Must not be `NULL`.
- * @param log   Log that receives a failure to list the templates. Must not be `NULL`.
- * @return `0` on success, or `-1` when `templates_dir` cannot be listed.
+ * @param state Build state holding the parsed entries and the template paths, which receives the
+ *              build cache, the template stats and the fresh rows. Must not be `NULL`.
  */
-static int load_build_cache(struct BuildState* state, struct Log* log)
-    __attribute__((nonnull(1, 2)));
+static void load_build_cache(struct BuildState* state) __attribute__((nonnull(1)));
 
 /**
  * @brief Reads and parses the build cache, reporting why it is not used in the verbose log.
@@ -449,16 +458,6 @@ static int load_build_cache_read_parse(struct Str text,
                                        struct Arena* perm,
                                        struct Log* log,
                                        void* userdata) __attribute__((nonnull(2, 3, 4)));
-
-/**
- * @brief Lists and stats every file below `templates_dir`.
- *
- * @param state Build state that receives the template paths and stats. Must not be `NULL`.
- * @param log   Log that receives the failure. Must not be `NULL`.
- * @return `0` on success, or `-1` when `templates_dir` cannot be listed.
- */
-static int load_build_cache_templates(struct BuildState* state, struct Log* log)
-    __attribute__((nonnull(1, 2)));
 
 /**
  * @brief Returns what `os_stat` reports for each of `paths`, for the rows of the build cache.
@@ -806,7 +805,10 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
     return -1;
   }
   load_build_inputs_split_sources(state, &content_paths);
-  build_verbose(state, "discovering static files");
+  build_verbose(state, "discovering templates and static files");
+  if (load_build_inputs_templates(state, log) != 0) {
+    return -1;
+  }
   return load_build_inputs_static(state, log);
 }
 
@@ -827,6 +829,16 @@ static void load_build_inputs_split_sources(struct BuildState* state,
             : &state->asset_paths;
     list->items[list->count++] = path;
   }
+}
+
+static int load_build_inputs_templates(struct BuildState* state, struct Log* log) {
+  // An empty suffix matches every file, so the walk lists the whole tree. `templates_dir` passed
+  // its check, so the walk fails only on a directory or entry below it, which it names.
+  static const struct Str template_suffixes[] = {STR_INIT("")};
+  return walk_files_with_suffixes(&state->template_paths, state->site_config.templates_dir,
+                                  state->site_config.output_dir, template_suffixes, 1, false,
+                                  state->os, &state->perm, state->scratch,
+                                  S("failed to list templates"), log);
 }
 
 static int load_build_inputs_static(struct BuildState* state, struct Log* log) {
@@ -874,9 +886,7 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
   collect_content_entries(state);
   (void)load_templates(state, log);
   (void)populate_output_manifest(state, log);
-  if (load_build_cache(state, log) != 0) {
-    return -1;
-  }
+  load_build_cache(state);
   (void)convert_content_bodies(state, log);
   if (log->errors > 0) {
     return -1;
@@ -1003,27 +1013,26 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log) {
   // adds `const`, at both levels, and the deep `const` is a thread-safety requirement. A
   // `TemplateContext` with only `const` pointers keeps one render job from writing an entry another
   // job is reading.
-  return manifest_builder_populate(&state->manifest, &state->site_config, state->config_path,
-                                   &state->source_paths, &state->static_paths, &state->asset_paths,
-                                   (const struct ContentEntry* const*)state->content_entries,
-                                   state->content_entry_count, state->os, &state->perm,
-                                   state->scratch, log);
+  return manifest_builder_populate(
+      &state->manifest, &state->site_config, state->config_path, &state->source_paths,
+      &state->static_paths, &state->asset_paths, &state->template_paths,
+      (const struct ContentEntry* const*)state->content_entries, state->content_entry_count,
+      state->os, &state->perm, state->scratch, log);
 }
 
-static int load_build_cache(struct BuildState* state, struct Log* log) {
+static void load_build_cache(struct BuildState* state) {
   state->build_cache_path = build_cache_path(state->site_config.output_dir, &state->perm);
   if (state->is_forced) {
     build_verbose(state, "ignoring build cache, rendering every page");
   } else {
     load_build_cache_read(state);
   }
-  if (load_build_cache_templates(state, log) != 0) {
-    return -1;
-  }
+  // A template that cannot be inspected keeps a zeroed stat, which no row matches, so every page is
+  // made, and its render reports why.
+  state->template_stats = load_build_cache_stats(&state->template_paths, state->os, &state->perm);
   state->static_stats = load_build_cache_stats(&state->static_paths, state->os, &state->perm);
   state->asset_stats = load_build_cache_stats(&state->asset_paths, state->os, &state->perm);
   load_build_cache_find_fresh(state);
-  return 0;
 }
 
 static void load_build_cache_read(struct BuildState* state) {
@@ -1045,23 +1054,6 @@ static int load_build_cache_read_parse(struct Str text,
                                        void* userdata) {
   struct BuildState* state = userdata;
   return build_cache_parse(text, &state->site_config, perm, &state->build_cache, log);
-}
-
-static int load_build_cache_templates(struct BuildState* state, struct Log* log) {
-  static const struct Str template_suffixes[] = {STR_INIT("")};
-  if (walk_files_with_suffixes(&state->template_paths, state->site_config.templates_dir,
-                               state->site_config.output_dir, template_suffixes, 1, false,
-                               state->os, &state->perm, state->scratch,
-                               S("failed to list templates"), log) != 0) {
-    return -1;
-  }
-  state->template_stats = arena_new(&state->perm, state->template_paths.count, struct OsStat);
-  for (ptrdiff_t i = 0; i < state->template_paths.count; i++) {
-    // A template that cannot be inspected keeps a zeroed stat, which no row matches, so every page
-    // is made, and its render reports why.
-    (void)os_stat(state->os, state->template_paths.items[i], &state->template_stats[i]);
-  }
-  return 0;
 }
 
 static struct OsStat* load_build_cache_stats(const struct PathList* paths,

@@ -133,6 +133,9 @@ struct BuildState {
   /** What `os_stat` reported for each of `static_paths`, parallel to it, in `perm`. */
   struct OsStat* static_stats;
 
+  /** Every file below `templates_dir`, sorted, which the manifest claims as inputs. */
+  struct PathList template_paths;
+
   /** Intended output paths for this build, populated before any file is written. */
   struct Manifest manifest;
 
@@ -258,6 +261,18 @@ static int load_build_inputs(struct BuildState* state, struct Log* log)
  * @return `0` on success, or `-1` on a directory or entry failure.
  */
 static int load_build_inputs_media(struct BuildState* state, struct Log* log)
+    __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Lists every file below `templates_dir`, partials included, which the manifest claims as
+ *        inputs.
+ *
+ * @param state Build state that receives the template paths. Must not be `NULL`.
+ * @param log   Log that receives the failure, which names the path the walk failed on. Must not be
+ *              `NULL`.
+ * @return `0` on success, or `-1` on a directory or entry failure.
+ */
+static int load_build_inputs_templates(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
@@ -668,8 +683,8 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
   if (load_build_inputs_media(state, log) != 0) {
     return -1;
   }
-  build_verbose(state, "discovering static files");
-  if (load_build_inputs_static(state, log) != 0) {
+  build_verbose(state, "discovering templates and static files");
+  if (load_build_inputs_templates(state, log) != 0 || load_build_inputs_static(state, log) != 0) {
     return -1;
   }
   return load_build_inputs_require_video_tools(state, log);
@@ -690,6 +705,16 @@ static int load_build_inputs_media(struct BuildState* state, struct Log* log) {
     state->video_count += media_item_is_video_path(state->source_paths.items[i]);
   }
   return 0;
+}
+
+static int load_build_inputs_templates(struct BuildState* state, struct Log* log) {
+  // An empty suffix matches every file, so the walk lists the whole tree. `templates_dir` passed
+  // its check, so the walk fails only on a directory or entry below it, which it names.
+  static const struct Str template_suffixes[] = {STR_INIT("")};
+  return walk_files_with_suffixes(&state->template_paths, state->site_config.templates_dir,
+                                  state->site_config.output_dir, template_suffixes, 1, false,
+                                  state->os, &state->perm, state->scratch,
+                                  S("failed to list templates"), log);
 }
 
 static int load_build_inputs_static(struct BuildState* state, struct Log* log) {
@@ -901,10 +926,10 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log) {
   // this file. It only adds `const`, at both levels, and the deep `const` is a thread-safety
   // requirement. A `TemplateContext` with only `const` pointers keeps one render job from writing
   // an album another job is reading.
-  return manifest_builder_populate(&state->manifest, &state->site_config, state->config_path,
-                                   &state->source_paths, &state->static_paths,
-                                   (const struct Album* const*)state->albums, state->album_count,
-                                   state->os, &state->perm, state->scratch, log);
+  return manifest_builder_populate(
+      &state->manifest, &state->site_config, state->config_path, &state->source_paths,
+      &state->static_paths, &state->template_paths, (const struct Album* const*)state->albums,
+      state->album_count, state->os, &state->perm, state->scratch, log);
 }
 
 static int prepare_output_dir(const struct BuildState* state, struct Log* log) {

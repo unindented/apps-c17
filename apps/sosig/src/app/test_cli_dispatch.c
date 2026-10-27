@@ -137,7 +137,7 @@ static void test_build_command_receives_parsed_options(void) {
   TEST_CHECK(os_memory_is_printed(os, 2,
                                   "loading config\n"
                                   "discovering content\n"
-                                  "discovering static files\n"
+                                  "discovering templates and static files\n"
                                   "parsing content, workers: 1\n"
                                   "\rparsing content 1/2\rparsing content 2/2\n"
                                   "collecting content entries\n"

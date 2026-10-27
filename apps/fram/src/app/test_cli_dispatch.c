@@ -129,7 +129,7 @@ static void test_build_command_receives_parsed_options(void) {
   TEST_CHECK(os_memory_is_printed(os, 2,
                                   "loading config\n"
                                   "discovering media\n"
-                                  "discovering static files\n"
+                                  "discovering templates and static files\n"
                                   "compiling templates\n"
                                   "planning albums\n"
                                   "ignoring build cache, probing every source\n"
