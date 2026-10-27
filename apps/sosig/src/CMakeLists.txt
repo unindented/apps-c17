@@ -16,6 +16,7 @@ add_subdirectory(domain)
 target_link_libraries(
   sosig_app
   PUBLIC vendor_tomlc17
+         cli
          core
          formats
          markup
@@ -24,7 +25,6 @@ target_link_libraries(
          runtime
          templates
   PRIVATE apps_build_project
-          vendor_copt
           Threads::Threads
 )
 

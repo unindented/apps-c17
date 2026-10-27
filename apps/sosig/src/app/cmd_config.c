@@ -1,46 +1,19 @@
 #include "app/cmd_config.h"
 
-#include <stddef.h>
-
 #include "core/arena.h"
-#include "core/buf.h"
 #include "core/log.h"
+#include "core/str.h"
 #include "domain/site_config.h"
-#include "os/oom.h"
-#include "os/os.h"
 
-/**
- * Bytes `cmd_config_run` reserves. One third of the block holds the loaded values, one the file
- * bytes, and one the log. A config is capped at 1 MiB, so 16 MiB is plenty.
- */
-enum { CMD_CONFIG_RESERVE_LEN = 16 * 1024 * 1024 };
-
-enum ExitCode cmd_config_run(struct Str config_path, struct Os* os) {
-  struct Arena block;
-  const int shift = arena_reserve_halving(CMD_CONFIG_RESERVE_LEN, &block);
-  struct Arena scratch = block;
-  struct Arena perm = arena_split(&scratch, (CMD_CONFIG_RESERVE_LEN / 3) >> shift);
-  struct Arena log_arena = arena_split(&scratch, (CMD_CONFIG_RESERVE_LEN / 3) >> shift);
-  struct Log log = {.buf = {.arena = &log_arena}};
-  oom_set_log(&log);
+int cmd_config_print(struct Str config_path,
+                     struct Os* os,
+                     struct Arena* perm,
+                     struct Arena scratch,
+                     struct Log* log) {
   struct SiteConfig site_config;
   site_config_init(&site_config);
-
-  enum ExitCode rc = EXIT_CODE_FAILURE;
-  // A load that read the file still reports every bad key, and none of them may be printed as the
-  // resolved config.
-  if (site_config_load(&site_config, config_path, os, &perm, scratch, &log) != 0 ||
-      log.errors > 0) {
-    (void)os_print(os, 2, buf_str(&log.buf));
-    goto cleanup;
+  if (site_config_load(&site_config, config_path, os, perm, scratch, log) != 0 || log->errors > 0) {
+    return -1;
   }
-  if (site_config_print(&site_config, os, scratch) != 0) {
-    goto cleanup;
-  }
-  rc = EXIT_CODE_OK;
-
-cleanup:
-  oom_set_log(NULL);
-  arena_release(block);
-  return rc;
+  return site_config_print(&site_config, os, scratch);
 }

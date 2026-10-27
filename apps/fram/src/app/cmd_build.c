@@ -166,9 +166,6 @@ struct BuildState {
   /** Most worker threads a parallel phase runs, each with its arenas in `worker_arenas`. */
   ptrdiff_t worker_count;
 
-  /** Whether phase progress and status messages are printed to `stderr`. */
-  bool is_verbose;
-
   /** Where the build's status lines go, which `--verbose` enables. */
   struct Verbose verbose;
 
@@ -530,18 +527,6 @@ enum ExitCode cmd_build_run(const struct BuildOptions* options, struct Os* os) {
   return build_run(&lens, options->worker_count, cmd_build_run_execute, &resolved, os);
 }
 
-static int cmd_build_run_execute(ptrdiff_t worker_count,
-                                 struct JobArenas* worker_arenas,
-                                 struct Os* os,
-                                 struct Arena perm,
-                                 struct Arena scratch,
-                                 struct Log* log,
-                                 void* userdata) {
-  struct BuildOptions* resolved = userdata;
-  resolved->worker_count = worker_count;
-  return cmd_build_execute(resolved, worker_arenas, os, perm, scratch, log);
-}
-
 int cmd_build_execute(const struct BuildOptions* options,
                       struct JobArenas* worker_arenas,
                       struct Os* os,
@@ -563,6 +548,18 @@ int cmd_build_execute(const struct BuildOptions* options,
   }
   template_set_release(state.template_set);
   return rc;
+}
+
+static int cmd_build_run_execute(ptrdiff_t worker_count,
+                                 struct JobArenas* worker_arenas,
+                                 struct Os* os,
+                                 struct Arena perm,
+                                 struct Arena scratch,
+                                 struct Log* log,
+                                 void* userdata) {
+  struct BuildOptions* resolved = userdata;
+  resolved->worker_count = worker_count;
+  return cmd_build_execute(resolved, worker_arenas, os, perm, scratch, log);
 }
 
 static void build_state_init(struct BuildState* state,
@@ -589,7 +586,6 @@ static void build_state_init(struct BuildState* state,
               .perm = &state->perm,
           },
       .worker_count = options->worker_count,
-      .is_verbose = options->is_verbose,
       .verbose = {.os = os, .is_enabled = options->is_verbose, .scratch = &state->scratch},
       .is_forced = options->is_forced,
   };
@@ -838,8 +834,8 @@ static int probe_media(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "probing media, workers: %td", state->worker_count);
   return album_scan_probe_media(&state->site_config, state->media, state->media_count,
                                 &state->build_cache, state->video_frames, state->worker_count,
-                                state->worker_arenas, state->is_verbose, state->os, state->scratch,
-                                state->source_stats, log);
+                                state->worker_arenas, state->verbose.is_enabled, state->os,
+                                state->scratch, state->source_stats, log);
 }
 
 static int populate_output_manifest(struct BuildState* state, struct Log* log) {
@@ -932,17 +928,18 @@ static int generate_derivatives(struct BuildState* state, struct Log* log) {
     return 0;
   }
   verbose_printf(&state->verbose, "generating derivatives, workers: %td", state->worker_count);
-  return derivative_renderer_generate(
-      &state->writer, &state->site_config, state->media, state->media_count, state->video_frames,
-      state->worker_count, state->worker_arenas, state->is_verbose, state->os, state->scratch, log);
+  return derivative_renderer_generate(&state->writer, &state->site_config, state->media,
+                                      state->media_count, state->video_frames, state->worker_count,
+                                      state->worker_arenas, state->verbose.is_enabled, state->os,
+                                      state->scratch, log);
 }
 
 static int render_album_pages(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "rendering albums, workers: %td", state->worker_count);
-  return page_renderer_render_pages(&state->site_config, state->template_set,
-                                    (const struct Album* const*)state->albums, state->album_count,
-                                    state->worker_count, state->worker_arenas, state->is_verbose,
-                                    state->os, state->scratch, state->rendered_pages, log);
+  return page_renderer_render_pages(
+      &state->site_config, state->template_set, (const struct Album* const*)state->albums,
+      state->album_count, state->worker_count, state->worker_arenas, state->verbose.is_enabled,
+      state->os, state->scratch, state->rendered_pages, log);
 }
 
 static int write_generated_site(struct BuildState* state, struct Log* log) {
@@ -974,13 +971,3 @@ static int prune_stale_outputs(struct BuildState* state, struct Log* log) {
 static int report_dry_run(struct BuildState* state, struct Log* log) {
   return output_writer_report(&state->writer, state->scratch, log);
 }
-
-// A status line runs on the main thread between phases, so it does not need the lock that
-// `job_run_one_print_progress` in `job.c` holds around a progress line. It relies on that ordering
-// rather than on the lock: `pool_run` joins every worker before the next status line prints, so a
-// progress line cannot land in the middle of a status line. Take the same lock if anything ever
-// prints while a pool is running.
-//
-// The print is unchecked. These lines are status, not diagnostics, and a build that otherwise
-// succeeded should not fail because `stderr` was a closed pipe. The cost is that an `EPIPE` here
-// goes unnoticed, unlike `site_config_print`, which reports it.

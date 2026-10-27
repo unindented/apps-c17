@@ -128,11 +128,10 @@ struct InputRoots {
  * configured template, the album template and aggregate templates alike, because each is a safe
  * relative name joined below `templates_dir`.
  *
- * This skips a path with no identity rather than refusing it. A missing configuration file, source
- * or static file cannot be overwritten, and neither can a missing `templates_dir`, which claims
- * nothing. `cmd_build` already rejects a missing `templates_dir` while loading the build inputs,
- * and the render reports a missing template with a template-specific diagnostic, so failing here
- * would only report an absence earlier and with less context.
+ * This skips a path with no identity rather than refusing it. A missing configuration file, source,
+ * static file or template cannot be overwritten, and the render reports a missing template with a
+ * template-specific diagnostic, so failing here would only report an absence earlier and with less
+ * context.
  *
  * The set is allocated once, with a slot for every candidate.
  *

@@ -4,17 +4,14 @@ include_guard(GLOBAL)
 
 apps_add_lint_targets(
   SOURCES
-    "${PROJECT_SOURCE_DIR}/src/app/cli.c"
-    "${PROJECT_SOURCE_DIR}/src/app/cli.h"
-    "${PROJECT_SOURCE_DIR}/src/app/cli_dispatch.c"
-    "${PROJECT_SOURCE_DIR}/src/app/cli_dispatch.h"
+    "${PROJECT_SOURCE_DIR}/src/app/cli_spec.c"
+    "${PROJECT_SOURCE_DIR}/src/app/cli_spec.h"
     "${PROJECT_SOURCE_DIR}/src/app/cmd_build.c"
     "${PROJECT_SOURCE_DIR}/src/app/cmd_build.h"
     "${PROJECT_SOURCE_DIR}/src/app/cmd_config.c"
     "${PROJECT_SOURCE_DIR}/src/app/cmd_config.h"
     "${PROJECT_SOURCE_DIR}/src/app/main.c"
-    "${PROJECT_SOURCE_DIR}/src/app/test_cli.c"
-    "${PROJECT_SOURCE_DIR}/src/app/test_cli_dispatch.c"
+    "${PROJECT_SOURCE_DIR}/src/app/test_cli_spec.c"
     "${PROJECT_SOURCE_DIR}/src/app/test_cmd_build.c"
     "${PROJECT_SOURCE_DIR}/src/app/test_cmd_build_video.c"
     "${PROJECT_SOURCE_DIR}/src/app/test_cmd_config.c"

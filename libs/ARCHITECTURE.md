@@ -15,7 +15,8 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 | [`core`](#core) | The arena allocator, counted strings, growable buffers and the error log, and ASCII classification, error text, exit codes, number parsing, paths, path lists, text helpers, URL checks and UTF-8 validation and repair. | sosig, fram, cwrap, surge |
 | [`testing`](#testing) | The support that every unit test uses, and the `os_oom` of the unit tests. | the unit tests of every app and of the other libraries |
 | [`os`](#os) | The host interface and the out-of-memory report, with the POSIX host `os_posix` and the in-memory host `os_memory`. | sosig, fram, cwrap and surge, and `os_memory` for their unit tests and those of the libraries |
-| [`runtime`](#runtime) | The worker pool, the jobs of a build phase that run on it, the check of the directories that a build reads, and the directory walk. | sosig, fram, surge |
+| [`runtime`](#runtime) | The run of a build in its memory, the worker pool, the jobs of a build phase that run on it, the check of the directories that a build reads, the directory walk, and a command's status lines. | sosig, fram, surge |
+| [`cli`](#cli) | The command line of the site generators: its parse, its help and version text, and its dispatch to the app's commands. | sosig, fram, surge |
 | [`formats`](#formats) | HTML escaping, the TOML helpers and the escaping of a tab-separated field. | sosig, fram, surge |
 | [`markup`](#markup) | Markdown and Org to HTML, and the syntax highlighting of code blocks with tree-sitter. | sosig, surge |
 | [`output`](#output) | The output manifest, the output-path checks, the output writer and the prune. | sosig, fram, surge |
@@ -72,6 +73,8 @@ _Noreturn void os_oom(void) {
   _Exit(EXIT_FAILURE);
 }
 ```
+
+sosig, fram and surge define it as one call to `cli_oom_exit` from the `cli` library, with the program's name.
 
 ### Arenas
 
@@ -249,6 +252,13 @@ Each property that a test checks against the in-memory host must have a contract
 - [walk](src/runtime/walk.h): Finds and sorts the matching regular files in a directory tree. It uses only `os_list` and `os_stat`, so it behaves the same on every host. It follows symlinked directories, but walks each directory once, by device and inode. It skips a cycle or a second alias of a directory. A caller can name one directory to exclude. The walk visits directory entries in byte order, and visits each symlinked directory only after every real directory, so it lists the path without a symlink when such a path exists. Only one directory is open at a time. `walk_stat_paths` stats each listed file for the build cache's rows.
 
 [src/runtime/test_walk_posix.c](src/runtime/test_walk_posix.c) runs the walk on the POSIX host, for the failures that only a real filesystem gives.
+
+## cli
+
+The command line that sosig, fram and surge share. Each app describes itself in a `CliSpec`: its description, the noun of what `build` builds, its default config file, its version line and grammar list, and its `build` and `config` commands. cwrap has a command line of its own.
+
+- [cli](src/cli/cli.h): `cli_parse` parses the command line into a command, the options, and one of four actions: version, help, run, or error. It never prints and never exits. `cli.c` is the only translation unit that defines `COPT_IMPL`. `-c`, `-h` and `-V` apply to every command, and each command lists the other flags that it accepts. `cli_print_version` and `cli_print_usage` format the app's texts from its spec.
+- [cli_dispatch](src/cli/cli_dispatch.h): `cli_dispatch` calls `cli_parse`. For the run action, it calls the app's `build` with the parsed `BuildOptions`, or runs `config` in a reservation of its own through the app's `config_print`, and prints the load's errors when it fails. For each other action, it prints one text through `os_print`: the diagnostic for the rejected command line, the `--help` text, or the `--version` text, formatted in a reservation that it releases when it returns. `cli_oom_exit` is what each program's `os_oom` calls: it prints the out-of-memory report under a lock, so two workers that run out at once print one, and ends the process with `_Exit`.
 
 ## formats
 

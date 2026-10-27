@@ -1,7 +1,9 @@
 #include <acutest.h>
 #include <errno.h>
 
-#include "app/cmd_config.h"
+#include "app/cli_spec.h"
+#include "cli/cli.h"
+#include "cli/cli_dispatch.h"
 #include "core/error.h"
 #include "core/exit_code.h"
 #include "core/str.h"
@@ -25,6 +27,21 @@
   "sort = { albums = \"asc\", media = \"asc\" }\n"                                 \
   "video_frame_seconds = 1\n"
 
+/**
+ * @brief Runs `fram config -c <config_path>` with the app's own spec, as `main` does.
+ *
+ * @param config_path Config file to name.
+ * @param os          Host to run on. Must not be `NULL`.
+ * @return The command's exit code.
+ */
+static enum ExitCode run_config(struct Str config_path, struct Os* os) {
+  struct Arena arena = test_arena();
+  char* argv[] = {"fram", "config", "-c", str_cstr(config_path, &arena), NULL};
+  struct CliSpec spec;
+  cli_spec_init(&spec);
+  return cli_dispatch(&spec, 4, argv, os);
+}
+
 // A valid `fram.toml` loads and prints, and the command reports success.
 static void test_prints_loaded_config(void) {
   struct Os* os = os_memory();
@@ -32,7 +49,7 @@ static void test_prints_loaded_config(void) {
                   "title = \"Test Gallery\"\n"
                   "description = \"Test description\"\n"
                   "author = \"Author Name\"\n");
-  TEST_CHECK(cmd_config_run(S("fram.toml"), os) == EXIT_CODE_OK);
+  TEST_CHECK(run_config(S("fram.toml"), os) == EXIT_CODE_OK);
   // The whole output, not two per-line searches: exact comparison catches a missing, duplicated or
   // reordered key. The empty `stderr` below is the routing half: the configuration goes to
   // `stdout`, and the success path says nothing on `stderr`.
@@ -52,7 +69,7 @@ static void test_prints_empty_template_array(void) {
                   "description = \"Test description\"\n"
                   "author = \"Author Name\"\n"
                   "aggregate_templates = []\n");
-  TEST_CHECK(cmd_config_run(S("fram.toml"), os) == EXIT_CODE_OK);
+  TEST_CHECK(run_config(S("fram.toml"), os) == EXIT_CODE_OK);
   // Compared whole, and `stderr` empty, for the reasons at `test_prints_loaded_config`.
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
   TEST_CHECK(os_memory_is_printed(os, 1, CONFIG_PRINTED_DEFAULTS));
@@ -69,7 +86,7 @@ static void test_prints_paths_resolved_against_config_dir(void) {
                   "media_dir = \"../photos/\"\n"
                   "templates_dir = \"layouts\"\n"
                   "static_dir = \"/srv/static\"\n");
-  TEST_CHECK(cmd_config_run(S("sub/fram.toml"), os) == EXIT_CODE_OK);
+  TEST_CHECK(run_config(S("sub/fram.toml"), os) == EXIT_CODE_OK);
   // Compared whole, and `stderr` empty, for the reasons at `test_prints_loaded_config`.
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
   TEST_CHECK(os_memory_is_printed(
@@ -94,7 +111,7 @@ static void test_prints_paths_resolved_against_config_dir(void) {
 // gave, so a mistyped path reads as one.
 static void test_reports_missing_config_named_by_path(void) {
   struct Os* os = os_memory();
-  TEST_CHECK(cmd_config_run(S("sub/fram.toml"), os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(run_config(S("sub/fram.toml"), os) == EXIT_CODE_FAILURE);
   char reason[ERROR_SYSTEM_MESSAGE_SIZE];
   TEST_CHECK(test_text_is(os_memory_printed(os, 2), "failed to read config: %s ('sub/fram.toml')\n",
                           error_system_message(reason, sizeof(reason), ENOENT)));
@@ -106,7 +123,7 @@ static void test_reports_missing_config_named_by_path(void) {
 // running libc rather than hardcoded, so the assertion is the whole claim and stays portable.
 static void test_reports_missing_config(void) {
   struct Os* os = os_memory();
-  TEST_CHECK(cmd_config_run(S("fram.toml"), os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(run_config(S("fram.toml"), os) == EXIT_CODE_FAILURE);
   // The diagnostic goes to `stderr`. A failed run prints nothing on `stdout`, so a pipeline
   // redirecting `stdout` to a file does not capture the error into it.
   char reason[ERROR_SYSTEM_MESSAGE_SIZE];
@@ -123,7 +140,7 @@ static void test_reports_missing_required_key(void) {
   os_memory_write(os, "fram.toml",
                   "title = \"Test Gallery\"\n"
                   "description = \"Test description\"\n");
-  TEST_CHECK(cmd_config_run(S("fram.toml"), os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(run_config(S("fram.toml"), os) == EXIT_CODE_FAILURE);
   TEST_CHECK(os_memory_is_printed(os, 2, "missing required config key 'author'\n"));
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
 }
@@ -139,7 +156,7 @@ static void test_reports_every_invalid_key(void) {
                   "author = \"Author Name\"\n"
                   "colour = \"blue\"\n"
                   "video_frame_seconds = \"ten\"\n");
-  TEST_CHECK(cmd_config_run(S("fram.toml"), os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(run_config(S("fram.toml"), os) == EXIT_CODE_FAILURE);
   TEST_CHECK(os_memory_is_printed(os, 2,
                                   "unknown config key 'colour'\n"
                                   "config key 'title' must be a string\n"
@@ -156,7 +173,7 @@ static void test_fails_on_unwritable_stdout(void) {
                   "description = \"Test description\"\n"
                   "author = \"Author Name\"\n");
   os_memory_fail_print(os, 1, 0, EBADF);
-  TEST_CHECK(cmd_config_run(S("fram.toml"), os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(run_config(S("fram.toml"), os) == EXIT_CODE_FAILURE);
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
 }
 

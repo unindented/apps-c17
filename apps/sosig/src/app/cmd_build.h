@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "cli/cli.h"
 #include "core/arena.h"
 #include "core/exit_code.h"
 #include "core/str.h"
@@ -12,41 +13,17 @@ struct JobArenas;
 struct Log;
 struct Os;
 
-/** Caller-selected knobs for one build invocation. */
-struct BuildOptions {
-  /** Config file the build reads. */
-  struct Str config_path;
-
-  /**
-   * Worker threads used for parallel parsing and for rendering and writing content pages. `0` means
-   * detect the CPU count. The build runs at most four per online CPU, and a phase runs at most one
-   * per job.
-   */
-  ptrdiff_t worker_count;
-
-  /** Whether to print phase progress and status messages to `stderr`. */
-  bool is_verbose;
-
-  /**
-   * Whether to run every phase but change nothing under `output_dir`, printing to `stdout` what the
-   * build would write, keep, and remove.
-   */
-  bool is_dry_run;
-
-  /** Whether to ignore the build cache for this build, then write it afresh. */
-  bool is_forced;
-};
-
 /**
- * @brief Runs the `build` command for the site that `options->config_path` configures.
+ * @brief Runs the `build` command for the site that `options->config_path` configures, as
+ *        `CliBuildFn`.
  *
- * This is a thin boundary over `cmd_build_execute`. It resolves the worker count, reserves the
- * build's memory in one block, the log and a perm and a scratch for the main thread and for each
- * worker, for fewer workers when an address-space limit refuses the block, runs
- * `cmd_build_execute`, and releases the block after the build. On failure it prints the build's log
- * to `stderr` exactly once, every error on its own line. Progress lines emitted under verbose mode
- * are status, not diagnostics. If the build runs out of memory, the program's `os_oom` prints the
- * log instead.
+ * This is a thin boundary over `cmd_build_execute`. It gives `build_run` the build's arena sizes,
+ * and `build_run` resolves the worker count, reserves the build's memory in one block, for fewer
+ * workers when an address-space limit refuses the block, runs `cmd_build_execute`, and releases the
+ * block. It prints the build's errors to `stderr` once, each on its own line, and then its
+ * warnings, so a build with only warnings succeeds and still says what it skipped. Progress lines
+ * under verbose mode are status, not diagnostics. If the build runs out of memory, the program's
+ * `os_oom` prints the log instead.
  *
  * @param options Build knobs such as worker count and verbosity. Must not be `NULL`.
  * @param os      Host the build reads, writes, and prints its status lines and log on. Must not be

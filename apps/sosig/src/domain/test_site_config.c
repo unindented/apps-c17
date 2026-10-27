@@ -1089,8 +1089,8 @@ static void test_print_empty_template_arrays(void) {
 }
 
 // A standard output that refuses the write makes `site_config_print` report `-1` with the write's
-// own `errno`, which is what lets `cmd_config_run` name a reason instead of reporting success over
-// lost output. The host fails the write as a read-only descriptor does, with `EBADF`. The same
+// own `errno`, which is what lets the `config` command name a reason instead of reporting success
+// over lost output. The host fails the write as a read-only descriptor does, with `EBADF`. The same
 // shape is asserted for `cli_print_version` by `test_print_version_reports_write_failure`.
 static void test_print_reports_write_failure(void) {
   struct SiteConfig config;

@@ -125,6 +125,10 @@ add_subdirectory(src/core)
 add_subdirectory(src/testing)
 add_subdirectory(src/os)
 add_subdirectory(src/runtime)
+# `cli` needs copt. An app that vendors no copt links no `cli`, so its build leaves the library out.
+if(TARGET vendor_copt)
+  add_subdirectory(src/cli)
+endif()
 # `formats` needs tomlc17. An app that vendors no tomlc17 links no `formats`, so its build leaves the
 # library out.
 if(TARGET vendor_tomlc17)

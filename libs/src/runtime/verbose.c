@@ -28,5 +28,13 @@ void verbose_printf(const struct Verbose* verbose, const char* format, ...) {
   va_end(args);
   // The terminator `vsnprintf` wrote becomes the newline, so the line prints in one call.
   line[line_len] = '\n';
+  // A build prints its status lines on the main thread between phases, so a line needs no lock
+  // against the progress lines `job_run` prints under one: `pool_run` joins every worker before the
+  // next status line prints, so a progress line cannot land in the middle of a status line. Take
+  // the same lock if anything ever prints a status line while a pool is running.
+  //
+  // The print is unchecked. These lines are status, not diagnostics, and a command that otherwise
+  // succeeded should not fail because `stderr` was a closed pipe. The cost is that an `EPIPE` here
+  // goes unnoticed, unlike a printed config, which reports it.
   (void)os_print(verbose->os, 2, (struct Str){line, (ptrdiff_t)line_len + 1});
 }

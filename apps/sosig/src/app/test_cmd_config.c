@@ -2,7 +2,9 @@
 #include <errno.h>
 #include <stddef.h>
 
-#include "app/cmd_config.h"
+#include "app/cli_spec.h"
+#include "cli/cli.h"
+#include "cli/cli_dispatch.h"
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/error.h"
@@ -10,6 +12,21 @@
 #include "core/str.h"
 #include "os/os_memory.h"
 #include "testing/test_support.h"
+
+/**
+ * @brief Runs `sosig config -c <config_path>` with the app's own spec, as `main` does.
+ *
+ * @param config_path Config file to name.
+ * @param os          Host to run on. Must not be `NULL`.
+ * @return The command's exit code.
+ */
+static enum ExitCode run_config(struct Str config_path, struct Os* os) {
+  struct Arena arena = test_arena();
+  char* argv[] = {"sosig", "config", "-c", str_cstr(config_path, &arena), NULL};
+  struct CliSpec spec;
+  cli_spec_init(&spec);
+  return cli_dispatch(&spec, 4, argv, os);
+}
 
 // Every run here is against the in-memory host, whose root is the working directory the command
 // resolves the config path from, and which keeps what the command prints.
@@ -24,7 +41,7 @@ static void test_prints_loaded_config(void) {
                   "base_url = \"https://example.com\"\n"
                   "frontmatter_ignored_keys = [\"identifier\", \"signature\"]\n");
 
-  TEST_CHECK(cmd_config_run(S("sosig.toml"), os) == EXIT_CODE_OK);
+  TEST_CHECK(run_config(S("sosig.toml"), os) == EXIT_CODE_OK);
   // The whole output, not two per-line searches: exact comparison catches a missing, duplicated or
   // reordered key. The empty `stderr` below is the routing half: the configuration goes to
   // `stdout`, and the success path says nothing on `stderr`.
@@ -60,7 +77,7 @@ static void test_prints_empty_template_arrays(void) {
                   "aggregate_templates = []\n"
                   "feed_templates = []\n");
 
-  TEST_CHECK(cmd_config_run(S("sosig.toml"), os) == EXIT_CODE_OK);
+  TEST_CHECK(run_config(S("sosig.toml"), os) == EXIT_CODE_OK);
   // Compared whole, and `stderr` empty, for the reasons at `test_prints_loaded_config`.
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
   TEST_CHECK(os_memory_is_printed(os, 1,
@@ -92,7 +109,7 @@ static void test_prints_directories_resolved_against_config_dir(void) {
                   "templates_dir = \"layouts\"\n"
                   "static_dir = \"/srv/static\"\n");
 
-  TEST_CHECK(cmd_config_run(S("sub/sosig.toml"), os) == EXIT_CODE_OK);
+  TEST_CHECK(run_config(S("sub/sosig.toml"), os) == EXIT_CODE_OK);
   // Compared whole, and `stderr` empty, for the reasons at `test_prints_loaded_config`.
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
   TEST_CHECK(os_memory_is_printed(os, 1,
@@ -128,7 +145,7 @@ static void test_reports_missing_config(void) {
                error_system_message(reason, sizeof(reason), ENOENT), config_paths[i]);
 
     struct Os* os = os_memory();
-    TEST_CHECK(cmd_config_run(str_from_cstr(config_paths[i]), os) == EXIT_CODE_FAILURE);
+    TEST_CHECK(run_config(str_from_cstr(config_paths[i]), os) == EXIT_CODE_FAILURE);
     // The diagnostic goes to `stderr`. A failed run prints nothing on `stdout`, so a pipeline
     // redirecting `stdout` to a file does not capture the error into it.
     TEST_CHECK(os_memory_is_printed(os, 2, buf_cstr(&expected)));
@@ -147,7 +164,7 @@ static void test_reports_missing_required_key(void) {
                   "description = \"Example notes\"\n"
                   "base_url = \"https://example.com\"\n");
 
-  TEST_CHECK(cmd_config_run(S("sosig.toml"), os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(run_config(S("sosig.toml"), os) == EXIT_CODE_FAILURE);
   TEST_CHECK(os_memory_is_printed(os, 2, "missing required config key 'author'\n"));
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
 }
@@ -164,7 +181,7 @@ static void test_reports_every_invalid_key(void) {
                   "colour = \"blue\"\n"
                   "feed_count = \"ten\"\n");
 
-  TEST_CHECK(cmd_config_run(S("sosig.toml"), os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(run_config(S("sosig.toml"), os) == EXIT_CODE_FAILURE);
   TEST_CHECK(os_memory_is_printed(os, 2,
                                   "unknown config key 'colour'\n"
                                   "config key 'title' must be a string\n"
@@ -184,7 +201,7 @@ static void test_fails_on_unwritable_stdout(void) {
                   "base_url = \"https://example.com\"\n");
   os_memory_fail_print(os, 1, 0, EBADF);
 
-  TEST_CHECK(cmd_config_run(S("sosig.toml"), os) == EXIT_CODE_FAILURE);
+  TEST_CHECK(run_config(S("sosig.toml"), os) == EXIT_CODE_FAILURE);
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
 }
 

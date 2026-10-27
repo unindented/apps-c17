@@ -1,4 +1,4 @@
-#include "app/cli.h"
+#include "cli/cli.h"
 
 #include <assert.h>
 #include <stdarg.h>
@@ -14,9 +14,6 @@
 #include "core/buf.h"
 #include "core/parse.h"
 #include "core/str.h"
-#include "domain/site_config.h"
-#include "domain/sosig_version.h"
-#include "markup/highlight.h"
 #include "os/os.h"
 
 /**
@@ -188,8 +185,14 @@ static void reject_unsupported_flags(struct CliOptions* options,
                                      unsigned flags_seen,
                                      struct Arena* arena) __attribute__((nonnull(1, 3)));
 
-void cli_parse(struct CliOptions* options, int argc, char** argv, struct Arena* arena) {
-  *options = (struct CliOptions){.action = CLI_ACTION_RUN, .config_path = SITE_CONFIG_PATH_DEFAULT};
+void cli_parse(const struct CliSpec* spec,
+               int argc,
+               char** argv,
+               struct Arena* arena,
+               struct CliOptions* options_out) {
+  struct CliOptions* options = options_out;
+  *options =
+      (struct CliOptions){.action = CLI_ACTION_RUN, .config_path = spec->config_path_default};
 
   bool has_version = false;
   bool has_help = false;
@@ -260,15 +263,17 @@ void cli_parse(struct CliOptions* options, int argc, char** argv, struct Arena* 
   }
 }
 
-int cli_print_version(struct Os* os, struct Arena scratch) {
+int cli_print_version(const struct CliSpec* spec, struct Os* os, struct Arena scratch) {
   struct Buf text = {.arena = &scratch};
-  const struct Str generator = sosig_generator_string();
-  const struct Str grammars = highlight_grammar_list();
-  buf_printf(&text, "%.*s\ngrammars: %.*s\n", STR_FMT(generator), STR_FMT(grammars));
+  buf_printf(&text, "%.*s\n", STR_FMT(spec->generator));
+  if (spec->grammars.len > 0) {
+    buf_printf(&text, "grammars: %.*s\n", STR_FMT(spec->grammars));
+  }
   return os_print(os, 1, buf_str(&text));
 }
 
-int cli_print_usage(struct Str program_name,
+int cli_print_usage(const struct CliSpec* spec,
+                    struct Str program_name,
                     enum CliCommand command,
                     struct Os* os,
                     struct Arena scratch) {
@@ -277,20 +282,20 @@ int cli_print_usage(struct Str program_name,
     case CLI_COMMAND_BUILD:
       buf_printf(
           &text,
-          "Build the site.\n"
+          "Build the %.*s.\n"
           "\n"
           "USAGE:\n"
           "    %.*s build [options]\n"
           "\n"
           "OPTIONS:\n"
-          "    -c, --config PATH  Read the configuration from PATH (default: sosig.toml)\n"
+          "    -c, --config PATH  Read the configuration from PATH (default: %.*s)\n"
           "    -w, --workers N    Use at most N worker threads (default: detected CPU count)\n"
           "    -n, --dry-run      Report what would be written, kept, or removed, changing "
           "nothing\n"
           "    --force            Ignore the build cache for this build\n"
           "    -v, --verbose      Print build progress to stderr\n"
           "    -h, --help         Print this help and exit\n",
-          STR_FMT(program_name));
+          STR_FMT(spec->noun), STR_FMT(program_name), STR_FMT(spec->config_path_default));
       break;
     case CLI_COMMAND_CONFIG:
       buf_printf(&text,
@@ -300,19 +305,19 @@ int cli_print_usage(struct Str program_name,
                  "    %.*s config [options]\n"
                  "\n"
                  "OPTIONS:\n"
-                 "    -c, --config PATH  Read the configuration from PATH (default: sosig.toml)\n"
+                 "    -c, --config PATH  Read the configuration from PATH (default: %.*s)\n"
                  "    -h, --help         Print this help and exit\n",
-                 STR_FMT(program_name));
+                 STR_FMT(program_name), STR_FMT(spec->config_path_default));
       break;
     case CLI_COMMAND_NONE:
       buf_printf(&text,
-                 "A static site generator.\n"
+                 "%.*s\n"
                  "\n"
                  "USAGE:\n"
                  "    %.*s <command> [options]\n"
                  "\n"
                  "COMMANDS:\n"
-                 "    build   Build the site\n"
+                 "    build   Build the %.*s\n"
                  "    config  Print the resolved configuration\n"
                  "\n"
                  "OPTIONS:\n"
@@ -320,7 +325,8 @@ int cli_print_usage(struct Str program_name,
                  "    -V, --version  Print version information and exit\n"
                  "\n"
                  "Use '%.*s <command> --help' for more information about a command.\n",
-                 STR_FMT(program_name), STR_FMT(program_name));
+                 STR_FMT(spec->description), STR_FMT(program_name), STR_FMT(spec->noun),
+                 STR_FMT(program_name));
       break;
   }
   return os_print(os, 1, buf_str(&text));

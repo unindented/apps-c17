@@ -17,6 +17,7 @@ add_subdirectory(media)
 target_link_libraries(
   fram_app
   PUBLIC vendor_tomlc17
+         cli
          core
          formats
          os
@@ -24,7 +25,6 @@ target_link_libraries(
          runtime
          templates
   PRIVATE apps_build_project
-          vendor_copt
           Threads::Threads
 )
 

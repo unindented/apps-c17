@@ -27,6 +27,9 @@ struct TestBuild {
 
   /** Whether the build logs an error and a warning and fails. */
   bool is_failing;
+
+  /** Whether the build logs a warning and succeeds. */
+  bool is_warning;
 };
 
 /**
@@ -54,6 +57,9 @@ static int execute(ptrdiff_t worker_count,
   TEST_CHECK(perm.beg != NULL && scratch.beg != NULL && perm.beg != scratch.beg);
   for (ptrdiff_t i = 0; i < worker_count; i++) {
     TEST_CHECK(worker_arenas[i].perm.beg != NULL && worker_arenas[i].scratch.beg != NULL);
+  }
+  if (build->is_warning) {
+    log_warn(log, "skipped a file");
   }
   if (!build->is_failing) {
     return 0;
@@ -83,6 +89,14 @@ static void test_run_caps_the_workers_at_four_per_cpu(void) {
   TEST_CHECK(build.worker_count == BUILD_RUN_WORKER_PER_CPU_MAX * cpu_count);
 }
 
+// A build that succeeds with a warning prints the warning, so it still says what it left out.
+static void test_run_prints_the_warnings_of_a_build_that_succeeds(void) {
+  struct Os* os = os_memory();
+  struct TestBuild build = {.is_warning = true};
+  TEST_CHECK(build_run(&LENS, 1, execute, &build, os) == EXIT_CODE_OK);
+  TEST_CHECK(os_memory_is_printed(os, 2, "warning: skipped a file\n"));
+}
+
 // A failed build prints its errors and then its warnings, and fails the command.
 static void test_run_prints_errors_then_warnings(void) {
   struct Os* os = os_memory();
@@ -94,6 +108,8 @@ static void test_run_prints_errors_then_warnings(void) {
 TEST_LIST = {
     {"run resolves the worker count", test_run_resolves_the_worker_count},
     {"run caps the workers at four per CPU", test_run_caps_the_workers_at_four_per_cpu},
+    {"run prints the warnings of a build that succeeds",
+     test_run_prints_the_warnings_of_a_build_that_succeeds},
     {"run prints errors then warnings", test_run_prints_errors_then_warnings},
     {NULL, NULL},
 };

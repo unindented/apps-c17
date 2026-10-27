@@ -9,6 +9,9 @@ target_include_directories(
   vendor_acutest SYSTEM INTERFACE "$<BUILD_INTERFACE:${vendor_dir}/acutest>"
 )
 
+add_library(vendor_copt INTERFACE)
+target_include_directories(vendor_copt SYSTEM INTERFACE "$<BUILD_INTERFACE:${vendor_dir}/copt>")
+
 add_library(vendor_mustache STATIC "${vendor_dir}/mustache4c/mustache.c")
 target_include_directories(
   vendor_mustache SYSTEM PUBLIC "$<BUILD_INTERFACE:${vendor_dir}/mustache4c>"

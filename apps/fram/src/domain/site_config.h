@@ -14,9 +14,9 @@ struct Os;
  * Path every command loads its gallery configuration from when `-c` names none, relative to the
  * working directory.
  *
- * `cli_parse` gives it to both commands when `-c` is not given, so it is declared once here. Each
- * command loads the path it receives, and `cmd_build_run` also claims that path as a build input,
- * so no output path can overwrite it.
+ * `cli_spec` gives it to `cli_parse`, which hands it to both commands when `-c` is not given, so it
+ * is declared once here. Each command loads the path it receives, and `cmd_build_run` also claims
+ * that path as a build input, so no output path can overwrite it.
  *
  * It is `extern`, with the definition in `site_config.c`, rather than a `static` initializer in
  * this header. Every translation unit then shares one object instead of getting a copy of its own
