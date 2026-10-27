@@ -1,6 +1,5 @@
 #include "domain/site_config.h"
 
-#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -12,22 +11,9 @@
 #include "core/path.h"
 #include "core/str.h"
 #include "core/text.h"
-#include "core/url.h"
 #include "formats/toml.h"
 #include "media/image.h"
 #include "os/os.h"
-
-/** String-valued gallery config key policy. */
-struct SiteConfigStringKey {
-  /** TOML key name. */
-  const char* key;
-
-  /** Address of the `SiteConfig` field this key fills. */
-  struct Str* field;
-
-  /** Whether absence is a load error rather than leaving the initialized default. */
-  bool is_required;
-};
 
 const struct Str SITE_CONFIG_PATH_DEFAULT = STR_INIT("fram.toml");
 
@@ -92,37 +78,6 @@ enum {
   /** Largest accepted `video_frame_seconds`, one day in seconds. */
   VIDEO_FRAME_SECONDS_MAX = 86400,
 };
-
-/**
- * Largest config file read, in bytes.
- *
- * A config is a few dozen keys and derivative tables, well under a kilobyte, so 1 MiB is three
- * orders of magnitude of headroom while keeping what tomlc17 copies and builds from it to a few
- * MiB. The read checks it before loading the file, so an oversize config is never resident.
- */
-enum { CONFIG_FILE_LEN_MAX = 1024 * 1024 };
-
-// `toml_parse_document` takes only a document whose length fits an `int`.
-_Static_assert(CONFIG_FILE_LEN_MAX <= INT_MAX,
-               "an accepted config must fit the int length tomlc17 takes");
-
-/**
- * @brief Reads and parses a TOML config file into a `toml_result_t`.
- *
- * On success `parsed_out` owns the parse result until the caller runs `toml_free`.
- *
- * @param config_path Path to the config file.
- * @param os          Host the file is read from. Must not be `NULL`.
- * @param scratch     Arena for the file bytes, which tomlc17 copies.
- * @param parsed_out  Receives the parsed TOML result on success. Must not be `NULL`.
- * @param log         Log that receives every error. Must not be `NULL`.
- * @return `0` on success, or `-1` on a read, size, embedded `NUL`, or TOML parse error.
- */
-static int site_config_load_toml(struct Str config_path,
-                                 struct Os* os,
-                                 struct Arena scratch,
-                                 toml_result_t* parsed_out,
-                                 struct Log* log) __attribute__((nonnull(2, 4, 5)));
 
 /**
  * @brief Copies recognized configuration keys into gallery config storage.
@@ -226,18 +181,6 @@ static int copy_sort_order(toml_datum_t sort_table,
                            struct Log* log) __attribute__((nonnull(2, 3, 4)));
 
 /**
- * @brief Validates `base_url` as an absolute HTTP(S) URL with a host, and with no byte that a link
- *        below it could not hold as written, and trims any trailing `/`. An empty `base_url` means
- *        the key is absent, and passes unchanged.
- *
- * @param site_config Config whose `base_url` is checked, and emptied when rejected. Must not be
- *                    `NULL`.
- * @param log         Log that receives the error. Must not be `NULL`.
- */
-static void normalize_base_url(struct SiteConfig* site_config, struct Log* log)
-    __attribute__((nonnull(1, 2)));
-
-/**
  * @brief Rejects every derivative whose bounding box exceeds `IMAGE_PIXEL_COUNT_MAX`.
  *
  * @param derivatives      Array of `derivative_count` derivatives to validate. Must not be `NULL`.
@@ -287,7 +230,7 @@ int site_config_load(struct SiteConfig* site_config,
   // to `toml_free` by value, and without this clang-analyzer cannot prove across the call boundary
   // that its fields are set.
   toml_result_t parsed = {0};
-  if (site_config_load_toml(config_path, os, scratch, &parsed, log) != 0) {
+  if (toml_load_config(config_path, os, scratch, &parsed, log) != 0) {
     return -1;
   }
 
@@ -348,22 +291,6 @@ struct Str site_config_derivative_recipe(const struct SiteConfig* site_config,
   return buf_str(&recipe);
 }
 
-static int site_config_load_toml(struct Str config_path,
-                                 struct Os* os,
-                                 struct Arena scratch,
-                                 toml_result_t* parsed_out,
-                                 struct Log* log) {
-  struct Str config_data = {0};
-  if (os_read(os, config_path, CONFIG_FILE_LEN_MAX, OS_READ_TEXT, &scratch, &config_data,
-              S("failed to read config"), log) != 0) {
-    return -1;
-  }
-  // tomlc17 copies the input, so the bytes can stay in `scratch`. The read bounds the length at
-  // `CONFIG_FILE_LEN_MAX`, which fits an `int`.
-  return toml_parse_document(config_data, config_path, parsed_out, S("failed to parse config"),
-                             log);
-}
-
 static void site_config_load_fields(struct SiteConfig* site_config,
                                     toml_datum_t table,
                                     struct Str config_dir,
@@ -378,20 +305,10 @@ static void site_config_load_fields(struct SiteConfig* site_config,
 
   // Each key is read and validated at its row of the README's key table, which `fram config` also
   // follows, so the errors of one load come in that order.
-  const struct SiteConfigStringKey site_strings[] = {
-      {"title", &site_config->title, true},
-      {"description", &site_config->description, true},
-      {"author", &site_config->author, true},
-  };
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(site_strings) / sizeof(site_strings[0])); i++) {
-    (void)toml_copy_string(table, S(""), site_strings[i].key, site_strings[i].is_required, perm,
-                           site_strings[i].field, log);
-  }
-  // A `base_url` that is mistyped is already reported, so its empty value is not judged a second
-  // time.
-  if (toml_copy_string(table, S(""), "base_url", false, perm, &site_config->base_url, log) == 0) {
-    normalize_base_url(site_config, log);
-  }
+  (void)toml_copy_string(table, S(""), "title", true, perm, &site_config->title, log);
+  (void)toml_copy_string(table, S(""), "description", true, perm, &site_config->description, log);
+  (void)toml_copy_string(table, S(""), "author", true, perm, &site_config->author, log);
+  (void)toml_copy_base_url(table, S(""), "base_url", false, perm, &site_config->base_url, log);
   // A default directory resolves against the config's directory too, so that `-c sub/fram.toml`
   // without `output_dir` writes `sub/public`. A key that is absent or rejected keeps it.
   site_config->media_dir = path_resolve(config_dir, site_config->media_dir, perm);
@@ -598,32 +515,6 @@ static int copy_sort_order(toml_datum_t sort_table,
   }
   return log_error(log, "config key 'sort.%s' must be 'asc' or 'desc': '%.*s'", key,
                    STR_FMT(order));
-}
-
-static void normalize_base_url(struct SiteConfig* site_config, struct Log* log) {
-  if (site_config->base_url.len == 0) {
-    return;
-  }
-  if (!url_is_http_with_host(site_config->base_url)) {
-    (void)log_error(
-        log,
-        "config key 'base_url' must be an absolute 'http://' or 'https://' URL with a host: '%.*s'",
-        STR_FMT(site_config->base_url));
-    site_config->base_url = (struct Str){0};
-    return;
-  }
-  // Every link appends a path to `base_url`, so a query or a fragment in it would swallow the path,
-  // and a space or a control byte would reach the links raw.
-  if (url_has_path_breaking_byte(site_config->base_url)) {
-    (void)log_error(log,
-                    "config key 'base_url' must not hold '?', '#', a space or a control "
-                    "character: '%.*s'",
-                    STR_FMT(site_config->base_url));
-    site_config->base_url = (struct Str){0};
-    return;
-  }
-  // Every link joins `base_url` with a path that starts with `/`, so the trailing `/` goes.
-  site_config->base_url = path_trim_trailing_slashes(site_config->base_url);
 }
 
 static int require_derivative_bounds(const struct GalleryDerivative* derivatives,

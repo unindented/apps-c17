@@ -1,4 +1,5 @@
 #include <acutest.h>
+#include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -11,6 +12,8 @@
 #include "core/log.h"
 #include "core/str.h"
 #include "formats/toml.h"
+#include "os/os.h"
+#include "os/os_memory.h"
 #include "testing/test_support.h"
 
 /**
@@ -568,6 +571,74 @@ static void test_copy_strings_rejects_bad_elements(void) {
                          "'/y'\n"));
 }
 
+// A base URL is copied without its trailing `/`, and an optional one may be absent or empty, which
+// means none.
+static void test_copy_base_url_trims_and_accepts_an_empty_optional_url(void) {
+  toml_result_t result;
+  const toml_datum_t table =
+      parse_table("url = \"https://example.com/notes//\"\nempty = \"\"\n", &result);
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  struct Str url = {0};
+  TEST_CHECK(toml_copy_base_url(table, S(""), "url", true, &arena, &url, &log) == 0);
+  TEST_CHECK(str_eq(url, S("https://example.com/notes")));
+  struct Str empty = S("kept");
+  TEST_CHECK(toml_copy_base_url(table, S(""), "empty", false, &arena, &empty, &log) == 0);
+  TEST_CHECK(empty.len == 0);
+  struct Str absent = S("kept");
+  TEST_CHECK(toml_copy_base_url(table, S(""), "absent", false, &arena, &absent, &log) == 0);
+  TEST_CHECK(str_eq(absent, S("kept")));
+  TEST_CHECK(test_log_is_empty(&log));
+  toml_free(result);
+}
+
+// A base URL that is not an absolute `http` URL with a host, or that holds a byte that would break
+// the path a link appends, is reported with its key and value and never stored, and so is a
+// required one that is empty. A mistyped one is reported once, as `toml_copy_string` reports it.
+static void test_copy_base_url_rejects_an_unusable_url(void) {
+  toml_result_t result;
+  const toml_datum_t table = parse_table(
+      "ftp = \"ftp://example.com\"\nquery = \"https://example.com/?a\"\nempty = \"\"\n"
+      "number = 1\n",
+      &result);
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  struct Str url = S("kept");
+  TEST_CHECK(toml_copy_base_url(table, S("site."), "ftp", true, &arena, &url, &log) == -1);
+  TEST_CHECK(toml_copy_base_url(table, S("site."), "query", true, &arena, &url, &log) == -1);
+  TEST_CHECK(toml_copy_base_url(table, S("site."), "empty", true, &arena, &url, &log) == -1);
+  TEST_CHECK(toml_copy_base_url(table, S("site."), "number", true, &arena, &url, &log) == -1);
+  TEST_CHECK(test_log_is(
+      &log,
+      "config key 'site.ftp' must be an absolute 'http://' or 'https://' URL with a host: "
+      "'ftp://example.com'\n"
+      "config key 'site.query' must not hold '?', '#', a space or a control character: "
+      "'https://example.com/?a'\n"
+      "config key 'site.empty' must be an absolute 'http://' or 'https://' URL with a host: ''\n"
+      "config key 'site.number' must be a string\n"));
+  TEST_CHECK(str_eq(url, S("kept")));
+  toml_free(result);
+}
+
+// A config file is read and parsed, and one that is missing, too large or not TOML is reported with
+// the read's or the parse's message.
+static void test_load_config_reads_and_parses_the_file(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "site.toml", "title = \"Notes\"\n");
+  toml_result_t result;
+  struct Log log = test_log();
+  TEST_ASSERT(toml_load_config(S("site.toml"), os, test_arena(), &result, &log) == 0);
+  TEST_CHECK(str_eq(toml_datum_str(toml_get(result.toptab, "title")), S("Notes")));
+  toml_free(result);
+
+  TEST_CHECK(toml_load_config(S("gone.toml"), os, test_arena(), &result, &log) == -1);
+  TEST_CHECK(test_log_is(&log, "failed to read config: %s ('gone.toml')\n", strerror(ENOENT)));
+  os_memory_write(os, "bad.toml", "title = \n");
+  log = test_log();
+  TEST_CHECK(toml_load_config(S("bad.toml"), os, test_arena(), &result, &log) == -1);
+  TEST_CHECK(str_startswith(buf_str(&log.buf), S("failed to parse config: ")));
+}
+
 // A value at either bound is accepted, and an absent optional key leaves the field as it was.
 static void test_copy_size_accepts_bounds_and_keeps_absent(void) {
   struct Log log = test_log();
@@ -716,6 +787,10 @@ TEST_LIST = {
     {"copy bool copies or rejects", test_copy_bool_copies_or_rejects},
     {"copy strings copies each string", test_copy_strings_copies_each_string},
     {"copy strings rejects bad elements", test_copy_strings_rejects_bad_elements},
+    {"copy base url trims and accepts an empty optional url",
+     test_copy_base_url_trims_and_accepts_an_empty_optional_url},
+    {"copy base url rejects an unusable url", test_copy_base_url_rejects_an_unusable_url},
+    {"load config reads and parses the file", test_load_config_reads_and_parses_the_file},
     {"copy size accepts bounds and keeps absent", test_copy_size_accepts_bounds_and_keeps_absent},
     {"copy size rejects out of bounds", test_copy_size_rejects_out_of_bounds},
     {"print string quotes and escapes delimiters", test_print_string_quotes_and_escapes_delimiters},

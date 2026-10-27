@@ -16,6 +16,7 @@
 #include "core/path.h"
 #include "core/str.h"
 #include "core/text.h"
+#include "core/url.h"
 
 /**
  * Size in bytes of the longest timestamp `toml_datum_format_rfc3339` writes,
@@ -216,6 +217,45 @@ int toml_copy_string(toml_datum_t table,
                      key);
   }
   *value_out = str_clone(toml_datum_str(value), arena);
+  return 0;
+}
+
+int toml_copy_base_url(toml_datum_t table,
+                       struct Str key_prefix,
+                       const char* key,
+                       bool is_required,
+                       struct Arena* arena,
+                       struct Str* value_out,
+                       struct Log* log) {
+  // A present key gives a copy whose `data` is never `NULL`, so a `NULL` one is an absent key.
+  struct Str url = {0};
+  // A value that is missing or mistyped is already reported, so it is not judged a second time.
+  if (toml_copy_string(table, key_prefix, key, is_required, arena, &url, log) != 0) {
+    return -1;
+  }
+  if (url.data == NULL) {
+    return 0;
+  }
+  if (url.len == 0 && !is_required) {
+    *value_out = url;
+    return 0;
+  }
+  if (!url_is_http_with_host(url)) {
+    return log_error(
+        log,
+        "config key '%.*s%s' must be an absolute 'http://' or 'https://' URL with a host: '%.*s'",
+        STR_FMT(key_prefix), key, STR_FMT(url));
+  }
+  // Every link appends a path to the URL, so a query or a fragment in it would swallow the path,
+  // and a space or a control byte would reach the links raw.
+  if (url_has_path_breaking_byte(url)) {
+    return log_error(log,
+                     "config key '%.*s%s' must not hold '?', '#', a space or a control "
+                     "character: '%.*s'",
+                     STR_FMT(key_prefix), key, STR_FMT(url));
+  }
+  // Every link joins the URL with a path that starts with `/`, so the trailing `/` goes.
+  *value_out = path_trim_trailing_slashes(url);
   return 0;
 }
 

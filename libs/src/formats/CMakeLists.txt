@@ -3,10 +3,10 @@
 
 add_library(formats STATIC)
 target_sources(
-  formats PRIVATE frontmatter.c html.c toml.c tsv.c frontmatter.h html.h rfc3339.h toml.h tsv.h
+  formats PRIVATE frontmatter.c html.c toml.c toml_config.c tsv.c frontmatter.h html.h rfc3339.h toml.h tsv.h
 )
 libs_add_include_root(formats formats)
-target_link_libraries(formats PUBLIC core vendor_tomlc17 PRIVATE apps_build_project)
+target_link_libraries(formats PUBLIC core os vendor_tomlc17 PRIVATE apps_build_project)
 
 set_property(
   GLOBAL APPEND
@@ -22,6 +22,7 @@ set_property(
            "${CMAKE_CURRENT_SOURCE_DIR}/test_tsv.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/toml.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/toml.h"
+           "${CMAKE_CURRENT_SOURCE_DIR}/toml_config.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/tsv.c"
            "${CMAKE_CURRENT_SOURCE_DIR}/tsv.h"
 )
@@ -36,6 +37,8 @@ if(NOT libs_build_testing)
   return()
 endif()
 
-foreach(module IN ITEMS frontmatter html toml tsv)
+foreach(module IN ITEMS frontmatter html tsv)
   libs_add_unit_test(formats ${module} LIBRARIES testing)
 endforeach()
+# The config read goes through `os/os.h`, so the TOML tests run against the in-memory host.
+libs_add_unit_test(formats toml OS memory LIBRARIES testing)

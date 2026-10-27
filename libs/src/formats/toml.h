@@ -11,6 +11,7 @@
 struct Arena;
 struct Buf;
 struct Log;
+struct Os;
 
 /** Policy of one bounded size key that `toml_copy_size` reads, and the field it fills. */
 struct TomlSizeKey {
@@ -77,6 +78,35 @@ int toml_parse_document(struct Str document,
                         toml_result_t* parsed_out,
                         struct Str operation,
                         struct Log* log) __attribute__((nonnull(3, 5)));
+
+/**
+ * Largest config file `toml_load_config` reads, in bytes.
+ *
+ * A config is a few dozen keys, well under a kilobyte, so 1 MiB is three orders of magnitude of
+ * headroom while keeping what tomlc17 copies and builds from it to a few MiB. The read checks it
+ * before loading the file, so an oversize config is never resident.
+ */
+enum { TOML_CONFIG_LEN_MAX = 1024 * 1024 };
+
+/**
+ * @brief Reads and parses the config file at `config_path`.
+ *
+ * A failure is `failed to read config: <cause> ('<path>')`, the read's message, which names the
+ * limit for a file over `TOML_CONFIG_LEN_MAX`, or `failed to parse config: ...`, the parse's.
+ *
+ * @param config_path Config file to read.
+ * @param os          Host the file is read on. Must not be `NULL`.
+ * @param scratch     Arena for the file's bytes, which tomlc17 copies.
+ * @param parsed_out  Receives the parse result on success, which the caller must pass to
+ *                    `toml_free` exactly once. Must not be `NULL`.
+ * @param log         Log that receives the failure. Must not be `NULL`.
+ * @return `0` on success, or `-1` when the file cannot be read or does not parse.
+ */
+int toml_load_config(struct Str config_path,
+                     struct Os* os,
+                     struct Arena scratch,
+                     toml_result_t* parsed_out,
+                     struct Log* log) __attribute__((nonnull(2, 4, 5)));
 
 /**
  * @brief Reports whether a datum is a string whose bytes hold no embedded `NUL`.
@@ -188,6 +218,36 @@ int toml_copy_string(toml_datum_t table,
                      struct Arena* arena,
                      struct Str* value_out,
                      struct Log* log) __attribute__((nonnull(3, 5, 6, 7)));
+
+/**
+ * @brief Copies one key of a config table that holds the site's base URL, which every absolute link
+ *        of a page joins a path to.
+ *
+ * The value must be an absolute `http://` or `https://` URL with a host, and must not hold `?`,
+ * `#`, a space or a control character, which would swallow or break the path a link appends. Its
+ * trailing `/` characters go, because every link joins a path that starts with `/`. Each diagnostic
+ * names the key as `toml_copy_string` does, as in
+ * `config key 'base_url' must be an absolute 'http://' or 'https://' URL with a host: '<value>'`.
+ * An optional key may also be empty, which means no base URL. A rejected value is never stored.
+ *
+ * @param table       Parsed table that holds `key`. Must be a `TOML_TABLE` datum.
+ * @param key_prefix  Dotted path of `table` with a trailing `.`, or empty for the top-level table.
+ * @param key         Terminated key to read. Must not be `NULL`.
+ * @param is_required Whether absence, or an empty value, is an error. When `false`, absence leaves
+ *                    `*value_out` as it is.
+ * @param arena       Arena that owns the copied value. Must not be `NULL`.
+ * @param value_out   Receives the URL, without its trailing `/`. Must not be `NULL`.
+ * @param log         Log that receives every error. Must not be `NULL`.
+ * @return `0` on success or when an optional key is absent or empty, or `-1` when the value is
+ *         missing, not a string, or not a usable base URL.
+ */
+int toml_copy_base_url(toml_datum_t table,
+                       struct Str key_prefix,
+                       const char* key,
+                       bool is_required,
+                       struct Arena* arena,
+                       struct Str* value_out,
+                       struct Log* log) __attribute__((nonnull(3, 5, 6, 7)));
 
 /**
  * @brief Copies one directory key of a config table, trims its trailing `/`, rejects an empty

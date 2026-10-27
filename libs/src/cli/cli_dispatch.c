@@ -106,9 +106,9 @@ static enum ExitCode cli_dispatch_command(const struct CliSpec* spec,
 static enum ExitCode cli_dispatch_command_config(const struct CliSpec* spec,
                                                  struct Str config_path,
                                                  struct Os* os) {
-  // A config file is read whole and capped at 1 MiB, as each app's config load caps it, and its
-  // parse and its printed text are a few times its size, so a third of 16 MiB for each of the
-  // loaded values, the log and the scratch holds any config with room to spare.
+  // A config file is read whole and capped at 1 MiB, as `toml_load_config` caps it, and its parse
+  // and its printed text are a few times its size, so a third of 16 MiB for each of the loaded
+  // values, the log and the scratch holds any config with room to spare.
   enum { CLI_CONFIG_RESERVE_LEN = 16 * 1024 * 1024 };
   struct Arena block;
   const int shift = arena_reserve_halving(CLI_CONFIG_RESERVE_LEN, &block);

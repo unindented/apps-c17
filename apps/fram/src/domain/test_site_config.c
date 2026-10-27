@@ -11,6 +11,7 @@
 #include "core/path.h"
 #include "core/str.h"
 #include "domain/site_config.h"
+#include "formats/toml.h"
 #include "media/image.h"
 #include "os/os_memory.h"
 #include "testing/test_support.h"
@@ -415,15 +416,14 @@ static void test_load_rejects_missing_file(void) {
   TEST_CHECK(test_log_is_one(&log, expected));
 }
 
-// A config larger than `CONFIG_FILE_LEN_MAX` is rejected at the read, from its size, naming the
+// A config larger than `TOML_CONFIG_LEN_MAX` is rejected at the read, from its size, naming the
 // limit and the size. The constant is file-local to `site_config.c`, so the 1 MiB below is spelled
 // out and must change with it. The host stores only the size of the bytes past the end, so the
 // fixture costs no memory.
 static void test_load_rejects_oversize_file(void) {
-  enum { CONFIG_FILE_LEN_MAX = 1024 * 1024 };
   struct Os* os = os_memory();
   os_memory_write(os, CONFIG_PATH, "title = \"Gallery\"\n");
-  os_memory_truncate(os, CONFIG_PATH, CONFIG_FILE_LEN_MAX + 1);
+  os_memory_truncate(os, CONFIG_PATH, TOML_CONFIG_LEN_MAX + 1);
   struct SiteConfig site_config;
   site_config_init(&site_config);
   struct Log log = test_log();
@@ -431,7 +431,7 @@ static void test_load_rejects_oversize_file(void) {
   TEST_CHECK(test_log_is(&log,
                          "failed to read config: exceeds max file size (%d bytes) at %d bytes "
                          "('" CONFIG_PATH "')\n",
-                         CONFIG_FILE_LEN_MAX, CONFIG_FILE_LEN_MAX + 1));
+                         TOML_CONFIG_LEN_MAX, TOML_CONFIG_LEN_MAX + 1));
   TEST_CHECK(log.errors == 1);
 }
 
