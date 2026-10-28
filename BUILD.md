@@ -247,12 +247,13 @@ The golden tests highlight code blocks, so they need every tree-sitter grammar, 
 
 1. It copies the site into a scratch tree of its own.
 2. It puts stale files in the output. The first build must remove these files.
-3. It builds the site three times. The second build reuses the build cache, and the third build passes `--force`. These two builds must not change a generated file.
-4. It compares the list of output files with `tests/expected/<site>`, and it compares every file byte for byte.
+3. It builds the site three times: on one worker, on two workers with the build cache, and on eight workers with `--force`. The later two builds must not change a generated file. The first build's `stderr` must be the warnings in `tests/expected/<site>.warnings.txt`, or empty without that file.
+4. A dry run must keep every output but the build cache.
+5. It compares the list of output files with `tests/expected/<site>`, and it compares every file byte for byte.
 
 The comparison leaves out the build cache, `_sosig/v1-build-cache.tsv`, which holds the modification times of the copied sources and has no expected copy.
 
-The script finds the expected files and the actual files with globs after `sosig` runs. These globs run in the test and are not inputs of the CMake build, so a change to a fixture does not require CMake to configure the project again.
+The steps that the golden tests of `sosig`, `fram` and `surge` share are functions in [cmake/apps_golden.cmake](cmake/apps_golden.cmake). They compare the two lists by looking each name up on the other side, because a sync tool can rewrite the Unicode normalization of a checked-out name. The script finds the expected files and the actual files with globs after `sosig` runs. These globs run in the test and are not inputs of the CMake build, so a change to a fixture does not require CMake to configure the project again.
 
 ## fram
 
@@ -292,8 +293,9 @@ The golden test `fram.golden` builds the fixture gallery in `tests/fixtures/gall
 
 1. It copies the gallery into a scratch tree of its own.
 2. It puts stale files in the output. The first build must remove these files.
-3. It builds the gallery three times. The second build reuses the build cache, and the third build passes `--force`. These two builds must not change a generated file.
-4. It compares the list of output files with `tests/expected/gallery`.
+3. It builds the gallery three times: on one worker, on two workers with the build cache, and on eight workers with `--force`. The later two builds must not change a generated file. The first build's `stderr` must be the warnings in `tests/expected/gallery.warnings.txt`, or empty without that file.
+4. A dry run must keep every derivative, original and static file. It writes the pages, because `fram` renders every page on every build.
+5. It compares the list of output files with `tests/expected/gallery`.
 
 The comparison leaves out the build cache, `_fram/v1-build-cache.tsv`, which holds the modification times of the copied sources and has no expected copy.
 

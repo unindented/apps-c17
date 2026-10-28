@@ -417,8 +417,7 @@ static void test_load_rejects_missing_file(void) {
 }
 
 // A config larger than `TOML_CONFIG_LEN_MAX` is rejected at the read, from its size, naming the
-// limit and the size. The constant is file-local to `site_config.c`, so the 1 MiB below is spelled
-// out and must change with it. The host stores only the size of the bytes past the end, so the
+// limit and the size. The host stores only the size of the bytes past the end, so the
 // fixture costs no memory.
 static void test_load_rejects_oversize_file(void) {
   struct Os* os = os_memory();

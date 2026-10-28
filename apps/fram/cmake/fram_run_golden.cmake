@@ -1,12 +1,17 @@
-# This script builds one copied fixture gallery three times. It checks that the second build, which
-# reuses the build cache, and a third, `--force` build, which ignores it, each leave the generated
-# output unchanged, then compares the result with the expected output. The release
-# workflow runs it against a packaged binary, with `FRAM_EMULATOR` naming a launcher such as
+# This script builds one copied fixture gallery three times: on one worker, on two with the build
+# cache, and on eight with `--force`, which ignores it. Each later build must leave the output as
+# the first left it, so every output comes out the same whatever the worker count. A dry run after
+# them must keep every output but the pages, which fram renders on every build. The script then
+# compares the result with the expected output, and
+# requires the first build's `stderr` to be the warnings in `<expected>.warnings.txt`, or empty
+# without that file. The steps that the golden tests share are in `cmake/apps_golden.cmake`. The
+# release workflow runs it against a packaged binary, with `FRAM_EMULATOR` naming a launcher such as
 # `qemu-aarch64` when the binary targets another architecture.
 
+include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/apps_golden.cmake")
+
 foreach(required IN ITEMS FRAM_EXECUTABLE FRAM_VERSION FRAM_GALLERY_DIR FRAM_EXPECTED_DIR
-                        FRAM_SCRATCH_DIR
-)
+                        FRAM_SCRATCH_DIR)
   if(NOT DEFINED ${required})
     message(FATAL_ERROR "${required} must be defined")
   endif()
@@ -25,107 +30,65 @@ set(first_dir "${FRAM_SCRATCH_DIR}/first/public")
 file(WRITE "${actual_dir}/stale.html" "stale")
 file(WRITE "${actual_dir}/stale-dir/nested/stale.txt" "stale")
 
-execute_process(
-  COMMAND ${FRAM_EMULATOR} "${FRAM_EXECUTABLE}" build --workers 2
+apps_golden_run_build(
+  EXECUTABLE "${FRAM_EXECUTABLE}"
+  EMULATOR ${FRAM_EMULATOR}
   WORKING_DIRECTORY "${FRAM_SCRATCH_DIR}"
-  RESULT_VARIABLE build_result
-  OUTPUT_VARIABLE build_stdout
-  ERROR_VARIABLE build_stderr
+  LABEL "first fixture gallery"
+  ARGS --workers 1
+  STDERR first_stderr
 )
-if(NOT build_result EQUAL 0)
-  message(
-    FATAL_ERROR "first fixture gallery build failed with exit status ${build_result}:\n"
-                "${build_stdout}${build_stderr}"
-  )
+set(expected_warnings "")
+if(EXISTS "${FRAM_EXPECTED_DIR}.warnings.txt")
+  file(READ "${FRAM_EXPECTED_DIR}.warnings.txt" expected_warnings)
+endif()
+if(NOT first_stderr STREQUAL expected_warnings)
+  message(FATAL_ERROR "the first build's warnings differ from expected:\n${first_stderr}")
 endif()
 file(COPY "${actual_dir}" DESTINATION "${FRAM_SCRATCH_DIR}/first")
 
 foreach(build IN ITEMS second third)
-  set(build_args)
+  set(build_args --workers 2)
   if(build STREQUAL "third")
-    set(build_args --force)
+    set(build_args --workers 8 --force)
   endif()
-  execute_process(
-    COMMAND ${FRAM_EMULATOR} "${FRAM_EXECUTABLE}" build --workers 2 ${build_args}
+  apps_golden_run_build(
+    EXECUTABLE "${FRAM_EXECUTABLE}"
+    EMULATOR ${FRAM_EMULATOR}
     WORKING_DIRECTORY "${FRAM_SCRATCH_DIR}"
-    RESULT_VARIABLE build_result
-    OUTPUT_VARIABLE build_stdout
-    ERROR_VARIABLE build_stderr
+    LABEL "${build} fixture gallery"
+    ARGS ${build_args}
   )
-  if(NOT build_result EQUAL 0)
-    message(
-      FATAL_ERROR "${build} fixture gallery build failed with exit status ${build_result}:\n"
-                  "${build_stdout}${build_stderr}"
-    )
-  endif()
-
-  file(GLOB_RECURSE first_files RELATIVE "${first_dir}" "${first_dir}/*")
-  foreach(file IN LISTS first_files)
-    execute_process(
-      COMMAND "${CMAKE_COMMAND}" -E compare_files "${first_dir}/${file}" "${actual_dir}/${file}"
-      RESULT_VARIABLE compare_result
-      OUTPUT_QUIET ERROR_QUIET
-    )
-    if(NOT compare_result EQUAL 0)
-      message(FATAL_ERROR "${build} build changed generated output: '${file}'")
-    endif()
-  endforeach()
+  apps_golden_check_unchanged(
+    FIRST_DIR "${first_dir}" ACTUAL_DIR "${actual_dir}" LABEL "${build}"
+  )
 endforeach()
 
-# Collect both file lists after `fram` runs. Runtime lists are not build inputs. Fixture gallery
-# changes do not require CMake to run again.
-file(GLOB_RECURSE expected_files RELATIVE "${FRAM_EXPECTED_DIR}" "${FRAM_EXPECTED_DIR}/*")
-file(GLOB_RECURSE actual_files RELATIVE "${actual_dir}" "${actual_dir}/*")
-# The build cache holds the modification times of the copied sources, so it has no expected copy.
-list(REMOVE_ITEM actual_files "_fram/v1-build-cache.tsv")
-list(SORT expected_files)
-list(SORT actual_files)
+apps_golden_run_build(
+  EXECUTABLE "${FRAM_EXECUTABLE}"
+  EMULATOR ${FRAM_EMULATOR}
+  WORKING_DIRECTORY "${FRAM_SCRATCH_DIR}"
+  LABEL "dry run of the fixture gallery"
+  ARGS --dry-run
+  STDOUT dry_run_listing
+)
+# fram renders every page on every build, so only its media, originals and static files are kept.
+apps_golden_check_dry_run_keeps(
+  LISTING "${dry_run_listing}"
+  CACHE_PATH "public/_fram/v1-build-cache.tsv"
+  WRITTEN "\\.html$"
+)
 
-set(missing_files ${expected_files})
-if(actual_files)
-  list(REMOVE_ITEM missing_files ${actual_files})
-endif()
-if(missing_files)
-  list(JOIN missing_files "', '" missing_files_display)
-  message(FATAL_ERROR "expected output not produced: '${missing_files_display}'")
-endif()
-
-set(extra_files ${actual_files})
-if(expected_files)
-  list(REMOVE_ITEM extra_files ${expected_files})
-endif()
-if(extra_files)
-  list(JOIN extra_files "', '" extra_files_display)
-  message(FATAL_ERROR "output not expected: '${extra_files_display}'")
-endif()
-
-foreach(file IN LISTS expected_files)
-  # An original is a byte copy of its source, so it is compared exactly like every non-media file.
-  if(NOT file MATCHES "^_fram/originals/" AND file MATCHES "\\.webp$")
-    # Generated WebP bytes vary across libwebp versions and SIMD paths. The list check above pins
-    # the path. Unit tests pin dimensions and pixels, and this check rules out an empty write.
-    file(SIZE "${actual_dir}/${file}" actual_len)
-    if(actual_len EQUAL 0)
-      message(FATAL_ERROR "generated media is empty: '${file}'")
-    endif()
-  elseif(file MATCHES "\\.html$")
-    # Pages embed the project version, so the expected pages hold a placeholder that a release
-    # does not have to update.
-    file(READ "${FRAM_EXPECTED_DIR}/${file}" expected_content)
-    string(REPLACE "@PROJECT_VERSION@" "${FRAM_VERSION}" expected_content "${expected_content}")
-    file(READ "${actual_dir}/${file}" actual_content)
-    if(NOT actual_content STREQUAL expected_content)
-      message(FATAL_ERROR "output differs from expected: '${file}'")
-    endif()
-  else()
-    execute_process(
-      COMMAND "${CMAKE_COMMAND}" -E compare_files "${FRAM_EXPECTED_DIR}/${file}"
-              "${actual_dir}/${file}"
-      RESULT_VARIABLE compare_result
-      OUTPUT_QUIET ERROR_QUIET
-    )
-    if(NOT compare_result EQUAL 0)
-      message(FATAL_ERROR "output differs from expected: '${file}'")
-    endif()
-  endif()
-endforeach()
+# Generated WebP bytes vary across libwebp versions and SIMD paths, so a derivative need only be
+# non-empty: the list check pins its path, and unit tests pin dimensions and pixels. An original is
+# a byte copy of its source, so it is compared exactly. Pages embed the project version, so the
+# expected pages hold a placeholder that a release does not have to update.
+apps_golden_compare_trees(
+  EXPECTED_DIR "${FRAM_EXPECTED_DIR}"
+  ACTUAL_DIR "${actual_dir}"
+  SCRATCH_DIR "${FRAM_SCRATCH_DIR}"
+  VERSION "${FRAM_VERSION}"
+  VERSIONED "\\.html$"
+  SIZE_ONLY "^_fram/v[^/]*/.*\\.webp$"
+  EXCLUDE "_fram/v1-build-cache.tsv"
+)
