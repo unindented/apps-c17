@@ -509,6 +509,9 @@ static struct Node* resolve_album(const struct ContextRender* render,
   if (str_eq(name, S("media_count_total"))) {
     return node_scalar_number(arena, album->media_count_total);
   }
+  if (str_eq(name, S("is_media_count_total_one"))) {
+    return node_scalar(arena, album->media_count_total == 1 ? S("true") : S(""));
+  }
   if (str_eq(name, S("cover"))) {
     if (album->cover == NULL) {
       return node_scalar(arena, S(""));

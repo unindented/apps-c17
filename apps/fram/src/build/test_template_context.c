@@ -249,6 +249,35 @@ static void test_renders_sub_album_cover(void) {
   TEST_CHECK(strcmp(rendered_html, "Trip=trip/index.html=_fram/r/s/trip/x.jpg=120x120=3;") == 0);
 }
 
+// `is_media_count_total_one` holds for an album with one media item below it, so a template can say
+// "1 item" and "3 items".
+static void test_marks_a_media_count_total_of_one(void) {
+  struct Arena perm = test_arena();
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/album.html",
+                  "{{#sub_albums}}{{media_count_total}} "
+                  "item{{^is_media_count_total_one}}s{{/is_media_count_total_one}};"
+                  "{{/sub_albums}}");
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
+  struct Album one = {.title = S("One"), .url_path = S("one/index.html"), .media_count_total = 1};
+  struct Album three = {
+      .title = S("Three"), .url_path = S("three/index.html"), .media_count_total = 3};
+  struct Album* children[] = {&one, &three};
+  struct Album root = {.title = S("Root"),
+                       .url_path = S("index.html"),
+                       .path_to_root = S(""),
+                       .sub_albums = children,
+                       .sub_album_count = 2};
+  one.parent = &root;
+  three.parent = &root;
+  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
+  char* rendered_html = NULL;
+  TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
+  TEST_CHECK(strcmp(rendered_html, "1 item;3 items;") == 0);
+  TEST_MSG("rendered: '%s'", rendered_html);
+}
+
 // `path_to_root` is the prefix of the page being rendered in every context: inside `sub_albums`,
 // `breadcrumbs` and `parent`, whose albums have prefixes of their own, it still names the page's,
 // because only the root answers it.
@@ -602,6 +631,7 @@ TEST_LIST = {
     {"renders site fields", test_renders_site_fields},
     {"renders absolute urls below base url", test_renders_absolute_urls_below_base_url},
     {"renders sub-album cover", test_renders_sub_album_cover},
+    {"marks a media count total of one", test_marks_a_media_count_total_of_one},
     {"path to root is the page prefix in every context",
      test_path_to_root_is_the_page_prefix_in_every_context},
     {"renders generator", test_renders_generator},
