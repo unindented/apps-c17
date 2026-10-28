@@ -347,6 +347,24 @@ static void test_render_resolves_partials(void) {
   template_set_release(set);
 }
 
+// A standalone partial indents each line it writes by the tag's indentation, inside a nested
+// partial by both. A standalone section or comment tag writes nothing, its indentation included, so
+// the line after it is indented once, as any other.
+static void test_render_indents_each_line_of_a_partial_once(void) {
+  struct Os* os = os_memory();
+  os_memory_write(
+      os, TEMPLATES_DIR "/partials/items.html",
+      "<li>a</li>\n{{#x}}\n<li>x</li>\n{{/x}}\n{{! a note }}\n<li>b</li>\n  {{> deep}}\n");
+  os_memory_write(os, TEMPLATES_DIR "/partials/deep.html", "{{#x}}\n<i>d</i>\n{{/x}}\n<i>e</i>\n");
+  struct TemplateSet* set = NULL;
+  struct Log log = test_log();
+  TEST_ASSERT(load_page(os, "<ul>\n  {{> items}}\n</ul>\n", &set, &log) == 0);
+  TEST_CHECK(renders(set, &ROOT,
+                     "<ul>\n  <li>a</li>\n  <li>x</li>\n  <li>b</li>\n    <i>d</i>\n    <i>e</i>\n"
+                     "</ul>\n"));
+  template_set_release(set);
+}
+
 // A file of `partials/` whose name is not an identifier, a file that does not end in `.html`, and a
 // subdirectory are not partials, so the load ignores a broken one, and a reference to one fails.
 static void test_load_ignores_files_that_are_not_partials(void) {
@@ -619,6 +637,7 @@ TEST_LIST = {
     {"render unescaped unknown name renders empty",
      test_render_unescaped_unknown_name_renders_empty},
     {"render resolves partials", test_render_resolves_partials},
+    {"render indents each line of a partial once", test_render_indents_each_line_of_a_partial_once},
     {"render repeats partials and stops a cycle", test_render_repeats_partials_and_stops_a_cycle},
     {"render writes nothing for an empty template or a comment",
      test_render_writes_nothing_for_an_empty_template_or_a_comment},

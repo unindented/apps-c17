@@ -1,6 +1,8 @@
 Lowercases the error messages of mustache.c and drops their trailing periods, as STYLE.md asks of
 every diagnostic, and passes no empty tag name, which the parser already reports as missing, to
-`mustache_validate_tagname`, which would read the byte before it.
+`mustache_validate_tagname`, which would read the byte before it. A standalone tag also drops the
+indentation mark of the line that it consumes, so that inside an indented partial the line after
+it is not indented twice.
 
 --- a/mustache.c
 +++ b/mustache.c
@@ -33,7 +35,25 @@ every diagnostic, and passes no empty tag name, which the parser already reports
  };
  
  /* For the given template, we construct list of MUSTACHE_TAGINFO structures.
-@@ -588,7 +588,8 @@
+@@ -550,6 +550,17 @@
+                 if(tmp_off == 0 || MUSTACHE_ISNEWLINE(templ_data[tmp_off-1])) {
+                     current_tag.beg = tmp_off;
+ 
++                    /* The tag consumes its whole line, so the line gets no
++                     * inherited indentation either. Without this, the mark
++                     * of the next line follows straight after this one's,
++                     * and that line gets the indentation twice. */
++                    if(tags.n >= sizeof(MUSTACHE_TAGINFO)) {
++                        MUSTACHE_TAGINFO* last_tag = (MUSTACHE_TAGINFO*)
++                                (tags.data + tags.n - sizeof(MUSTACHE_TAGINFO));
++                        if(last_tag->type == MUSTACHE_TAGTYPE_INDENT  &&  last_tag->beg == tmp_off)
++                            tags.n -= sizeof(MUSTACHE_TAGINFO);
++                    }
++
+                     if(current_tag.end < templ_size && templ_data[current_tag.end] == '\r')
+                         current_tag.end++;
+                     if(current_tag.end < templ_size && templ_data[current_tag.end] == '\n')
+@@ -588,7 +599,8 @@
              }
  
              if(current_tag.type != MUSTACHE_TAGTYPE_COMMENT) {

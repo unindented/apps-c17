@@ -550,6 +550,17 @@ mustache_parse(const char* templ_data, size_t templ_size,
                 if(tmp_off == 0 || MUSTACHE_ISNEWLINE(templ_data[tmp_off-1])) {
                     current_tag.beg = tmp_off;
 
+                    /* The tag consumes its whole line, so the line gets no
+                     * inherited indentation either. Without this, the mark
+                     * of the next line follows straight after this one's,
+                     * and that line gets the indentation twice. */
+                    if(tags.n >= sizeof(MUSTACHE_TAGINFO)) {
+                        MUSTACHE_TAGINFO* last_tag = (MUSTACHE_TAGINFO*)
+                                (tags.data + tags.n - sizeof(MUSTACHE_TAGINFO));
+                        if(last_tag->type == MUSTACHE_TAGTYPE_INDENT  &&  last_tag->beg == tmp_off)
+                            tags.n -= sizeof(MUSTACHE_TAGINFO);
+                    }
+
                     if(current_tag.end < templ_size && templ_data[current_tag.end] == '\r')
                         current_tag.end++;
                     if(current_tag.end < templ_size && templ_data[current_tag.end] == '\n')

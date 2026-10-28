@@ -20,7 +20,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### mustache4c (https://github.com/mity/mustache4c)
 
-Vendored at commit `0d068c1e0f8d59fda302ef49c26f42c7a6553b3e`, with the error messages in `mustache.c` lowercased and without their trailing periods, and an empty tag name kept from `mustache_validate_tagname`, which would read the byte before it.
+Vendored at commit `0d068c1e0f8d59fda302ef49c26f42c7a6553b3e`, with the error messages in `mustache.c` lowercased and without their trailing periods, an empty tag name kept from `mustache_validate_tagname`, which would read the byte before it, and the indentation mark of a standalone tag's line dropped, so that inside an indented partial the line after the tag is not indented twice.
 
 Copyright (c) 2017 Martin Mitáš
 
