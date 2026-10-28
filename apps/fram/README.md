@@ -13,7 +13,24 @@
 
 ## Installation
 
-Download a prebuilt binary from a `fram-v` release on the [Releases](https://github.com/unindented/apps-c17/releases) page, or [build it from source](#building).
+Download a prebuilt archive from a `fram-v` release on the [Releases](https://github.com/unindented/apps-c17/releases) page, or [build it from source](#building). Each release has one archive for each target, `fram-<version>-<target>.tar.gz`, where the target is `x86_64-linux-musl`, `aarch64-linux-musl` or `aarch64-macos`, and a `SHA256SUMS` file with the SHA-256 digest of each archive. An archive holds `fram-<version>-<target>/bin/fram` and, below `share/doc/fram/`, this README, `LICENSE.txt` and `THIRD_PARTY_NOTICES.md`. The Linux binaries are static `musl` executables. The archives do not include `ffmpeg` and `ffprobe`, which a gallery with MP4 files needs on `PATH`.
+
+mise's [`http:` backend](https://mise.jdx.dev/dev-tools/backends/http.html) can install these archives. A GitHub release publishes no list of versions, so this `mise.toml` names the version:
+
+```toml
+[tools."http:fram"]
+version = "0.5.0"
+checksum_url = "https://github.com/unindented/apps-c17/releases/download/fram-v{{ version }}/SHA256SUMS"
+strip_components = 1
+bin_path = "bin"
+
+[tools."http:fram".platforms]
+linux-x64 = { url = "https://github.com/unindented/apps-c17/releases/download/fram-v{{ version }}/fram-{{ version }}-x86_64-linux-musl.tar.gz" }
+linux-arm64 = { url = "https://github.com/unindented/apps-c17/releases/download/fram-v{{ version }}/fram-{{ version }}-aarch64-linux-musl.tar.gz" }
+macos-arm64 = { url = "https://github.com/unindented/apps-c17/releases/download/fram-v{{ version }}/fram-{{ version }}-aarch64-macos.tar.gz" }
+```
+
+`mise install` does not read `checksum_url`. Run `mise lock` to record the digest of each platform's archive in `mise.lock`, and later installs then refuse an archive that does not match.
 
 ## Usage
 
@@ -103,6 +120,8 @@ This table lists every key that the config file can contain. `fram` rejects any 
 
 `fram` resolves each directory in the config, the defaults included, against the directory of the config file, so `-c sub/fram.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from each directory value, and rejects a value that is then empty, `/` included. A directory can be an absolute path, or a relative path that contains `..`. `fram config` prints every directory resolved, and leaves out an optional string that is empty.
 
+The load reports every bad key in one run. A rejected optional key keeps its default, so a later check does not report it again, and any config error makes the build fail before it writes anything. A build with a config error still searches `media_dir` and probes the media files, so one run reports the errors of the config and of the media. A rejected `media_dir`, `output_dir`, `templates_dir` or `static_dir` stops the build before it searches `media_dir`, because its default names a directory that you did not choose.
+
 A template name in the configuration must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.`, and `/`. It cannot contain an empty segment, or the segment `.` or `..`. The name of an aggregate template is both its source path below `templates_dir` and its output path below `output_dir`. So a name that contains `/` creates the same subdirectories in `output_dir`. If `aggregate_templates` is an empty array, the build renders no aggregate templates.
 
 ### Output directory
@@ -134,10 +153,11 @@ These checks compare the directories themselves, not the text of the paths, so t
 
 `fram build --dry-run` runs every phase of a build, probes every media file, and renders every page. But it changes nothing in `output_dir`, and it does not create `output_dir`. It also makes no derivatives, and only checks which derivatives are current. For each path that the build would change or keep, it prints one line to `stdout`. Each line has a mark, a tab, and the path. This is a shortened listing:
 
-```
+```text
 write	public/album/index.html
 keep	public/_fram/v2-s-120x120c-q70-m-1200x800-q85-f1000/album/one-jpg-m.webp
 keep	public/_fram/originals/album/one-jpg.jpg
+write	public/_fram/v1-build-cache.tsv
 remove	public/_fram/v1-s-120x120c-q70-m-1200x800-q85-f1000
 remove	public/_fram/v1-s-120x120c-q70-m-1200x800-q85-f1000/album
 remove	public/_fram/v1-s-120x120c-q70-m-1200x800-q85-f1000/album/one-jpg-m.webp
@@ -156,11 +176,11 @@ The `write` and `keep` lines come first, in the order that the build plans them:
 3. Static files.
 4. The build cache.
 
-The `remove` lines come after them, in sorted order. To get only the paths for `sort`, `diff`, or `comm`, use `cut -f2-`. A dry run reports a failure in the same way as a build: on `stderr`, with the same exit code. A dry run that fails prints no listing. With `-v`, the progress messages still go to `stderr`, so `stdout` contains only the listing when you send it through a pipe.
+The `remove` lines come after them, in sorted order. To get only the paths, for `sort`, `diff`, or `comm`, use `cut -f2-`. A dry run reports a failure in the same way as a build: on `stderr`, with the same exit code. A dry run that fails prints no listing. With `-v`, the progress messages still go to `stderr`, so `stdout` contains only the listing when you send it through a pipe.
 
 A dry run writes nothing, so a build can still fail after a dry run succeeds. A dry run cannot find these failures:
 
-- The build has no permission to write, or the disk is full.
+- The build has no permission to write to `output_dir`, or its disk is full.
 - `fram` cannot read a static file or an original. A dry run does not open the files that it would copy.
 - An old file is at a path where a new output needs a directory, or an old directory is at a path where a new output needs a file. For example, the old output is the file `public/blog`, and the new output is `public/blog/index.html`.
 - `output_dir` exists but is not a usable directory.
@@ -263,7 +283,7 @@ Every template gets these keys:
 A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_` and `-`. A reference to another name fails the build, and `fram` ignores the other files of `partials/` and its subdirectories. The build compiles every template that it renders and every partial once, before it writes anything, and reports every template that cannot be read or does not compile in one run. The aggregate templates also use the `.html` partials.
 
 ```html
-{{> header}}
+{{> menu}}
 <main>
   <h1>{{album.title}}</h1>
   <ul>
@@ -274,6 +294,12 @@ A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A p
 </main>
 {{> footer}}
 ```
+
+## Host notes
+
+`fram` writes plain files that any static host serves.
+
+GitHub Pages runs Jekyll when it publishes from a branch, and Jekyll drops every file or directory whose name starts with `_`, `.` or `#`. `fram` writes every derivative and every copied original below `_fram/`, so the album pages then show no images and play no videos. Publish the gallery with a GitHub Actions workflow that uploads `output_dir`, or put an empty `.nojekyll` file in `static_dir`. The prune removes any file that the build did not write, so a `.nojekyll` that you add to `output_dir` by hand does not survive the next build.
 
 ## Development
 
@@ -383,7 +409,7 @@ The version of every archive comes from `project(VERSION)` in [CMakeLists.txt](C
 
 The root [vendor/](../../vendor/) directory contains these dependencies, except the libraries in `libs/`. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the licenses of the vendored dependencies.
 
-- [libs/](../../libs/): The libraries that `fram` shares with the other apps: `core`, `os`, `runtime`, `formats` and `output`, and for the unit tests `testing` and `os_memory`. [libs/src/core/](../../libs/src/core/) holds arena allocation, counted strings, output buffers, the diagnostic log and the small primitives, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
+- [libs/](../../libs/): The libraries that `fram` shares with the other apps: `cli`, `core`, `os`, `runtime`, `formats`, `output` and `templates`, and for the unit tests `testing` and `os_memory`. [libs/src/core/](../../libs/src/core/) holds arena allocation, counted strings, output buffers, the diagnostic log and the small primitives, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
 - [copt](https://github.com/fardaniqbal/copt): Command-line option parsing.
 - [tomlc17](https://github.com/cktan/tomlc17): TOML configuration parsing.
 - [libjpeg-turbo](https://github.com/libjpeg-turbo/libjpeg-turbo): JPEG decoding.

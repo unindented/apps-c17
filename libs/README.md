@@ -4,7 +4,7 @@
 
 <h1 align="center"><code>libs</code></h1>
 
-`libs/` holds the libraries that the C17 apps in this repository share: `core`, `testing`, `os`, `runtime`, `formats`, `markup`, `output` and `templates`. [ARCHITECTURE.md](ARCHITECTURE.md) describes each library, its modules and its dependencies.
+`libs/` holds the libraries that the C17 apps in this repository share: `core`, `testing`, `os`, `runtime`, `cli`, `formats`, `markup`, `output` and `templates`. [ARCHITECTURE.md](ARCHITECTURE.md) describes each library, its modules and its dependencies.
 
 ## LLM disclosure
 

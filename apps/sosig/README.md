@@ -13,7 +13,24 @@
 
 ## Installation
 
-Download a prebuilt binary from a `sosig-v` release on the [Releases](https://github.com/unindented/apps-c17/releases) page, or [build it from source](#building).
+Download a prebuilt archive from a `sosig-v` release on the [Releases](https://github.com/unindented/apps-c17/releases) page, or [build it from source](#building). Each release has one archive for each target, `sosig-<version>-<target>.tar.gz`, where the target is `x86_64-linux-musl`, `aarch64-linux-musl` or `aarch64-macos`, and a `SHA256SUMS` file with the SHA-256 digest of each archive. An archive holds `sosig-<version>-<target>/bin/sosig` and, below `share/doc/sosig/`, this README, `LICENSE.txt` and `THIRD_PARTY_NOTICES.md`. The Linux binaries are static `musl` executables.
+
+mise's [`http:` backend](https://mise.jdx.dev/dev-tools/backends/http.html) can install these archives. A GitHub release publishes no list of versions, so this `mise.toml` names the version:
+
+```toml
+[tools."http:sosig"]
+version = "0.3.0"
+checksum_url = "https://github.com/unindented/apps-c17/releases/download/sosig-v{{ version }}/SHA256SUMS"
+strip_components = 1
+bin_path = "bin"
+
+[tools."http:sosig".platforms]
+linux-x64 = { url = "https://github.com/unindented/apps-c17/releases/download/sosig-v{{ version }}/sosig-{{ version }}-x86_64-linux-musl.tar.gz" }
+linux-arm64 = { url = "https://github.com/unindented/apps-c17/releases/download/sosig-v{{ version }}/sosig-{{ version }}-aarch64-linux-musl.tar.gz" }
+macos-arm64 = { url = "https://github.com/unindented/apps-c17/releases/download/sosig-v{{ version }}/sosig-{{ version }}-aarch64-macos.tar.gz" }
+```
+
+`mise install` does not read `checksum_url`. Run `mise lock` to record the digest of each platform's archive in `mise.lock`, and later installs then refuse an archive that does not match.
 
 ## Usage
 
@@ -109,6 +126,8 @@ This table lists every key that the config file can contain. `sosig` rejects any
 
 `sosig` resolves each directory in the config, the defaults included, against the directory of the config file, so `-c sub/sosig.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from each directory value, and rejects a value that is then empty, `/` included. A directory can be an absolute path, or a relative path that contains `..`. `sosig config` prints every directory resolved.
 
+The load reports every bad key in one run. A rejected optional key keeps its default, so a later check does not report it again, and any config error makes the build fail before it writes anything. A build with a config error still searches `content_dir` and converts the content files, so one run reports the errors of the config and of the content. A rejected `content_dir`, `output_dir`, `templates_dir`, `static_dir`, `permalink`, `aggregate_templates` or `feed_templates` stops the build before it searches `content_dir`, because its default names a directory or an output that you did not choose.
+
 A template name in the configuration, or in the `template` field of an entry, must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.`, and `/`. It cannot contain an empty segment, or the segment `.` or `..`. The name of an aggregate or feed template is both its source path below `templates_dir` and its output path below `output_dir`. So a name that contains `/` creates the same subdirectories in `output_dir`. If `aggregate_templates` or `feed_templates` is an empty array, the build renders no templates of that kind.
 
 ### Output directory
@@ -140,7 +159,7 @@ These checks compare the directories themselves, not the text of the paths, so t
 
 `sosig build --dry-run` runs every phase of a build and renders every template. But it changes nothing in `output_dir`, and it does not create `output_dir`. For each path that the build would change or keep, it prints one line to `stdout`. Each line has a mark, a tab, and the path. This is a shortened listing:
 
-```
+```text
 write	public/new-post.html
 keep	public/about.html
 write	public/index.html
@@ -165,11 +184,11 @@ The `write` and `keep` lines come first, in the order that the build plans them:
 4. Static files, then assets.
 5. The build cache.
 
-The `remove` lines come after them, in sorted order. To get only the paths for `sort`, `diff`, or `comm`, use `cut -f2-`. A dry run reports a failure in the same way as a build: on `stderr`, with the same exit code. A dry run that fails prints no listing. With `-v`, the progress messages still go to `stderr`, so `stdout` contains only the listing when you send it through a pipe.
+The `remove` lines come after them, in sorted order. To get only the paths, for `sort`, `diff`, or `comm`, use `cut -f2-`. A dry run reports a failure in the same way as a build: on `stderr`, with the same exit code. A dry run that fails prints no listing. With `-v`, the progress messages still go to `stderr`, so `stdout` contains only the listing when you send it through a pipe.
 
 A dry run writes nothing, so a build can still fail after a dry run succeeds. A dry run cannot find these failures:
 
-- The build has no permission to write, or the disk is full.
+- The build has no permission to write to `output_dir`, or its disk is full.
 - `sosig` cannot read a static file or an asset. A dry run does not open the files that it would copy.
 - An old file is at a path where a new output needs a directory, or an old directory is at a path where a new output needs a file. For example, the old output is the file `public/blog`, and the new output is `public/blog/index.html`.
 - `output_dir` exists but is not a usable directory.
@@ -188,7 +207,7 @@ Every build still converts the Markdown or Org of every content file.
 
 Some tools change a file but keep its size and modification time. After such a change, the build can keep a page that no longer matches its content file. To correct this, run `sosig build --force` once. That build renders every page again, copies every static file and asset again, and writes a new build cache.
 
-When you publish `output_dir`, you also publish the build cache. Its output paths are already public, but it also contains the names of the template files, and the size and modification time of each content file, template, static file and asset. If you do not want to publish this information, exclude `_sosig/v1-build-cache.tsv` when you deploy.
+When you publish `output_dir`, you also publish the build cache. Its output paths are already public, but it also contains the names of the template files, and the size and modification time of each content file, template, static file and asset. If you do not want to publish this information, exclude `_sosig/v1-build-cache.tsv` when you deploy. GitHub Pages runs Jekyll when it publishes from a branch. Jekyll drops every file or directory whose name starts with `_`, `.` or `#`, so it drops `_sosig/`. That directory holds only the build cache, so a site whose own outputs avoid those names still works.
 
 ### Limits
 
@@ -455,7 +474,7 @@ The templates get these keys:
 A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_` and `-`. A reference to another name fails the build, and `sosig` ignores the other files of `partials/` and its subdirectories. The build compiles every template that it renders and every partial once, before it writes anything, and reports every template that cannot be read or does not compile in one run. The feed templates also use the `.html` partials.
 
 ```html
-{{> header}}
+{{> menu}}
 <article>
   <h1>{{title}}</h1>
   <p class="meta">{{date}} | {{#tags}}{{.}} {{/tags}}</p>
@@ -597,7 +616,7 @@ The version of every archive comes from `project(VERSION)` in [CMakeLists.txt](C
 
 The root [vendor/](../../vendor/) directory contains these dependencies, except the libraries in `libs/`. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the licenses of the vendored dependencies.
 
-- [libs/](../../libs/): The libraries that `sosig` shares with the other apps: `core`, `os`, `runtime`, `formats`, `markup` and `output`, and for the unit tests `testing` and `os_memory`. [libs/src/core/](../../libs/src/core/) holds arena allocation, counted strings, output buffers, the diagnostic log and the small primitives, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
+- [libs/](../../libs/): The libraries that `sosig` shares with the other apps: `cli`, `core`, `os`, `runtime`, `formats`, `markup`, `output` and `templates`, and for the unit tests `testing` and `os_memory`. [libs/src/core/](../../libs/src/core/) holds arena allocation, counted strings, output buffers, the diagnostic log and the small primitives, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
 - [copt](https://github.com/fardaniqbal/copt): Command-line option parsing.
 - [tomlc17](https://github.com/cktan/tomlc17): TOML configuration and frontmatter parsing.
 - [md4c](https://github.com/mity/md4c): Markdown parsing.

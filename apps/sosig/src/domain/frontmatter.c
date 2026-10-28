@@ -22,8 +22,6 @@
 /** UTF-8 byte order mark, tolerated as an optional prefix of a Markdown or Org source. */
 #define UTF8_BOM S("\xEF\xBB\xBF")
 
-/** Fence that delimits the TOML frontmatter block at the start and end. */
-
 /** Bytes Org reads as blanks inside a line, with the `\r` of a CRLF line ending. */
 #define ORG_BLANKS S(" \t\r")
 

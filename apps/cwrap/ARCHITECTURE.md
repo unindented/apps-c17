@@ -199,7 +199,7 @@ Then `os_oom` exits with `EXIT_CODE_FAILURE`.
 - Subtraction cannot wrap to a very large value.
 - A `NUL` byte is an ordinary byte, so no code calls `strlen` on owned text, and a body line is a view into the source until a refill makes new text.
 
-**Deliberate.** The `NUL` checks in [Strings and text input](#strings-and-text-input) are a product decision, and the string type does not force them. If the product decision changes, you can remove the `memchr` checks in both hosts and the contract tests that pin them, `test_read_rejects_embedded_nul` and `test_read_stdin_rejects_embedded_nul_and_input_over_limit`.
+**Deliberate.** The `NUL` checks that sosig's [Strings and text input](../sosig/ARCHITECTURE.md#strings-and-text-input) describes are a product decision, and the string type does not force them. If the product decision changes, you can remove the `memchr` checks in both hosts and the contract tests that pin them, `test_read_rejects_embedded_nul_in_text` and `test_read_stdin_rejects_embedded_nul_and_input_over_limit`.
 
 ### A growable log, and every error in one run
 

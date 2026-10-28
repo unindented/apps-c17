@@ -417,8 +417,8 @@ static void test_load_rejects_missing_file(void) {
 }
 
 // A config larger than `TOML_CONFIG_LEN_MAX` is rejected at the read, from its size, naming the
-// limit and the size. The host stores only the size of the bytes past the end, so the
-// fixture costs no memory.
+// limit and the size. The host stores only the size of the bytes past the end, so the fixture costs
+// no memory.
 static void test_load_rejects_oversize_file(void) {
   struct Os* os = os_memory();
   os_memory_write(os, CONFIG_PATH, "title = \"Gallery\"\n");

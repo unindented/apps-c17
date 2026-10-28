@@ -67,7 +67,7 @@ endif()
 include(vendor.cmake)
 # The libraries that this app and its tests link. `apps_quality` gives their include roots to
 # cppcheck.
-set(APPS_LIBRARIES core formats os output runtime templates testing)
+set(APPS_LIBRARIES cli core formats os output runtime templates testing)
 # The libraries build only when a target of this app links them, with this app's build profiles.
 # `SYSTEM` keeps this app's analysis to its own sources.
 add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)

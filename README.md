@@ -19,7 +19,7 @@ This repository holds four small programs written in C17, and the libraries that
 | [`apps/fram`](apps/fram) | `fram`, a static photo and video gallery generator. |
 | [`apps/cwrap`](apps/cwrap) | `cwrap`, a formatter that refills the prose in C comments. |
 | [`apps/surge`](apps/surge) | `surge`, a static site generator for git repositories. |
-| [`libs`](libs) | The libraries that the apps share: `core`, `testing`, `os`, `runtime`, `formats`, `markup` and `output`, which [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md) describes. |
+| [`libs`](libs) | The libraries that the apps share: `core`, `testing`, `os`, `runtime`, `cli`, `formats`, `markup`, `output` and `templates`, which [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md) describes. |
 | [`vendor`](vendor) | The sources of the third-party libraries that the apps and `libs` use. |
 | [`cmake`](cmake) | The CMake modules, presets and toolchains that every project uses. |
 

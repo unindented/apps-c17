@@ -58,7 +58,24 @@ void* memcpy(void* dest, const void* src, size_t n) {
 
 ## Installation
 
-Download a prebuilt binary from a `cwrap-v` release on the [Releases](https://github.com/unindented/apps-c17/releases) page, or [build it from source](#building).
+Download a prebuilt archive from a `cwrap-v` release on the [Releases](https://github.com/unindented/apps-c17/releases) page, or [build it from source](#building). Each release has one archive for each target, `cwrap-<version>-<target>.tar.gz`, where the target is `x86_64-linux-musl`, `aarch64-linux-musl` or `aarch64-macos`, and a `SHA256SUMS` file with the SHA-256 digest of each archive. An archive holds `cwrap-<version>-<target>/bin/cwrap` and, below `share/doc/cwrap/`, this README, `LICENSE.txt` and `THIRD_PARTY_NOTICES.md`. The Linux binaries are static `musl` executables.
+
+mise's [`http:` backend](https://mise.jdx.dev/dev-tools/backends/http.html) can install these archives. A GitHub release publishes no list of versions, so this `mise.toml` names the version:
+
+```toml
+[tools."http:cwrap"]
+version = "0.3.1"
+checksum_url = "https://github.com/unindented/apps-c17/releases/download/cwrap-v{{ version }}/SHA256SUMS"
+strip_components = 1
+bin_path = "bin"
+
+[tools."http:cwrap".platforms]
+linux-x64 = { url = "https://github.com/unindented/apps-c17/releases/download/cwrap-v{{ version }}/cwrap-{{ version }}-x86_64-linux-musl.tar.gz" }
+linux-arm64 = { url = "https://github.com/unindented/apps-c17/releases/download/cwrap-v{{ version }}/cwrap-{{ version }}-aarch64-linux-musl.tar.gz" }
+macos-arm64 = { url = "https://github.com/unindented/apps-c17/releases/download/cwrap-v{{ version }}/cwrap-{{ version }}-aarch64-macos.tar.gz" }
+```
+
+`mise install` does not read `checksum_url`. Run `mise lock` to record the digest of each platform's archive in `mise.lock`, and later installs then refuse an archive that does not match.
 
 ## Usage
 

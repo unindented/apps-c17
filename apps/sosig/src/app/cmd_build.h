@@ -19,11 +19,11 @@ struct Os;
  *
  * This is a thin boundary over `cmd_build_execute`. It gives `build_run` the build's arena sizes,
  * and `build_run` resolves the worker count, reserves the build's memory in one block, for fewer
- * workers when an address-space limit refuses the block, runs `cmd_build_execute`, and releases the
- * block. It prints the build's errors to `stderr` once, each on its own line, and then its
- * warnings, so a build with only warnings succeeds and still says what it skipped. Progress lines
- * under verbose mode are status, not diagnostics. If the build runs out of memory, the program's
- * `os_oom` prints the log instead.
+ * workers when an address-space limit refuses the block, runs `cmd_build_execute`, prints the
+ * build's errors to `stderr` and then its warnings, in one `os_print` call each, and releases the
+ * block. A build with only warnings succeeds and still says what it skipped. Progress lines under
+ * verbose mode are status, not diagnostics. If the build runs out of memory, the program's `os_oom`
+ * prints the log instead.
  *
  * @param options Build knobs such as worker count and verbosity. Must not be `NULL`.
  * @param os      Host the build reads, writes, and prints its status lines and log on. Must not be

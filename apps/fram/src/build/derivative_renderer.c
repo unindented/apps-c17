@@ -447,8 +447,8 @@ static int render_derivatives_outputs(const struct DerivativeContext* context,
     }
   }
 
-  // This and the mark above are the one place outside the output writer that asks whether the build
-  // is a dry run.
+  // This and the mark above, with the check in `run_build_phases` that runs the dry-run report, are
+  // the only places outside the output writer that ask whether the build is a dry run.
   if (has_stale && !context->writer->is_dry_run &&
       render_derivatives_images(context, index, is_stale, scratch, log) != 0) {
     rc = -1;

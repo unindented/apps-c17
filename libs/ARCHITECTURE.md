@@ -5,8 +5,8 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 ## Layout
 
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and its presets. An app adds the project with `add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)`, so a library builds only when the app links it. Configured on its own, the project builds every library, its tests, its analysis and its lint.
-- [vendor.cmake](vendor.cmake): The vendored targets that the libraries and their tests use when the project is configured on its own: `acutest`, `mustache4c` and `tomlc17`, from the root [vendor/](../vendor/) directory, and the targets of [src/markup/vendor.cmake](src/markup/vendor.cmake). An app that adds the project gives these targets from its own `vendor.cmake`, which includes `libs/src/markup/vendor.cmake` when the app links `markup`.
-- [src/core/](src/core/), [src/testing/](src/testing/), [src/os/](src/os/), [src/runtime/](src/runtime/), [src/formats/](src/formats/), [src/markup/](src/markup/), [src/output/](src/output/) and [src/templates/](src/templates/): One directory for each library, except `src/os/`, which also holds the two implementations of its interface as libraries of their own, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
+- [vendor.cmake](vendor.cmake): The vendored targets that the libraries and their tests use when the project is configured on its own: `acutest`, `copt`, `mustache4c` and `tomlc17`, from the root [vendor/](../vendor/) directory, and the targets of [src/markup/vendor.cmake](src/markup/vendor.cmake). An app that adds the project gives these targets from its own `vendor.cmake`, which includes `libs/src/markup/vendor.cmake` when the app links `markup`.
+- [src/core/](src/core/), [src/testing/](src/testing/), [src/os/](src/os/), [src/runtime/](src/runtime/), [src/cli/](src/cli/), [src/formats/](src/formats/), [src/markup/](src/markup/), [src/output/](src/output/) and [src/templates/](src/templates/): One directory for each library, except `src/os/`, which also holds the two implementations of its interface as libraries of their own, with the library's sources, its `test_*.c` files and its `CMakeLists.txt`.
 
 ## Libraries
 
@@ -15,17 +15,18 @@ The `libs/` project holds the libraries that the apps share. Each library is a C
 | [`core`](#core) | The arena allocator, counted strings, growable buffers and the error log, and ASCII classification, error text, exit codes, number parsing, paths, path lists, text helpers, URL checks and UTF-8 validation and repair. | sosig, fram, cwrap, surge |
 | [`testing`](#testing) | The support that every unit test uses, and the `os_oom` of the unit tests. | the unit tests of every app and of the other libraries |
 | [`os`](#os) | The host interface and the out-of-memory report, with the POSIX host `os_posix` and the in-memory host `os_memory`. | sosig, fram, cwrap and surge, and `os_memory` for their unit tests and those of the libraries |
-| [`runtime`](#runtime) | The run of a build in its memory, the worker pool, the jobs of a build phase that run on it, the check of the directories that a build reads, the directory walk, and a command's status lines. | sosig, fram, surge |
+| [`runtime`](#runtime) | `build_run`, which runs a build in its memory and prints its log, the worker pool, the jobs of a build phase that run on it, the check of the directories that a build reads, the directory walk, and `verbose_printf`, which prints a command's status lines. | sosig, fram, surge |
 | [`cli`](#cli) | The command line of the site generators: its parse, its help and version text, and its dispatch to the app's commands. | sosig, fram, surge |
 | [`formats`](#formats) | HTML escaping, the TOML helpers and the escaping of a tab-separated field. | sosig, fram, surge |
 | [`markup`](#markup) | Markdown and Org to HTML, and the syntax highlighting of code blocks with tree-sitter. | sosig, surge |
-| [`output`](#output) | The output manifest, the output-path checks, the output writer and the prune. | sosig, fram, surge |
+| [`output`](#output) | The output manifest and its builder, the output-path checks, the output writer, the prune, and the read of the build cache file. | sosig, fram, surge |
 | [`templates`](#templates) | The template set of a build and its renders. | sosig, fram, surge |
 
 ### Dependency rules
 
 - `testing` and `os` depend on `core`. `os_memory` also depends on `testing`.
 - `runtime` depends on `core` and `os`.
+- `cli` depends on `core`, `os`, `runtime` and the vendored copt, which it links privately. The project adds `cli` only when the `vendor_copt` target exists.
 - `formats` depends on `core`, `os`, for the read of a config file, and the vendored `tomlc17`. The project adds `formats` only when the `vendor_tomlc17` target exists, so an app that vendors no tomlc17, such as cwrap, builds without it.
 - `markup` depends on `core`, `formats` and the targets of `src/markup/vendor.cmake`: md4c, org4c, and tree-sitter with its grammars. The project adds `markup` only when these targets and `formats` exist.
 - `output` depends on `core` and `os`.
@@ -53,6 +54,7 @@ The library has two kinds of modules. The memory modules build on each other in 
 
 The other modules are small primitives:
 
+- [asan](src/core/asan.h): `SHARED_ASAN` is `1` in a translation unit that the address sanitizer instruments, and `0` otherwise, and the header includes the sanitizer interface when it is `1`, so the arena and its tests compile the gaps and the poisoning only in an ASan build.
 - [ascii](src/core/ascii.h): Locale-independent ASCII byte classification and case folding.
 - [error](src/core/error.h): Turns an `errno` into text, and is thread-safe. Diagnostics themselves go to `core/log.h`, as `printf` formats that the compiler checks.
 - [exit_code](src/core/exit_code.h): Every command of an app returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
@@ -74,7 +76,7 @@ _Noreturn void os_oom(void) {
 }
 ```
 
-sosig, fram and surge define it as one call to `cli_oom_exit` from the `cli` library, with the program's name.
+sosig, fram and surge define it as one call to `cli_oom_exit` from the `cli` library, with the program's name. The unit tests that link `testing` use the `os_oom` of `testing`. The tests of the arena, strings, buffers and log in `core` link no `testing`, so [src/core/test_oom.h](src/core/test_oom.h) defines their `os_oom` and `test_is_oom`, with the same `TEST_OOM_EXIT_STATUS` as `testing`.
 
 ### Arenas
 
@@ -227,13 +229,15 @@ To use a log correctly:
 
 ## os
 
-- [os](src/os/os.h): The host interface. Every read, write, directory creation, removal, listing, `stat` and print that an app does goes through `os_read`, `os_write`, `os_mkdirs`, `os_remove`, `os_remove_dir`, `os_list`, `os_stat` and `os_print`. Each function that accesses the host takes a `struct Os*`.
+- [os](src/os/os.h): The host interface. Every read, read of standard input, write, replacement, directory creation, removal, listing, `stat` and print that an app does goes through `os_read`, `os_read_stdin`, `os_write`, `os_replace`, `os_mkdirs`, `os_remove`, `os_remove_dir`, `os_list`, `os_stat` and `os_print`. Each function that accesses the host takes a `struct Os*`.
   - `os_read` takes a size limit from each caller, and checks it before any read or allocation. It rejects a file that is not a regular file, and a file that changes size during the read. It also takes an `enum OsReadKind`: with `OS_READ_TEXT`, it rejects a file that contains a `NUL` byte, and with `OS_READ_BYTES`, it accepts any byte, as an image or a video needs.
+  - `os_read_stdin` reads standard input to its end, as cwrap does. It rejects input longer than the caller's limit, and stops reading one byte past that limit, so the limit also bounds its memory. It rejects a `NUL` byte, as `os_read` does with `OS_READ_TEXT`.
   - `os_write` writes either bytes or the contents of a file that it streams, and it creates parent directories. It overwrites its destination in place, through a symlink or a hard link, and the write is neither atomic nor synced. A new file gets mode `0666` reduced by the process umask.
+  - `os_replace` atomically replaces a file that only the user has, such as a source file that cwrap rewrites in place. It writes and syncs a sibling temporary file and renames it over the destination, so a reader sees either the previous file or the new file whole, and a failed write leaves the destination untouched. It follows a symlink, creates no parent directory, keeps the permission bits of an existing file, and breaks a hard link to it.
   - `os_stat` reports identity, type, size, and modification time.
   - `os_list` closes a directory before it returns. It classifies each directory entry, and for a symlink it classifies the target. It skips dangling links, and directory entries that were removed after it read them.
   - `os_print` carries every byte that an app prints, so a test on the in-memory host sees all of it. One call writes its text as a whole. A caller that prints from more than one thread holds its own lock around the call.
-  - `os_oom` is the one other member. `core` declares it, and each program defines it: an app in its `app/main.c`, and `testing` for the unit tests.
+  - `os_oom` is the one other member. `core` declares it, and each program defines it: an app in its `app/main.c`, `testing` for the unit tests, and `core/test_oom.h` for the tests of `core` that link no `testing`.
 - [os_posix](src/os/os_posix.h): The POSIX implementation of `os.h`, in the object library `os_posix`. An app's executable and every unit test registered with `OS posix` link it. Its `struct Os` has no state.
 - [os_memory](src/os/os_memory.h): The in-memory implementation of `os.h` for unit tests, in the object library `os_memory`: an in-memory tree with symlinks, hard links, a modification-time counter, injected failures, and captured output. A lock guards the tree, so tests that run workers can use it.
 - [oom](src/os/oom.h): Holds what the out-of-memory report prints: the command's log, which `oom_set_log` names, and, for each thread, the file that the thread works on and its job's log, which `oom_set_job` names. `oom_report` takes the name of the program, which leads its last line, as in `sosig: out of memory`.
@@ -265,7 +269,7 @@ The command line that sosig, fram and surge share. Each app describes itself in 
 - [frontmatter](src/formats/frontmatter.h): `frontmatter_find` finds the front matter at the start of a Markdown file, TOML between `+++` lines or YAML between `---` lines, by its fences alone, and reports its kind, its text and the body after it. sosig parses the TOML of its content files, and surge shows either kind as a code block.
 - [html](src/formats/html.h): HTML escaping of untrusted text for generated markup.
 - [rfc3339](src/formats/rfc3339.h): `RFC3339_EPOCH`, the Unix epoch in UTC, which surge and sosig write for a date that Atom requires and a value lacks. Every date the apps write spells a zero offset `Z`.
-- [toml](src/formats/toml.h): The read of a config file, at most `TOML_CONFIG_LEN_MAX` (1 MiB), with `toml_load_config`, TOML parsing, text validation at the boundary where parsed bytes become owned text, and the conversion and formatting of dates and datetimes. `toml_require_known_keys` is the shared check for unknown keys. It reports each table key that is not in the list of known keys that a loader gives, and it reports a key that contains a `NUL` byte without its name, but with the name of its table. The config readers and printers that every app's config loader shares are here too, so the apps word each config diagnostic and print each config value the same way: `toml_copy_string` copies a string key, `toml_copy_strings` an array of strings, `toml_copy_dir` copies a directory key, trims its trailing `/`, rejects an empty one and resolves it against the config's directory, and `toml_copy_size` copies a bounded integer key under the policy of a `struct TomlSizeKey`, which also says whether the key is required and whether its bound is a length in bytes. Each names the key after the dotted prefix of its table. `toml_print_key_string`, `toml_print_key_string_optional` and `toml_print_key_string_array` write the `key = value` lines of a printed config, and quote each string with `toml_print_string`, which writes a TOML basic string with the short escapes where TOML has them. `toml_copy_base_url` copies a site's base URL, checks that it is an absolute `http` URL with a host and no byte that breaks a path, and drops its trailing `/`.
+- [toml](src/formats/toml.h): The read of a config file, at most `TOML_CONFIG_LEN_MAX` (1 MiB), with `toml_load_config`, TOML parsing, text validation at the boundary where parsed bytes become owned text, and the conversion and formatting of dates and datetimes. `toml_require_known_keys` is the shared check for unknown keys. It reports each table key that is not in the list of known keys that a loader gives, and it reports a key that contains a `NUL` byte without its name, but with the name of its table. The config readers and printers that every app's config loader shares are here too, so the apps word each config diagnostic and print each config value the same way: `toml_copy_string` copies a string key, `toml_copy_strings` an array of strings, `toml_copy_bool` an optional boolean key, `toml_copy_dir` copies a directory key, trims its trailing `/`, rejects an empty one and resolves it against the config's directory, and `toml_copy_size` copies a bounded integer key under the policy of a `struct TomlSizeKey`, which also says whether the key is required and whether its bound is a length in bytes. Each names the key after the dotted prefix of its table. `toml_print_key_string`, `toml_print_key_string_optional` and `toml_print_key_string_array` write the `key = value` lines of a printed config, and quote each string with `toml_print_string`, which writes a TOML basic string with the short escapes where TOML has them. `toml_copy_base_url` copies a site's base URL, checks that it is an absolute `http` URL with a host and no byte that breaks a path, and drops its trailing `/`.
 - [tsv](src/formats/tsv.h): `tsv_escape_append` writes a text as a field of a tab-separated line, with each `\`, tab and newline escaped, so that the field cannot split its line and two different texts never give the same field. surge and sosig write the texts of the page recipe of their build caches with it.
 
 ## markup
