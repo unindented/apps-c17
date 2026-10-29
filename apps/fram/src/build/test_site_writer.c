@@ -8,18 +8,21 @@
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/log.h"
-#include "core/path_list.h"
 #include "core/str.h"
 #include "domain/album.h"
 #include "domain/site_config.h"
 #include "os/os_memory.h"
 #include "output/manifest.h"
+#include "output/output_cache.h"
 #include "output/output_writer.h"
 #include "templates/template_set.h"
 #include "testing/test_support.h"
 
 // Every test here runs against the in-memory host: the writers write their outputs only through
 // `os/os.h`, from templates that each test loads first.
+
+/** An output cache with no rows, which a page never needs, as it declares no attributes. */
+static const struct OutputCache NO_OUTPUT_CACHE = {0};
 
 /**
  * @brief Initializes a writer on `os` whose manifest names `output_paths`, as the build's would.
@@ -40,7 +43,7 @@ static void init_writer(struct OutputWriter* writer,
   for (ptrdiff_t i = 0; i < output_path_count; i++) {
     TEST_CHECK(manifest_add(manifest, str_from_cstr(output_paths[i]), S("test"), arena, NULL) == 0);
   }
-  *writer = (struct OutputWriter){.manifest = manifest, .os = os};
+  *writer = (struct OutputWriter){.manifest = manifest, .os = os, .output_dir = S("public")};
 }
 
 /**
@@ -65,12 +68,11 @@ static struct TemplateSet* load_templates(struct Str templates_dir,
   return set;
 }
 
-// Album pages, aggregate templates, and nested static files land at their planned destinations.
+// Album pages and aggregate templates land at their planned destinations.
 static void test_writes_complete_output_layer(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "templates/map.xml", "<g>{{site.title}}</g>");
   os_memory_write(os, "templates/nested/links.html", "{{album.url}}");
-  os_memory_write(os, "static/icons/a.txt", "static");
   struct Arena paths = test_arena();
   const struct Arena output = test_arena();
   const struct Arena scratch = test_arena();
@@ -92,28 +94,78 @@ static void test_writes_complete_output_layer(void) {
                        .path_to_root = S("")};
   const struct Album* albums[] = {&root};
   const struct RenderedPage rendered[] = {{.html = S("<h1>Root</h1>")}};
-  struct PathList static_paths = {0};
   struct Log log = test_log();
-  path_list_push(&static_paths, S("static/icons/a.txt"), &paths);
   static const char* const output_paths[] = {"public/index.html", "public/map.xml",
-                                             "public/nested/links.html", "public/icons/a.txt"};
+                                             "public/nested/links.html"};
   struct Manifest manifest = {0};
   struct OutputWriter writer;
-  init_writer(&writer, &manifest, output_paths, 4, os, &paths);
+  init_writer(&writer, &manifest, output_paths, 3, os, &paths);
 
-  TEST_CHECK(site_writer_write_album_pages(&writer, albums, 1, rendered, scratch, &log) == 0);
+  TEST_CHECK(site_writer_write_album_pages(&writer, &NO_OUTPUT_CACHE, albums, 1, rendered, scratch,
+                                           &log) == 0);
   struct TemplateSet* template_set = load_templates(site_config.templates_dir, aggregates, 2, os);
-  TEST_CHECK(site_writer_write_aggregates(&writer, &site_config, template_set, albums[0], output,
-                                          scratch, &log) == 0);
+  TEST_CHECK(site_writer_write_aggregates(&writer, &NO_OUTPUT_CACHE, &site_config, template_set,
+                                          albums[0], output, scratch, &log) == 0);
   template_set_release(template_set);
-  TEST_CHECK(output_writer_copy_files(&writer, &static_paths, NULL, NULL, NULL,
-                                      site_config.static_dir, site_config.output_dir, scratch,
-                                      S("failed to copy static file"), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_file(os, "public/index.html", "<h1>Root</h1>"));
   TEST_CHECK(os_memory_is_file(os, "public/map.xml", "<g>Gallery &amp; Co</g>"));
   TEST_CHECK(os_memory_is_file(os, "public/nested/links.html", "../index.html"));
-  TEST_CHECK(os_memory_is_file(os, "public/icons/a.txt", "static"));
+}
+
+// A page or an aggregate whose bytes did not change is kept and left untouched, while one whose
+// bytes changed is written.
+static void test_keeps_unchanged_pages_untouched(void) {
+  struct Os* os = os_memory();
+  os_memory_write(os, "templates/map.xml", "<g>{{site.title}}</g>");
+  os_memory_write(os, "public/index.html", "<h1>Root</h1>");
+  os_memory_write(os, "public/about/index.html", "<h1>Old</h1>");
+  os_memory_write(os, "public/map.xml", "<g>Gallery</g>");
+  struct Arena arena = test_arena();
+  static const struct Str aggregates[] = {STR_INIT("map.xml")};
+  struct SiteConfig site_config;
+  site_config_init(&site_config);
+  site_config.title = S("Gallery");
+  site_config.output_dir = S("public");
+  site_config.templates_dir = S("templates");
+  site_config.aggregate_templates = aggregates;
+  site_config.aggregate_template_count = 1;
+  struct Album root = {.source_dir = S(""),
+                       .title = S("Root"),
+                       .output_path = S("public/index.html"),
+                       .path_to_root = S("")};
+  struct Album about = {
+      .source_dir = S("about"), .title = S("About"), .output_path = S("public/about/index.html")};
+  const struct Album* albums[] = {&root, &about};
+  const struct RenderedPage rendered[] = {{.html = S("<h1>Root</h1>")},
+                                          {.html = S("<h1>About</h1>")}};
+  static const char* const output_paths[] = {"public/index.html", "public/about/index.html",
+                                             "public/map.xml"};
+  struct Manifest manifest = {0};
+  struct OutputWriter writer;
+  init_writer(&writer, &manifest, output_paths, 3, os, &arena);
+  struct OsStat root_before;
+  struct OsStat map_before;
+  TEST_ASSERT(os_stat(os, S("public/index.html"), &root_before) == 0);
+  TEST_ASSERT(os_stat(os, S("public/map.xml"), &map_before) == 0);
+  struct Log log = test_log();
+
+  TEST_CHECK(site_writer_write_album_pages(&writer, &NO_OUTPUT_CACHE, albums, 2, rendered,
+                                           test_arena(), &log) == 0);
+  struct TemplateSet* template_set = load_templates(site_config.templates_dir, aggregates, 1, os);
+  TEST_CHECK(site_writer_write_aggregates(&writer, &NO_OUTPUT_CACHE, &site_config, template_set,
+                                          &root, test_arena(), test_arena(), &log) == 0);
+  template_set_release(template_set);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(manifest_find_mark(&manifest, S("public/index.html")) == MANIFEST_MARK_KEPT);
+  TEST_CHECK(manifest_find_mark(&manifest, S("public/about/index.html")) == MANIFEST_MARK_WRITTEN);
+  TEST_CHECK(manifest_find_mark(&manifest, S("public/map.xml")) == MANIFEST_MARK_KEPT);
+  TEST_CHECK(os_memory_is_file(os, "public/about/index.html", "<h1>About</h1>"));
+  struct OsStat after;
+  TEST_CHECK(os_stat(os, S("public/index.html"), &after) == 0 &&
+             after.mtime_s == root_before.mtime_s && after.mtime_ns == root_before.mtime_ns);
+  TEST_CHECK(os_stat(os, S("public/map.xml"), &after) == 0 && after.mtime_s == map_before.mtime_s &&
+             after.mtime_ns == map_before.mtime_ns);
 }
 
 // A failed page write names the root album in words rather than quoting its empty source directory,
@@ -132,7 +184,8 @@ static void test_write_album_pages_names_root_album_in_words(void) {
   init_writer(&writer, &manifest, output_paths, 1, os, &arena);
   struct Log log = test_log();
 
-  TEST_CHECK(site_writer_write_album_pages(&writer, albums, 1, rendered, test_arena(), &log) == -1);
+  TEST_CHECK(site_writer_write_album_pages(&writer, &NO_OUTPUT_CACHE, albums, 1, rendered,
+                                           test_arena(), &log) == -1);
   TEST_CHECK(test_log_is(&log, "failed to write page for the root album: %s ('public')\n",
                          strerror(EISDIR)));
 }
@@ -153,7 +206,8 @@ static void test_write_album_pages_quotes_sub_album_source_dir(void) {
   init_writer(&writer, &manifest, output_paths, 1, os, &arena);
   struct Log log = test_log();
 
-  TEST_CHECK(site_writer_write_album_pages(&writer, albums, 1, rendered, test_arena(), &log) == -1);
+  TEST_CHECK(site_writer_write_album_pages(&writer, &NO_OUTPUT_CACHE, albums, 1, rendered,
+                                           test_arena(), &log) == -1);
   TEST_CHECK(test_log_is(&log, "failed to write page for 'root album': %s ('public')\n",
                          strerror(EISDIR)));
 }
@@ -180,14 +234,15 @@ static void test_write_aggregates_reports_write_failure(void) {
   struct Log log = test_log();
 
   struct TemplateSet* template_set = load_templates(site_config.templates_dir, aggregates, 1, os);
-  TEST_CHECK(site_writer_write_aggregates(&writer, &site_config, template_set, &root, test_arena(),
-                                          test_arena(), &log) == -1);
+  TEST_CHECK(site_writer_write_aggregates(&writer, &NO_OUTPUT_CACHE, &site_config, template_set,
+                                          &root, test_arena(), test_arena(), &log) == -1);
   template_set_release(template_set);
   TEST_CHECK(test_log_is(&log, "failed to write page: %s ('public/map.xml')\n", strerror(EISDIR)));
 }
 
 TEST_LIST = {
     {"writes complete output layer", test_writes_complete_output_layer},
+    {"keeps unchanged pages untouched", test_keeps_unchanged_pages_untouched},
     {"write album pages names root album in words",
      test_write_album_pages_names_root_album_in_words},
     {"write album pages quotes sub album source dir",

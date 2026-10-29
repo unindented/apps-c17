@@ -9,17 +9,22 @@
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
-#include "domain/build_cache.h"
 #include "domain/site_config.h"
 #include "os/os.h"
 #include "output/manifest_builder.h"
 #include "output/output_writer.h"
 
-/** Largest small file of a clone export read back, in bytes, to compare it with the new one. */
-enum { EXPORT_WRITER_FILE_LEN_MAX = 64 * 1024 * 1024 };
+/** What makes one output of a clone export, for `output_writer_produce`. */
+struct ExportMake {
+  /** Bytes of a small file, or of `_headers` once made. */
+  struct Str bytes;
 
-/** Bytes of the log a read-back failure goes to: one message that names a path. */
-enum { EXPORT_WRITER_LOG_LEN = 64 * 1024 };
+  /** Configuration, for `_headers`, else `NULL`. */
+  const struct SiteConfig* site_config;
+
+  /** Output path of a kept pack or idx, which its make names. */
+  struct Str file_path;
+};
 
 /**
  * @brief Returns the path of one file of a repo's clone export, relative to `output_dir`.
@@ -33,24 +38,71 @@ static struct Str export_path(struct Str repo_name, struct Str file_name, struct
     __attribute__((nonnull(3)));
 
 /**
- * @brief Writes `bytes` to `file_path`, or keeps the file when it already holds them.
+ * @brief Records the pack or the idx of the pack this build publishes.
  *
- * @param writer    Writer of the build. Must not be `NULL`.
- * @param file_path Output path.
- * @param bytes     Bytes the file must hold.
- * @param os        Host the file is read on. Must not be `NULL`.
- * @param scratch   Arena for the existing bytes.
- * @param operation Operation leading the write's failure message.
- * @param log       Log that receives the failure. Must not be `NULL`.
- * @return `0` on success, or `-1` when the write fails.
+ * @param builder      Prepared manifest builder. Must not be `NULL`.
+ * @param scan         Scanned repo. Must not be `NULL`.
+ * @param extension    `pack` or `idx`.
+ * @param source_label Label of the export's outputs.
+ * @param scratch      Arena for the path and the attributes.
+ * @param log          Log that receives the refusal. Must not be `NULL`.
+ * @return `0` when the path was recorded, or `-1` otherwise.
  */
-static int write_or_keep(const struct OutputWriter* writer,
-                         struct Str file_path,
-                         struct Str bytes,
-                         struct Os* os,
-                         struct Arena scratch,
-                         struct Str operation,
-                         struct Log* log) __attribute__((nonnull(1, 4, 7)));
+static int export_writer_register_pack(struct ManifestBuilder* builder,
+                                       const struct RepoScan* scan,
+                                       struct Str extension,
+                                       struct Str source_label,
+                                       struct Arena scratch,
+                                       struct Log* log) __attribute__((nonnull(1, 2, 6)));
+
+/**
+ * @brief Returns the bytes `ExportMake.bytes` holds, as `OutputWriterMakeFn`.
+ *
+ * @param perm      Unused.
+ * @param scratch   Unused.
+ * @param bytes_out Receives the bytes. Must not be `NULL`.
+ * @param log       Unused.
+ * @param userdata  The `struct ExportMake`.
+ * @return `0`.
+ */
+static int export_writer_make_bytes(struct Arena* perm,
+                                    struct Arena scratch,
+                                    struct Str* bytes_out,
+                                    struct Log* log,
+                                    void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
+
+/**
+ * @brief Fails the make of a pack or an idx the scan kept, which is no longer the file the build
+ *        cache recorded, as `OutputWriterMakeFn`.
+ *
+ * @param perm      Unused.
+ * @param scratch   Unused.
+ * @param bytes_out Unused.
+ * @param log       Log that receives the failure. Must not be `NULL`.
+ * @param userdata  The `struct ExportMake`, which names the file.
+ * @return `-1`.
+ */
+static int export_writer_make_kept(struct Arena* perm,
+                                   struct Arena scratch,
+                                   struct Str* bytes_out,
+                                   struct Log* log,
+                                   void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
+
+/**
+ * @brief Makes the bytes of `_headers`, as `OutputWriterMakeFn`.
+ *
+ * @param perm      Arena that owns the bytes. Must not be `NULL`.
+ * @param scratch   Unused.
+ * @param bytes_out Receives the bytes. Must not be `NULL`.
+ * @param log       Unused.
+ * @param userdata  The `struct ExportMake`, which holds the configuration.
+ * @return `0`.
+ */
+static int export_writer_write_headers_make(struct Arena* perm,
+                                            struct Arena scratch,
+                                            struct Str* bytes_out,
+                                            struct Log* log,
+                                            void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
 
 /**
  * @brief Returns the bytes of `_headers`, as `export_writer_write_headers` describes them.
@@ -81,63 +133,85 @@ int export_writer_register(struct ManifestBuilder* builder,
       rc = -1;
     }
   }
-  const struct Str pack_ids[] = {export->pack_id, export->previous_pack_id};
   const struct Str extensions[] = {S("pack"), S("idx")};
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(pack_ids) / sizeof(pack_ids[0])); i++) {
-    for (ptrdiff_t j = 0; pack_ids[i].len > 0 && j < 2; j++) {
-      struct Arena path_scratch = scratch;
-      const struct Str path =
-          pack_export_output_path(repo_name, pack_ids[i], extensions[j], &path_scratch);
-      if (manifest_builder_add(builder, path, source_label, path_scratch, log) != 0) {
-        rc = -1;
-      }
+  for (ptrdiff_t i = 0; export->pack_id.len > 0 && i < 2; i++) {
+    if (export_writer_register_pack(builder, scan, extensions[i], source_label, scratch, log) !=
+        0) {
+      rc = -1;
+    }
+  }
+  // The pack before declares what the output cache recorded for it, so a build that fails before it
+  // writes the new pack still records it, with the fact `repo_scan_export_fact` gives.
+  const struct Str previous_attributes[] = {export->previous_pack_attributes,
+                                            export->previous_idx_attributes};
+  for (ptrdiff_t i = 0; export->previous_pack_id.len > 0 && i < 2; i++) {
+    struct Arena path_scratch = scratch;
+    const struct Str path =
+        pack_export_output_path(repo_name, export->previous_pack_id, extensions[i], &path_scratch);
+    if (manifest_builder_add_output(builder, path, source_label, previous_attributes[i],
+                                    path_scratch, log) != 0) {
+      rc = -1;
     }
   }
   return rc;
 }
 
+int export_writer_keep_previous(const struct OutputWriter* writer,
+                                struct Str output_dir,
+                                const struct RepoScan* scan,
+                                struct Arena scratch,
+                                struct Log* log) {
+  const struct Str repo_name = scan->model.config->name;
+  const struct RepoExport* export = &scan->export;
+  const struct Str extensions[] = {S("pack"), S("idx")};
+  for (ptrdiff_t i = 0; export->previous_pack_id.len > 0 && i < 2; i++) {
+    struct Arena path_scratch = scratch;
+    const struct Str output_path = path_join(
+        output_dir,
+        pack_export_output_path(repo_name, export->previous_pack_id, extensions[i], &path_scratch),
+        &path_scratch);
+    if (output_writer_keep(writer, output_path, log) != 0) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
 int export_writer_write(const struct OutputWriter* writer,
                         struct Str output_dir,
                         const struct RepoScan* scan,
-                        struct Os* os,
+                        const struct OutputCache* cache,
                         struct Arena scratch,
                         struct Log* log) {
   const struct Str repo_name = scan->model.config->name;
   const struct RepoExport* export = &scan->export;
   // The pack and its idx go in before the files that name them, so a client never reads an
-  // `info/refs` whose objects are not there yet.
+  // `info/refs` whose objects are not there yet. The scan has kept a current pack, so only a kept
+  // one that changed since reaches its make.
   const struct Str extensions[] = {S("pack"), S("idx")};
-  const struct Str built_paths[] = {export->built.pack_path, export->built.idx_path};
   for (ptrdiff_t i = 0; export->pack_id.len > 0 && i < 2; i++) {
-    const struct Str output_path = path_join(
-        output_dir, pack_export_output_path(repo_name, export->pack_id, extensions[i], &scratch),
-        &scratch);
-    const int rc = export->is_pack_kept
-                       ? output_writer_keep(writer, output_path, log)
-                       : output_writer_write(
-                             writer, output_path,
-                             (struct OsSource){.kind = OS_SOURCE_FILE, .file_path = built_paths[i]},
-                             S("failed to write clone pack"), log);
-    if (rc != 0) {
-      return -1;
-    }
-  }
-  for (ptrdiff_t i = 0; export->previous_pack_id.len > 0 && i < 2; i++) {
-    const struct Str output_path = path_join(
-        output_dir,
-        pack_export_output_path(repo_name, export->previous_pack_id, extensions[i], &scratch),
-        &scratch);
-    if (output_writer_keep(writer, output_path, log) != 0) {
+    struct Arena path_scratch = scratch;
+    struct ExportMake make = {0};
+    make.file_path =
+        path_join(output_dir,
+                  pack_export_output_path(repo_name, export->pack_id, extensions[i], &path_scratch),
+                  &path_scratch);
+    if (output_writer_produce(writer, make.file_path, cache, export_writer_make_kept, &make,
+                              path_scratch, path_scratch, S("failed to write clone pack"),
+                              log) != 0) {
       return -1;
     }
   }
   const struct Str files[] = {S("objects/info/packs"), S("info/refs"), S("HEAD")};
   const struct Str contents[] = {export->packs, export->info_refs, export->head};
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(files) / sizeof(files[0])); i++) {
+    struct Arena file_scratch = scratch;
     const struct Str output_path =
-        path_join(output_dir, export_path(repo_name, files[i], &scratch), &scratch);
-    if (write_or_keep(writer, output_path, contents[i], os, scratch,
-                      S("failed to write clone export"), log) != 0) {
+        path_join(output_dir, export_path(repo_name, files[i], &file_scratch), &file_scratch);
+    struct ExportMake make = {.bytes = contents[i]};
+    if (output_writer_produce(writer, output_path, cache, export_writer_make_bytes, &make,
+                              file_scratch, file_scratch, S("failed to write clone export"),
+                              log) != 0) {
       return -1;
     }
   }
@@ -146,27 +220,17 @@ int export_writer_write(const struct OutputWriter* writer,
 
 int export_writer_write_headers(const struct OutputWriter* writer,
                                 const struct SiteConfig* site_config,
-                                struct Os* os,
+                                const struct OutputCache* cache,
                                 struct Arena scratch,
                                 struct Log* log) {
   const struct Str file_path =
       path_join(site_config->output_dir, EXPORT_WRITER_HEADERS_PAGE, &scratch);
-  const struct Str bytes = format_headers(site_config, &scratch);
-  return write_or_keep(writer, file_path, bytes, os, scratch, S("failed to write headers file"),
-                       log);
-}
-
-struct BuildCacheRow export_writer_row(const struct RepoScan* scan) {
-  const struct RepoExport* export = &scan->export;
-  return (struct BuildCacheRow){
-      .kind = BUILD_CACHE_KIND_EXPORT,
-      .name = scan->model.config->name,
-      .id = export->pack_id,
-      .pack_len = export->pack_len,
-      .idx_len = export->idx_len,
-      .info_refs_id = export->info_refs_id,
-      .previous_pack_id = export->previous_pack_id,
-  };
+  struct ExportMake make = {.site_config = site_config};
+  // The bytes take one half of the scratch, and the read of the file in the output the other.
+  const char* region_end = scratch.limit != NULL ? scratch.limit : scratch.end;
+  struct Arena output = arena_split(&scratch, (region_end - scratch.beg) / 2);
+  return output_writer_produce(writer, file_path, cache, export_writer_write_headers_make, &make,
+                               output, scratch, S("failed to write headers file"), log);
 }
 
 static struct Str export_path(struct Str repo_name, struct Str file_name, struct Arena* arena) {
@@ -175,26 +239,70 @@ static struct Str export_path(struct Str repo_name, struct Str file_name, struct
   return buf_str(&path);
 }
 
-static int write_or_keep(const struct OutputWriter* writer,
-                         struct Str file_path,
-                         struct Str bytes,
-                         struct Os* os,
-                         struct Arena scratch,
-                         struct Str operation,
-                         struct Log* log) {
-  // A file that cannot be read back is written again, which is what a missing one needs too, so the
-  // read's message is not kept. The message grows in a region of its own, apart from the read.
-  struct Arena log_arena = arena_split(&scratch, EXPORT_WRITER_LOG_LEN);
-  struct Log read_log = {.buf = {.arena = &log_arena}};
-  struct Str existing = {0};
-  struct OsStat st;
-  if (os_stat(os, file_path, &st) == 0 && !st.is_dir && st.len == bytes.len &&
-      os_read(os, file_path, EXPORT_WRITER_FILE_LEN_MAX, OS_READ_BYTES, &scratch, &existing,
-              S("failed to read clone export"), &read_log) == 0 &&
-      str_eq(existing, bytes)) {
-    return output_writer_keep(writer, file_path, log);
+static int export_writer_register_pack(struct ManifestBuilder* builder,
+                                       const struct RepoScan* scan,
+                                       struct Str extension,
+                                       struct Str source_label,
+                                       struct Arena scratch,
+                                       struct Log* log) {
+  const struct RepoExport* export = &scan->export;
+  const bool is_pack = str_eq(extension, S("pack"));
+  const struct Str path =
+      pack_export_output_path(scan->model.config->name, export->pack_id, extension, &scratch);
+  if (export->is_pack_kept) {
+    return manifest_builder_add_output(builder, path, source_label,
+                                       is_pack ? export->pack_attributes : export->idx_attributes,
+                                       scratch, log);
   }
-  return output_writer_write(writer, file_path, (struct OsSource){.bytes = bytes}, operation, log);
+  if (export->built.pack_id.len > 0) {
+    // A pack's name hashes its bytes, so its name and size are all that its copy needs to declare.
+    const struct OsStat source_stat = {
+        .len = is_pack ? export->built.pack_len : export->built.idx_len,
+    };
+    const struct Str source_path = is_pack ? export->built.pack_path : export->built.idx_path;
+    return manifest_builder_add_copy(builder, path, source_path, path_basename(source_path),
+                                     &source_stat, scratch, log);
+  }
+  struct Buf attributes = {.arena = &scratch};
+  buf_printf(&attributes, "refs=%.*s", STR_FMT(export->info_refs_id));
+  const struct Str text = buf_str(&attributes);
+  return manifest_builder_add_output(builder, path, source_label, text, scratch, log);
+}
+
+static int export_writer_make_bytes(struct Arena* perm,
+                                    struct Arena scratch,
+                                    struct Str* bytes_out,
+                                    struct Log* log,
+                                    void* userdata) {
+  (void)perm;
+  (void)scratch;
+  (void)log;
+  *bytes_out = ((const struct ExportMake*)userdata)->bytes;
+  return 0;
+}
+
+static int export_writer_make_kept(struct Arena* perm,
+                                   struct Arena scratch,
+                                   struct Str* bytes_out,
+                                   struct Log* log,
+                                   void* userdata) {
+  (void)perm;
+  (void)scratch;
+  (void)bytes_out;
+  const struct ExportMake* make = userdata;
+  return log_error(log, "failed to keep clone pack: changed during the build ('%.*s')",
+                   STR_FMT(make->file_path));
+}
+
+static int export_writer_write_headers_make(struct Arena* perm,
+                                            struct Arena scratch,
+                                            struct Str* bytes_out,
+                                            struct Log* log,
+                                            void* userdata) {
+  (void)scratch;
+  (void)log;
+  *bytes_out = format_headers(((const struct ExportMake*)userdata)->site_config, perm);
+  return 0;
 }
 
 static struct Str format_headers(const struct SiteConfig* site_config, struct Arena* arena) {

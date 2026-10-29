@@ -42,7 +42,7 @@ macos-arm64 = { url = "https://github.com/unindented/apps-c17/releases/download/
   - `-c, --config PATH`: Read the configuration from `PATH`. The default is `sosig.toml` in the working directory.
   - `-w, --workers N`: Set the maximum number of worker threads for the build. `N` must be a positive integer. The default is the number of CPUs that `sosig` detects. The build never runs more workers than the number of content files, and never more than four workers for each online CPU.
   - `-n, --dry-run`: Report the changes that the build would make, but do not make them. See [Dry run](#dry-run).
-  - `--force`: Ignore the [build cache](#build-cache) for this build.
+  - `--force`: Make every output again, keeping nothing from earlier builds. See [What a build keeps](#what-a-build-keeps).
   - `-v, --verbose`: Print build progress to `stderr`.
 - `sosig config`: Print the resolved configuration as TOML. It also takes `-c, --config PATH`.
 
@@ -135,7 +135,7 @@ A template name in the configuration, or in the `template` field of an entry, mu
 > [!caution]
 > The first build into a directory removes everything in that directory that the build did not write, including hidden files. Set `output_dir` to a directory that you use for nothing else.
 
-When a build writes an output, it replaces any file that is already at that path. It keeps an output that the [build cache](#build-cache) shows is current, such as the copy of a static file or an asset whose size and modification time did not change. After a successful build, the build removes every file and directory below `output_dir` that it did not write, so `output_dir` contains only the outputs of the current inputs. For example, the build removes the pages of deleted or renamed entries, the outputs of removed templates, removed static files and removed assets, and anything that you added by hand. If a symlink does not lead to a current output, the build removes the symlink itself. It does not change the file or directory that the symlink points to. A failed build removes nothing. If rendering or writing fails before the build completes, some outputs can be new while other outputs stay unchanged.
+When a build writes an output, it replaces any file that is already at that path. It leaves an output that would not change as it is, as [What a build keeps](#what-a-build-keeps) describes. After a successful build, the build removes every file and directory below `output_dir` that it did not write, so `output_dir` contains only the outputs of the current inputs. For example, the build removes the pages of deleted or renamed entries, the outputs of removed templates, removed static files and removed assets, and anything that you added by hand. If a symlink does not lead to a current output, the build removes the symlink itself. It does not change the file or directory that the symlink points to. A failed build removes nothing. If rendering or writing fails before the build completes, some outputs can be new while other outputs stay unchanged.
 
 Before a build searches the content directory, `sosig` rejects `output_dir` in these cases:
 
@@ -165,7 +165,7 @@ keep	public/about.html
 write	public/index.html
 write	public/atom.xml
 write	public/robots.txt
-write	public/_sosig/v1-build-cache.tsv
+write	public/_sosig/output-cache.tsv
 remove	public/notes
 remove	public/notes/old-post.html
 ```
@@ -173,7 +173,7 @@ remove	public/notes/old-post.html
 | Mark | Meaning |
 | --- | --- |
 | `write` | The build would write this output. |
-| `keep` | The build would not change this content page, aggregate, or feed, because the [build cache](#build-cache) shows that it is current, or this static file or asset, because its source is unchanged and the copy has the source's size. |
+| `keep` | The build would leave this output as it is, as [What a build keeps](#what-a-build-keeps) describes. |
 | `remove` | The build would remove this path, because the current inputs no longer produce it. The path can be a directory. |
 
 The `write` and `keep` lines come first, in the order that the build plans them:
@@ -182,7 +182,7 @@ The `write` and `keep` lines come first, in the order that the build plans them:
 2. Aggregates.
 3. Feeds.
 4. Static files, then assets.
-5. The build cache.
+5. The output cache.
 
 The `remove` lines come after them, in sorted order. To get only the paths, for `sort`, `diff`, or `comm`, use `cut -f2-`. A dry run reports a failure in the same way as a build: on `stderr`, with the same exit code. A dry run that fails prints no listing. With `-v`, the progress messages still go to `stderr`, so `stdout` contains only the listing when you send it through a pipe.
 
@@ -193,21 +193,13 @@ A dry run writes nothing, so a build can still fail after a dry run succeeds. A 
 - An old file is at a path where a new output needs a directory, or an old directory is at a path where a new output needs a file. For example, the old output is the file `public/blog`, and the new output is `public/blog/index.html`.
 - `output_dir` exists but is not a usable directory.
 
-### Build cache
+### What a build keeps
 
-A build writes the build cache to `_sosig/v1-build-cache.tsv` below `output_dir`. The build cache records the size and modification time of every input that the outputs depend on: each content file, each file below `templates_dir`, and each static file and asset. Its first line records the configuration values that rendering reads, the `sosig` version, and the grammars that the binary includes.
+A build renders every content page, aggregate, and feed, and writes each one only when its bytes differ from the file in `output_dir`. An unchanged file keeps its modification time, so a deploy tool that compares times does not upload it again.
 
-The next build keeps a content page, and does not render it again, if its content file, its templates, and the configuration did not change. The build keeps the aggregates and feeds if no content file changed, and keeps the copy of a static file or an asset whose source did not change. Some changes make the build render pages again:
+A build copies a static file or an asset only when its source changed. The output cache, `_sosig/output-cache.tsv` below `output_dir`, records the path, size and modification time of each source that the build copied. The next build keeps a copy whose source still has that path, size and modification time, and whose copy still has the size that the output cache records. A tool that changes a file but keeps its size and modification time defeats this check. After such a change, run `sosig build --force` once, which writes every output again.
 
-- If any entry changes, the build renders again each page whose template reads `content_entries`, and each page whose body [links another content file](#links-between-content-files).
-- If a page has a denote link to an asset in its body, the build renders that page in every build, because no row records which asset a page links. An aggregate or a feed that shows the body is made again only when an entry changes, so after you rename the asset, it keeps the old link until then.
-- If any file below `templates_dir` changes, such as a partial, the build renders every page again.
-
-Every build still converts the Markdown or Org of every content file.
-
-Some tools change a file but keep its size and modification time. After such a change, the build can keep a page that no longer matches its content file. To correct this, run `sosig build --force` once. That build renders every page again, copies every static file and asset again, and writes a new build cache.
-
-When you publish `output_dir`, you also publish the build cache. Its output paths are already public, but it also contains the names of the template files, and the size and modification time of each content file, template, static file and asset. If you do not want to publish this information, exclude `_sosig/v1-build-cache.tsv` when you deploy. GitHub Pages runs Jekyll when it publishes from a branch. Jekyll drops every file or directory whose name starts with `_`, `.` or `#`, so it drops `_sosig/`. That directory holds only the build cache, so a site whose own outputs avoid those names still works.
+When you publish `output_dir`, you also publish the output cache, with the modification time of each static file and asset. To leave it out, exclude `_sosig/` when you deploy. GitHub Pages runs Jekyll when it publishes from a branch, and Jekyll drops every file or directory whose name starts with `_`, so it drops `_sosig/`. That directory holds only the output cache, so a site whose own outputs avoid such names still works.
 
 ### Limits
 
@@ -219,7 +211,7 @@ The build rejects an input file that is too large before it reads the file. The 
 | Config file | 1 MiB |
 | Template or partial | 4 MiB |
 
-A site can have at most 64 partials in the `partials/` directory of `templates_dir`. A rendered page can be at most 256 MiB, a render can use at most 300,000 partial expansions, and a render that passes a limit fails. A build cache over 64 MiB is not read, and the build makes every output again.
+A site can have at most 64 partials in the `partials/` directory of `templates_dir`. A rendered page can be at most 256 MiB, a render can use at most 300,000 partial expansions, and a render that passes a limit fails. An output cache over 256 MiB is not read, and the build copies every static file and asset again.
 
 The build reserves its memory once, when it starts, in fixed sizes that come from these limits. Reserved memory that the build does not use takes address space but no memory. An address-space limit (`ulimit -v`) can refuse the full reservation. When that happens, the build runs fewer workers, down to one. If the reservation still does not fit, the build makes it smaller until it fits, so the build has less room for its data. [ARCHITECTURE.md](ARCHITECTURE.md#memory-reserve-then-commit-on-demand) describes this process. Because the build runs fewer workers before it makes its reservation smaller, the address-space limit that a build needs does not increase with `-w`:
 

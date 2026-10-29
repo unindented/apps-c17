@@ -129,13 +129,22 @@ static void test_dry_run_with_other_build_flags(void) {
   TEST_CHECK(options.is_verbose);
 }
 
-// `--force` asks the build to ignore its build cache. It has no short spelling.
+// `--force` asks the build to make every output again. It has no short spelling.
 static void test_force_long_flag(void) {
   char* argv[] = {"tool", "build", "--force", NULL};
   struct CliOptions options = parse(argv);
   TEST_CHECK(options.action == CLI_ACTION_RUN);
   TEST_CHECK(options.is_forced);
   TEST_CHECK(!options.is_dry_run);
+}
+
+// `--force` combines with `--dry-run`, so a dry run reports what a forced build would write.
+static void test_force_with_dry_run(void) {
+  char* argv[] = {"tool", "build", "--force", "--dry-run", NULL};
+  struct CliOptions options = parse(argv);
+  TEST_CHECK(options.action == CLI_ACTION_RUN);
+  TEST_CHECK(options.is_forced);
+  TEST_CHECK(options.is_dry_run);
 }
 
 // `--workers 4` sets the worker count from a separate token.
@@ -586,38 +595,59 @@ static void test_print_version_reports_write_failure(void) {
 }
 
 // `cli_print_usage` substitutes the caller's program name into the usage line, in the right
-// position for the selected command, alongside command-specific option content. The name passed
-// here is deliberately *not* `"tool"`. With the real program name the assertion passes just as well
-// against a hard-coded usage line, so it would prove nothing about substitution. `cli_dispatch`
-// passes `argv[0]`, so a user invoking `/usr/local/bin/tool build --help` has to see that path
-// back. The whole texts are asserted below.
+// position for the selected command, and the command-less help substitutes it again in its trailer.
+// The name passed here is deliberately *not* `"tool"`. With the real program name the assertion
+// passes just as well against a hard-coded usage line, so it would prove nothing about
+// substitution. `cli_dispatch` passes `argv[0]`, so a user invoking
+// `/usr/local/bin/tool build --help` has to see that path back. The whole texts are asserted.
 static void test_print_usage_names_program_and_command(void) {
   static const struct Str prog_name = STR_INIT("/opt/bin/mytool");
   const struct {
     enum CliCommand command;
-    const char* usage_line;
-    const char* needle;
+    const char* text;
   } cases[] = {
-      {CLI_COMMAND_BUILD, "    /opt/bin/mytool build [options]\n", "-w, --workers N"},
-      {CLI_COMMAND_CONFIG, "    /opt/bin/mytool config [options]\n", "-h, --help"},
-      {CLI_COMMAND_NONE, "    /opt/bin/mytool <command> [options]\n", "-V, --version"},
+      {CLI_COMMAND_BUILD,
+       "Build the thing.\n"
+       "\n"
+       "USAGE:\n"
+       "    /opt/bin/mytool build [options]\n"
+       "\n"
+       "OPTIONS:\n"
+       "    -c, --config PATH  Read the configuration from PATH (default: tool.toml)\n"
+       "    -w, --workers N    Use at most N worker threads (default: detected CPU count)\n"
+       "    -n, --dry-run      Report what would be written, kept, or removed, changing nothing\n"
+       "    --force            Make every output again, keeping nothing\n"
+       "    -v, --verbose      Print build progress to stderr\n"
+       "    -h, --help         Print this help and exit\n"},
+      {CLI_COMMAND_CONFIG,
+       "Print the resolved configuration as TOML.\n"
+       "\n"
+       "USAGE:\n"
+       "    /opt/bin/mytool config [options]\n"
+       "\n"
+       "OPTIONS:\n"
+       "    -c, --config PATH  Read the configuration from PATH (default: tool.toml)\n"
+       "    -h, --help         Print this help and exit\n"},
+      {CLI_COMMAND_NONE,
+       "A static tool.\n"
+       "\n"
+       "USAGE:\n"
+       "    /opt/bin/mytool <command> [options]\n"
+       "\n"
+       "COMMANDS:\n"
+       "    build   Build the thing\n"
+       "    config  Print the resolved configuration\n"
+       "\n"
+       "OPTIONS:\n"
+       "    -h, --help     Print this help and exit\n"
+       "    -V, --version  Print version information and exit\n"
+       "\n"
+       "Use '/opt/bin/mytool <command> --help' for more information about a command.\n"},
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
     struct Os* os = os_memory();
     TEST_CHECK(cli_print_usage(&TEST_SPEC, prog_name, cases[i].command, os, test_arena()) == 0);
-    struct Arena arena = test_arena();
-    const char* text = str_cstr(os_memory_printed(os, 1), &arena);
-    TEST_CHECK(strstr(text, cases[i].usage_line) != NULL);
-    TEST_CHECK(strstr(text, cases[i].needle) != NULL);
-    if (cases[i].command == CLI_COMMAND_BUILD) {
-      TEST_CHECK(strstr(text, "-n, --dry-run") != NULL);
-      TEST_CHECK(strstr(text, "    --force            Ignore the build cache for this build\n") !=
-                 NULL);
-    }
-    // The command-less help substitutes the name a second time, in the trailer.
-    if (cases[i].command == CLI_COMMAND_NONE) {
-      TEST_CHECK(strstr(text, "Use '/opt/bin/mytool <command> --help'") != NULL);
-    }
+    TEST_CHECK(os_memory_is_printed(os, 1, cases[i].text));
   }
 }
 
@@ -648,7 +678,7 @@ static void test_print_usage_names_build_options(void) {
       "    -c, --config PATH  Read the configuration from PATH (default: tool.toml)\n"
       "    -w, --workers N    Use at most N worker threads (default: detected CPU count)\n"
       "    -n, --dry-run      Report what would be written, kept, or removed, changing nothing\n"
-      "    --force            Ignore the build cache for this build\n"
+      "    --force            Make every output again, keeping nothing\n"
       "    -v, --verbose      Print build progress to stderr\n"
       "    -h, --help         Print this help and exit\n"));
 }
@@ -693,6 +723,7 @@ TEST_LIST = {
     {"dry run short flag", test_dry_run_short_flag},
     {"dry run with other build flags", test_dry_run_with_other_build_flags},
     {"force long flag", test_force_long_flag},
+    {"force with dry run", test_force_with_dry_run},
     {"workers long flag separate value", test_workers_long_flag_separate_value},
     {"workers short flag separate value", test_workers_short_flag_separate_value},
     {"workers short flag attached value", test_workers_short_flag_attached_value},

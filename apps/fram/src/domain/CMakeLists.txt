@@ -1,13 +1,13 @@
 target_sources(
   fram_app
-  PRIVATE album.c build_cache.c media_item.c site_config.c
+  PRIVATE album.c media_item.c site_config.c
   PUBLIC FILE_SET HEADERS
          BASE_DIRS "${PROJECT_SOURCE_DIR}/src"
-         FILES album.h build_cache.h fram_version.h media_item.h site_config.h
+         FILES album.h fram_version.h media_item.h site_config.h
 )
 
 if(APPS_BUILD_TESTING)
-  foreach(module IN ITEMS album build_cache media_item)
+  foreach(module IN ITEMS album media_item)
     apps_add_unit_test(${module})
   endforeach()
   # The config is read and printed only through `os/os.h`, so its tests run against the in-memory

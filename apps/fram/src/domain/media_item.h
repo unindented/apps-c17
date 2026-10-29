@@ -6,6 +6,7 @@
 
 #include "core/str.h"
 #include "media/image.h"
+#include "os/os.h"
 
 /** Kind of source represented by a media item. */
 enum MediaKind {
@@ -54,6 +55,12 @@ struct MediaItem {
   // Fields below this boundary, plus each derivative's dimensions, are populated by the probe
   // phase. The split is by arena access, not by cost: workers write only scalars and never allocate
   // into the arena the skeleton was built in.
+
+  /**
+   * What `os_stat` reported for the source when it was probed, which names it in the attributes of
+   * its outputs and in its probe fact.
+   */
+  struct OsStat source_stat;
 
   /** Video duration in milliseconds, or zero for an image. */
   ptrdiff_t duration_ms;

@@ -123,7 +123,7 @@ static void test_help_action_reports_ok(void) {
       "    -c, --config PATH  Read the configuration from PATH (default: sosig.toml)\n"
       "    -w, --workers N    Use at most N worker threads (default: detected CPU count)\n"
       "    -n, --dry-run      Report what would be written, kept, or removed, changing nothing\n"
-      "    --force            Ignore the build cache for this build\n"
+      "    --force            Make every output again, keeping nothing\n"
       "    -v, --verbose      Print build progress to stderr\n"
       "    -h, --help         Print this help and exit\n"));
 }
@@ -159,10 +159,10 @@ static void test_config_command_is_dispatched(void) {
 // worker count, the verbose flag, the dry-run flag and the force flag reach the build rather than
 // being dropped on the way. A dry run prints its listing and leaves no `public/`, which only a
 // carried flag explains. The verbose phase lines naming the requested count, and the one saying the
-// build cache is ignored, are the only externally visible evidence that the other three fields were
-// carried across. The test asks for one worker, so a dropped count would show the detected count,
-// on a host with more than one core. One worker also finishes the jobs in order, so the progress
-// lines can be compared.
+// output cache is ignored, are the only externally visible evidence that the other three fields
+// were carried across. The test asks for one worker, so a dropped count would show the detected
+// count, on a host with more than one core. One worker also finishes the jobs in order, so the
+// progress lines can be compared.
 static void test_build_command_receives_parsed_options(void) {
   struct Os* dry_run_os = site_host("");
   char* dry_run_argv[] = {"sosig", "build", "--dry-run", NULL};
@@ -170,7 +170,7 @@ static void test_build_command_receives_parsed_options(void) {
   TEST_CHECK(os_memory_is_printed(dry_run_os, 1,
                                   "write\tpublic/hello.html\n"
                                   "write\tpublic/world.html\n"
-                                  "write\tpublic/_sosig/v1-build-cache.tsv\n"));
+                                  "write\tpublic/_sosig/output-cache.tsv\n"));
   TEST_CHECK(os_memory_is_printed(dry_run_os, 2, ""));
   TEST_CHECK(!os_memory_has_path(dry_run_os, "public"));
 
@@ -187,7 +187,7 @@ static void test_build_command_receives_parsed_options(void) {
                                   "collecting content entries\n"
                                   "compiling templates\n"
                                   "building output manifest\n"
-                                  "ignoring build cache, rendering every page\n"
+                                  "ignoring output cache, making every output\n"
                                   "converting bodies, workers: 1\n"
                                   "\rconverting bodies 1/2\rconverting bodies 2/2\n"
                                   "rendering content, workers: 1\n"
@@ -195,7 +195,7 @@ static void test_build_command_receives_parsed_options(void) {
                                   "rendering aggregate templates\n"
                                   "rendering feed templates\n"
                                   "copying static files\n"
-                                  "writing build cache\n"
+                                  "writing output cache\n"
                                   "removing stale outputs\n"
                                   "removed stale outputs: 0\n"
                                   "build complete\n"));

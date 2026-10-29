@@ -118,25 +118,23 @@ static bool is_log_one_failure(const struct Log* log,
  * terminated, copied after the HTML in `perm`. Rendered output holds no `NUL` byte, so the copy
  * loses nothing.
  *
- * @param template_name          Terminated name of a template below `TEMPLATES_DIR`.
- * @param context                Template context. Must not be `NULL`.
- * @param os                     Host holding the templates. Must not be `NULL`.
- * @param perm                   Arena that owns the set, the HTML and its terminated copy. Must not
- *                               be `NULL`.
- * @param html_out               Receives the terminated HTML on success, or `NULL` when the test
- *                               asserts only the result.
- * @param is_entry_list_read_out Receives whether the render read the entry list, or `NULL`.
- * @param log                    Log that receives the failure, or `NULL` when the test asserts only
- *                               the result.
+ * @param template_name Terminated name of a template below `TEMPLATES_DIR`.
+ * @param context       Template context. Must not be `NULL`.
+ * @param os            Host holding the templates. Must not be `NULL`.
+ * @param perm          Arena that owns the set, the HTML and its terminated copy. Must not be
+ *                      `NULL`.
+ * @param html_out      Receives the terminated HTML on success, or `NULL` when the test asserts
+ *                      only the result.
+ * @param log           Log that receives the failure, or `NULL` when the test asserts only the
+ *                      result.
  * @return `0` on success, or `-1` when the load or the render failed.
  */
-static int render_reading(const char* template_name,
-                          const struct TemplateContext* context,
-                          struct Os* os,
-                          struct Arena* perm,
-                          char** html_out,
-                          bool* is_entry_list_read_out,
-                          struct Log* log) {
+static int render(const char* template_name,
+                  const struct TemplateContext* context,
+                  struct Os* os,
+                  struct Arena* perm,
+                  char** html_out,
+                  struct Log* log) {
   struct Log discarded = {0};
   if (log == NULL) {
     discarded = test_log();
@@ -148,8 +146,7 @@ static int render_reading(const char* template_name,
     return -1;
   }
   struct Str html = {0};
-  const int rc = template_context_render(set, name, context, name, perm, test_arena(), &html,
-                                         is_entry_list_read_out, log);
+  const int rc = template_context_render(set, name, context, name, perm, test_arena(), &html, log);
   template_set_release(set);
   if (rc != 0) {
     return -1;
@@ -158,57 +155,6 @@ static int render_reading(const char* template_name,
     *html_out = str_cstr(html, perm);
   }
   return 0;
-}
-
-/**
- * @brief Renders as `render_reading` does, without asking whether the render read the entry list.
- *
- * @param template_name Terminated name of a template below `TEMPLATES_DIR`.
- * @param context       Template context. Must not be `NULL`.
- * @param os            Host holding the templates. Must not be `NULL`.
- * @param perm          Arena that owns the set, the HTML and its terminated copy. Must not be
- *                      `NULL`.
- * @param html_out      Receives the terminated HTML on success, or `NULL`.
- * @param log           Log that receives the failure, or `NULL`.
- * @return `0` on success, or `-1` when the load or the render failed.
- */
-static int render(const char* template_name,
-                  const struct TemplateContext* context,
-                  struct Os* os,
-                  struct Arena* perm,
-                  char** html_out,
-                  struct Log* log) {
-  return render_reading(template_name, context, os, perm, html_out, NULL, log);
-}
-
-// A render reports whether it read the entry list: `content_entries` depends on every entry,
-// directly or through a partial, and the `site.*` fields and the current entry's own fields do not.
-static void test_reports_whether_it_read_the_entry_list(void) {
-  static const struct {
-    const char* text;
-    bool is_entry_list_read;
-  } cases[] = {
-      {"{{title}} {{site.title}} {{generator}}", false},
-      {"{{#content_entries}}{{title}}{{/content_entries}}", true},
-      {"{{^content_entries}}none{{/content_entries}}", true},
-      {"{{>card}}", true},
-  };
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct Arena perm = test_arena();
-    struct Os* os = template_host(cases[i].text);
-    write_template(os, "partials/card.html", "{{#content_entries}}{{/content_entries}}");
-    struct SiteConfig site_config;
-    init_test_site_config(&site_config);
-    struct ContentEntry entry;
-    init_test_content_entry(&entry);
-    const struct TemplateContext context = {.site_config = &site_config,
-                                            .content_entry_current = &entry};
-    bool is_entry_list_read = !cases[i].is_entry_list_read;
-    struct Log log = test_log();
-    TEST_CHECK(render_reading("index.html", &context, os, &perm, NULL, &is_entry_list_read, &log) ==
-               0);
-    TEST_CHECK_(is_entry_list_read == cases[i].is_entry_list_read, "'%s'", cases[i].text);
-  }
 }
 
 // Content entries and their tag lists iterate with escaping.
@@ -581,7 +527,6 @@ static void test_rejects_unescaped_interpolation_of_other_keys(void) {
 }
 
 TEST_LIST = {
-    {"reports whether it read the entry list", test_reports_whether_it_read_the_entry_list},
     {"iterates content entries and tags", test_iterates_content_entries_and_tags},
     {"empty tag does not truncate tag list", test_empty_tag_does_not_truncate_tag_list},
     {"nested section reiterates content entries", test_nested_section_reiterates_content_entries},

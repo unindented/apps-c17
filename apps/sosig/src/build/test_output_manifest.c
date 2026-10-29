@@ -107,10 +107,15 @@ static int populate(struct Manifest* manifest,
   static const struct PathList empty = {0};
   struct Arena perm = test_arena();
   const struct PathList template_paths = list_templates(site_config, os, &perm);
+  static_paths = static_paths != NULL ? static_paths : &empty;
+  asset_paths = asset_paths != NULL ? asset_paths : &empty;
+  // The build stats the copies' sources before the manifest, for the copies' attributes.
+  const struct OsStat* static_stats = walk_stat_paths(static_paths, os, &perm);
+  const struct OsStat* asset_stats = walk_stat_paths(asset_paths, os, &perm);
   return output_manifest_populate(
       manifest, site_config, CONFIG_PATH, source_paths != NULL ? source_paths : &empty,
-      static_paths != NULL ? static_paths : &empty, asset_paths != NULL ? asset_paths : &empty,
-      &template_paths, content_entries, content_entry_count, os, &perm, test_arena(), log);
+      static_paths, static_stats, asset_paths, asset_stats, &template_paths, content_entries,
+      content_entry_count, os, &perm, test_arena(), log);
 }
 
 /**
@@ -222,8 +227,56 @@ static void test_registers_complete_output_set(void) {
   TEST_CHECK(
       populate(&manifest, &site_config, &sources, &static_paths, NULL, entries, 2, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  // The five outputs of the site, and the build cache.
+  // The five outputs of the site, and the output cache.
   TEST_CHECK(manifest.count == 5 + 1);
+}
+
+// A static file and an asset are copies of their sources, whose attributes are the source's size
+// and modification time. A page and the output cache declare none, and the output cache comes last.
+static void test_records_copies_with_their_sources_stat(void) {
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
+  os_memory_write(os, "site/static/a.txt", "static");
+  os_memory_write(os, "site/content/b.png", "asset!");
+  const struct ContentEntry entry = entry_at("site/public/c.html", "site/content/c.md");
+  const struct ContentEntry* entries[] = {&entry};
+  struct Arena arena = test_arena();
+  struct PathList static_paths = {0};
+  path_list_push(&static_paths, S("site/static/a.txt"), &arena);
+  struct PathList asset_paths = {0};
+  path_list_push(&asset_paths, S("site/content/b.png"), &arena);
+  struct OsStat static_stat;
+  struct OsStat asset_stat;
+  TEST_ASSERT(os_stat(os, S("site/static/a.txt"), &static_stat) == 0);
+  TEST_ASSERT(os_stat(os, S("site/content/b.png"), &asset_stat) == 0);
+  struct Manifest manifest = {0};
+  struct Log log = test_log();
+
+  TEST_CHECK(populate(&manifest, &site_config, NULL, &static_paths, &asset_paths, entries, 1, os,
+                      &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  struct ManifestOutput output = {0};
+  TEST_CHECK(manifest_find_output(&manifest, S("site/public/a.txt"), &output));
+  struct Buf expected = {.arena = &arena};
+  buf_printf(&expected, "src=a.txt len=6 mtime=%lld.%09lld", (long long)static_stat.mtime_s,
+             (long long)static_stat.mtime_ns);
+  TEST_CHECK(str_eq(output.attributes, buf_str(&expected)));
+  TEST_CHECK(str_eq(output.copy_source_path, S("site/static/a.txt")));
+  TEST_CHECK(manifest_find_output(&manifest, S("site/public/b.png"), &output));
+  expected.len = 0;
+  buf_printf(&expected, "src=b.png len=6 mtime=%lld.%09lld", (long long)asset_stat.mtime_s,
+             (long long)asset_stat.mtime_ns);
+  TEST_CHECK(str_eq(output.attributes, buf_str(&expected)));
+  TEST_CHECK(str_eq(output.copy_source_path, S("site/content/b.png")));
+  TEST_CHECK(manifest_find_output(&manifest, S("site/public/c.html"), &output));
+  TEST_CHECK(output.attributes.len == 0 && output.copy_source_path.len == 0);
+  struct Str last = {0};
+  for (struct Str path = {0}; manifest_next_output_path(&manifest, &path);) {
+    last = path;
+  }
+  TEST_CHECK(str_eq(last, S("site/public/" OUTPUT_MANIFEST_CACHE_PATH)));
+  TEST_CHECK(manifest_find_output(&manifest, last, &output));
+  TEST_CHECK(output.attributes.len == 0 && output.copy_source_path.len == 0);
 }
 
 // An output beside an input root, in a directory whose name only starts with the root's name, is
@@ -307,7 +360,7 @@ static void test_reports_every_collision(void) {
                          "duplicate output path for 'site/content/c.md' and 'site/content/d.md': "
                          "'site/public/two/index.html'\n"));
   TEST_CHECK(log.errors == 2);
-  // The two outputs that were accepted, and the build cache.
+  // The two outputs that were accepted, and the output cache.
   TEST_CHECK(manifest.count == 3);
 }
 
@@ -828,6 +881,7 @@ static void test_rejects_oversize_template_segment(void) {
 
 TEST_LIST = {
     {"registers complete output set", test_registers_complete_output_set},
+    {"records copies with their sources stat", test_records_copies_with_their_sources_stat},
     {"accepts output beside input roots", test_accepts_output_beside_input_roots},
     {"check output dir accepts dir outside input roots",
      test_check_output_dir_accepts_dir_outside_input_roots},

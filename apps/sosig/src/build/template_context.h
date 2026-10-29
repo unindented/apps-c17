@@ -53,24 +53,21 @@ struct TemplateContext {
  * `path_to_root`, and the fields of the current entry and of each listed one. Only `body_html` is
  * HTML, which a triple mustache writes as it is.
  *
- * @param set                    Loaded templates. Must not be `NULL`.
- * @param template_name          Name of a page template of `set`.
- * @param context                Borrowed data visible to the template during this render. Must not
- *                               be `NULL`.
- * @param output_name            Output the render is for, relative to `output_dir`, which a failure
- *                               names, and which a feed's `feed.url` gives below `base_url`.
- * @param perm                   Arena that owns the returned HTML. Nothing else in the render
- *                               allocates there, so the output grows in place. A failed render may
- *                               leave its partial output there, so a caller that must not keep it
- *                               passes a copy. Must not be `NULL`.
- * @param scratch                Arena for the render's temporaries, released when it returns. Must
- *                               not overlap `perm`.
- * @param html_out               Receives the HTML, owned by `perm`, on success. Must not be `NULL`.
- * @param is_entry_list_read_out Receives, on success, whether the render resolved
- *                               `content_entries`, whose value depends on every entry and not just
- *                               the current one. Ignored when `NULL`.
- * @param log                    Log that receives the render's first failure. The log's arena must
- *                               not overlap `perm` or `scratch`. Must not be `NULL`.
+ * @param set           Loaded templates. Must not be `NULL`.
+ * @param template_name Name of a page template of `set`.
+ * @param context       Borrowed data visible to the template during this render. Must not be
+ *                      `NULL`.
+ * @param output_name   Output the render is for, relative to `output_dir`, which a failure names,
+ *                      and which a feed's `feed.url` gives below `base_url`.
+ * @param perm          Arena that owns the returned HTML. Nothing else in the render allocates
+ *                      there, so the output grows in place. A failed render may leave its partial
+ *                      output there, so a caller that must not keep it passes a copy. Must not be
+ *                      `NULL`.
+ * @param scratch       Arena for the render's temporaries, released when it returns. Must not
+ *                      overlap `perm`.
+ * @param html_out      Receives the HTML, owned by `perm`, on success. Must not be `NULL`.
+ * @param log           Log that receives the render's first failure. The log's arena must not
+ *                      overlap `perm` or `scratch`. Must not be `NULL`.
  * @return `0` on success, or `-1` on failure.
  */
 int template_context_render(const struct TemplateSet* set,
@@ -80,7 +77,6 @@ int template_context_render(const struct TemplateSet* set,
                             struct Arena* perm,
                             struct Arena scratch,
                             struct Str* html_out,
-                            bool* is_entry_list_read_out,
-                            struct Log* log) __attribute__((nonnull(1, 3, 5, 7, 9)));
+                            struct Log* log) __attribute__((nonnull(1, 3, 5, 7, 8)));
 
 #endif

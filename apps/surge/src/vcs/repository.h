@@ -123,8 +123,8 @@ struct Str repository_oid_text(const struct git_oid* oid, struct Arena* arena)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Returns the git blob id of `text`, which the build cache records for text it compares,
- *        such as `info/refs`.
+ * @brief Returns the git blob id of `text`, which an output declares for text that it reads, such
+ *        as `info/refs`.
  *
  * @param text  Text to hash.
  * @param arena Arena that owns the id. Must not be `NULL`.

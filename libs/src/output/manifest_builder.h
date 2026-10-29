@@ -153,26 +153,83 @@ int manifest_builder_add(struct ManifestBuilder* builder,
                          struct Log* log) __attribute__((nonnull(1, 5)));
 
 /**
- * @brief Records each of `paths` at the path it has below `root_dir`, as a copied file is written,
- *        with the file itself as its label.
+ * @brief Records the output `relative_path` below `output_dir` with the attributes that name its
+ *        inputs, refusing it as `manifest_builder_add` does.
  *
- * Every path is checked even after one is refused, so each refusal is reported in one run.
+ * @param builder       Prepared builder. Must not be `NULL`.
+ * @param relative_path Output path relative to `output_dir`.
+ * @param source_label  What produces the output, which a diagnostic names.
+ * @param attributes    Text that names every input of the output, with no tab or newline, as
+ *                      `ManifestOutput.attributes` describes, or empty when it declares none.
+ * @param scratch       Arena for the joined path.
+ * @param log           Log that receives the failure. Must not be `NULL`.
+ * @return `0` when the path was recorded, or `-1` when it was refused.
+ */
+int manifest_builder_add_output(struct ManifestBuilder* builder,
+                                struct Str relative_path,
+                                struct Str source_label,
+                                struct Str attributes,
+                                struct Arena scratch,
+                                struct Log* log) __attribute__((nonnull(1, 6)));
+
+/**
+ * @brief Records `relative_path` below `output_dir` as a copy of `source_path` that the output
+ *        writer streams, refused as `manifest_builder_add` refuses, labelled by `source_path`.
+ *
+ * Its attributes are those of `manifest_builder_add_copies`, from `source_name` and `source_stat`,
+ * and the output writer records `source_stat`'s size as the size of the copy it streams. A copy
+ * whose path below the output is not its source's path below a root, such as fram's original under
+ * a slug, records itself with this.
+ *
+ * @param builder       Prepared builder. Must not be `NULL`.
+ * @param relative_path Output path relative to `output_dir`.
+ * @param source_path   File the output is a copy of.
+ * @param source_name   Path of `source_path` relative to its root, such as `media_dir`, so that
+ *                      moving the whole site keeps the attributes.
+ * @param source_stat   What `os_stat` reported for `source_path`. Must not be `NULL`.
+ * @param scratch       Arena for the joined path and the attributes.
+ * @param log           Log that receives the refusal. Must not be `NULL`.
+ * @return `0` when the copy was recorded, or `-1` when it was refused.
+ */
+int manifest_builder_add_copy(struct ManifestBuilder* builder,
+                              struct Str relative_path,
+                              struct Str source_path,
+                              struct Str source_name,
+                              const struct OsStat* source_stat,
+                              struct Arena scratch,
+                              struct Log* log) __attribute__((nonnull(1, 5, 7)));
+
+/**
+ * @brief Records each of `paths` at the path it has below `root_dir`, labelled by the file itself,
+ *        as a copy of its source that the output writer streams, with the source's path below
+ *        `root_dir`, size and modification time as its attributes.
+ *
+ * Each path is refused as `manifest_builder_add` refuses, and every path is checked even after one
+ * is refused, so each refusal is reported in one run.
+ *
+ * The attributes are `src=<path below root_dir> len=<bytes> mtime=<seconds>.<nanoseconds>`, so the
+ * output writer keeps a copy whose source has the name, size and modification time that the build
+ * cache recorded, and records the source's size as the size of the copy it streams. A source whose
+ * stat has a negative `len`, as `walk_stat_paths` gives a file it could not inspect, declares no
+ * attributes, so it is copied every build and the copy reports why it fails.
  *
  * @param builder    Prepared builder. Must not be `NULL`.
  * @param paths      Files below `root_dir`, such as a build's static files. Must not be `NULL`.
+ * @param stats      What `os_stat` reported for each of `paths`, parallel to them. Must not be
+ *                   `NULL` unless `paths` is empty.
  * @param root_dir   Directory the files are below.
- * @param is_skipped For each of `paths`, whether to leave it out, as for a file already reported,
- *                   or `NULL` to record every one.
- * @param scratch    Arena for each joined path.
+ * @param is_skipped For each of `paths`, whether to leave it out, or `NULL` to record every one.
+ * @param scratch    Arena for each joined path and its attributes.
  * @param log        Log that receives every refusal. Must not be `NULL`.
  * @return `0` when every path that was not skipped was recorded, or `-1` otherwise.
  */
-int manifest_builder_add_files(struct ManifestBuilder* builder,
-                               const struct PathList* paths,
-                               struct Str root_dir,
-                               const bool* is_skipped,
-                               struct Arena scratch,
-                               struct Log* log) __attribute__((nonnull(1, 2, 6)));
+int manifest_builder_add_copies(struct ManifestBuilder* builder,
+                                const struct PathList* paths,
+                                const struct OsStat* stats,
+                                struct Str root_dir,
+                                const bool* is_skipped,
+                                struct Arena scratch,
+                                struct Log* log) __attribute__((nonnull(1, 2, 7)));
 
 /**
  * @brief Records each of `names`, a config list of templates whose names are their output paths,

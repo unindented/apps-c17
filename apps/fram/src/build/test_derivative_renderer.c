@@ -12,6 +12,7 @@
 #include "core/buf.h"
 #include "core/error.h"
 #include "core/log.h"
+#include "core/path.h"
 #include "core/str.h"
 #include "domain/media_item.h"
 #include "domain/site_config.h"
@@ -178,16 +179,15 @@ static bool is_same_mtime(const struct OsStat* a, const struct OsStat* b) {
 }
 
 /**
- * @brief Runs a derivative phase over fresh worker arenas through a writer whose manifest names
- *        every output of `media`.
+ * @brief Runs one build's derivative phase below `public`, with the output cache an earlier run
+ *        left, in the given mode.
  *
  * @param site_config  Configured derivatives shared by every job. Must not be `NULL`.
  * @param media        Media items, one job per item. Must not be `NULL`.
  * @param media_count  Number of items in `media`.
  * @param video_frames Video frame slots, one per item in `media`. Must not be `NULL`.
  * @param worker_count Number of worker threads to request.
- * @param is_verbose   Whether each finished job prints a progress line.
- * @param is_dry_run   Whether the writer withholds its writes.
+ * @param mode         How the writer runs. Must not be `NULL`.
  * @param os           Host holding the sources, which receives the outputs. Must not be `NULL`.
  * @param manifest     Empty manifest that receives every output path and the marks. Must not be
  *                     `NULL`.
@@ -199,29 +199,23 @@ static int generate_with(const struct SiteConfig* site_config,
                          ptrdiff_t media_count,
                          struct VideoFrame* video_frames,
                          ptrdiff_t worker_count,
-                         bool is_verbose,
-                         bool is_dry_run,
+                         const struct TestDerivativeMode* mode,
                          struct Os* os,
                          struct Manifest* manifest,
                          struct Log* log) {
-  struct Arena arenas_perm = test_arena();
-  test_derivative_renderer_record_outputs(manifest, media, media_count, &arenas_perm);
-  const struct OutputWriter writer = {.manifest = manifest, .os = os, .is_dry_run = is_dry_run};
-  return derivative_renderer_generate(&writer, site_config, media, media_count, video_frames,
-                                      worker_count, test_job_arenas(worker_count, &arenas_perm),
-                                      is_verbose, os, test_arena(), log);
+  return test_derivative_renderer_run(site_config, media, media_count, video_frames, worker_count,
+                                      false, mode, S("public"), os, manifest, log);
 }
 
 /**
- * @brief Runs a derivative phase over fresh worker arenas, reading sources up to the media read
- *        limit.
+ * @brief Runs one quiet build's derivative phase below `public`, with the output cache an earlier
+ *        run left.
  *
  * @param site_config  Configured derivatives shared by every job. Must not be `NULL`.
  * @param media        Media items, one job per item. Must not be `NULL`.
  * @param media_count  Number of items in `media`.
  * @param video_frames Video frame slots, one per item in `media`. Must not be `NULL`.
  * @param worker_count Number of worker threads to request.
- * @param is_verbose   Whether each finished job prints a progress line.
  * @param os           Host holding the sources, which receives the outputs. Must not be `NULL`.
  * @param log          Log that receives derivative errors. Must not be `NULL`.
  * @return The renderer result.
@@ -231,12 +225,33 @@ static int generate(const struct SiteConfig* site_config,
                     ptrdiff_t media_count,
                     struct VideoFrame* video_frames,
                     ptrdiff_t worker_count,
-                    bool is_verbose,
                     struct Os* os,
                     struct Log* log) {
   struct Manifest manifest = {0};
-  return generate_with(site_config, media, media_count, video_frames, worker_count, is_verbose,
-                       false, os, &manifest, log);
+  return generate_with(site_config, media, media_count, video_frames, worker_count,
+                       &(struct TestDerivativeMode){0}, os, &manifest, log);
+}
+
+/**
+ * @brief Writes an output cache whose row vouches for the original of `item` as it is now, so a run
+ *        keeps it rather than copying a large source.
+ *
+ * @param os    Host the cache is written on. Must not be `NULL`.
+ * @param item  Item whose source and original exist. Must not be `NULL`.
+ * @param arena Arena for the text. Must not be `NULL`.
+ */
+static void keep_original(struct Os* os, const struct MediaItem* item, struct Arena* arena) {
+  struct OsStat source_stat;
+  struct OsStat original_stat;
+  TEST_ASSERT(os_stat(os, item->source_path, &source_stat) == 0);
+  TEST_ASSERT(os_stat(os, item->original_path, &original_stat) == 0);
+  struct Str relative = {0};
+  TEST_ASSERT(path_is_below(item->original_path, S("public"), &relative));
+  struct Buf text = {.arena = arena};
+  buf_printf(&text, "output cache v1\noutput\t%.*s\t%.*s\t%td\n", STR_FMT(relative),
+             STR_FMT(test_derivative_renderer_attributes(&source_stat, arena)), original_stat.len);
+  os_memory_write_bytes(os, test_derivative_renderer_cache_path(S("public"), arena),
+                        buf_str(&text));
 }
 
 /**
@@ -272,7 +287,7 @@ static void check_generate_applies_orientation(ptrdiff_t source_len) {
   const char* source = str_cstr(item.source_path, &arena);
   os_memory_truncate(os, source, source_len > jpeg.len ? source_len : jpeg.len);
 
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
   struct Str output = {0};
   TEST_CHECK(os_memory_file(os, "public/l.webp", &output) == 0);
   TEST_CHECK(test_webp_decode(output, &decoded) == 0);
@@ -288,9 +303,9 @@ static void check_generate_applies_orientation(ptrdiff_t source_len) {
              original.len == (source_len > jpeg.len ? source_len : jpeg.len));
 }
 
-// Stale image outputs are generated at their planned dimensions and the original is copied
-// byte-for-byte. A second run preserves every output timestamp.
-static void test_generate_image_and_skip_fresh_outputs(void) {
+// Image outputs are generated at their planned dimensions and the original is copied byte-for-byte.
+// A second run keeps every output the cache vouches for, so every output timestamp is preserved.
+static void test_generate_image_and_keep_its_outputs(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
   struct MediaItem item;
@@ -308,7 +323,7 @@ static void test_generate_image_and_skip_fresh_outputs(void) {
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
 
-  TEST_CHECK(generate(&site_config, media, 1, frames, 2, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 2, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
 
   TEST_CHECK(probe_file(item.derivatives[0].path, os, arena, &width, &height) == 0);
@@ -326,7 +341,13 @@ static void test_generate_image_and_skip_fresh_outputs(void) {
   TEST_CHECK(os_stat(os, item.derivatives[0].path, &thumb_before) == 0);
   TEST_CHECK(os_stat(os, item.derivatives[2].path, &large_before) == 0);
   TEST_CHECK(os_stat(os, item.original_path, &original_before) == 0);
-  TEST_CHECK(generate(&site_config, media, 1, frames, 2, false, os, &log) == 0);
+  struct Manifest manifest = {0};
+  TEST_CHECK(generate_with(&site_config, media, 1, frames, 2, &(struct TestDerivativeMode){0}, os,
+                           &manifest, &log) == 0);
+  for (ptrdiff_t i = 0; i < item.derivative_count; i++) {
+    TEST_CHECK(manifest_find_mark(&manifest, item.derivatives[i].path) == MANIFEST_MARK_KEPT);
+  }
+  TEST_CHECK(manifest_find_mark(&manifest, item.original_path) == MANIFEST_MARK_KEPT);
   struct OsStat after;
   TEST_CHECK(os_stat(os, item.derivatives[0].path, &after) == 0 &&
              is_same_mtime(&after, &thumb_before));
@@ -367,7 +388,7 @@ static void test_generate_decodes_large_source_scaled(void) {
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
 
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   ptrdiff_t width = 0;
   ptrdiff_t height = 0;
@@ -386,36 +407,31 @@ static void test_generate_decodes_large_source_scaled(void) {
   image_free(&decoded);
 }
 
-// The decode scale is the smallest eighth that leaves every stale derivative's region, cropped as
+// The decode scale is the smallest eighth that leaves every derivative's region, cropped as
 // configured and oriented, twice the derivative's size: an eighth for a 128 x 64 source, a quarter
-// for 64 x 32, where the `m` and `l` regions of an eighth would be only 8 x 4. With only the 2 x 2
-// `s` stale an eighth is enough again. A 64 x 128 source is 128 x 64 once turned by its
-// orientation, and an eighth suits it too, where upright it needs a quarter. A source no larger
-// than its derivatives decodes at full size.
-static void test_decode_scale_follows_stale_derivatives(void) {
+// for 64 x 32, where the `m` and `l` regions of an eighth would be only 8 x 4. A 64 x 128 source is
+// 128 x 64 once turned by its orientation, and an eighth suits it too, where upright it needs a
+// quarter. A source no larger than its derivatives decodes at full size.
+static void test_decode_scale_suits_every_derivative(void) {
   struct Arena arena = test_arena();
   struct MediaItem item;
   struct SiteConfig site_config;
   test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 90);
   init_item(&item, MEDIA_KIND_IMAGE, "source.jpg", &arena);
-  const bool all_stale[] = {true, true, true};
-  const bool small_stale[] = {true, false, false};
-  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, all_stale, 128, 64,
+  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, 128, 64,
                                               IMAGE_ORIENTATION_TOP_LEFT) == 1);
-  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, all_stale, 64, 32,
+  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, 64, 32,
                                               IMAGE_ORIENTATION_TOP_LEFT) == 2);
-  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, small_stale, 64, 32,
-                                              IMAGE_ORIENTATION_TOP_LEFT) == 1);
-  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, all_stale, 64, 128,
+  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, 64, 128,
                                               IMAGE_ORIENTATION_TOP_LEFT) == 2);
-  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, all_stale, 64, 128,
+  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, 64, 128,
                                               IMAGE_ORIENTATION_RIGHT_TOP) == 1);
-  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, all_stale, 8, 4,
+  TEST_CHECK(derivative_renderer_decode_scale(&site_config, &item, 8, 4,
                                               IMAGE_ORIENTATION_TOP_LEFT) == IMAGE_SCALE_FULL);
 }
 
-// Freshness is decided separately: a fresh thumbnail remains untouched while a zero-byte large
-// derivative and a same-age original of the wrong size are regenerated.
+// Each output is kept or made on its own: a thumbnail the cache vouches for remains untouched,
+// while a large derivative and an original whose sizes no longer match their rows are made again.
 static void test_generate_refreshes_outputs_independently(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
@@ -432,12 +448,12 @@ static void test_generate_refreshes_outputs_independently(void) {
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
 
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
   struct OsStat thumb_before;
   TEST_CHECK(os_stat(os, item.derivatives[0].path, &thumb_before) == 0);
   os_memory_write(os, "public/l.webp", "");
   os_memory_write(os, "public/original.bin", "x");
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
 
   struct OsStat after;
   TEST_CHECK(os_stat(os, item.derivatives[0].path, &after) == 0 &&
@@ -446,10 +462,9 @@ static void test_generate_refreshes_outputs_independently(void) {
   TEST_CHECK(os_stat(os, item.original_path, &after) == 0 && after.len == jpeg.len);
 }
 
-// When both image derivatives and the original are fresh, the renderer never decodes the source.
-// Replacing it with same-sized invalid bytes, then making every output newer than it again,
-// therefore still succeeds.
-static void test_generate_avoids_decode_when_derivatives_fresh(void) {
+// A second run keeps every output the cache vouches for without reading the source, so a source
+// that can no longer be read, but keeps its size and modification time, still succeeds.
+static void test_generate_keeps_derivatives_without_decoding(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
   struct MediaItem item;
@@ -464,17 +479,153 @@ static void test_generate_avoids_decode_when_derivatives_fresh(void) {
     return;
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
+  os_memory_fail(os, OS_MEMORY_OP_READ, "photos/source.jpg", EACCES);
 
-  char* invalid = arena_new(&arena, jpeg.len, char);
-  os_memory_write_bytes(os, item.source_path, (struct Str){invalid, jpeg.len});
-  static const char* const outputs[] = {"public/s.webp", "public/m.webp", "public/l.webp",
-                                        "public/original.bin"};
-  for (size_t i = 0; i < sizeof(outputs) / sizeof(outputs[0]); i++) {
-    os_memory_touch(os, outputs[i]);
-  }
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
+}
+
+// A source whose modification time changed makes every derivative again, from the new bytes, and
+// copies the original again.
+static void test_generate_remakes_derivatives_of_changed_source(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct MediaItem item;
+  struct Str jpeg = {0};
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
+  struct MediaItem* media[] = {&item};
+  struct VideoFrame frames[1] = {0};
+  struct Log log = test_log();
+  init_item(&item, MEDIA_KIND_IMAGE, "source.jpg", &arena);
+  if (!TEST_CHECK(test_jpeg_encode(8, 4, &arena, &jpeg) == 0)) {
+    return;
+  }
+  os_memory_write_bytes(os, item.source_path, jpeg);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
+  // Not a JPEG, so a derivative made from it fails to decode, which shows that the run read it.
+  os_memory_write_bytes(os, item.source_path, S("not a JPEG\n"));
+
+  struct Manifest manifest = {0};
+  TEST_CHECK(generate_with(&site_config, media, 1, frames, 1, &(struct TestDerivativeMode){0}, os,
+                           &manifest, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "failed to decode derivative source: failed to probe JPEG: Not a JPEG "
+                         "file: starts with 0x6e 0x6f ('photos/source.jpg')\n"));
+  TEST_CHECK(os_memory_is_file(os, "public/original.bin", "not a JPEG\n"));
+}
+
+// A derivative that was deleted is made again, and the other outputs stay untouched.
+static void test_generate_remakes_deleted_derivative(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct MediaItem item;
+  struct Str jpeg = {0};
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
+  struct MediaItem* media[] = {&item};
+  struct VideoFrame frames[1] = {0};
+  struct Log log = test_log();
+  init_item(&item, MEDIA_KIND_IMAGE, "source.jpg", &arena);
+  if (!TEST_CHECK(test_jpeg_encode(8, 4, &arena, &jpeg) == 0)) {
+    return;
+  }
+  os_memory_write_bytes(os, item.source_path, jpeg);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
+  struct OsStat thumb_before;
+  TEST_CHECK(os_stat(os, item.derivatives[0].path, &thumb_before) == 0);
+  TEST_CHECK(os_remove(os, item.derivatives[1].path, S("failed to remove fixture"), &log) == 0);
+
+  struct Manifest manifest = {0};
+  TEST_CHECK(generate_with(&site_config, media, 1, frames, 1, &(struct TestDerivativeMode){0}, os,
+                           &manifest, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(manifest_find_mark(&manifest, item.derivatives[0].path) == MANIFEST_MARK_KEPT);
+  TEST_CHECK(manifest_find_mark(&manifest, item.derivatives[1].path) == MANIFEST_MARK_WRITTEN);
+  TEST_CHECK(manifest_find_mark(&manifest, item.derivatives[2].path) == MANIFEST_MARK_KEPT);
+  ptrdiff_t width = 0;
+  ptrdiff_t height = 0;
+  TEST_CHECK(probe_file(item.derivatives[1].path, os, arena, &width, &height) == 0);
+  TEST_CHECK(width == 8 && height == 4);
+  struct OsStat after;
+  TEST_CHECK(os_stat(os, item.derivatives[0].path, &after) == 0 &&
+             is_same_mtime(&after, &thumb_before));
+}
+
+// A run without a cache makes every derivative again, and leaves one whose bytes are unchanged
+// untouched, because the decode scale does not depend on which derivatives are made.
+static void test_generate_without_cache_leaves_equal_derivatives_untouched(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct MediaItem item;
+  struct Str jpeg = {0};
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
+  struct MediaItem* media[] = {&item};
+  struct VideoFrame frames[1] = {0};
+  struct Log log = test_log();
+  init_item(&item, MEDIA_KIND_IMAGE, "source.jpg", &arena);
+  if (!TEST_CHECK(test_jpeg_encode(64, 32, &arena, &jpeg) == 0)) {
+    return;
+  }
+  os_memory_write_bytes(os, item.source_path, jpeg);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
+  struct OsStat before[3];
+  for (ptrdiff_t i = 0; i < item.derivative_count; i++) {
+    TEST_CHECK(os_stat(os, item.derivatives[i].path, &before[i]) == 0);
+  }
+  TEST_CHECK(os_remove(os, item.derivatives[1].path, S("failed to remove fixture"), &log) == 0);
+  TEST_CHECK(os_remove(os, test_derivative_renderer_cache_path(S("public"), &arena),
+                       S("failed to remove fixture"), &log) == 0);
+
+  struct Manifest manifest = {0};
+  TEST_CHECK(generate_with(&site_config, media, 1, frames, 1, &(struct TestDerivativeMode){0}, os,
+                           &manifest, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(manifest_find_mark(&manifest, item.derivatives[0].path) == MANIFEST_MARK_KEPT);
+  TEST_CHECK(manifest_find_mark(&manifest, item.derivatives[1].path) == MANIFEST_MARK_WRITTEN);
+  TEST_CHECK(manifest_find_mark(&manifest, item.derivatives[2].path) == MANIFEST_MARK_KEPT);
+  struct OsStat after;
+  TEST_CHECK(os_stat(os, item.derivatives[0].path, &after) == 0 &&
+             is_same_mtime(&after, &before[0]));
+  TEST_CHECK(os_stat(os, item.derivatives[2].path, &after) == 0 &&
+             is_same_mtime(&after, &before[2]));
+}
+
+// A forced run keeps nothing: it reads the source, so one that cannot be read fails, though the
+// cache vouches for every output.
+static void test_forced_run_makes_every_output(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct MediaItem item;
+  struct Str jpeg = {0};
+  struct SiteConfig site_config;
+  test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
+  struct MediaItem* media[] = {&item};
+  struct VideoFrame frames[1] = {0};
+  struct Log log = test_log();
+  init_item(&item, MEDIA_KIND_IMAGE, "source.jpg", &arena);
+  if (!TEST_CHECK(test_jpeg_encode(8, 4, &arena, &jpeg) == 0)) {
+    return;
+  }
+  os_memory_write_bytes(os, item.source_path, jpeg);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
+  struct OsStat thumb_before;
+  TEST_CHECK(os_stat(os, item.derivatives[0].path, &thumb_before) == 0);
+
+  struct Manifest manifest = {0};
+  TEST_CHECK(generate_with(&site_config, media, 1, frames, 1,
+                           &(struct TestDerivativeMode){.is_forced = true}, os, &manifest,
+                           &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  for (ptrdiff_t i = 0; i < item.derivative_count; i++) {
+    TEST_CHECK(manifest_find_mark(&manifest, item.derivatives[i].path) == MANIFEST_MARK_WRITTEN);
+  }
+  TEST_CHECK(manifest_find_mark(&manifest, item.original_path) == MANIFEST_MARK_WRITTEN);
+  struct OsStat after;
+  TEST_CHECK(os_stat(os, item.derivatives[0].path, &after) == 0 &&
+             !is_same_mtime(&after, &thumb_before));
 }
 
 // After a build, a dry run marks every derivative and the original kept, and reads no source: a
@@ -494,12 +645,13 @@ static void test_dry_run_marks_fresh_outputs_kept(void) {
     return;
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
   os_memory_fail(os, OS_MEMORY_OP_READ, "photos/source.jpg", EACCES);
 
   struct Manifest manifest = {0};
-  TEST_CHECK(generate_with(&site_config, media, 1, frames, 1, false, true, os, &manifest, &log) ==
-             0);
+  TEST_CHECK(generate_with(&site_config, media, 1, frames, 1,
+                           &(struct TestDerivativeMode){.is_dry_run = true}, os, &manifest,
+                           &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   for (ptrdiff_t i = 0; i < item.derivative_count; i++) {
     TEST_CHECK(manifest_find_mark(&manifest, item.derivatives[i].path) == MANIFEST_MARK_KEPT);
@@ -507,8 +659,8 @@ static void test_dry_run_marks_fresh_outputs_kept(void) {
   TEST_CHECK(manifest_find_mark(&manifest, item.original_path) == MANIFEST_MARK_KEPT);
 }
 
-// A dry run marks every stale derivative and the stale original written without making any of them,
-// so a source that is not a JPEG, which a build fails to decode, passes and leaves no file.
+// A dry run with no cache marks every derivative and the original written without making any of
+// them, so a source that is not a JPEG, which a build fails to decode, passes and leaves no file.
 static void test_dry_run_marks_stale_outputs_written_without_making_them(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
@@ -522,8 +674,9 @@ static void test_dry_run_marks_stale_outputs_written_without_making_them(void) {
   os_memory_write(os, "photos/source.jpg", "not a JPEG");
 
   struct Manifest manifest = {0};
-  TEST_CHECK(generate_with(&site_config, media, 1, frames, 1, false, true, os, &manifest, &log) ==
-             0);
+  TEST_CHECK(generate_with(&site_config, media, 1, frames, 1,
+                           &(struct TestDerivativeMode){.is_dry_run = true}, os, &manifest,
+                           &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   for (ptrdiff_t i = 0; i < item.derivative_count; i++) {
     TEST_CHECK(manifest_find_mark(&manifest, item.derivatives[i].path) == MANIFEST_MARK_WRITTEN);
@@ -569,7 +722,10 @@ static void test_verbose_prints_one_progress_line_per_job(void) {
     media[i] = &items[i];
   }
 
-  TEST_CHECK(generate(&site_config, media, ITEM_COUNT, frames, 4, true, os, &log) == 0);
+  struct Manifest manifest = {0};
+  TEST_CHECK(test_derivative_renderer_run(&site_config, media, ITEM_COUNT, frames, 4, true,
+                                          &(struct TestDerivativeMode){0}, S("public"), os,
+                                          &manifest, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   // Three jobs, so three progress lines, and one trailing newline closing the line before any later
   // status message. Workers finish in any order, so each count is asserted present once rather than
@@ -619,7 +775,7 @@ static void test_writes_derivatives_sharing_parents_concurrently(void) {
     media[i] = &items[i];
   }
 
-  TEST_CHECK(generate(&site_config, media, ITEM_COUNT, frames, 8, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, ITEM_COUNT, frames, 8, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
 
   for (ptrdiff_t i = 0; i < ITEM_COUNT; i++) {
@@ -646,7 +802,7 @@ static void test_accepts_empty_media_set(void) {
   struct VideoFrame frames[1] = {0};
   struct Log log = test_log();
 
-  TEST_CHECK(generate(&site_config, media, 0, frames, 1, false, os_memory(), &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 0, frames, 1, os_memory(), &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
 }
 
@@ -667,12 +823,13 @@ static void test_derivative_write_follows_symlink(void) {
     return;
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
-  // An empty target is stale, so the build regenerates the derivative behind the link.
+  // There is no cache, and an empty target differs from the made bytes, so the run writes the
+  // derivative behind the link.
   os_memory_write(os, "elsewhere/l.webp", "");
   os_memory_mkdir(os, "public");
   os_memory_symlink(os, "../elsewhere/l.webp", "public/l.webp");
 
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   ptrdiff_t width = 0;
   ptrdiff_t height = 0;
@@ -680,10 +837,9 @@ static void test_derivative_write_follows_symlink(void) {
   TEST_CHECK(width == 8 && height == 4);
 }
 
-// A derivative whose write fails is reported. The next build regenerates it once the cause is gone,
-// because the failed write left no file: the in-memory host fails it before the first byte. A write
-// cut short part-way would leave a file the next build keeps as fresh, as `is_fresh_derivative`
-// documents. The outputs that did land are left alone.
+// A derivative whose write fails is reported. The next build makes it again once the cause is gone,
+// because the failed write left no file, which the cache gets no row for: the in-memory host fails
+// it before the first byte. The outputs that did land are kept.
 static void test_failed_derivative_write_is_regenerated(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
@@ -701,7 +857,7 @@ static void test_failed_derivative_write_is_regenerated(void) {
   os_memory_write_bytes(os, item.source_path, jpeg);
   os_memory_fail(os, OS_MEMORY_OP_WRITE_DATA, "public/l.webp", ENOSPC);
 
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == -1);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == -1);
   char reason[ERROR_SYSTEM_MESSAGE_SIZE];
   TEST_CHECK(test_log_is(&log, "failed to write derivative 'l': %s ('public/l.webp')\n",
                          error_system_message(reason, sizeof(reason), ENOSPC)));
@@ -710,7 +866,7 @@ static void test_failed_derivative_write_is_regenerated(void) {
 
   os_memory_fail(os, OS_MEMORY_OP_WRITE_DATA, "public/l.webp", 0);
   log = test_log();
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   ptrdiff_t width = 0;
   ptrdiff_t height = 0;
@@ -749,12 +905,13 @@ static void test_reports_read_failure_with_long_source_path(void) {
   const char* source = str_cstr(item.source_path, &arena);
   os_memory_write(os, source, "");
   os_memory_truncate(os, source, source_len);
-  // An original of the same size written after the source is fresh, so the read failure is the
-  // job's only diagnostic.
+  // A cache row vouches for an original of the same size, so the read failure is the job's only
+  // diagnostic.
   os_memory_write(os, "public/original.bin", "");
   os_memory_truncate(os, "public/original.bin", source_len);
+  keep_original(os, &item, &arena);
 
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == -1);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "failed to read derivative source: exceeds max file size (%d bytes) at "
                          "%td bytes ('%.*s')\n",
@@ -762,8 +919,9 @@ static void test_reports_read_failure_with_long_source_path(void) {
 }
 
 // A source that exists but cannot be read is reported with the system cause and the path it
-// happened on, rather than as a decode failure. The derivatives are stale, so the job reaches the
-// read, and the original is fresh, so the read failure is its only diagnostic.
+// happened on, rather than as a decode failure. No cache row vouches for the derivatives, so the
+// job reaches the read, and one vouches for the original, so the read failure is its only
+// diagnostic.
 static void test_reports_unreadable_source(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
@@ -780,9 +938,10 @@ static void test_reports_unreadable_source(void) {
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
   os_memory_write_bytes(os, item.original_path, jpeg);
+  keep_original(os, &item, &arena);
   os_memory_fail(os, OS_MEMORY_OP_READ, "photos/source.jpg", EACCES);
 
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == -1);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == -1);
   // Exact, not by substring: a substring check would also pass for this message with something
   // appended to it.
   char reason[ERROR_SYSTEM_MESSAGE_SIZE];
@@ -804,10 +963,13 @@ static void test_reports_directory_source_once(void) {
   init_item(&item, MEDIA_KIND_IMAGE, "source.jpg", &arena);
   os_memory_mkdir(os, "photos/source.jpg");
 
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == -1);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(
       &log, "failed to inspect media source: not a regular file ('photos/source.jpg')\n"));
-  TEST_CHECK(os_memory_files(os, "public").count == 0);
+  for (ptrdiff_t i = 0; i < item.derivative_count; i++) {
+    TEST_CHECK(!os_memory_has_path(os, str_cstr(item.derivatives[i].path, &arena)));
+  }
+  TEST_CHECK(!os_memory_has_path(os, "public/original.bin"));
 }
 
 // A derivative source larger than `IMAGE_INPUT_LEN_MAX`, the media read limit, is rejected at the
@@ -826,12 +988,13 @@ static void test_rejects_oversize_source(void) {
   init_item(&item, MEDIA_KIND_IMAGE, "source.jpg", &arena);
   os_memory_write(os, "photos/source.jpg", "");
   os_memory_truncate(os, "photos/source.jpg", source_len);
-  // An original of the same size written after the source is fresh, so the job reaches the
-  // derivative read without first copying two gigabytes.
+  // A cache row vouches for an original of the same size, so the job reaches the derivative read
+  // without first copying two gigabytes.
   os_memory_write(os, "public/original.bin", "");
   os_memory_truncate(os, "public/original.bin", source_len);
+  keep_original(os, &item, &arena);
 
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, false, os, &log) == -1);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "failed to read derivative source: exceeds max file size (%d bytes) at "
                          "%td bytes ('photos/source.jpg')\n",
@@ -861,7 +1024,7 @@ static void test_appends_one_error_line_per_failing_source(void) {
     os_memory_write_bytes(os, items[i].source_path, S("not a JPEG\n"));
   }
 
-  TEST_CHECK(generate(&site_config, media, 2, frames, 2, false, os, &log) == -1);
+  TEST_CHECK(generate(&site_config, media, 2, frames, 2, os, &log) == -1);
   // Compared whole: a dropped newline, a lost line, or the wrong order each change these bytes.
   TEST_CHECK(test_log_is(&log,
                          "failed to decode derivative source: failed to probe JPEG: Not a JPEG "
@@ -872,12 +1035,18 @@ static void test_appends_one_error_line_per_failing_source(void) {
 }
 
 TEST_LIST = {
-    {"generate image and skip fresh outputs", test_generate_image_and_skip_fresh_outputs},
+    {"generate image and keep its outputs", test_generate_image_and_keep_its_outputs},
     {"generate decodes large source scaled", test_generate_decodes_large_source_scaled},
-    {"decode scale follows stale derivatives", test_decode_scale_follows_stale_derivatives},
+    {"decode scale suits every derivative", test_decode_scale_suits_every_derivative},
     {"generate refreshes outputs independently", test_generate_refreshes_outputs_independently},
-    {"generate avoids decode when derivatives fresh",
-     test_generate_avoids_decode_when_derivatives_fresh},
+    {"generate keeps derivatives without decoding",
+     test_generate_keeps_derivatives_without_decoding},
+    {"generate remakes derivatives of changed source",
+     test_generate_remakes_derivatives_of_changed_source},
+    {"generate remakes deleted derivative", test_generate_remakes_deleted_derivative},
+    {"generate without cache leaves equal derivatives untouched",
+     test_generate_without_cache_leaves_equal_derivatives_untouched},
+    {"forced run makes every output", test_forced_run_makes_every_output},
     {"dry run marks fresh outputs kept", test_dry_run_marks_fresh_outputs_kept},
     {"dry run marks stale outputs written without making them",
      test_dry_run_marks_stale_outputs_written_without_making_them},

@@ -32,7 +32,7 @@ struct BuildOptions {
    */
   bool is_dry_run;
 
-  /** Whether to ignore the build cache for this build, then write it afresh. */
+  /** Whether to make every output again for this build, keeping nothing from earlier builds. */
   bool is_forced;
 };
 
@@ -90,7 +90,7 @@ struct CliOptions {
   /** Whether the build only reports what it would write, keep, or remove, changing nothing. */
   bool is_dry_run;
 
-  /** Whether the build ignores its build cache, and writes it afresh. */
+  /** Whether the build makes every output again, keeping nothing from earlier builds. */
   bool is_forced;
 
   /**

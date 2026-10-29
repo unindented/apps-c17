@@ -6,7 +6,6 @@
 #include <stdint.h>
 
 #include "core/str.h"
-#include "os/os.h"
 
 /**
  * Content entry metadata and generated paths for one content source file.
@@ -15,22 +14,16 @@
  * that parsed it, or are string literals, so an entry stays valid for the rest of the build. The
  * HTML of its body lives in the long-lived arena of the worker that converted it.
  *
- * The parse phase fills every field except `body_html`, `has_entry_link` and `has_asset_link`,
- * which the convert phase fills. A convert job writes only those fields of its own entry, and reads
- * the URL of other entries, so no two jobs write one field, and no job reads a field that another
- * job writes. The page, aggregate and feed phases only read. That is a thread-safety invariant.
- * During the page phase every worker holds pointers to every entry, so a write would race. Do not
- * add a field that a phase after the convert phase fills in place.
+ * The parse phase fills every field except `body_html`, which the convert phase fills. A convert
+ * job writes only that field of its own entry, and reads the URL of other entries, so no two jobs
+ * write one field, and no job reads a field that another job writes. The page, aggregate and feed
+ * phases only read. That is a thread-safety invariant. During the page phase every worker holds
+ * pointers to every entry, so a write would race. Do not add a field that a phase after the convert
+ * phase fills in place.
  */
 struct ContentEntry {
   /** Content source path, used for diagnostics and output messages. */
   struct Str source_path;
-
-  /**
-   * What `os_stat` reported for the source just before the parse read it. The build cache records
-   * it, so the next build can tell whether the source changed since.
-   */
-  struct OsStat source_stat;
 
   /** Required title, from the frontmatter or the Org keywords. */
   struct Str title;
@@ -108,18 +101,6 @@ struct ContentEntry {
    * sits after the data it describes rather than between `tag_count` and `template`.
    */
   bool is_draft;
-
-  /**
-   * Whether the body links another content source, whose URL the page then depends on, so the build
-   * cache treats the page as one that read the entry list.
-   */
-  bool has_entry_link;
-
-  /**
-   * Whether the body links an asset through a denote identifier. The build cache has no row for an
-   * asset, so every build makes the page again.
-   */
-  bool has_asset_link;
 };
 
 /**

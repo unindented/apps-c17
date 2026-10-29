@@ -35,7 +35,7 @@ function(apps_golden_run_build)
 endfunction()
 
 # Fails the test when a file of `FIRST_DIR`, the output of the first build, differs in `ACTUAL_DIR`
-# after a later build, other than one whose relative path matches `IGNORE`, such as the build cache,
+# after a later build, other than one whose relative path matches `IGNORE`, such as the output cache,
 # which records the times of its sources. `LABEL` names the later build in the failure.
 function(apps_golden_check_unchanged)
   cmake_parse_arguments(PARSE_ARGV 0 arg "" "FIRST_DIR;ACTUAL_DIR;LABEL;IGNORE" "")
@@ -57,16 +57,12 @@ function(apps_golden_check_unchanged)
 endfunction()
 
 # Fails the test when the listing of a dry run, `LISTING`, would change anything after a build:
-# every line must keep its output, but for the build cache at `CACHE_PATH`, which every build writes
-# again, and an output whose path matches `WRITTEN`, which the app writes on every build, as fram
-# renders its pages.
+# every line must keep its output, but for the output cache at `CACHE_PATH`, which every build writes
+# again.
 function(apps_golden_check_dry_run_keeps)
-  cmake_parse_arguments(PARSE_ARGV 0 arg "" "LISTING;CACHE_PATH;WRITTEN" "")
+  cmake_parse_arguments(PARSE_ARGV 0 arg "" "LISTING;CACHE_PATH" "")
   string(REGEX MATCHALL "[^\n]+" lines "${arg_LISTING}")
   foreach(line IN LISTS lines)
-    if(arg_WRITTEN AND line MATCHES "^write\t" AND line MATCHES "${arg_WRITTEN}")
-      continue()
-    endif()
     if(NOT line MATCHES "^keep\t" AND NOT line STREQUAL "write\t${arg_CACHE_PATH}")
       message(FATAL_ERROR "the dry run after a build would change an output: '${line}'")
     endif()

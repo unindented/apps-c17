@@ -66,12 +66,6 @@ struct ContextRender {
 
   /** Output the render is for, relative to `output_dir`, which `feed.url` gives. */
   struct Str output_name;
-
-  /**
-   * Whether the render resolved `content_entries`, whose value depends on every entry. A partial's
-   * lookups count too, because they share this state.
-   */
-  bool is_entry_list_read;
 };
 
 /**
@@ -241,7 +235,6 @@ int template_context_render(const struct TemplateSet* set,
                             struct Arena* perm,
                             struct Arena scratch,
                             struct Str* html_out,
-                            bool* is_entry_list_read_out,
                             struct Log* log) {
   // Nothing in this file may allocate into an arena reached through `context`, because renders run
   // concurrently in pool jobs. Every node goes into the render's scratch, which the callbacks get.
@@ -253,14 +246,8 @@ int template_context_render(const struct TemplateSet* set,
       .text = template_context_render_text,
       .userdata = &render,
   };
-  if (template_set_render(set, template_name, &data, output_name, TEMPLATE_RENDER_OUTPUT_LEN_MAX,
-                          perm, scratch, html_out, log) != 0) {
-    return -1;
-  }
-  if (is_entry_list_read_out != NULL) {
-    *is_entry_list_read_out = render.is_entry_list_read;
-  }
-  return 0;
+  return template_set_render(set, template_name, &data, output_name, TEMPLATE_RENDER_OUTPUT_LEN_MAX,
+                             perm, scratch, html_out, log);
 }
 
 static const void* template_context_render_root(struct Arena* arena, void* userdata) {
@@ -272,7 +259,7 @@ static const void* template_context_render_child_by_name(const void* node,
                                                          struct Str name,
                                                          struct Arena* arena,
                                                          void* userdata) {
-  struct ContextRender* render = userdata;
+  const struct ContextRender* render = userdata;
   const struct Node* parent = node;
   switch (parent->kind) {
     case NODE_ROOT:
@@ -283,7 +270,6 @@ static const void* template_context_render_child_by_name(const void* node,
         return node_alloc(arena, NODE_FEED);
       }
       if (str_eq(name, S("content_entries"))) {
-        render->is_entry_list_read = true;
         return node_alloc(arena, NODE_ENTRY_LIST);
       }
       if (str_eq(name, S("generator"))) {

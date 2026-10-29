@@ -22,7 +22,6 @@
 #include "core/path.h"
 #include "core/str.h"
 #include "core/text.h"
-#include "domain/build_cache.h"
 #include "domain/grammar_path.h"
 #include "domain/repo_model.h"
 #include "domain/site_config.h"
@@ -30,6 +29,7 @@
 #include "os/oom.h"
 #include "os/os.h"
 #include "output/manifest_builder.h"
+#include "output/output_cache.h"
 #include "output/output_path.h"
 #include "output/output_writer.h"
 #include "runtime/job.h"
@@ -53,6 +53,13 @@ enum { REPO_PAGES_ID_LEN_MAX = 64 };
 
 /** Commit pages one job renders, so a repo of many commits does not make as many jobs. */
 enum { REPO_PAGES_COMMIT_BATCH = 16 };
+
+/**
+ * Bytes the region of a blob holds past the blob: `arena_split` rounds a region down to 16 bytes, a
+ * sanitizer build pads an allocation by up to 23, and an allocation leaves a byte of its arena
+ * free.
+ */
+enum { REPO_PAGES_BLOB_SLACK = 64 };
 
 /** What one job of the pages phase writes. */
 enum RepoPageJobKind {
@@ -104,9 +111,6 @@ struct RepoPagesRun {
   /** Writer every output goes through. */
   const struct OutputWriter* writer;
 
-  /** Host the jobs check outputs on. */
-  struct Os* os;
-
   /** The workers' arenas, whose index names a job's worker. */
   const struct JobArenas* worker_arenas;
 
@@ -132,41 +136,94 @@ struct RepoPagesOutput {
   struct Str label;
 };
 
-/**
- * @brief Walks the page rows `repo_pages_append_rows` appends, or only counts them, so a count and
- *        the rows always agree.
- *
- * @param cache       Cache whose `count` grows by one per row, and which receives the rows unless
- *                    only counting. Must not be `NULL`.
- * @param site_config Configuration of the build. Must not be `NULL`.
- * @param scans       What the scan found, one slot per repo of `site_config`. Must not be `NULL`.
- * @param arena       Arena that owns the rows' names and ids, or `NULL` to count them only.
- */
-static void visit_rows(struct BuildCache* cache,
-                       const struct SiteConfig* site_config,
-                       const struct RepoScan* scans,
-                       struct Arena* arena) __attribute__((nonnull(1, 2, 3)));
+/** A file's blob, which its raw copy and its page share, read by whichever needs it first. */
+struct RepoPagesBlob {
+  /** Region of the job's scratch that the bytes go in, the blob's size and a little more. */
+  struct Arena arena;
+
+  /** The blob's bytes, once read. */
+  struct Str data;
+
+  /** Whether `git_blob_is_binary` judges the blob binary, once read. */
+  bool is_binary;
+
+  /** Whether the blob was read. */
+  bool is_read;
+};
+
+/** What makes one output of a job, for `output_writer_produce`. */
+struct RepoPagesMake {
+  /** The run. */
+  const struct RepoPagesRun* run;
+
+  /** The job. */
+  const struct RepoPageJob* job;
+
+  /** Arenas of the worker. */
+  struct JobArenas* arenas;
+
+  /** The output. */
+  const struct RepoPagesOutput* output;
+
+  /** Index of one of a repo's own pages or feeds, or of a commit in the repo's commits. */
+  ptrdiff_t index;
+
+  /** The file of a blob page or a raw copy, else `NULL`. */
+  const struct TreeEntry* entry;
+
+  /** The blob of a blob page or a raw copy, else `NULL`. */
+  struct RepoPagesBlob* blob;
+
+  /** The page the make rendered, which `produce_page` gives back once it is written. */
+  struct Str bytes;
+
+  /** The region the page grew in, past the page. */
+  struct Arena bytes_arena;
+};
 
 /**
  * @brief Records the paths of one directory's tree page and of its files' blob pages and raw
- *        copies.
+ *        copies, with their attributes.
  *
  * @param builder     Manifest being built. Must not be `NULL`.
- * @param repo        What the scan found for the repo. Must not be `NULL`.
+ * @param site_config Configuration of the build. Must not be `NULL`.
+ * @param scan        What the scan found for the repo. Must not be `NULL`.
  * @param tree        Tree of the branch. Must not be `NULL`.
  * @param dir         The directory. Must not be `NULL`.
- * @param raw_len_max Largest blob given a raw copy.
- * @param scratch     Arena for each path before the manifest copies it.
+ * @param recipe_id   Id of the page recipe.
+ * @param scratch     Arena for each path and its attributes before the manifest copies them.
  * @param log         Log that receives every refusal. Must not be `NULL`.
  * @return `0` when every path was recorded, or `-1` otherwise.
  */
 static int repo_pages_register_dir(struct ManifestBuilder* builder,
-                                   const struct RepoModel* repo,
+                                   const struct SiteConfig* site_config,
+                                   const struct RepoScan* scan,
                                    const struct BranchTree* tree,
                                    const struct TreeDir* dir,
-                                   ptrdiff_t raw_len_max,
+                                   struct Str recipe_id,
                                    struct Arena scratch,
-                                   struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 7)));
+                                   struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 5, 8)));
+
+/**
+ * @brief Records one page with the attributes every page of its repo declares, `recipe=<id>` and
+ *        `map=<id>`, followed by `inputs`.
+ *
+ * @param builder   Manifest being built. Must not be `NULL`.
+ * @param scan      What the scan found for the page's repo. Must not be `NULL`.
+ * @param output    The page. Must not be `NULL`.
+ * @param recipe_id Id of the page recipe.
+ * @param inputs    Attributes of the page's own inputs, such as `commit=<oid>`.
+ * @param scratch   Arena for the attributes.
+ * @param log       Log that receives the refusal. Must not be `NULL`.
+ * @return `0` when the path was recorded, or `-1` otherwise.
+ */
+static int repo_pages_register_page(struct ManifestBuilder* builder,
+                                    const struct RepoScan* scan,
+                                    const struct RepoPagesOutput* output,
+                                    struct Str recipe_id,
+                                    struct Str inputs,
+                                    struct Arena scratch,
+                                    struct Log* log) __attribute__((nonnull(1, 2, 3, 7)));
 
 /**
  * @brief Runs one job of the pages phase. This is the `JobFn` of `repo_pages_write`.
@@ -183,7 +240,7 @@ static int repo_pages_job(ptrdiff_t index,
                           void* userdata) __attribute__((nonnull(2, 3, 4)));
 
 /**
- * @brief Writes a repo's home and its branches and tags pages, or keeps each one.
+ * @brief Writes a repo's home, its branches and tags pages and its feeds, or keeps each one.
  *
  * @param run    The run. Must not be `NULL`.
  * @param job    The job. Must not be `NULL`.
@@ -195,6 +252,22 @@ static int repo_pages_job_repo(const struct RepoPagesRun* run,
                                const struct RepoPageJob* job,
                                struct JobArenas* arenas,
                                struct Log* log) __attribute__((nonnull(1, 2, 3, 4)));
+
+/**
+ * @brief Makes one of a repo's own pages, as `OutputWriterMakeFn`.
+ *
+ * @param perm      Arena the page grows in. Must not be `NULL`.
+ * @param scratch   Arena for the documents' and the render's temporaries.
+ * @param bytes_out Receives the page. Must not be `NULL`.
+ * @param log       Log of the job. Must not be `NULL`.
+ * @param userdata  The `struct RepoPagesMake`, whose `index` names the page.
+ * @return `0` on success, or `-1` when a document cannot be read or the render fails.
+ */
+static int repo_pages_job_repo_make(struct Arena* perm,
+                                    struct Arena scratch,
+                                    struct Str* bytes_out,
+                                    struct Log* log,
+                                    void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
 
 /**
  * @brief Builds the data tree of one of a repo's own pages, reading the home's documents.
@@ -237,6 +310,22 @@ static int repo_pages_job_repo_feeds(const struct RepoPagesRun* run,
                                      struct Log* log) __attribute__((nonnull(1, 2, 3, 4)));
 
 /**
+ * @brief Makes a repo's tag feed or release feed, as `OutputWriterMakeFn`.
+ *
+ * @param perm      Arena the feed grows in. Must not be `NULL`.
+ * @param scratch   Arena for the render's temporaries.
+ * @param bytes_out Receives the feed. Must not be `NULL`.
+ * @param log       Log of the job. Must not be `NULL`.
+ * @param userdata  The `struct RepoPagesMake`, whose `index` names the feed.
+ * @return `0` on success, or `-1` when the render fails.
+ */
+static int repo_pages_job_repo_feeds_make(struct Arena* perm,
+                                          struct Arena scratch,
+                                          struct Str* bytes_out,
+                                          struct Log* log,
+                                          void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
+
+/**
  * @brief Writes one directory's tree page and its files' blob pages and raw copies, or keeps each
  *        one.
  *
@@ -266,6 +355,22 @@ static int repo_pages_job_dir_tree(const struct RepoPagesRun* run,
                                    struct Log* log) __attribute__((nonnull(1, 2, 3, 4)));
 
 /**
+ * @brief Makes one directory's tree page, with its documents, as `OutputWriterMakeFn`.
+ *
+ * @param perm      Arena the page grows in. Must not be `NULL`.
+ * @param scratch   Arena for the documents' and the render's temporaries.
+ * @param bytes_out Receives the page. Must not be `NULL`.
+ * @param log       Log of the job. Must not be `NULL`.
+ * @param userdata  The `struct RepoPagesMake`.
+ * @return `0` on success, or `-1` when a document cannot be read or the render fails.
+ */
+static int repo_pages_job_dir_tree_make(struct Arena* perm,
+                                        struct Arena scratch,
+                                        struct Str* bytes_out,
+                                        struct Log* log,
+                                        void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
+
+/**
  * @brief Writes one file's blob page and raw copy, or keeps each one.
  *
  * @param run    The run. Must not be `NULL`.
@@ -282,28 +387,49 @@ static int repo_pages_job_dir_file(const struct RepoPagesRun* run,
                                    struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 5)));
 
 /**
- * @brief Renders and writes one file's blob page.
+ * @brief Reads a file's blob into its region, unless a make of the file read it already.
  *
- * @param run       The run. Must not be `NULL`.
- * @param job       The job of the file's directory. Must not be `NULL`.
- * @param entry     The file. Must not be `NULL`.
- * @param data      The blob's bytes, which the raw copy can have read for a blob over
- *                  `blob_len_max`, or empty when nothing read them.
- * @param is_binary Whether `git_blob_is_binary` judges the blob binary, or `false` when nothing
- *                  read it. The page ignores it for a blob over `blob_len_max`.
- * @param arenas    Arenas of the worker. Must not be `NULL`.
- * @param scratch   Arena past the blob's bytes, for the page's temporaries and its HTML.
- * @param log       Log of the job. Must not be `NULL`.
- * @return `0` on success, or `-1` when the render or the write fails.
+ * @param make Make of one of the file's outputs, whose `blob` receives the bytes. Must not be
+ *             `NULL`.
+ * @param log  Log of the job. Must not be `NULL`.
+ * @return `0` on success, or `-1` when the repository or the blob cannot be read.
  */
-static int repo_pages_job_dir_file_page(const struct RepoPagesRun* run,
-                                        const struct RepoPageJob* job,
-                                        const struct TreeEntry* entry,
-                                        struct Str data,
-                                        bool is_binary,
-                                        struct JobArenas* arenas,
-                                        struct Arena scratch,
-                                        struct Log* log) __attribute__((nonnull(1, 2, 3, 6, 8)));
+static int repo_pages_job_dir_file_read(const struct RepoPagesMake* make, struct Log* log)
+    __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Makes one file's raw copy, its blob's bytes, as `OutputWriterMakeFn`.
+ *
+ * @param perm      Unused, as the bytes stay in the blob's region.
+ * @param scratch   Unused.
+ * @param bytes_out Receives the bytes. Must not be `NULL`.
+ * @param log       Log of the job. Must not be `NULL`.
+ * @param userdata  The `struct RepoPagesMake` of the copy.
+ * @return `0` on success, or `-1` when the blob cannot be read.
+ */
+static int repo_pages_job_dir_file_raw_make(struct Arena* perm,
+                                            struct Arena scratch,
+                                            struct Str* bytes_out,
+                                            struct Log* log,
+                                            void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
+
+/**
+ * @brief Makes one file's blob page, as `OutputWriterMakeFn`.
+ *
+ * A blob over `blob_len_max` is not read, as its page shows none of it.
+ *
+ * @param perm      Arena the page grows in. Must not be `NULL`.
+ * @param scratch   Arena for the page's temporaries.
+ * @param bytes_out Receives the page. Must not be `NULL`.
+ * @param log       Log of the job. Must not be `NULL`.
+ * @param userdata  The `struct RepoPagesMake` of the page.
+ * @return `0` on success, or `-1` when the blob cannot be read or the render fails.
+ */
+static int repo_pages_job_dir_file_page_make(struct Arena* perm,
+                                             struct Arena scratch,
+                                             struct Str* bytes_out,
+                                             struct Log* log,
+                                             void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
 
 /**
  * @brief Writes one log page of a branch, and for its first page the branch's commit feed, or keeps
@@ -335,6 +461,22 @@ static int repo_pages_job_log_page(const struct RepoPagesRun* run,
                                    struct Log* log) __attribute__((nonnull(1, 2, 3, 4)));
 
 /**
+ * @brief Makes one log page of a branch, as `OutputWriterMakeFn`.
+ *
+ * @param perm      Arena the page grows in. Must not be `NULL`.
+ * @param scratch   Arena for the make's and the render's temporaries.
+ * @param bytes_out Receives the page. Must not be `NULL`.
+ * @param log       Log of the job. Must not be `NULL`.
+ * @param userdata  The `struct RepoPagesMake`.
+ * @return `0` on success, or `-1` when a commit cannot be read or the render fails.
+ */
+static int repo_pages_job_log_page_make(struct Arena* perm,
+                                        struct Arena scratch,
+                                        struct Str* bytes_out,
+                                        struct Log* log,
+                                        void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
+
+/**
  * @brief Writes a branch's commit feed, its newest `feed_count` commits, or keeps it.
  *
  * @param run    The run. Must not be `NULL`.
@@ -347,6 +489,22 @@ static int repo_pages_job_log_feed(const struct RepoPagesRun* run,
                                    const struct RepoPageJob* job,
                                    struct JobArenas* arenas,
                                    struct Log* log) __attribute__((nonnull(1, 2, 3, 4)));
+
+/**
+ * @brief Makes a branch's commit feed, as `OutputWriterMakeFn`.
+ *
+ * @param perm      Arena the page grows in. Must not be `NULL`.
+ * @param scratch   Arena for the make's and the render's temporaries.
+ * @param bytes_out Receives the page. Must not be `NULL`.
+ * @param log       Log of the job. Must not be `NULL`.
+ * @param userdata  The `struct RepoPagesMake`.
+ * @return `0` on success, or `-1` when a commit cannot be read or the render fails.
+ */
+static int repo_pages_job_log_feed_make(struct Arena* perm,
+                                        struct Arena scratch,
+                                        struct Str* bytes_out,
+                                        struct Log* log,
+                                        void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
 
 /**
  * @brief Writes a batch of commit pages, or keeps each one.
@@ -362,6 +520,22 @@ static int repo_pages_job_commits(const struct RepoPagesRun* run,
                                   const struct RepoPageJob* job,
                                   struct JobArenas* arenas,
                                   struct Log* log) __attribute__((nonnull(1, 2, 3, 4)));
+
+/**
+ * @brief Makes one commit page, with its diff, as `OutputWriterMakeFn`.
+ *
+ * @param perm      Arena the page grows in. Must not be `NULL`.
+ * @param scratch   Arena for the make's and the render's temporaries.
+ * @param bytes_out Receives the page. Must not be `NULL`.
+ * @param log       Log of the job. Must not be `NULL`.
+ * @param userdata  The `struct RepoPagesMake`, whose `index` names the commit.
+ * @return `0` on success, or `-1` when the commit cannot be read or diffed, or the render fails.
+ */
+static int repo_pages_job_commits_make(struct Arena* perm,
+                                       struct Arena scratch,
+                                       struct Str* bytes_out,
+                                       struct Log* log,
+                                       void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
 
 /**
  * @brief Highlights both sides of each file of a commit whose diff shows lines, each side's blob
@@ -450,25 +624,40 @@ static int repo_pages_open(const struct RepoPagesRun* run,
                            struct Log* log) __attribute__((nonnull(1, 3, 4, 5)));
 
 /**
- * @brief Renders a page and writes it.
+ * @brief Keeps or makes and writes a page through `output_writer_produce`, with half of `scratch`
+ *        for the page to grow in and half for the make's temporaries and the read of the page in
+ *        the output, and gives back the page's memory once it is written.
  *
- * @param run           The run. Must not be `NULL`.
+ * @param make    Make of the page. Must not be `NULL`.
+ * @param fn      Makes the page. Must not be `NULL`.
+ * @param scratch Arena the page's regions come from.
+ * @param log     Log of the job. Must not be `NULL`.
+ * @return `0` on success, or `-1` when the make or the write fails.
+ */
+static int produce_page(struct RepoPagesMake* make,
+                        OutputWriterMakeFn fn,
+                        struct Arena scratch,
+                        struct Log* log) __attribute__((nonnull(1, 2, 4)));
+
+/**
+ * @brief Renders a page into `perm`, and records it in `make`, so `produce_page` gives it back.
+ *
+ * @param make          Make of the page, whose output names it. Must not be `NULL`.
  * @param template_name Name of the page's template.
  * @param value         Data tree of the page. Must not be `NULL`.
- * @param output        The page's output. Must not be `NULL`.
- * @param page_arena    Region the page grows in, where nothing else allocates, given back once the
- *                      page is written.
+ * @param perm          Region the page grows in, where nothing else allocates. Must not be `NULL`.
  * @param scratch       Arena for the render's temporaries.
+ * @param bytes_out     Receives the page. Must not be `NULL`.
  * @param log           Log of the job. Must not be `NULL`.
- * @return `0` on success, or `-1` when the render or the write fails.
+ * @return `0` on success, or `-1` when the render fails.
  */
-static int render_page(const struct RepoPagesRun* run,
+static int render_page(struct RepoPagesMake* make,
                        struct Str template_name,
                        const struct TemplateValue* value,
-                       const struct RepoPagesOutput* output,
-                       struct Arena page_arena,
+                       struct Arena* perm,
                        struct Arena scratch,
-                       struct Log* log) __attribute__((nonnull(1, 3, 4, 7)));
+                       struct Str* bytes_out,
+                       struct Log* log) __attribute__((nonnull(1, 3, 4, 6, 7)));
 
 /**
  * @brief Finds and renders the documents that the page of `dir` shows, as `readme_find_documents`
@@ -500,25 +689,6 @@ static int render_documents(const struct RepoPagesRun* run,
                             struct TreeDocument** documents_out,
                             ptrdiff_t* count_out,
                             struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 6, 7, 9, 10, 11)));
-
-/**
- * @brief Reports whether the build cache vouches for an output that still exists.
- *
- * @param run          The run. Must not be `NULL`.
- * @param repo_index   Index of the output's repo in the config.
- * @param output       The output. Must not be `NULL`.
- * @param key          Ids of what the output reads now, as `repo_pages_append_rows` records them.
- * @param is_templated Whether the output is a page, which its templates and its repo's `repo` map
- *                     also decide.
- * @param len          Size the output must have, or `-1` for any.
- * @return `true` when the output can be kept.
- */
-static bool is_kept(const struct RepoPagesRun* run,
-                    ptrdiff_t repo_index,
-                    const struct RepoPagesOutput* output,
-                    struct Str key,
-                    bool is_templated,
-                    ptrdiff_t len) __attribute__((nonnull(1, 3)));
 
 /**
  * @brief Returns the output of a per-ref page or copy.
@@ -650,33 +820,34 @@ static struct Str key_id(struct Str text, struct Arena* perm, struct Arena scrat
     __attribute__((nonnull(2)));
 
 /**
- * @brief Returns the ids a tree page reads: its tree, the branch's root tree when one of its
- *        documents is Markdown or Org, whose links resolve against every path of the branch, and
- *        for the root's page the branch's commit, whose summary it shows.
+ * @brief Returns the attributes of what a tree page reads: `tree=` its tree, `root=` the branch's
+ *        root tree when one of its documents is Markdown or Org, whose links resolve against every
+ *        path of the branch, and for the root's page `commit=` the branch's commit, whose summary
+ *        it shows.
  *
  * @param tree         Tree of the branch. Must not be `NULL`.
  * @param dir          The directory. Must not be `NULL`.
  * @param blob_len_max Largest blob read for a page.
- * @param arena        Arena that owns the key. Must not be `NULL`.
- * @return The key.
+ * @param arena        Arena that owns the attributes. Must not be `NULL`.
+ * @return The attributes.
  */
-static struct Str tree_key(const struct BranchTree* tree,
-                           const struct TreeDir* dir,
-                           ptrdiff_t blob_len_max,
-                           struct Arena* arena) __attribute__((nonnull(1, 2, 4)));
+static struct Str tree_attributes(const struct BranchTree* tree,
+                                  const struct TreeDir* dir,
+                                  ptrdiff_t blob_len_max,
+                                  struct Arena* arena) __attribute__((nonnull(1, 2, 4)));
 
 /**
- * @brief Returns the ids a blob page reads: its blob, its mode, and the branch's root tree when it
- *        is Markdown or Org.
+ * @brief Returns the attributes of what a blob page reads: `blob=` its blob, `mode=` its mode, and
+ *        `root=` the branch's root tree when it is Markdown or Org.
  *
  * @param tree  Tree of the branch. Must not be `NULL`.
  * @param entry The file. Must not be `NULL`.
- * @param arena Arena that owns the key. Must not be `NULL`.
- * @return The key.
+ * @param arena Arena that owns the attributes. Must not be `NULL`.
+ * @return The attributes.
  */
-static struct Str blob_key(const struct BranchTree* tree,
-                           const struct TreeEntry* entry,
-                           struct Arena* arena) __attribute__((nonnull(1, 2, 3)));
+static struct Str blob_attributes(const struct BranchTree* tree,
+                                  const struct TreeEntry* entry,
+                                  struct Arena* arena) __attribute__((nonnull(1, 2, 3)));
 
 /**
  * @brief Returns one of a repo's own pages below its directory.
@@ -736,26 +907,40 @@ static struct Arena split_half(struct Arena* arena) __attribute__((nonnull(1)));
 int repo_pages_register(struct ManifestBuilder* builder,
                         const struct SiteConfig* site_config,
                         const struct RepoScan* scans,
+                        struct Str recipe_id,
                         struct Arena scratch,
                         struct Log* log) {
   int rc = 0;
   for (ptrdiff_t i = 0; i < site_config->repo_count; i++) {
-    const struct RepoModel* repo = &scans[i].model;
+    const struct RepoScan* scan = &scans[i];
+    const struct RepoModel* repo = &scan->model;
     for (ptrdiff_t j = 0; j < REPO_PAGES_REPO_PAGE_COUNT; j++) {
-      struct Arena path_scratch = scratch;
+      // The home and the refs pages show the repo and every ref, and the tags page links each tag's
+      // release.
+      struct Arena page_scratch = scratch;
       const struct RepoPagesOutput output =
-          repo_output(site_config, repo, repo_page(j), &path_scratch);
-      if (manifest_builder_add(builder, output.relative_path, output.label, path_scratch, log) !=
+          repo_output(site_config, repo, repo_page(j), &page_scratch);
+      struct Buf inputs = {.arena = &page_scratch};
+      buf_printf(&inputs, "repo=%.*s refs=%.*s", STR_FMT(scan->repo_id),
+                 STR_FMT(scan->export.info_refs_id));
+      if (j == REPO_PAGES_TAGS_INDEX) {
+        buf_printf(&inputs, " releases=%.*s", STR_FMT(scan->releases_id));
+      }
+      const struct Str text = buf_str(&inputs);
+      if (repo_pages_register_page(builder, scan, &output, recipe_id, text, page_scratch, log) !=
           0) {
         rc = -1;
       }
     }
     const ptrdiff_t feed_count = repo_feed_count(repo);
     for (ptrdiff_t j = 0; j < feed_count; j++) {
-      struct Arena path_scratch = scratch;
+      struct Arena page_scratch = scratch;
       const struct RepoPagesOutput output =
-          repo_output(site_config, repo, repo_feed_page(j), &path_scratch);
-      if (manifest_builder_add(builder, output.relative_path, output.label, path_scratch, log) !=
+          repo_output(site_config, repo, repo_feed_page(j), &page_scratch);
+      const struct Str text =
+          j == 0 ? str_concat(S("feed="), tags_feed_key(scan, &page_scratch), &page_scratch)
+                 : str_concat(S("releases="), scan->releases_id, &page_scratch);
+      if (repo_pages_register_page(builder, scan, &output, recipe_id, text, page_scratch, log) !=
           0) {
         rc = -1;
       }
@@ -763,36 +948,44 @@ int repo_pages_register(struct ManifestBuilder* builder,
     for (ptrdiff_t j = 0; j < repo->tree_count; j++) {
       const struct BranchTree* tree = &repo->trees[j];
       for (ptrdiff_t k = 0; k < tree->dir_count; k++) {
-        if (repo_pages_register_dir(builder, repo, tree, &tree->dirs[k],
-                                    site_config->limits.raw_len_max, scratch, log) != 0) {
+        if (repo_pages_register_dir(builder, site_config, scan, tree, &tree->dirs[k], recipe_id,
+                                    scratch, log) != 0) {
           rc = -1;
         }
       }
       const ptrdiff_t page_count =
           page_log_count(repo->logs[j].commit_count, site_config->log_page_size);
       for (ptrdiff_t k = 0; k < page_count; k++) {
-        struct Arena path_scratch = scratch;
-        const struct RepoPagesOutput output = log_output(site_config, repo, tree, k, &path_scratch);
-        if (manifest_builder_add(builder, output.relative_path, output.label, path_scratch, log) !=
+        struct Arena page_scratch = scratch;
+        const struct RepoPagesOutput output = log_output(site_config, repo, tree, k, &page_scratch);
+        const struct Str key =
+            log_key(repo, &repo->logs[j], k, site_config->log_page_size, &page_scratch);
+        const struct Str text = str_concat(S("log="), key, &page_scratch);
+        if (repo_pages_register_page(builder, scan, &output, recipe_id, text, page_scratch, log) !=
             0) {
           rc = -1;
         }
       }
       // A branch with log pages has a commit feed.
       if (page_count > 0) {
-        struct Arena path_scratch = scratch;
-        const struct RepoPagesOutput output = feed_output(site_config, repo, tree, &path_scratch);
-        if (manifest_builder_add(builder, output.relative_path, output.label, path_scratch, log) !=
+        struct Arena page_scratch = scratch;
+        const struct RepoPagesOutput output = feed_output(site_config, repo, tree, &page_scratch);
+        const struct Str key =
+            commits_feed_key(&repo->logs[j], site_config->feed_count, &page_scratch);
+        const struct Str text = str_concat(S("feed="), key, &page_scratch);
+        if (repo_pages_register_page(builder, scan, &output, recipe_id, text, page_scratch, log) !=
             0) {
           rc = -1;
         }
       }
     }
+    // A commit page reads only its commit and its repo's `repo` map.
     for (ptrdiff_t j = 0; j < repo->commit_count; j++) {
-      struct Arena path_scratch = scratch;
+      struct Arena page_scratch = scratch;
       const struct RepoPagesOutput output =
-          commit_output(site_config, repo, repo->commits[j], &path_scratch);
-      if (manifest_builder_add(builder, output.relative_path, output.label, path_scratch, log) !=
+          commit_output(site_config, repo, repo->commits[j], &page_scratch);
+      const struct Str text = str_concat(S("commit="), repo->commits[j], &page_scratch);
+      if (repo_pages_register_page(builder, scan, &output, recipe_id, text, page_scratch, log) !=
           0) {
         rc = -1;
       }
@@ -821,7 +1014,6 @@ int repo_pages_write(const struct RepoPagesInputs* inputs,
   struct RepoPagesRun run = {
       .inputs = inputs,
       .writer = writer,
-      .os = os,
       .worker_arenas = worker_arenas,
       .workers = workers,
       .jobs = jobs,
@@ -843,122 +1035,31 @@ int repo_pages_write(const struct RepoPagesInputs* inputs,
   return rc;
 }
 
-ptrdiff_t repo_pages_count_rows(const struct SiteConfig* site_config,
-                                const struct RepoScan* scans) {
-  struct BuildCache counted = {0};
-  visit_rows(&counted, site_config, scans, NULL);
-  return counted.count;
-}
-void repo_pages_append_rows(struct BuildCache* cache,
-                            const struct SiteConfig* site_config,
-                            const struct RepoScan* scans,
-                            struct Arena* arena) {
-  visit_rows(cache, site_config, scans, arena);
-}
-static void visit_rows(struct BuildCache* cache,
-                       const struct SiteConfig* site_config,
-                       const struct RepoScan* scans,
-                       struct Arena* arena) {
-  const ptrdiff_t blob_len_max = site_config->limits.blob_len_max;
-  for (ptrdiff_t i = 0; i < site_config->repo_count; i++) {
-    const struct RepoModel* repo = &scans[i].model;
-    // The tag feed, and the release feed of a repo with release projects.
-    const ptrdiff_t feed_count = repo_feed_count(repo);
-    for (ptrdiff_t j = 0; j < feed_count; j++) {
-      if (arena == NULL) {
-        cache->count++;
-        continue;
-      }
-      cache->rows[cache->count++] = (struct BuildCacheRow){
-          .kind = BUILD_CACHE_KIND_PAGE,
-          .name = repo_output(site_config, repo, repo_feed_page(j), arena).relative_path,
-          .id = j == 0 ? tags_feed_key(&scans[i], arena) : scans[i].releases_id,
-      };
-    }
-    for (ptrdiff_t j = 0; j < repo->tree_count; j++) {
-      const struct BranchTree* tree = &repo->trees[j];
-      for (ptrdiff_t k = 0; k < tree->dir_count; k++) {
-        const struct TreeDir* dir = &tree->dirs[k];
-        if (arena == NULL) {
-          cache->count++;
-        } else {
-          cache->rows[cache->count++] = (struct BuildCacheRow){
-              .kind = BUILD_CACHE_KIND_PAGE,
-              .name = ref_output(site_config, repo, tree, PAGE_PATH_TREE, dir->path, arena)
-                          .relative_path,
-              .id = tree_key(tree, dir, blob_len_max, arena),
-          };
-        }
-        for (ptrdiff_t m = 0; m < dir->entry_count; m++) {
-          const struct TreeEntry* entry = &dir->entries[m];
-          if (!filetree_entry_has_pages(entry)) {
-            continue;
-          }
-          const bool has_raw = entry->len <= site_config->limits.raw_len_max;
-          if (arena == NULL) {
-            cache->count += has_raw ? 2 : 1;
-            continue;
-          }
-          cache->rows[cache->count++] = (struct BuildCacheRow){
-              .kind = BUILD_CACHE_KIND_PAGE,
-              .name = ref_output(site_config, repo, tree, PAGE_PATH_BLOB, entry->path, arena)
-                          .relative_path,
-              .id = blob_key(tree, entry, arena),
-          };
-          if (has_raw) {
-            cache->rows[cache->count++] = (struct BuildCacheRow){
-                .kind = BUILD_CACHE_KIND_PAGE,
-                .name = ref_output(site_config, repo, tree, PAGE_PATH_RAW, entry->path, arena)
-                            .relative_path,
-                .id = entry->oid,
-            };
-          }
-        }
-      }
-      const ptrdiff_t page_count =
-          page_log_count(repo->logs[j].commit_count, site_config->log_page_size);
-      // The log pages, and the commit feed of a branch that has them.
-      if (arena == NULL) {
-        cache->count += page_count + (page_count > 0);
-        continue;
-      }
-      for (ptrdiff_t k = 0; k < page_count; k++) {
-        cache->rows[cache->count++] = (struct BuildCacheRow){
-            .kind = BUILD_CACHE_KIND_PAGE,
-            .name = log_output(site_config, repo, tree, k, arena).relative_path,
-            .id = log_key(repo, &repo->logs[j], k, site_config->log_page_size, arena),
-        };
-      }
-      if (page_count > 0) {
-        cache->rows[cache->count++] = (struct BuildCacheRow){
-            .kind = BUILD_CACHE_KIND_PAGE,
-            .name = feed_output(site_config, repo, tree, arena).relative_path,
-            .id = commits_feed_key(&repo->logs[j], site_config->feed_count, arena),
-        };
-      }
-    }
-  }
-}
-
 static int repo_pages_register_dir(struct ManifestBuilder* builder,
-                                   const struct RepoModel* repo,
+                                   const struct SiteConfig* site_config,
+                                   const struct RepoScan* scan,
                                    const struct BranchTree* tree,
                                    const struct TreeDir* dir,
-                                   ptrdiff_t raw_len_max,
+                                   struct Str recipe_id,
                                    struct Arena scratch,
                                    struct Log* log) {
+  const struct RepoModel* repo = &scan->model;
   int rc = 0;
   // Only the relative paths go to the manifest, so the config the outputs need is not read here.
-  struct Arena path_scratch = scratch;
-  struct Buf label = {.arena = &path_scratch};
+  struct Arena dir_scratch = scratch;
+  struct Buf label = {.arena = &dir_scratch};
   buf_printf(&label, "%.*s:%.*s:%.*s", STR_FMT(repo->config->name),
              STR_FMT(tree->branch->short_name), STR_FMT(dir->path));
   const struct Str dir_label = buf_str(&label);
-  // The path is made before the call, so the copy of the scratch the add gets starts past it: C
-  // leaves the order in which a call evaluates its arguments unspecified.
-  const struct Str dir_page = page_path(PAGE_PATH_TREE, repo->config->name,
-                                        tree->branch->short_name, dir->path, &path_scratch);
-  if (manifest_builder_add(builder, dir_page, dir_label, path_scratch, log) != 0) {
+  const struct RepoPagesOutput dir_page = {
+      .relative_path = page_path(PAGE_PATH_TREE, repo->config->name, tree->branch->short_name,
+                                 dir->path, &dir_scratch),
+      .label = dir_label,
+  };
+  const struct Str dir_inputs =
+      tree_attributes(tree, dir, site_config->limits.blob_len_max, &dir_scratch);
+  if (repo_pages_register_page(builder, scan, &dir_page, recipe_id, dir_inputs, dir_scratch, log) !=
+      0) {
     rc = -1;
   }
   for (ptrdiff_t i = 0; i < dir->entry_count; i++) {
@@ -971,20 +1072,43 @@ static int repo_pages_register_dir(struct ManifestBuilder* builder,
     buf_printf(&entry_label, "%.*s:%.*s:%.*s", STR_FMT(repo->config->name),
                STR_FMT(tree->branch->short_name), STR_FMT(entry->path));
     const struct Str file_label = buf_str(&entry_label);
-    const enum PagePathKind kinds[] = {PAGE_PATH_BLOB, PAGE_PATH_RAW};
-    for (ptrdiff_t j = 0; j < 2; j++) {
-      if (kinds[j] == PAGE_PATH_RAW && entry->len > raw_len_max) {
-        continue;
-      }
-      struct Arena add_scratch = entry_scratch;
-      const struct Str path = page_path(kinds[j], repo->config->name, tree->branch->short_name,
-                                        entry->path, &add_scratch);
-      if (manifest_builder_add(builder, path, file_label, add_scratch, log) != 0) {
+    const struct RepoPagesOutput blob_page = {
+        .relative_path = page_path(PAGE_PATH_BLOB, repo->config->name, tree->branch->short_name,
+                                   entry->path, &entry_scratch),
+        .label = file_label,
+    };
+    const struct Str blob_inputs = blob_attributes(tree, entry, &entry_scratch);
+    if (repo_pages_register_page(builder, scan, &blob_page, recipe_id, blob_inputs, entry_scratch,
+                                 log) != 0) {
+      rc = -1;
+    }
+    // A raw copy holds its blob's bytes, and nothing of the templates or the config's pages.
+    if (entry->len <= site_config->limits.raw_len_max) {
+      const struct Str raw_path = page_path(PAGE_PATH_RAW, repo->config->name,
+                                            tree->branch->short_name, entry->path, &entry_scratch);
+      const struct Str raw_attributes = str_concat(S("blob="), entry->oid, &entry_scratch);
+      if (manifest_builder_add_output(builder, raw_path, file_label, raw_attributes, entry_scratch,
+                                      log) != 0) {
         rc = -1;
       }
     }
   }
   return rc;
+}
+
+static int repo_pages_register_page(struct ManifestBuilder* builder,
+                                    const struct RepoScan* scan,
+                                    const struct RepoPagesOutput* output,
+                                    struct Str recipe_id,
+                                    struct Str inputs,
+                                    struct Arena scratch,
+                                    struct Log* log) {
+  struct Buf attributes = {.arena = &scratch};
+  buf_printf(&attributes, "recipe=%.*s map=%.*s %.*s", STR_FMT(recipe_id),
+             STR_FMT(scan->repo_map_id), STR_FMT(inputs));
+  const struct Str text = buf_str(&attributes);
+  return manifest_builder_add_output(builder, output->relative_path, output->label, text, scratch,
+                                     log);
 }
 
 static int repo_pages_job(ptrdiff_t index,
@@ -1012,34 +1136,15 @@ static int repo_pages_job_repo(const struct RepoPagesRun* run,
                                const struct RepoPageJob* job,
                                struct JobArenas* arenas,
                                struct Log* log) {
-  const struct RepoPagesInputs* inputs = run->inputs;
-  const struct RepoModel* repo = &inputs->scans[job->repo_index].model;
-  const bool is_fresh = inputs->is_templates_fresh && inputs->is_repo_fresh[job->repo_index] &&
-                        inputs->is_repo_map_fresh[job->repo_index];
+  const struct RepoModel* repo = &run->inputs->scans[job->repo_index].model;
   int rc = 0;
   for (ptrdiff_t i = 0; i < REPO_PAGES_REPO_PAGE_COUNT; i++) {
-    // The tags page links each tag's release, so it is also made again when the releases change.
-    const bool is_page_fresh =
-        is_fresh && (i != REPO_PAGES_TAGS_INDEX || inputs->is_releases_fresh[job->repo_index]);
     struct Arena scratch = arenas->scratch;
     const struct RepoPagesOutput output =
-        repo_output(inputs->site_config, repo, repo_page(i), &scratch);
-    struct OsStat st;
-    if (is_page_fresh && os_stat(run->os, output.file_path, &st) == 0 && !st.is_dir) {
-      if (output_writer_keep(run->writer, output.file_path, log) != 0) {
-        rc = -1;
-      }
-      continue;
-    }
-    // The data tree goes in a copy of the perm, and the page in a region of the scratch of its own.
-    struct Arena perm = arenas->perm;
-    const struct TemplateValue* value = NULL;
-    if (repo_pages_job_repo_value(run, job, i, &output, arenas, &perm, scratch, &value, log) != 0) {
-      rc = -1;
-      continue;
-    }
-    struct Arena page_arena = split_half(&scratch);
-    if (render_page(run, repo_page_template(i), value, &output, page_arena, scratch, log) != 0) {
+        repo_output(run->inputs->site_config, repo, repo_page(i), &scratch);
+    struct RepoPagesMake make = {
+        .run = run, .job = job, .arenas = arenas, .output = &output, .index = i};
+    if (produce_page(&make, repo_pages_job_repo_make, scratch, log) != 0) {
       rc = -1;
     }
   }
@@ -1047,6 +1152,22 @@ static int repo_pages_job_repo(const struct RepoPagesRun* run,
     rc = -1;
   }
   return rc;
+}
+
+static int repo_pages_job_repo_make(struct Arena* perm,
+                                    struct Arena scratch,
+                                    struct Str* bytes_out,
+                                    struct Log* log,
+                                    void* userdata) {
+  struct RepoPagesMake* make = userdata;
+  // The data tree goes in a copy of the worker's perm.
+  struct Arena value_perm = make->arenas->perm;
+  const struct TemplateValue* value = NULL;
+  if (repo_pages_job_repo_value(make->run, make->job, make->index, make->output, make->arenas,
+                                &value_perm, scratch, &value, log) != 0) {
+    return -1;
+  }
+  return render_page(make, repo_page_template(make->index), value, perm, scratch, bytes_out, log);
 }
 
 static int repo_pages_job_repo_value(const struct RepoPagesRun* run,
@@ -1087,34 +1208,36 @@ static int repo_pages_job_repo_feeds(const struct RepoPagesRun* run,
                                      const struct RepoPageJob* job,
                                      struct JobArenas* arenas,
                                      struct Log* log) {
-  const struct RepoPagesInputs* inputs = run->inputs;
-  const struct SiteConfig* site_config = inputs->site_config;
-  const struct RepoScan* scan = &inputs->scans[job->repo_index];
-  const struct RepoModel* repo = &scan->model;
+  const struct RepoModel* repo = &run->inputs->scans[job->repo_index].model;
   int rc = 0;
   for (ptrdiff_t i = 0; i < repo_feed_count(repo); i++) {
-    const bool is_tags = i == 0;
-    struct Arena perm = arenas->perm;
     struct Arena scratch = arenas->scratch;
     const struct RepoPagesOutput output =
-        repo_output(site_config, repo, repo_feed_page(i), &scratch);
-    const struct Str key = is_tags ? tags_feed_key(scan, &scratch) : scan->releases_id;
-    if (is_kept(run, job->repo_index, &output, key, true, -1)) {
-      if (output_writer_keep(run->writer, output.file_path, log) != 0) {
-        rc = -1;
-      }
-      continue;
-    }
-    const struct TemplateValue* value =
-        is_tags ? page_feed_tags_value(site_config, repo, &perm)
-                : page_feed_releases_value(site_config, repo, &perm, scratch);
-    struct Arena page_arena = split_half(&scratch);
-    if (render_page(run, is_tags ? PAGE_FEED_TAGS_TEMPLATE : PAGE_FEED_RELEASES_TEMPLATE, value,
-                    &output, page_arena, scratch, log) != 0) {
+        repo_output(run->inputs->site_config, repo, repo_feed_page(i), &scratch);
+    struct RepoPagesMake make = {
+        .run = run, .job = job, .arenas = arenas, .output = &output, .index = i};
+    if (produce_page(&make, repo_pages_job_repo_feeds_make, scratch, log) != 0) {
       rc = -1;
     }
   }
   return rc;
+}
+
+static int repo_pages_job_repo_feeds_make(struct Arena* perm,
+                                          struct Arena scratch,
+                                          struct Str* bytes_out,
+                                          struct Log* log,
+                                          void* userdata) {
+  struct RepoPagesMake* make = userdata;
+  const struct SiteConfig* site_config = make->run->inputs->site_config;
+  const struct RepoModel* repo = &make->run->inputs->scans[make->job->repo_index].model;
+  const bool is_tags = make->index == 0;
+  struct Arena value_perm = make->arenas->perm;
+  const struct TemplateValue* value =
+      is_tags ? page_feed_tags_value(site_config, repo, &value_perm)
+              : page_feed_releases_value(site_config, repo, &value_perm, scratch);
+  return render_page(make, is_tags ? PAGE_FEED_TAGS_TEMPLATE : PAGE_FEED_RELEASES_TEMPLATE, value,
+                     perm, scratch, bytes_out, log);
 }
 
 static int repo_pages_job_dir(const struct RepoPagesRun* run,
@@ -1139,32 +1262,39 @@ static int repo_pages_job_dir_tree(const struct RepoPagesRun* run,
                                    const struct RepoPageJob* job,
                                    struct JobArenas* arenas,
                                    struct Log* log) {
-  const struct RepoPagesInputs* inputs = run->inputs;
-  const struct SiteConfig* site_config = inputs->site_config;
-  const struct RepoModel* repo = &inputs->scans[job->repo_index].model;
+  const struct RepoModel* repo = &run->inputs->scans[job->repo_index].model;
   const struct BranchTree* tree = &repo->trees[job->tree_index];
-  const struct TreeDir* dir = &tree->dirs[job->item_index];
   struct Arena scratch = arenas->scratch;
   const struct RepoPagesOutput output =
-      ref_output(site_config, repo, tree, PAGE_PATH_TREE, dir->path, &scratch);
-  const struct Str key = tree_key(tree, dir, site_config->limits.blob_len_max, &scratch);
-  if (is_kept(run, job->repo_index, &output, key, true, -1)) {
-    return output_writer_keep(run->writer, output.file_path, log);
-  }
+      ref_output(run->inputs->site_config, repo, tree, PAGE_PATH_TREE,
+                 tree->dirs[job->item_index].path, &scratch);
+  struct RepoPagesMake make = {.run = run, .job = job, .arenas = arenas, .output = &output};
+  return produce_page(&make, repo_pages_job_dir_tree_make, scratch, log);
+}
+
+static int repo_pages_job_dir_tree_make(struct Arena* perm,
+                                        struct Arena scratch,
+                                        struct Str* bytes_out,
+                                        struct Log* log,
+                                        void* userdata) {
+  struct RepoPagesMake* make = userdata;
+  const struct SiteConfig* site_config = make->run->inputs->site_config;
+  const struct RepoModel* repo = &make->run->inputs->scans[make->job->repo_index].model;
+  const struct BranchTree* tree = &repo->trees[make->job->tree_index];
+  const struct TreeDir* dir = &tree->dirs[make->job->item_index];
   // The root goes in the scratch, because the documents restart the perm past the repository's
-  // paths when they open it, and the page in a region of the scratch of its own.
-  const struct Str path_to_root = output_path_to_root(output.relative_path, &scratch);
-  struct Arena perm = arenas->perm;
+  // paths when they open it.
+  const struct Str path_to_root = output_path_to_root(make->output->relative_path, &scratch);
+  struct Arena value_perm = make->arenas->perm;
   struct TreeDocument* documents = NULL;
   ptrdiff_t document_count = 0;
-  if (render_documents(run, job, tree, dir, path_to_root, arenas, &perm, scratch, &documents,
-                       &document_count, log) != 0) {
+  if (render_documents(make->run, make->job, tree, dir, path_to_root, make->arenas, &value_perm,
+                       scratch, &documents, &document_count, log) != 0) {
     return -1;
   }
   const struct TemplateValue* value =
-      page_tree_value(site_config, repo, tree, dir, false, documents, document_count, &perm);
-  struct Arena page_arena = split_half(&scratch);
-  return render_page(run, PAGE_TREE_TEMPLATE, value, &output, page_arena, scratch, log);
+      page_tree_value(site_config, repo, tree, dir, false, documents, document_count, &value_perm);
+  return render_page(make, PAGE_TREE_TEMPLATE, value, perm, scratch, bytes_out, log);
 }
 
 static int repo_pages_job_dir_file(const struct RepoPagesRun* run,
@@ -1172,75 +1302,99 @@ static int repo_pages_job_dir_file(const struct RepoPagesRun* run,
                                    const struct TreeEntry* entry,
                                    struct JobArenas* arenas,
                                    struct Log* log) {
-  const struct RepoPagesInputs* inputs = run->inputs;
-  const struct SiteConfig* site_config = inputs->site_config;
-  const struct RepoModel* repo = &inputs->scans[job->repo_index].model;
+  const struct SiteConfig* site_config = run->inputs->site_config;
+  const struct RepoModel* repo = &run->inputs->scans[job->repo_index].model;
   const struct BranchTree* tree = &repo->trees[job->tree_index];
-  struct RepoPagesNotes* notes = &run->job_notes[job - run->jobs];
   struct Arena scratch = arenas->scratch;
-  const struct RepoPagesOutput blob =
+  const struct RepoPagesOutput blob_page =
       ref_output(site_config, repo, tree, PAGE_PATH_BLOB, entry->path, &scratch);
   const struct RepoPagesOutput raw =
       ref_output(site_config, repo, tree, PAGE_PATH_RAW, entry->path, &scratch);
   const bool has_raw = entry->len <= site_config->limits.raw_len_max;
-  const bool is_too_large = entry->len > site_config->limits.blob_len_max;
-  notes->raw_skipped_count += !has_raw;
-  const bool is_blob_kept =
-      is_kept(run, job->repo_index, &blob, blob_key(tree, entry, &scratch), true, -1);
-  const bool is_raw_kept =
-      has_raw && is_kept(run, job->repo_index, &raw, entry->oid, false, entry->len);
-  // The blob is read when an output that is not kept shows its bytes.
-  struct Str data = {0};
-  bool is_binary = false;
-  if ((!is_blob_kept && !is_too_large) || (has_raw && !is_raw_kept)) {
-    const struct Repository* repository = NULL;
-    if (repo_pages_open(run, job->repo_index, arenas, &repository, log) != 0) {
-      return -1;
-    }
-    if (repository_read_blob(repository, entry->oid, &scratch, &data, &is_binary, log) != 0) {
-      return -1;
-    }
+  run->job_notes[job - run->jobs].raw_skipped_count += !has_raw;
+  // The blob's bytes, which only an output that is made reads, get a region of their own first, so
+  // the copy and the page share one read, and their regions follow it.
+  struct RepoPagesBlob blob = {0};
+  if (has_raw || entry->len <= site_config->limits.blob_len_max) {
+    blob.arena = arena_split(&scratch, entry->len + REPO_PAGES_BLOB_SLACK);
   }
   int rc = 0;
   if (has_raw) {
-    rc = is_raw_kept
-             ? output_writer_keep(run->writer, raw.file_path, log)
-             : output_writer_write(run->writer, raw.file_path, (struct OsSource){.bytes = data},
-                                   S("failed to write raw copy"), log);
+    // The copy's bytes stay in the blob's region, so the whole scratch is left for the read of the
+    // copy in the output.
+    struct RepoPagesMake make = {
+        .run = run, .job = job, .arenas = arenas, .output = &raw, .entry = entry, .blob = &blob};
+    rc = output_writer_produce(run->writer, raw.file_path, run->inputs->cache,
+                               repo_pages_job_dir_file_raw_make, &make, scratch, scratch,
+                               S("failed to write raw copy"), log);
   }
-  if (rc == 0 && is_blob_kept) {
-    rc = output_writer_keep(run->writer, blob.file_path, log);
-  } else if (rc == 0) {
-    rc = repo_pages_job_dir_file_page(run, job, entry, data, is_binary, arenas, scratch, log);
+  if (rc == 0) {
+    struct RepoPagesMake make = {.run = run,
+                                 .job = job,
+                                 .arenas = arenas,
+                                 .output = &blob_page,
+                                 .entry = entry,
+                                 .blob = &blob};
+    rc = produce_page(&make, repo_pages_job_dir_file_page_make, scratch, log);
   }
   // A large blob's pages are given back once its outputs are written, as fram gives back a large
   // source, so the worker does not keep the largest blob of its jobs resident.
-  if (data.len >= JOB_SOURCE_DISCARD_LEN_MIN) {
-    arena_discard(&scratch, data.data, data.len);
+  if (blob.data.len >= JOB_SOURCE_DISCARD_LEN_MIN) {
+    arena_discard(&blob.arena, blob.data.data, blob.data.len);
   }
   return rc;
 }
 
-static int repo_pages_job_dir_file_page(const struct RepoPagesRun* run,
-                                        const struct RepoPageJob* job,
-                                        const struct TreeEntry* entry,
-                                        struct Str data,
-                                        bool is_binary,
-                                        struct JobArenas* arenas,
-                                        struct Arena scratch,
-                                        struct Log* log) {
-  const struct RepoPagesInputs* inputs = run->inputs;
-  const struct SiteConfig* site_config = inputs->site_config;
-  const struct RepoModel* repo = &inputs->scans[job->repo_index].model;
-  const struct BranchTree* tree = &repo->trees[job->tree_index];
-  const struct TreeDir* dir = &tree->dirs[job->item_index];
+static int repo_pages_job_dir_file_read(const struct RepoPagesMake* make, struct Log* log) {
+  struct RepoPagesBlob* blob = make->blob;
+  if (blob->is_read) {
+    return 0;
+  }
+  const struct Repository* repository = NULL;
+  if (repo_pages_open(make->run, make->job->repo_index, make->arenas, &repository, log) != 0 ||
+      repository_read_blob(repository, make->entry->oid, &blob->arena, &blob->data,
+                           &blob->is_binary, log) != 0) {
+    return -1;
+  }
+  blob->is_read = true;
+  return 0;
+}
+
+static int repo_pages_job_dir_file_raw_make(struct Arena* perm,
+                                            struct Arena scratch,
+                                            struct Str* bytes_out,
+                                            struct Log* log,
+                                            void* userdata) {
+  (void)perm;
+  (void)scratch;
+  const struct RepoPagesMake* make = userdata;
+  if (repo_pages_job_dir_file_read(make, log) != 0) {
+    return -1;
+  }
+  *bytes_out = make->blob->data;
+  return 0;
+}
+
+static int repo_pages_job_dir_file_page_make(struct Arena* perm,
+                                             struct Arena scratch,
+                                             struct Str* bytes_out,
+                                             struct Log* log,
+                                             void* userdata) {
+  struct RepoPagesMake* make = userdata;
+  const struct SiteConfig* site_config = make->run->inputs->site_config;
+  const struct RepoModel* repo = &make->run->inputs->scans[make->job->repo_index].model;
+  const struct BranchTree* tree = &repo->trees[make->job->tree_index];
+  const struct TreeDir* dir = &tree->dirs[make->job->item_index];
+  const struct TreeEntry* entry = make->entry;
   const bool is_too_large = entry->len > site_config->limits.blob_len_max;
-  const struct RepoPagesOutput blob =
-      ref_output(site_config, repo, tree, PAGE_PATH_BLOB, entry->path, &scratch);
-  // The rendered view and the data tree go in a copy of the perm taken after any open, and the page
-  // gets a region of the scratch of its own, past the blob's bytes.
-  struct Arena perm = arenas->perm;
-  const char* perm_beg = perm.beg;
+  if (!is_too_large && repo_pages_job_dir_file_read(make, log) != 0) {
+    return -1;
+  }
+  const struct Str data = make->blob->data;
+  const bool is_binary = make->blob->is_binary;
+  // The rendered view and the data tree go in a copy of the perm taken after any open.
+  struct Arena value_perm = make->arenas->perm;
+  const char* perm_beg = value_perm.beg;
   struct BlobContent content = {
       .data = !is_too_large ? data : (struct Str){0},
       .is_too_large = is_too_large,
@@ -1251,22 +1405,21 @@ static int repo_pages_job_dir_file_page(const struct RepoPagesRun* run,
     const struct DocumentPlace place = {
         .tree = tree,
         .repo_name = repo->config->name,
-        .path_to_root = output_path_to_root(blob.relative_path, &perm),
+        .path_to_root = output_path_to_root(make->output->relative_path, &value_perm),
         .dir_path = dir->path,
         .raw_len_max = site_config->limits.raw_len_max,
     };
     ptrdiff_t missing_count = 0;
-    content.rendered_html = readme_render_markup(data, readme_is_org(entry->name), &place, &perm,
-                                                 scratch, &missing_count);
-    run->job_notes[job - run->jobs].missing_link_count += missing_count;
+    content.rendered_html = readme_render_markup(data, readme_is_org(entry->name), &place,
+                                                 &value_perm, scratch, &missing_count);
+    make->run->job_notes[make->job - make->run->jobs].missing_link_count += missing_count;
   }
   const struct TemplateValue* value =
-      page_blob_value(site_config, repo, tree, entry, &content, &perm, scratch);
-  struct Arena page_arena = split_half(&scratch);
-  const int rc = render_page(run, PAGE_BLOB_TEMPLATE, value, &blob, page_arena, scratch, log);
+      page_blob_value(site_config, repo, tree, entry, &content, &value_perm, scratch);
+  const int rc = render_page(make, PAGE_BLOB_TEMPLATE, value, perm, scratch, bytes_out, log);
   // The highlighted lines and the rendered view cost more to make than to fault in again, so their
   // pages are given back with the page's.
-  arena_discard(&perm, perm_beg, perm.beg - perm_beg);
+  arena_discard(&value_perm, perm_beg, value_perm.beg - perm_beg);
   return rc;
 }
 
@@ -1283,9 +1436,23 @@ static int repo_pages_job_log_page(const struct RepoPagesRun* run,
                                    const struct RepoPageJob* job,
                                    struct JobArenas* arenas,
                                    struct Log* log) {
-  const struct RepoPagesInputs* inputs = run->inputs;
-  const struct SiteConfig* site_config = inputs->site_config;
-  const struct RepoModel* repo = &inputs->scans[job->repo_index].model;
+  const struct RepoModel* repo = &run->inputs->scans[job->repo_index].model;
+  struct Arena scratch = arenas->scratch;
+  const struct RepoPagesOutput output = log_output(
+      run->inputs->site_config, repo, &repo->trees[job->tree_index], job->item_index, &scratch);
+  struct RepoPagesMake make = {.run = run, .job = job, .arenas = arenas, .output = &output};
+  return produce_page(&make, repo_pages_job_log_page_make, scratch, log);
+}
+
+static int repo_pages_job_log_page_make(struct Arena* perm,
+                                        struct Arena scratch,
+                                        struct Str* bytes_out,
+                                        struct Log* log,
+                                        void* userdata) {
+  struct RepoPagesMake* make = userdata;
+  const struct RepoPageJob* job = make->job;
+  const struct SiteConfig* site_config = make->run->inputs->site_config;
+  const struct RepoModel* repo = &make->run->inputs->scans[job->repo_index].model;
   const struct BranchTree* tree = &repo->trees[job->tree_index];
   const struct BranchLog* branch_log = &repo->logs[job->tree_index];
   const ptrdiff_t page_size = site_config->log_page_size;
@@ -1293,74 +1460,72 @@ static int repo_pages_job_log_page(const struct RepoPagesRun* run,
   const ptrdiff_t begin = job->item_index * page_size;
   const ptrdiff_t end =
       begin + page_size < branch_log->commit_count ? begin + page_size : branch_log->commit_count;
-  struct Arena scratch = arenas->scratch;
-  const struct RepoPagesOutput output =
-      log_output(site_config, repo, tree, job->item_index, &scratch);
-  const struct Str key = log_key(repo, branch_log, job->item_index, page_size, &scratch);
-  if (is_kept(run, job->repo_index, &output, key, true, -1)) {
-    return output_writer_keep(run->writer, output.file_path, log);
-  }
   const struct Repository* repository = NULL;
-  if (repo_pages_open(run, job->repo_index, arenas, &repository, log) != 0) {
+  if (repo_pages_open(make->run, job->repo_index, make->arenas, &repository, log) != 0) {
     return -1;
   }
   // The summaries and the data tree go in a copy of the perm taken after the open.
-  struct Arena perm = arenas->perm;
-  struct CommitSummary* commits = arena_new(&perm, end - begin, struct CommitSummary);
+  struct Arena value_perm = make->arenas->perm;
+  struct CommitSummary* commits = arena_new(&value_perm, end - begin, struct CommitSummary);
   for (ptrdiff_t i = begin; i < end; i++) {
-    if (revision_commit_summary(repository, branch_log->commits[i], &perm, &commits[i - begin],
-                                log) != 0) {
+    if (revision_commit_summary(repository, branch_log->commits[i], &value_perm,
+                                &commits[i - begin], log) != 0) {
       return -1;
     }
   }
   const struct TemplateValue* value = page_log_value(site_config, repo, tree, job->item_index,
-                                                     page_count, commits, end - begin, &perm);
-  struct Arena page_arena = split_half(&scratch);
-  return render_page(run, PAGE_LOG_TEMPLATE, value, &output, page_arena, scratch, log);
+                                                     page_count, commits, end - begin, &value_perm);
+  return render_page(make, PAGE_LOG_TEMPLATE, value, perm, scratch, bytes_out, log);
 }
 
 static int repo_pages_job_log_feed(const struct RepoPagesRun* run,
                                    const struct RepoPageJob* job,
                                    struct JobArenas* arenas,
                                    struct Log* log) {
-  const struct RepoPagesInputs* inputs = run->inputs;
-  const struct SiteConfig* site_config = inputs->site_config;
-  const struct RepoModel* repo = &inputs->scans[job->repo_index].model;
+  const struct RepoModel* repo = &run->inputs->scans[job->repo_index].model;
+  struct Arena scratch = arenas->scratch;
+  const struct RepoPagesOutput output =
+      feed_output(run->inputs->site_config, repo, &repo->trees[job->tree_index], &scratch);
+  struct RepoPagesMake make = {.run = run, .job = job, .arenas = arenas, .output = &output};
+  return produce_page(&make, repo_pages_job_log_feed_make, scratch, log);
+}
+
+static int repo_pages_job_log_feed_make(struct Arena* perm,
+                                        struct Arena scratch,
+                                        struct Str* bytes_out,
+                                        struct Log* log,
+                                        void* userdata) {
+  struct RepoPagesMake* make = userdata;
+  const struct RepoPageJob* job = make->job;
+  const struct SiteConfig* site_config = make->run->inputs->site_config;
+  const struct RepoModel* repo = &make->run->inputs->scans[job->repo_index].model;
   const struct BranchTree* tree = &repo->trees[job->tree_index];
   const struct BranchLog* branch_log = &repo->logs[job->tree_index];
-  struct Arena scratch = arenas->scratch;
-  const struct RepoPagesOutput output = feed_output(site_config, repo, tree, &scratch);
-  const struct Str key = commits_feed_key(branch_log, site_config->feed_count, &scratch);
-  if (is_kept(run, job->repo_index, &output, key, true, -1)) {
-    return output_writer_keep(run->writer, output.file_path, log);
-  }
   const struct Repository* repository = NULL;
-  if (repo_pages_open(run, job->repo_index, arenas, &repository, log) != 0) {
+  if (repo_pages_open(make->run, job->repo_index, make->arenas, &repository, log) != 0) {
     return -1;
   }
-  struct Arena perm = arenas->perm;
+  struct Arena value_perm = make->arenas->perm;
   const ptrdiff_t count = branch_log->commit_count < site_config->feed_count
                               ? branch_log->commit_count
                               : site_config->feed_count;
-  struct CommitDetail* commits = arena_new(&perm, count, struct CommitDetail);
+  struct CommitDetail* commits = arena_new(&value_perm, count, struct CommitDetail);
   for (ptrdiff_t i = 0; i < count; i++) {
-    if (revision_commit_detail(repository, branch_log->commits[i], &perm, &commits[i], log) != 0) {
+    if (revision_commit_detail(repository, branch_log->commits[i], &value_perm, &commits[i], log) !=
+        0) {
       return -1;
     }
   }
   const struct TemplateValue* value =
-      page_feed_commits_value(site_config, repo, tree, commits, count, &perm);
-  struct Arena page_arena = split_half(&scratch);
-  return render_page(run, PAGE_FEED_COMMITS_TEMPLATE, value, &output, page_arena, scratch, log);
+      page_feed_commits_value(site_config, repo, tree, commits, count, &value_perm);
+  return render_page(make, PAGE_FEED_COMMITS_TEMPLATE, value, perm, scratch, bytes_out, log);
 }
 
 static int repo_pages_job_commits(const struct RepoPagesRun* run,
                                   const struct RepoPageJob* job,
                                   struct JobArenas* arenas,
                                   struct Log* log) {
-  const struct RepoPagesInputs* inputs = run->inputs;
-  const struct SiteConfig* site_config = inputs->site_config;
-  const struct RepoModel* repo = &inputs->scans[job->repo_index].model;
+  const struct RepoModel* repo = &run->inputs->scans[job->repo_index].model;
   const ptrdiff_t end = job->item_index + REPO_PAGES_COMMIT_BATCH < repo->commit_count
                             ? job->item_index + REPO_PAGES_COMMIT_BATCH
                             : repo->commit_count;
@@ -1368,54 +1533,56 @@ static int repo_pages_job_commits(const struct RepoPagesRun* run,
   int rc = 0;
   for (ptrdiff_t i = job->item_index; i < end; i++) {
     struct Arena scratch = arenas->scratch;
-    const struct Str commit_oid = repo->commits[i];
-    const struct RepoPagesOutput output = commit_output(site_config, repo, commit_oid, &scratch);
-    // A commit page reads only its commit and its repo's `repo` map, so it is kept while they, the
-    // templates and the recipe are.
-    struct OsStat st;
-    if (inputs->is_templates_fresh && inputs->is_repo_map_fresh[job->repo_index] &&
-        os_stat(run->os, output.file_path, &st) == 0 && !st.is_dir) {
-      if (output_writer_keep(run->writer, output.file_path, log) != 0) {
-        rc = -1;
-      }
-      continue;
-    }
-    const struct Repository* repository = NULL;
-    if (repo_pages_open(run, job->repo_index, arenas, &repository, log) != 0) {
-      return -1;
-    }
-    struct Arena perm = arenas->perm;
-    const char* perm_beg = perm.beg;
-    struct CommitDetail detail = {0};
-    struct Changeset changeset = {0};
-    if (revision_commit_detail(repository, commit_oid, &perm, &detail, log) != 0 ||
-        changeset_load(&changeset, repository, commit_oid, &site_config->limits, &perm, log) != 0) {
-      rc = -1;
-      continue;
-    }
-    // Both sides of every file are highlighted only for a diff under its caps.
-    const struct Str** fragments = NULL;
-    if (!changeset.is_truncated &&
-        highlight_commit(repository, &changeset, &perm, scratch, &fragments, log) != 0) {
-      rc = -1;
-      continue;
-    }
-    struct ChangedImage* images = NULL;
-    if (read_commit_images(repository, &changeset, &site_config->limits, &perm, &images, log) !=
-        0) {
-      rc = -1;
-      continue;
-    }
-    const struct TemplateValue* value = page_commit_value(site_config, repo, &detail, &changeset,
-                                                          fragments, images, &perm, scratch);
-    struct Arena page_arena = split_half(&scratch);
-    if (render_page(run, PAGE_COMMIT_TEMPLATE, value, &output, page_arena, scratch, log) != 0) {
+    const struct RepoPagesOutput output =
+        commit_output(run->inputs->site_config, repo, repo->commits[i], &scratch);
+    struct RepoPagesMake make = {
+        .run = run, .job = job, .arenas = arenas, .output = &output, .index = i};
+    if (produce_page(&make, repo_pages_job_commits_make, scratch, log) != 0) {
       rc = -1;
     }
-    // The diff and its highlighted lines cost more to make than to fault in again, so their pages
-    // are given back with the page's.
-    arena_discard(&perm, perm_beg, perm.beg - perm_beg);
   }
+  return rc;
+}
+
+static int repo_pages_job_commits_make(struct Arena* perm,
+                                       struct Arena scratch,
+                                       struct Str* bytes_out,
+                                       struct Log* log,
+                                       void* userdata) {
+  struct RepoPagesMake* make = userdata;
+  const struct SiteConfig* site_config = make->run->inputs->site_config;
+  const struct RepoModel* repo = &make->run->inputs->scans[make->job->repo_index].model;
+  const struct Str commit_oid = repo->commits[make->index];
+  const struct Repository* repository = NULL;
+  if (repo_pages_open(make->run, make->job->repo_index, make->arenas, &repository, log) != 0) {
+    return -1;
+  }
+  struct Arena value_perm = make->arenas->perm;
+  const char* perm_beg = value_perm.beg;
+  struct CommitDetail detail = {0};
+  struct Changeset changeset = {0};
+  if (revision_commit_detail(repository, commit_oid, &value_perm, &detail, log) != 0 ||
+      changeset_load(&changeset, repository, commit_oid, &site_config->limits, &value_perm, log) !=
+          0) {
+    return -1;
+  }
+  // Both sides of every file are highlighted only for a diff under its caps.
+  const struct Str** fragments = NULL;
+  if (!changeset.is_truncated &&
+      highlight_commit(repository, &changeset, &value_perm, scratch, &fragments, log) != 0) {
+    return -1;
+  }
+  struct ChangedImage* images = NULL;
+  if (read_commit_images(repository, &changeset, &site_config->limits, &value_perm, &images, log) !=
+      0) {
+    return -1;
+  }
+  const struct TemplateValue* value = page_commit_value(site_config, repo, &detail, &changeset,
+                                                        fragments, images, &value_perm, scratch);
+  const int rc = render_page(make, PAGE_COMMIT_TEMPLATE, value, perm, scratch, bytes_out, log);
+  // The diff and its highlighted lines cost more to make than to fault in again, so their pages are
+  // given back with the page's.
+  arena_discard(&value_perm, perm_beg, value_perm.beg - perm_beg);
   return rc;
 }
 
@@ -1535,24 +1702,35 @@ static int repo_pages_open(const struct RepoPagesRun* run,
   return 0;
 }
 
-static int render_page(const struct RepoPagesRun* run,
+static int produce_page(struct RepoPagesMake* make,
+                        OutputWriterMakeFn fn,
+                        struct Arena scratch,
+                        struct Log* log) {
+  struct Arena page_arena = split_half(&scratch);
+  const int rc =
+      output_writer_produce(make->run->writer, make->output->file_path, make->run->inputs->cache,
+                            fn, make, page_arena, scratch, S("failed to write page"), log);
+  // A large page's pages are given back rather than kept resident in the worker's region.
+  if (make->bytes.len > 0) {
+    arena_discard(&make->bytes_arena, make->bytes.data, make->bytes.len);
+  }
+  return rc;
+}
+
+static int render_page(struct RepoPagesMake* make,
                        struct Str template_name,
                        const struct TemplateValue* value,
-                       const struct RepoPagesOutput* output,
-                       struct Arena page_arena,
+                       struct Arena* perm,
                        struct Arena scratch,
+                       struct Str* bytes_out,
                        struct Log* log) {
-  struct Str html = {0};
-  if (template_value_render(run->inputs->template_set, template_name, value, output->relative_path,
-                            &page_arena, scratch, &html, log) != 0) {
+  if (template_value_render(make->run->inputs->template_set, template_name, value,
+                            make->output->relative_path, perm, scratch, bytes_out, log) != 0) {
     return -1;
   }
-  const int rc =
-      output_writer_write(run->writer, output->file_path, (struct OsSource){.bytes = html},
-                          S("failed to write page"), log);
-  // A large page's pages are given back rather than kept resident in the worker's region.
-  arena_discard(&page_arena, html.data, html.len);
-  return rc;
+  make->bytes = *bytes_out;
+  make->bytes_arena = *perm;
+  return 0;
 }
 
 static int render_documents(const struct RepoPagesRun* run,
@@ -1610,23 +1788,6 @@ static int render_documents(const struct RepoPagesRun* run,
   *documents_out = documents;
   *count_out = count;
   return 0;
-}
-
-static bool is_kept(const struct RepoPagesRun* run,
-                    ptrdiff_t repo_index,
-                    const struct RepoPagesOutput* output,
-                    struct Str key,
-                    bool is_templated,
-                    ptrdiff_t len) {
-  if (is_templated &&
-      !(run->inputs->is_templates_fresh && run->inputs->is_repo_map_fresh[repo_index])) {
-    return false;
-  }
-  const struct BuildCacheRow* row =
-      build_cache_find(run->inputs->cache, BUILD_CACHE_KIND_PAGE, output->relative_path);
-  struct OsStat st;
-  return row != NULL && str_eq(row->id, key) && os_stat(run->os, output->file_path, &st) == 0 &&
-         !st.is_dir && (len < 0 || st.len == len);
 }
 
 static struct RepoPagesOutput ref_output(const struct SiteConfig* site_config,
@@ -1754,39 +1915,37 @@ static struct Str key_id(struct Str text, struct Arena* perm, struct Arena scrat
   return str_clone((struct Str){copy, id.len}, perm);
 }
 
-static struct Str tree_key(const struct BranchTree* tree,
-                           const struct TreeDir* dir,
-                           ptrdiff_t blob_len_max,
-                           struct Arena* arena) {
+static struct Str tree_attributes(const struct BranchTree* tree,
+                                  const struct TreeDir* dir,
+                                  ptrdiff_t blob_len_max,
+                                  struct Arena* arena) {
   const struct TreeEntry* documents[DOCUMENT_KIND_COUNT] = {0};
   (void)readme_find_documents(tree, dir, blob_len_max, documents);
   bool has_markup = false;
   for (ptrdiff_t i = 0; i < DOCUMENT_KIND_COUNT; i++) {
     has_markup = has_markup || (documents[i] != NULL && readme_is_markup(documents[i]->name));
   }
-  struct Buf key = {.arena = arena};
-  buf_append(&key, dir->oid);
+  struct Buf attributes = {.arena = arena};
+  buf_printf(&attributes, "tree=%.*s", STR_FMT(dir->oid));
   if (has_markup) {
-    buf_append_char(&key, ',');
-    buf_append(&key, tree->dirs[0].oid);
+    buf_printf(&attributes, " root=%.*s", STR_FMT(tree->dirs[0].oid));
   }
   if (dir == &tree->dirs[0]) {
-    buf_append(&key, S(",commit "));
-    buf_append(&key, tree->branch->commit_oid);
+    buf_printf(&attributes, " commit=%.*s", STR_FMT(tree->branch->commit_oid));
   }
-  return buf_str(&key);
+  return buf_str(&attributes);
 }
 
-static struct Str blob_key(const struct BranchTree* tree,
-                           const struct TreeEntry* entry,
-                           struct Arena* arena) {
-  struct Buf key = {.arena = arena};
-  buf_printf(&key, "%.*s,%s", STR_FMT(entry->oid),
+static struct Str blob_attributes(const struct BranchTree* tree,
+                                  const struct TreeEntry* entry,
+                                  struct Arena* arena) {
+  struct Buf attributes = {.arena = arena};
+  buf_printf(&attributes, "blob=%.*s mode=%s", STR_FMT(entry->oid),
              entry->kind == TREE_ENTRY_EXECUTABLE ? "100755" : "100644");
   if (readme_is_markup(entry->name)) {
-    buf_printf(&key, ",%.*s", STR_FMT(tree->dirs[0].oid));
+    buf_printf(&attributes, " root=%.*s", STR_FMT(tree->dirs[0].oid));
   }
-  return buf_str(&key);
+  return buf_str(&attributes);
 }
 
 static struct Str repo_page(ptrdiff_t index) {

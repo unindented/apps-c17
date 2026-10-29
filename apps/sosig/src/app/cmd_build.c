@@ -16,7 +16,6 @@
 #include "core/path_list.h"
 #include "core/str.h"
 #include "core/text.h"
-#include "domain/build_cache.h"
 #include "domain/content_entry.h"
 #include "domain/site_config.h"
 #include "markup/highlight.h"
@@ -24,6 +23,7 @@
 #include "os/os.h"
 #include "output/build_cache_file.h"
 #include "output/manifest.h"
+#include "output/output_cache.h"
 #include "output/output_pruner.h"
 #include "output/output_writer.h"
 #include "runtime/build_run.h"
@@ -48,9 +48,9 @@ _Static_assert(PTRDIFF_MAX > 0xffffffff, "the arenas below need a 64-bit address
 #define BUILD_LOG_LEN (256 * BUILD_MIB)
 
 /**
- * Bytes of each thread's perm, which holds the main thread's paths, entry arrays and manifest, or a
- * worker's parsed entries with their sources and the bodies it converted, beside one render's
- * buffer of up to twice `TEMPLATE_RENDER_OUTPUT_LEN_MAX`.
+ * Bytes of each thread's perm, which holds the main thread's paths, entry arrays, manifest and
+ * output cache, or a worker's parsed entries with their sources and the bodies it converted, beside
+ * one render's buffer of up to twice `TEMPLATE_RENDER_OUTPUT_LEN_MAX`.
  */
 #define BUILD_PERM_LEN (16 * (ptrdiff_t)TEMPLATE_RENDER_OUTPUT_LEN_MAX)
 
@@ -66,7 +66,10 @@ _Static_assert(PTRDIFF_MAX > 0xffffffff, "the arenas below need a 64-bit address
  * references whose `-l` label format is shorter takes up to 32 bytes for each byte, and past about
  * 88 MiB of such lines it ends in `os_oom`: that is the one input the limits accept that this does
  * not hold. Or the scratch holds a parse's copy of the frontmatter, or a render in which a partial
- * that includes itself reaches the expansion limit long before the arena is full.
+ * that includes itself reaches the expansion limit long before the arena is full. Or, once a render
+ * has returned, it holds the existing output that `output_writer_produce` reads back to compare
+ * with the rendered one, of up to `TEMPLATE_RENDER_OUTPUT_LEN_MAX`, and 64 KiB more for the read's
+ * message.
  */
 #define BUILD_SCRATCH_LEN (3 * 1024 * BUILD_MIB)
 
@@ -75,14 +78,8 @@ _Static_assert(9 * (ptrdiff_t)CONTENT_FILE_LEN_MAX + 2 * (ptrdiff_t)HIGHLIGHT_ME
                "a worker's scratch must hold what its converter holds, and the region its code "
                "blocks are highlighted in");
 
-/** The build cache rows of one kind that a copy of files checks its sources against. */
-struct CopyRows {
-  /** Rows an earlier build left. */
-  const struct BuildCache* cache;
-
-  /** Kind of the rows the sources have. */
-  enum BuildCacheKind kind;
-};
+_Static_assert((ptrdiff_t)TEMPLATE_RENDER_OUTPUT_LEN_MAX + 64 * 1024 <= BUILD_SCRATCH_LEN,
+               "a thread's scratch must hold the existing output a produce compares a render with");
 
 /** Mutable state owned by one `cmd_build_execute` invocation. */
 struct BuildState {
@@ -162,44 +159,23 @@ struct BuildState {
   /** Number of content entries in `content_entries`. */
   ptrdiff_t content_entry_count;
 
-  /** Path of the build cache below `output_dir`, in `perm`. */
-  struct Str build_cache_path;
+  /** Path of the output cache below `output_dir`, in `perm`. */
+  struct Str cache_path;
 
-  /** Rows an earlier build left, empty when there are none or the build ignores them. */
-  struct BuildCache build_cache;
+  /**
+   * What the output cache of an earlier build recorded, in `perm`, empty when there is none or the
+   * build is forced.
+   */
+  struct OutputCache cache;
 
-  /** Every file below `templates_dir`, sorted, which the manifest claims and the cache records. */
+  /** Every file below `templates_dir`, sorted, which the manifest claims as inputs. */
   struct PathList template_paths;
-
-  /** What `os_stat` reported for each of `template_paths`, parallel to it, in `perm`. */
-  struct OsStat* template_stats;
-
-  /**
-   * One slot per source path, holding the build cache row that vouches for its page, or `NULL`
-   * where the page must be made, in `perm`.
-   */
-  const struct BuildCacheRow** fresh_rows;
-
-  /**
-   * One slot per source path, which the page phase fills with whether its page read the entry list,
-   * in `perm`.
-   */
-  bool* entry_list_flags;
-
-  /**
-   * Whether the build cache vouches for every template and every entry, so an aggregate or feed
-   * that exists can be kept.
-   */
-  bool is_aggregates_fresh;
 
   /** Most worker threads a parallel phase runs, each with its arenas in `worker_arenas`. */
   ptrdiff_t worker_count;
 
   /** Where the build's status lines go, which `--verbose` enables. */
   struct Verbose verbose;
-
-  /** Whether the build ignores the build cache, and writes it afresh. */
-  bool is_forced;
 };
 
 /**
@@ -278,7 +254,7 @@ static void load_build_inputs_split_sources(struct BuildState* state,
 
 /**
  * @brief Lists every file below `templates_dir`, partials included, which the manifest claims as
- *        inputs and the build cache records a row for.
+ *        inputs.
  *
  * @param state Build state that receives the template paths. Must not be `NULL`.
  * @param log   Log that receives the failure, which names the path the walk failed on. Must not be
@@ -319,7 +295,8 @@ static int load_build_inputs_require_read_roots(const struct BuildState* state, 
  * @brief Runs the phases from parsing to the prune, and in a dry run the report.
  *
  * Parses every source, checks every output path, and converts every body even after an error, then
- * stops before the first write when `log` holds any error, an earlier phase's included.
+ * stops before the first write when `log` holds any error, an earlier phase's included. Once the
+ * output directory is prepared, it writes the output cache whether or not the outputs succeed.
  *
  * @param state Build state whose inputs are loaded. Must not be `NULL`.
  * @param log   Log that receives every error. Must not be `NULL`.
@@ -394,10 +371,11 @@ static void load_templates_add(struct Str* names,
                                struct Str owner) __attribute__((nonnull(1, 2, 3)));
 
 /**
- * @brief Records every intended output path, rejecting a collision before anything is written.
+ * @brief Stats every static file and asset, and records every intended output path, rejecting a
+ *        collision before anything is written.
  *
- * @param state Build state whose manifest is populated from the collected entries. Must not be
- *              `NULL`.
+ * @param state Build state whose manifest is populated from the collected entries, and which
+ *              receives the stats. Must not be `NULL`.
  * @param log   Log that receives every collision. Must not be `NULL`.
  * @return `0` when every output path is unique and names no build input, or `-1` on a collision or
  *         an input overwrite.
@@ -406,83 +384,26 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Reads the build cache an earlier build left, unless the build ignores it, and decides
- *        which outputs it vouches for.
+ * @brief Reads the output cache an earlier build left, unless the build is forced.
  *
- * Stats every template that the load inputs phase listed either way, for the rows the build writes.
- * A missing build cache, one that cannot be read, and one that does not parse or was written for
- * another page recipe are each an empty build cache, never an error: the verbose log says which,
- * and every page is made.
+ * A missing output cache, one that cannot be read, and one that does not parse are each an empty
+ * output cache, never an error: the verbose log says which, and every static file and asset is
+ * copied.
  *
- * @param state Build state holding the parsed entries and the template paths, which receives the
- *              build cache, the template stats and the fresh rows. Must not be `NULL`.
+ * @param state Build state holding the configuration, which receives the output cache and its path,
+ *              and gives the writer `output_dir`. Must not be `NULL`.
  */
-static void load_build_cache(struct BuildState* state) __attribute__((nonnull(1)));
-
-/**
- * @brief Reads and parses the build cache, reporting why it is not used in the verbose log.
- *
- * @param state Build state that receives the build cache. Must not be `NULL`.
- */
-static void load_build_cache_read(struct BuildState* state) __attribute__((nonnull(1)));
-
-/**
- * @brief Parses the text of the build cache into the build state, as `BuildCacheFileParseFn`.
- *
- * @param text     Bytes of the build cache.
- * @param perm     Arena that owns the rows. Must not be `NULL`.
- * @param log      Log that receives the reason the build cache cannot be used. Must not be `NULL`.
- * @param userdata The `struct BuildState`, which receives the build cache.
- * @return `0` on success, or `-1` when the build cache cannot be used.
- */
-static int load_build_cache_read_parse(struct Str text,
-                                       struct Arena* perm,
-                                       struct Log* log,
-                                       void* userdata) __attribute__((nonnull(2, 3, 4)));
-
-/**
- * @brief Decides which outputs the build cache vouches for.
- *
- * Every row needs the page recipe to match, which a parsed build cache does, and every template row
- * to match with no template added or removed, because the template dependencies are tracked as a
- * whole. A content page also needs its own row to match its source. One that read the entry list,
- * and every aggregate and feed, also need every entry's row to match with no entry added or
- * removed.
- *
- * @param state Build state holding the build cache, the entries and the template stats, which
- *              receives the fresh rows and `is_aggregates_fresh`. Must not be `NULL`.
- */
-static void load_build_cache_find_fresh(struct BuildState* state) __attribute__((nonnull(1)));
-
-/**
- * @brief Reports whether every content entry has a row that matches its source, and no row names
- *        anything else.
- *
- * @param state Build state holding the build cache and the entries. Must not be `NULL`.
- * @return `true` when the content rows match the entries one for one.
- */
-static bool is_every_entry_unchanged(const struct BuildState* state) __attribute__((nonnull(1)));
-
-/**
- * @brief Reports whether every template has a row that matches its stat, and no row names anything
- *        else.
- *
- * @param state Build state holding the build cache and the template stats. Must not be `NULL`.
- * @return `true` when the template rows match the templates one for one.
- */
-static bool is_every_template_unchanged(const struct BuildState* state) __attribute__((nonnull(1)));
+static void load_output_cache(struct BuildState* state) __attribute__((nonnull(1)));
 
 /**
  * @brief Converts the body of every parsed entry, dispatching jobs across worker threads, with each
  *        link to another content file pointing at its page or copy.
  *
  * Runs after the entries have their URLs, and before the first write, so a link that names no file
- * or a draft stops the build with the other errors. A page whose denote link names an asset loses
- * its fresh row, and the aggregates and feeds are made again, because no row tracks the asset. A
- * site with no sources skips the phase, so it prints no status line and starts no pool.
+ * or a draft stops the build with the other errors. A site with no sources skips the phase, so it
+ * prints no status line and starts no pool.
  *
- * @param state Build state holding the parsed entries, the asset paths and the fresh rows. Must not
- *              be `NULL`.
+ * @param state Build state holding the parsed entries and the asset paths. Must not be `NULL`.
  * @param log   Log that receives the collected link errors. Must not be `NULL`.
  * @return `0` when every job succeeded or there are no sources, or `-1` when any link failed.
  */
@@ -503,21 +424,8 @@ static int prepare_output_dir(const struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Empties the build cache before the first page is written.
- *
- * A build that fails or is interrupted from here on leaves an empty build cache, which the next
- * build does not use, so it never keeps an output this build may have cut short or written under
- * other inputs.
- *
- * @param state Build state holding the build cache's path. Must not be `NULL`.
- * @param log   Log that receives the failure. Must not be `NULL`.
- * @return `0` on success, or `-1` when the write fails.
- */
-static int empty_build_cache(const struct BuildState* state, struct Log* log)
-    __attribute__((nonnull(1, 2)));
-
-/**
- * @brief Renders and writes every content entry's page, dispatching jobs across worker threads.
+ * @brief Renders every content entry's page, dispatching jobs across worker threads, and writes
+ *        each one that changed.
  *
  * Runs after the entries are collected and sorted, so a content template sees the whole entry set
  * and the site's last-modified timestamp. Runs after the manifest, so no two jobs write one file. A
@@ -531,8 +439,8 @@ static int render_content_pages(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Renders and writes the configured aggregate and feed templates, and copies the static
- *        files and the assets.
+ * @brief Renders the configured aggregate and feed templates, writing each one that changed, and
+ *        copies the static files and the assets whose sources changed.
  *
  * @param state Build state holding the collected entries, the static file paths, and the asset
  *              paths. Must not be `NULL`.
@@ -543,67 +451,33 @@ static int write_generated_site(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Copies each of `paths` below `output_dir`, or keeps a copy whose row of `kind` matches its
- *        source, as `output_writer_copy_files` does.
+ * @brief Copies each of `paths` below `output_dir`, at its path below `root_dir`, through
+ *        `output_writer_produce`, which keeps a copy whose source the output cache records
+ *        unchanged.
  *
- * @param state     Build state holding the build cache and the writer. Must not be `NULL`.
- * @param kind      Kind of the rows that vouch for the sources.
- * @param paths     Files to copy, each below `root_dir`. Must not be `NULL`.
- * @param stats     Stat of each of `paths`, parallel to them. Must not be `NULL` unless there are
- *                  none.
- * @param root_dir  Directory the files are below.
- * @param operation Operation leading the message of a copy that fails.
- * @param log       Log that receives the first failure. Must not be `NULL`.
+ * Each copy names its source to `oom_set_job`, which names no file once every copy succeeds.
+ *
+ * @param state    Build state holding the output cache and the writer. Must not be `NULL`.
+ * @param paths    Files to copy, each below `root_dir`. Must not be `NULL`.
+ * @param root_dir Directory the files are below.
+ * @param log      Log that receives the first failure. Must not be `NULL`.
  * @return `0` on success, or `-1` on the first copy that fails.
  */
 static int write_generated_site_copy(const struct BuildState* state,
-                                     enum BuildCacheKind kind,
                                      const struct PathList* paths,
-                                     const struct OsStat* stats,
                                      struct Str root_dir,
-                                     struct Str operation,
-                                     struct Log* log) __attribute__((nonnull(1, 3, 7)));
+                                     struct Log* log) __attribute__((nonnull(1, 2, 4)));
 
 /**
- * @brief Reports whether a source has a row of the copy's kind with its stat, as
- *        `OutputWriterIsUnchangedFn`.
+ * @brief Writes the output cache, with a row for every copy this build wrote or kept, as
+ *        `output_cache_write` does.
  *
- * @param name        Path of the source below the root of the copies.
- * @param source_stat What `os_stat` reported for the source. Must not be `NULL`.
- * @param userdata    The `struct CopyRows`.
- * @return `true` when the build cache records the source with that stat.
- */
-static bool write_generated_site_copy_is_unchanged(struct Str name,
-                                                   const struct OsStat* source_stat,
-                                                   void* userdata) __attribute__((nonnull(2, 3)));
-
-/**
- * @brief Writes the build cache once every output is written or kept, with a row for every current
- *        entry and template.
- *
- * @param state Build state holding the entries, their entry-list flags and the template stats. Must
- *              not be `NULL`.
+ * @param state Build state holding the writer and the output cache's path. Must not be `NULL`.
  * @param log   Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` when the write fails.
  */
-static int write_build_cache(struct BuildState* state, struct Log* log)
+static int write_output_cache(const struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
-
-/**
- * @brief Appends a row of `kind` for each of `paths`, named by its path below `root_dir`.
- *
- * @param cache    Cache that receives the rows, with room for them. Must not be `NULL`.
- * @param kind     Kind of the rows.
- * @param paths    Files the rows record. Must not be `NULL`.
- * @param stats    Stat of each of `paths`, parallel to them. Must not be `NULL` unless there are
- *                 none.
- * @param root_dir Directory the files are below.
- */
-static void write_build_cache_files(struct BuildCache* cache,
-                                    enum BuildCacheKind kind,
-                                    const struct PathList* paths,
-                                    const struct OsStat* stats,
-                                    struct Str root_dir) __attribute__((nonnull(1, 3)));
 
 /**
  * @brief Removes every entry below `output_dir` that this build did not write.
@@ -694,11 +568,11 @@ static void build_state_init(struct BuildState* state,
               .manifest = &state->manifest,
               .os = os,
               .is_dry_run = options->is_dry_run,
+              .is_forced = options->is_forced,
               .perm = &state->perm,
           },
       .worker_count = options->worker_count,
       .verbose = {.os = os, .is_enabled = options->is_verbose, .scratch = &state->scratch},
-      .is_forced = options->is_forced,
   };
   site_config_init(&state->site_config);
 }
@@ -820,22 +694,27 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
   collect_content_entries(state);
   (void)load_templates(state, log);
   (void)populate_output_manifest(state, log);
-  load_build_cache(state);
+  load_output_cache(state);
   (void)convert_content_bodies(state, log);
   if (log->errors > 0) {
     return -1;
   }
 
   // Nothing before this point writes, so a build stopped above leaves the filesystem as it found
-  // it. From here on a failure stops the phase it happens in.
-  if (prepare_output_dir(state, log) != 0 || empty_build_cache(state, log) != 0) {
+  // it. From here on a failure stops the phase it happens in, and the output cache is written
+  // either way: it records only the copies this build wrote or kept, so the next build keeps the
+  // copies a failed build made.
+  if (prepare_output_dir(state, log) != 0) {
     return -1;
   }
-  if (render_content_pages(state, log) != 0) {
-    return -1;
+  int rc = render_content_pages(state, log);
+  if (rc == 0) {
+    rc = write_generated_site(state, log);
   }
-  if (write_generated_site(state, log) != 0 || write_build_cache(state, log) != 0 ||
-      prune_stale_outputs(state, log) != 0) {
+  if (write_output_cache(state, log) != 0) {
+    rc = -1;
+  }
+  if (rc != 0 || prune_stale_outputs(state, log) != 0) {
     return -1;
   }
   if (state->writer.is_dry_run && report_dry_run(state, log) != 0) {
@@ -939,6 +818,10 @@ static void load_templates_add(struct Str* names,
 
 static int populate_output_manifest(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "building output manifest");
+  // Each copy's attributes are its source's size and modification time. A source that cannot be
+  // inspected gets none, so it is copied, and the copy reports why it fails.
+  state->static_stats = walk_stat_paths(&state->static_paths, state->os, &state->perm);
+  state->asset_stats = walk_stat_paths(&state->asset_paths, state->os, &state->perm);
   // This runs ahead of the page renders, so a duplicate output path fails before rendering is
   // wasted. It also runs ahead of every write, `output_dir` itself included, so an output aimed at
   // one of this build's own inputs is refused before it can destroy the file. C has no implicit
@@ -949,112 +832,29 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log) {
   // job is reading.
   return output_manifest_populate(
       &state->manifest, &state->site_config, state->config_path, &state->source_paths,
-      &state->static_paths, &state->asset_paths, &state->template_paths,
-      (const struct ContentEntry* const*)state->content_entries, state->content_entry_count,
-      state->os, &state->perm, state->scratch, log);
+      &state->static_paths, state->static_stats, &state->asset_paths, state->asset_stats,
+      &state->template_paths, (const struct ContentEntry* const*)state->content_entries,
+      state->content_entry_count, state->os, &state->perm, state->scratch, log);
 }
 
-static void load_build_cache(struct BuildState* state) {
-  state->build_cache_path = build_cache_path(state->site_config.output_dir, &state->perm);
-  if (state->is_forced) {
-    verbose_printf(&state->verbose, "ignoring build cache, rendering every page");
-  } else {
-    load_build_cache_read(state);
-  }
-  // A template that cannot be inspected gets a stat that no row matches, so every page is made, and
-  // its render reports why.
-  state->template_stats = walk_stat_paths(&state->template_paths, state->os, &state->perm);
-  state->static_stats = walk_stat_paths(&state->static_paths, state->os, &state->perm);
-  state->asset_stats = walk_stat_paths(&state->asset_paths, state->os, &state->perm);
-  load_build_cache_find_fresh(state);
-}
-
-static void load_build_cache_read(struct BuildState* state) {
-  verbose_printf(&state->verbose, "loading build cache");
-  struct Str reason = {0};
-  const enum BuildCacheFileState cache_state = build_cache_file_load(
-      state->build_cache_path, BUILD_CACHE_FILE_LEN_MAX, load_build_cache_read_parse, state,
-      state->os, &state->perm, state->scratch, &reason);
-  if (cache_state == BUILD_CACHE_FILE_MISSING) {
-    verbose_printf(&state->verbose, "no build cache, rendering every page");
-  } else if (cache_state == BUILD_CACHE_FILE_UNUSABLE) {
-    verbose_printf(&state->verbose, "build cache not used, rendering every page: %.*s",
-                   STR_FMT(reason));
-  }
-}
-
-static int load_build_cache_read_parse(struct Str text,
-                                       struct Arena* perm,
-                                       struct Log* log,
-                                       void* userdata) {
-  struct BuildState* state = userdata;
-  return build_cache_parse(text, &state->site_config, perm, &state->build_cache, log);
-}
-
-static void load_build_cache_find_fresh(struct BuildState* state) {
-  state->fresh_rows =
-      arena_new(&state->perm, state->source_paths.count, const struct BuildCacheRow*);
-  state->entry_list_flags = arena_new(&state->perm, state->source_paths.count, bool);
-  if (!is_every_template_unchanged(state)) {
+static void load_output_cache(struct BuildState* state) {
+  const struct Str output_dir = state->site_config.output_dir;
+  state->writer.output_dir = output_dir;
+  state->cache_path = path_join(output_dir, S(OUTPUT_MANIFEST_CACHE_PATH), &state->perm);
+  if (state->writer.is_forced) {
+    verbose_printf(&state->verbose, "ignoring output cache, making every output");
     return;
   }
-  const bool is_every_entry_fresh = is_every_entry_unchanged(state);
-  state->is_aggregates_fresh = is_every_entry_fresh;
-  for (ptrdiff_t i = 0; i < state->source_paths.count; i++) {
-    const struct ContentEntry* entry = state->source_entries[i];
-    if (entry == NULL) {
-      continue;
-    }
-    struct Str relative = {0};
-    (void)path_is_below(entry->output_path, state->site_config.output_dir, &relative);
-    const struct BuildCacheRow* row = build_cache_find(
-        &state->build_cache, BUILD_CACHE_KIND_CONTENT, relative, &entry->source_stat);
-    if (row != NULL && (!row->is_entry_list_read || is_every_entry_fresh)) {
-      state->fresh_rows[i] = row;
-    }
+  verbose_printf(&state->verbose, "loading output cache");
+  struct Str reason = {0};
+  const enum BuildCacheFileState cache_state = output_cache_load(
+      state->cache_path, state->os, &state->perm, state->scratch, &state->cache, &reason);
+  if (cache_state == BUILD_CACHE_FILE_MISSING) {
+    verbose_printf(&state->verbose, "no output cache, copying every file");
+  } else if (cache_state == BUILD_CACHE_FILE_UNUSABLE) {
+    verbose_printf(&state->verbose, "output cache not used, copying every file: %.*s",
+                   STR_FMT(reason));
   }
-}
-
-static bool is_every_entry_unchanged(const struct BuildState* state) {
-  ptrdiff_t row_count = 0;
-  for (ptrdiff_t i = 0; i < state->build_cache.count; i++) {
-    row_count += state->build_cache.rows[i].kind == BUILD_CACHE_KIND_CONTENT;
-  }
-  if (row_count != state->content_entry_count) {
-    return false;
-  }
-  for (ptrdiff_t i = 0; i < state->content_entry_count; i++) {
-    const struct ContentEntry* entry = state->content_entries[i];
-    struct Str relative = {0};
-    (void)path_is_below(entry->output_path, state->site_config.output_dir, &relative);
-    if (build_cache_find(&state->build_cache, BUILD_CACHE_KIND_CONTENT, relative,
-                         &entry->source_stat) == NULL) {
-      return false;
-    }
-  }
-  return true;
-}
-
-static bool is_every_template_unchanged(const struct BuildState* state) {
-  ptrdiff_t row_count = 0;
-  for (ptrdiff_t i = 0; i < state->build_cache.count; i++) {
-    row_count += state->build_cache.rows[i].kind == BUILD_CACHE_KIND_TEMPLATE;
-  }
-  // An empty build cache has no template rows, and a site always has its content template, so this
-  // also rejects a build cache that was not read.
-  if (row_count != state->template_paths.count || row_count == 0) {
-    return false;
-  }
-  for (ptrdiff_t i = 0; i < state->template_paths.count; i++) {
-    struct Str relative = {0};
-    (void)path_is_below(state->template_paths.items[i], state->site_config.templates_dir,
-                        &relative);
-    if (build_cache_find(&state->build_cache, BUILD_CACHE_KIND_TEMPLATE, relative,
-                         &state->template_stats[i]) == NULL) {
-      return false;
-    }
-  }
-  return true;
 }
 
 static int convert_content_bodies(struct BuildState* state, struct Log* log) {
@@ -1062,21 +862,10 @@ static int convert_content_bodies(struct BuildState* state, struct Log* log) {
     return 0;
   }
   verbose_printf(&state->verbose, "converting bodies, workers: %td", state->worker_count);
-  const int rc = entry_renderer_convert_bodies(
+  return entry_renderer_convert_bodies(
       state->source_entries, state->draft_flags, &state->site_config, &state->source_paths,
       &state->asset_paths, state->worker_count, state->worker_arenas, state->verbose.is_enabled,
       state->os, state->scratch, log);
-  // No row tracks an asset, so a body that links one can change with no row changing, and its page
-  // is made again. An aggregate or a feed that shows the body is not: it follows the entry rows as
-  // before, and remaking every aggregate in every build for a renamed asset costs more than it is
-  // worth.
-  for (ptrdiff_t i = 0; i < state->source_paths.count; i++) {
-    const struct ContentEntry* entry = state->source_entries[i];
-    if (entry != NULL && entry->has_asset_link) {
-      state->fresh_rows[i] = NULL;
-    }
-  }
-  return rc;
 }
 
 static int prepare_output_dir(const struct BuildState* state, struct Log* log) {
@@ -1086,27 +875,17 @@ static int prepare_output_dir(const struct BuildState* state, struct Log* log) {
                               S("failed to prepare output directory"), log);
 }
 
-static int empty_build_cache(const struct BuildState* state, struct Log* log) {
-  oom_set_job(state->build_cache_path, NULL);
-  const int rc = output_writer_write(&state->writer, state->build_cache_path, (struct OsSource){0},
-                                     S("failed to empty build cache"), log);
-  // The phases that follow name their own files, and the main thread's work between them none.
-  oom_set_job((struct Str){0}, NULL);
-  return rc;
-}
-
 static int render_content_pages(struct BuildState* state, struct Log* log) {
   if (state->source_paths.count == 0) {
     return 0;
   }
   verbose_printf(&state->verbose, "rendering content, workers: %td", state->worker_count);
   return page_renderer_render_pages(
-      &state->writer, &state->site_config, state->template_set,
+      &state->writer, &state->cache, &state->site_config, state->template_set,
       (const struct ContentEntry* const*)state->source_entries, state->source_paths.count,
       (const struct ContentEntry* const*)state->content_entries, state->content_entry_count,
-      (const struct BuildCacheRow* const*)state->fresh_rows, state->worker_count,
-      state->worker_arenas, state->verbose.is_enabled, state->os, state->scratch,
-      state->entry_list_flags, log);
+      state->worker_count, state->worker_arenas, state->verbose.is_enabled, state->os,
+      state->scratch, log);
 }
 
 static int write_generated_site(struct BuildState* state, struct Log* log) {
@@ -1115,120 +894,59 @@ static int write_generated_site(struct BuildState* state, struct Log* log) {
   const struct ContentEntry* const* entries =
       (const struct ContentEntry* const*)state->content_entries;
   if (site_writer_write_templates(
-          &state->writer, site_config, state->template_set, site_config->aggregate_templates,
-          site_config->aggregate_template_count, entries, state->content_entry_count, false,
-          state->is_aggregates_fresh, state->os, state->perm, state->scratch, log) != 0) {
+          &state->writer, &state->cache, site_config, state->template_set,
+          site_config->aggregate_templates, site_config->aggregate_template_count, entries,
+          state->content_entry_count, false, state->perm, state->scratch, log) != 0) {
     return -1;
   }
   verbose_printf(&state->verbose, "rendering feed templates");
   const ptrdiff_t feed_entry_count = state->content_entry_count < site_config->feed_count
                                          ? state->content_entry_count
                                          : site_config->feed_count;
-  if (site_writer_write_templates(&state->writer, site_config, state->template_set,
+  if (site_writer_write_templates(&state->writer, &state->cache, site_config, state->template_set,
                                   site_config->feed_templates, site_config->feed_template_count,
-                                  entries, feed_entry_count, true, state->is_aggregates_fresh,
-                                  state->os, state->perm, state->scratch, log) != 0) {
+                                  entries, feed_entry_count, true, state->perm, state->scratch,
+                                  log) != 0) {
     return -1;
   }
   verbose_printf(&state->verbose, "copying static files");
   // An asset is a static file whose root is `content_dir`, so it is copied the same way.
-  if (write_generated_site_copy(state, BUILD_CACHE_KIND_STATIC, &state->static_paths,
-                                state->static_stats, site_config->static_dir,
-                                S("failed to copy static file"), log) != 0) {
+  if (write_generated_site_copy(state, &state->static_paths, site_config->static_dir, log) != 0) {
     return -1;
   }
-  return write_generated_site_copy(state, BUILD_CACHE_KIND_ASSET, &state->asset_paths,
-                                   state->asset_stats, site_config->content_dir,
-                                   S("failed to copy static file"), log);
+  return write_generated_site_copy(state, &state->asset_paths, site_config->content_dir, log);
 }
 
 static int write_generated_site_copy(const struct BuildState* state,
-                                     enum BuildCacheKind kind,
                                      const struct PathList* paths,
-                                     const struct OsStat* stats,
                                      struct Str root_dir,
-                                     struct Str operation,
                                      struct Log* log) {
-  struct CopyRows rows = {.cache = &state->build_cache, .kind = kind};
-  return output_writer_copy_files(&state->writer, paths, stats,
-                                  write_generated_site_copy_is_unchanged, &rows, root_dir,
-                                  state->site_config.output_dir, state->scratch, operation, log);
-}
-
-static bool write_generated_site_copy_is_unchanged(struct Str name,
-                                                   const struct OsStat* source_stat,
-                                                   void* userdata) {
-  const struct CopyRows* rows = userdata;
-  return build_cache_find(rows->cache, rows->kind, name, source_stat) != NULL;
-}
-
-static int write_build_cache(struct BuildState* state, struct Log* log) {
-  verbose_printf(&state->verbose, "writing build cache");
-  oom_set_job(state->build_cache_path, NULL);
-  struct Arena scratch = state->scratch;
-  struct BuildCache cache = {
-      .rows = arena_new(&scratch,
-                        state->content_entry_count + state->template_paths.count +
-                            state->static_paths.count + state->asset_paths.count,
-                        struct BuildCacheRow),
-  };
-  for (ptrdiff_t i = 0; i < state->source_paths.count; i++) {
-    const struct ContentEntry* entry = state->source_entries[i];
-    if (entry == NULL) {
-      continue;
-    }
-    struct Str relative = {0};
-    (void)path_is_below(entry->output_path, state->site_config.output_dir, &relative);
-    cache.rows[cache.count++] = (struct BuildCacheRow){
-        .kind = BUILD_CACHE_KIND_CONTENT,
-        .name = relative,
-        .len = entry->source_stat.len,
-        .mtime_s = entry->source_stat.mtime_s,
-        .mtime_ns = entry->source_stat.mtime_ns,
-        // A page that links another entry depends on that entry's URL, as a page that read the
-        // entry list depends on every entry.
-        .is_entry_list_read = state->entry_list_flags[i] || entry->has_entry_link,
-    };
-  }
-  for (ptrdiff_t i = 0; i < state->template_paths.count; i++) {
-    struct Str relative = {0};
-    (void)path_is_below(state->template_paths.items[i], state->site_config.templates_dir,
-                        &relative);
-    cache.rows[cache.count++] = (struct BuildCacheRow){
-        .kind = BUILD_CACHE_KIND_TEMPLATE,
-        .name = relative,
-        .len = state->template_stats[i].len,
-        .mtime_s = state->template_stats[i].mtime_s,
-        .mtime_ns = state->template_stats[i].mtime_ns,
-    };
-  }
-  write_build_cache_files(&cache, BUILD_CACHE_KIND_STATIC, &state->static_paths,
-                          state->static_stats, state->site_config.static_dir);
-  write_build_cache_files(&cache, BUILD_CACHE_KIND_ASSET, &state->asset_paths, state->asset_stats,
-                          state->site_config.content_dir);
-  struct Buf text = {.arena = &scratch};
-  build_cache_format(&text, &state->site_config, &cache);
-  return output_writer_write(&state->writer, state->build_cache_path,
-                             (struct OsSource){.bytes = buf_str(&text)},
-                             S("failed to write build cache"), log);
-}
-
-static void write_build_cache_files(struct BuildCache* cache,
-                                    enum BuildCacheKind kind,
-                                    const struct PathList* paths,
-                                    const struct OsStat* stats,
-                                    struct Str root_dir) {
   for (ptrdiff_t i = 0; i < paths->count; i++) {
+    const struct Str source_path = paths->items[i];
+    oom_set_job(source_path, NULL);
+    // Each copy works in its own copy of the scratch, so one file's path is dead before the next.
+    struct Arena scratch = state->scratch;
     struct Str relative = {0};
-    (void)path_is_below(paths->items[i], root_dir, &relative);
-    cache->rows[cache->count++] = (struct BuildCacheRow){
-        .kind = kind,
-        .name = relative,
-        .len = stats[i].len,
-        .mtime_s = stats[i].mtime_s,
-        .mtime_ns = stats[i].mtime_ns,
-    };
+    (void)path_is_below(source_path, root_dir, &relative);
+    const struct Str output_path = path_join(state->site_config.output_dir, relative, &scratch);
+    // A copy is streamed from its source, so it makes nothing in the perm. The copy names the path
+    // that failed, the source or its destination, which mirrors it.
+    if (output_writer_produce(&state->writer, output_path, &state->cache, NULL, NULL, state->perm,
+                              scratch, S("failed to copy static file"), log) != 0) {
+      return -1;
+    }
   }
+  oom_set_job((struct Str){0}, NULL);
+  return 0;
+}
+
+static int write_output_cache(const struct BuildState* state, struct Log* log) {
+  verbose_printf(&state->verbose, "writing output cache");
+  oom_set_job(state->cache_path, NULL);
+  const int rc =
+      output_cache_write(&state->writer, state->cache_path, NULL, 0, state->scratch, log);
+  oom_set_job((struct Str){0}, NULL);
+  return rc;
 }
 
 static int prune_stale_outputs(struct BuildState* state, struct Log* log) {

@@ -10,8 +10,8 @@
 struct Log;
 
 /**
- * One video's temporary frame file. The probe phase creates it, unless the build cache answered for
- * the video, in which case the derivative phase creates it once a derivative is stale. The
+ * One video's temporary frame file. The probe phase creates it, unless a probe fact answered for
+ * the video, in which case the derivative phase creates it once it makes a derivative. The
  * derivative phase removes it. The path is allocated on the main thread before either phase, so a
  * job only fills it in.
  */

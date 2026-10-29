@@ -17,7 +17,6 @@
 #include "core/path_list.h"
 #include "core/str.h"
 #include "domain/album.h"
-#include "domain/build_cache.h"
 #include "domain/media_item.h"
 #include "domain/site_config.h"
 #include "media/image.h"
@@ -27,6 +26,7 @@
 #include "os/os.h"
 #include "output/build_cache_file.h"
 #include "output/manifest.h"
+#include "output/output_cache.h"
 #include "output/output_pruner.h"
 #include "output/output_writer.h"
 #include "runtime/build_run.h"
@@ -51,29 +51,25 @@ _Static_assert(PTRDIFF_MAX > 0xffffffff, "the arenas below need a 64-bit address
 #define BUILD_LOG_LEN (256 * BUILD_MIB)
 
 /**
- * Bytes of each thread's perm, which holds the main thread's paths, skeleton, frame slots and
- * manifest, or every album page a worker renders until the write phase, eight pages at
+ * Bytes of each thread's perm, which holds the main thread's paths, skeleton, frame slots, manifest
+ * and output cache, or for a worker one encoded derivative of up to `IMAGE_ENCODED_LEN_MAX` while
+ * it is written, and then every album page it renders until the write phase, eight pages at
  * `TEMPLATE_RENDER_OUTPUT_LEN_MAX` in buffers of up to twice their length.
  */
 #define BUILD_PERM_LEN (16 * (ptrdiff_t)TEMPLATE_RENDER_OUTPUT_LEN_MAX)
+_Static_assert(BUILD_PERM_LEN > (ptrdiff_t)IMAGE_ENCODED_LEN_MAX,
+               "a worker's perm must hold an encoded derivative");
 
 /**
- * Bytes of each thread's scratch, which holds one job's temporaries, at most a source of up to
- * `IMAGE_INPUT_LEN_MAX` beside one encoded derivative of up to `IMAGE_ENCODED_LEN_MAX`, or one page
- * render.
+ * Bytes of each thread's scratch, which holds one job's temporaries: a source of up to
+ * `IMAGE_INPUT_LEN_MAX` while its derivatives are made, and then the read of an existing derivative
+ * of up to `IMAGE_ENCODED_LEN_MAX` and 64 KiB more, which the output writer compares the made bytes
+ * with. On the main thread it holds an existing page or aggregate of up to
+ * `TEMPLATE_RENDER_OUTPUT_LEN_MAX` beside the same 64 KiB.
  */
 #define BUILD_SCRATCH_LEN (3 * 1024 * BUILD_MIB)
 _Static_assert(BUILD_SCRATCH_LEN > (ptrdiff_t)IMAGE_INPUT_LEN_MAX + IMAGE_ENCODED_LEN_MAX,
                "a worker's scratch must hold a source beside its encoded derivative");
-
-/** The build cache rows of one kind that a copy of files checks its sources against. */
-struct CopyRows {
-  /** Rows an earlier build left. */
-  const struct BuildCache* cache;
-
-  /** Kind of the rows the sources have. */
-  enum BuildCacheKind kind;
-};
 
 /** Mutable state owned by one `cmd_build_execute` invocation. */
 struct BuildState {
@@ -113,7 +109,10 @@ struct BuildState {
   /** Discovered static file paths below `static_dir`, left empty when that directory is absent. */
   struct PathList static_paths;
 
-  /** What `os_stat` reported for each of `static_paths`, parallel to it, in `perm`. */
+  /**
+   * What `walk_stat_paths` reported for each of `static_paths`, parallel to it, in `perm`, which
+   * the copies' attributes name.
+   */
   struct OsStat* static_stats;
 
   /** Every file below `templates_dir`, sorted, which the manifest claims as inputs. */
@@ -139,20 +138,20 @@ struct BuildState {
 
   /**
    * One frame slot per media item, whose path the build allocates in `perm` for a video before the
-   * probe phase. The probe creates the frame, or the derivative phase does for a video the build
-   * cache answered for. The derivative phase removes it, and the build removes any it left behind
+   * probe phase. The probe creates the frame, or the derivative phase does for a video whose probe
+   * fact answered for it. The derivative phase removes it, and the build removes any it left behind
    * at its end.
    */
   struct VideoFrame* video_frames;
 
-  /** One stat slot per media item, which the probe fills and the build cache's write reads. */
-  struct OsStat* source_stats;
+  /**
+   * Output cache an earlier build left, in `perm`, empty when there is none or the build is forced.
+   * Its rows tell the writer which outputs it can keep, and its facts answer the probe.
+   */
+  struct OutputCache output_cache;
 
-  /** Probe facts an earlier build left, empty when there are none or the build ignores them. */
-  struct BuildCache build_cache;
-
-  /** Path of the build cache below `output_dir`, in `perm`. */
-  struct Str build_cache_path;
+  /** Path of the output cache below `output_dir`, in `perm`. */
+  struct Str output_cache_path;
 
   /**
    * One slot per album, holding that album's rendered page. A slot's `html` stays `NULL` until the
@@ -169,7 +168,7 @@ struct BuildState {
   /** Where the build's status lines go, which `--verbose` enables. */
   struct Verbose verbose;
 
-  /** Whether the build ignores the build cache, and writes it afresh. */
+  /** Whether the build ignores the output cache, and writes every output afresh. */
   bool is_forced;
 };
 
@@ -303,8 +302,9 @@ static int load_build_inputs_require_video_tools(const struct BuildState* state,
  * Probes every media item and checks every output path even after a probe fails, then stops before
  * the first write when `log` holds any error, an earlier phase's included. A skeleton that cannot
  * be planned, a path-limit failure included, stops the build at once, because the later phases read
- * it. Removes every video frame the phases left behind before it returns, on success and on
- * failure.
+ * it. Once `output_dir` is prepared, the output cache is written when the outputs are done, even
+ * when one of them failed. Removes every video frame the phases left behind before it returns, on
+ * success and on failure.
  *
  * @param state Build state whose inputs are loaded. Must not be `NULL`.
  * @param log   Log that receives every error. Must not be `NULL`.
@@ -348,37 +348,25 @@ static int build_album_skeleton(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Reads the probe facts an earlier build left, unless the build ignores them.
+ * @brief Stats the static files, and reads the output cache an earlier build left unless the build
+ *        is forced.
  *
- * A missing build cache, one that is empty or cannot be read, and one that does not parse or was
- * written by another fram version are each an empty build cache, never an error. The verbose log
- * says which, and the probe then reads every source.
+ * A missing output cache, one that cannot be read, and one in another format are each an empty
+ * cache, never an error. The verbose log says which, and the build then probes every source and
+ * makes every output.
  *
- * @param state Build state that receives the build cache and its path. Must not be `NULL`.
+ * @param state Build state that receives the static stats, the output cache and its path. Must not
+ *              be `NULL`.
  */
-static void load_build_cache(struct BuildState* state) __attribute__((nonnull(1)));
-
-/**
- * @brief Parses the text of the build cache into the build state, as `BuildCacheFileParseFn`.
- *
- * @param text     Bytes of the build cache.
- * @param perm     Arena that owns the rows. Must not be `NULL`.
- * @param log      Log that receives the reason the build cache cannot be used. Must not be `NULL`.
- * @param userdata The `struct BuildState`, which receives the build cache.
- * @return `0` on success, or `-1` when the build cache cannot be used.
- */
-static int load_build_cache_parse(struct Str text,
-                                  struct Arena* perm,
-                                  struct Log* log,
-                                  void* userdata) __attribute__((nonnull(2, 3, 4)));
+static void load_output_cache(struct BuildState* state) __attribute__((nonnull(1)));
 
 /**
  * @brief Probes every media item's metadata, dispatching jobs across worker threads.
  *
  * A gallery with no media skips the phase, so it prints no status line and starts no pool.
  *
- * @param state Build state holding the media items, the build cache, and the frame and stat slots.
- *              Must not be `NULL`.
+ * @param state Build state holding the media items, the output cache, and the frame slots. Must not
+ *              be `NULL`.
  * @param log   Log that receives the collected probe errors. Must not be `NULL`.
  * @return `0` when every job succeeded or there is no media, or `-1` when any probe job failed.
  */
@@ -410,14 +398,12 @@ static int prepare_output_dir(const struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Copies every static file into the output, or keeps each copy whose source did not change.
+ * @brief Copies every static file into the output, or keeps each copy whose source did not change,
+ *        as `output_writer_produce` decides.
  *
- * It runs before `write_build_cache`, so a `static` row only ever vouches for a copy that the build
- * has made or kept. A build interrupted before it writes the cache leaves the previous rows, which
- * do not match a source that changed since.
+ * Each copy names its source to `oom_set_job`, which names no file once every copy succeeds.
  *
- * @param state Build state holding the static files and the previous build cache. Must not be
- *              `NULL`.
+ * @param state Build state holding the static files and the output cache. Must not be `NULL`.
  * @param log   Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` when a copy fails.
  */
@@ -425,44 +411,13 @@ static int copy_static_files(const struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Reports whether a source has a row of the copy's kind with its stat, as
- *        `OutputWriterIsUnchangedFn`.
- *
- * @param name        Path of the source below the root of the copies.
- * @param source_stat What `os_stat` reported for the source. Must not be `NULL`.
- * @param userdata    The `struct CopyRows`.
- * @return `true` when the build cache records the source with that stat.
- */
-static bool copy_static_files_is_unchanged(struct Str name,
-                                           const struct OsStat* source_stat,
-                                           void* userdata) __attribute__((nonnull(2, 3)));
-
-/**
- * @brief Writes the build cache, with a row for every current media source and static file.
- *
- * It runs as soon as the static files are copied, even when a copy failed, because the probe facts
- * stay correct when a later phase fails, so the next build can still reuse them. A source that is
- * gone has no row.
- *
- * @param state              Build state holding the probed media items and their stats. Must not be
- *                           `NULL`.
- * @param is_static_complete Whether every static file was copied or kept. Without it the cache gets
- *                           no `static` row, because the copy that failed is unknown, so the next
- *                           build copies every static file again, which costs far less than probing
- *                           every media source again.
- * @param log                Log that receives the failure. Must not be `NULL`.
- * @return `0` on success, or `-1` when the write fails.
- */
-static int write_build_cache(struct BuildState* state, bool is_static_complete, struct Log* log)
-    __attribute__((nonnull(1, 3)));
-
-/**
- * @brief Generates every media item's derivatives, dispatching jobs across worker threads.
+ * @brief Produces every media item's derivatives and original, dispatching jobs across worker
+ *        threads.
  *
  * A gallery with no media skips the phase, so it prints no status line and starts no pool.
  *
- * @param state Build state holding the probed media items and video frame slots. Must not be
- *              `NULL`.
+ * @param state Build state holding the probed media items, the video frame slots and the output
+ *              cache. Must not be `NULL`.
  * @param log   Log that receives the collected derivative errors. Must not be `NULL`.
  * @return `0` when every job succeeded or there is no media, or `-1` when any derivative job
  *         failed.
@@ -483,13 +438,31 @@ static int render_album_pages(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Writes the album pages and the aggregate template outputs.
+ * @brief Produces the album pages and the aggregate template outputs, each written only when its
+ *        bytes changed.
  *
  * @param state Build state holding the rendered pages and the scanned albums. Must not be `NULL`.
  * @param log   Log that receives the failure. Must not be `NULL`.
  * @return `0` when every output was written, or `-1` on the first render or write failure.
  */
 static int write_generated_site(struct BuildState* state, struct Log* log)
+    __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Writes the output cache, with a row for every output this build wrote or kept that
+ *        declares attributes, and a probe fact for every media item.
+ *
+ * It runs once the outputs are done, even when one failed: a row names only an output this build
+ * wrote or kept, and a write that failed leaves its output unmarked, so the cache vouches for no
+ * output the build did not finish, and every probe fact stays correct. An interrupted build leaves
+ * the previous cache, whose rows vouch for no output that the build cut short, as
+ * `output_cache_write` explains, so its probe facts survive too.
+ *
+ * @param state Build state holding the manifest and the probed media items. Must not be `NULL`.
+ * @param log   Log that receives the failure. Must not be `NULL`.
+ * @return `0` on success, or `-1` when the write fails.
+ */
+static int write_output_cache(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
@@ -583,6 +556,7 @@ static void build_state_init(struct BuildState* state,
               .manifest = &state->manifest,
               .os = os,
               .is_dry_run = options->is_dry_run,
+              .is_forced = options->is_forced,
               .perm = &state->perm,
           },
       .worker_count = options->worker_count,
@@ -598,6 +572,7 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
                        state->scratch, log) != 0) {
     return -1;
   }
+  state->writer.output_dir = state->site_config.output_dir;
   // A rejected directory key holds a default the user never chose, so the build stops before the
   // checks and the walks that would report that default as a second error.
   const struct SiteConfig* site_config = &state->site_config;
@@ -707,9 +682,10 @@ static int load_build_inputs_require_video_tools(const struct BuildState* state,
 
 static int run_build_phases(struct BuildState* state, struct Log* log) {
   // The order below follows the data: the probe records each item's derivative dimensions, which
-  // the derivative and page phases read, from the build cache or from the source, and extracts each
+  // the derivative and page phases read, from its probe fact or from the source, and extracts each
   // probed video's still frame, which the derivative phase reads. Every source has to be probed
-  // before any derivative is generated or any page is rendered. Output paths do not depend on
+  // before any derivative is generated or any page is rendered. The manifest reads each source's
+  // stat, which the probe takes, for the attributes of its outputs. Output paths do not depend on
   // probed dimensions, because a derivative path names the recipe and not the size, so the manifest
   // checks every output even after a probe failed.
   (void)load_templates(state, log);
@@ -717,8 +693,8 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
     return -1;
   }
   int rc = -1;
-  int copy_rc = -1;
-  load_build_cache(state);
+  int phase_rc = -1;
+  load_output_cache(state);
   (void)probe_media(state, log);
   (void)populate_output_manifest(state, log);
   if (log->errors > 0) {
@@ -730,15 +706,15 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
   if (prepare_output_dir(state, log) != 0) {
     goto cleanup;
   }
-  // A failed copy still lets the build cache keep the probe facts.
-  copy_rc = copy_static_files(state, log);
-  if (write_build_cache(state, copy_rc == 0, log) != 0 || copy_rc != 0) {
+  phase_rc = copy_static_files(state, log) != 0 || generate_derivatives(state, log) != 0 ||
+                     render_album_pages(state, log) != 0 || write_generated_site(state, log) != 0
+                 ? -1
+                 : 0;
+  // A failed phase still lets the cache keep what this build wrote or kept, and the probe facts.
+  if (write_output_cache(state, log) != 0 || phase_rc != 0) {
     goto cleanup;
   }
-  if (generate_derivatives(state, log) != 0 || render_album_pages(state, log) != 0) {
-    goto cleanup;
-  }
-  if (write_generated_site(state, log) != 0 || prune_stale_outputs(state, log) != 0) {
+  if (prune_stale_outputs(state, log) != 0) {
     goto cleanup;
   }
   if (state->writer.is_dry_run && report_dry_run(state, log) != 0) {
@@ -788,7 +764,6 @@ static int build_album_skeleton(struct BuildState* state, struct Log* log) {
   // The slots are allocated here, on the main thread, before either phase that uses them, so a job
   // only fills in its own slot and never allocates in the main thread's arenas.
   state->video_frames = arena_new(&state->perm, state->media_count, struct VideoFrame);
-  state->source_stats = arena_new(&state->perm, state->media_count, struct OsStat);
   for (ptrdiff_t i = 0; i < state->media_count; i++) {
     if (state->media[i]->kind == MEDIA_KIND_VIDEO) {
       video_frame_init(&state->video_frames[i], &state->perm);
@@ -798,33 +773,26 @@ static int build_album_skeleton(struct BuildState* state, struct Log* log) {
   return 0;
 }
 
-static void load_build_cache(struct BuildState* state) {
-  state->build_cache_path = build_cache_path(state->site_config.output_dir, &state->perm);
-  // The static files' rows are written whether or not the build cache is read.
+static void load_output_cache(struct BuildState* state) {
+  state->output_cache_path =
+      output_manifest_cache_path(state->site_config.output_dir, &state->perm);
+  // The copies' attributes name the static files' stats whether or not the cache is read.
   state->static_stats = walk_stat_paths(&state->static_paths, state->os, &state->perm);
   if (state->is_forced) {
-    verbose_printf(&state->verbose, "ignoring build cache, probing every source");
+    verbose_printf(&state->verbose, "ignoring output cache, probing every source");
     return;
   }
-  verbose_printf(&state->verbose, "loading build cache");
+  verbose_printf(&state->verbose, "loading output cache");
   struct Str reason = {0};
-  const enum BuildCacheFileState cache_state = build_cache_file_load(
-      state->build_cache_path, BUILD_CACHE_FILE_LEN_MAX, load_build_cache_parse, state, state->os,
-      &state->perm, state->scratch, &reason);
+  const enum BuildCacheFileState cache_state =
+      output_cache_load(state->output_cache_path, state->os, &state->perm, state->scratch,
+                        &state->output_cache, &reason);
   if (cache_state == BUILD_CACHE_FILE_MISSING) {
-    verbose_printf(&state->verbose, "no build cache, probing every source");
+    verbose_printf(&state->verbose, "no output cache, probing every source");
   } else if (cache_state == BUILD_CACHE_FILE_UNUSABLE) {
-    verbose_printf(&state->verbose, "build cache not used, probing every source: %.*s",
+    verbose_printf(&state->verbose, "output cache not used, probing every source: %.*s",
                    STR_FMT(reason));
   }
-}
-
-static int load_build_cache_parse(struct Str text,
-                                  struct Arena* perm,
-                                  struct Log* log,
-                                  void* userdata) {
-  struct BuildState* state = userdata;
-  return build_cache_parse(text, perm, &state->build_cache, log);
 }
 
 static int probe_media(struct BuildState* state, struct Log* log) {
@@ -833,9 +801,9 @@ static int probe_media(struct BuildState* state, struct Log* log) {
   }
   verbose_printf(&state->verbose, "probing media, workers: %td", state->worker_count);
   return album_scan_probe_media(&state->site_config, state->media, state->media_count,
-                                &state->build_cache, state->video_frames, state->worker_count,
+                                &state->output_cache, state->video_frames, state->worker_count,
                                 state->worker_arenas, state->verbose.is_enabled, state->os,
-                                state->scratch, state->source_stats, log);
+                                state->scratch, log);
 }
 
 static int populate_output_manifest(struct BuildState* state, struct Log* log) {
@@ -850,7 +818,7 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log) {
   // requirement. A `TemplateContext` with only `const` pointers keeps one render job from writing
   // an album another job is reading.
   return output_manifest_populate(&state->manifest, &state->site_config, state->config_path,
-                                  &state->source_paths, &state->static_paths,
+                                  &state->source_paths, &state->static_paths, state->static_stats,
                                   &state->template_paths, (const struct Album* const*)state->albums,
                                   state->album_count, state->os, &state->perm, state->scratch, log);
 }
@@ -864,63 +832,24 @@ static int prepare_output_dir(const struct BuildState* state, struct Log* log) {
 
 static int copy_static_files(const struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "copying static files");
-  struct CopyRows rows = {.cache = &state->build_cache, .kind = BUILD_CACHE_KIND_STATIC};
-  return output_writer_copy_files(&state->writer, &state->static_paths, state->static_stats,
-                                  copy_static_files_is_unchanged, &rows,
-                                  state->site_config.static_dir, state->site_config.output_dir,
-                                  state->scratch, S("failed to copy static file"), log);
-}
-
-static bool copy_static_files_is_unchanged(struct Str name,
-                                           const struct OsStat* source_stat,
-                                           void* userdata) {
-  const struct CopyRows* rows = userdata;
-  return build_cache_find(rows->cache, rows->kind, name, source_stat) != NULL;
-}
-
-static int write_build_cache(struct BuildState* state, bool is_static_complete, struct Log* log) {
-  verbose_printf(&state->verbose, "writing build cache");
-  oom_set_job(state->build_cache_path, NULL);
-  struct Arena scratch = state->scratch;
-  struct Buf text = {.arena = &scratch};
-  build_cache_format_header(&text);
-  // The media array is in source order, which the walk sorted bytewise, so the rows are sorted.
-  for (ptrdiff_t i = 0; i < state->media_count; i++) {
-    const struct MediaItem* item = state->media[i];
-    const struct OsStat* source_stat = &state->source_stats[i];
+  for (ptrdiff_t i = 0; i < state->static_paths.count; i++) {
+    const struct Str source_path = state->static_paths.items[i];
+    oom_set_job(source_path, NULL);
+    // Each copy works in its own copy of the scratch, so one file's path is dead before the next.
+    struct Arena copy_scratch = state->scratch;
     struct Str relative = {0};
-    (void)path_is_below(item->source_path, state->site_config.media_dir, &relative);
-    const struct BuildCacheRow row = {
-        .kind = BUILD_CACHE_KIND_MEDIA,
-        .name = relative,
-        .len = source_stat->len,
-        .mtime_s = source_stat->mtime_s,
-        .mtime_ns = source_stat->mtime_ns,
-        .width_px = item->width_px,
-        .height_px = item->height_px,
-        .orientation = item->orientation,
-        .duration_ms = item->duration_ms,
-    };
-    build_cache_format_row(&text, &row);
+    (void)path_is_below(source_path, state->site_config.static_dir, &relative);
+    const struct Str output_path =
+        path_join(state->site_config.output_dir, relative, &copy_scratch);
+    // The copy names the path that failed, the source or its destination, which mirrors it.
+    if (output_writer_produce(&state->writer, output_path, &state->output_cache, NULL, NULL,
+                              (struct Arena){0}, copy_scratch, S("failed to copy static file"),
+                              log) != 0) {
+      return -1;
+    }
   }
-  // The static rows follow the media rows, as their kind sorts after media. The walk sorted the
-  // paths bytewise, and they share the `static_dir` prefix, so these rows are sorted too.
-  for (ptrdiff_t i = 0; is_static_complete && i < state->static_paths.count; i++) {
-    const struct OsStat* source_stat = &state->static_stats[i];
-    struct Str relative = {0};
-    (void)path_is_below(state->static_paths.items[i], state->site_config.static_dir, &relative);
-    const struct BuildCacheRow row = {
-        .kind = BUILD_CACHE_KIND_STATIC,
-        .name = relative,
-        .len = source_stat->len,
-        .mtime_s = source_stat->mtime_s,
-        .mtime_ns = source_stat->mtime_ns,
-    };
-    build_cache_format_row(&text, &row);
-  }
-  return output_writer_write(&state->writer, state->build_cache_path,
-                             (struct OsSource){.bytes = buf_str(&text)},
-                             S("failed to write build cache"), log);
+  oom_set_job((struct Str){0}, NULL);
+  return 0;
 }
 
 static int generate_derivatives(struct BuildState* state, struct Log* log) {
@@ -928,10 +857,10 @@ static int generate_derivatives(struct BuildState* state, struct Log* log) {
     return 0;
   }
   verbose_printf(&state->verbose, "generating derivatives, workers: %td", state->worker_count);
-  return derivative_renderer_generate(&state->writer, &state->site_config, state->media,
-                                      state->media_count, state->video_frames, state->worker_count,
-                                      state->worker_arenas, state->verbose.is_enabled, state->os,
-                                      state->scratch, log);
+  return derivative_renderer_generate(&state->writer, &state->output_cache, &state->site_config,
+                                      state->media, state->media_count, state->video_frames,
+                                      state->worker_count, state->worker_arenas,
+                                      state->verbose.is_enabled, state->os, state->scratch, log);
 }
 
 static int render_album_pages(struct BuildState* state, struct Log* log) {
@@ -944,14 +873,27 @@ static int render_album_pages(struct BuildState* state, struct Log* log) {
 
 static int write_generated_site(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "writing album pages");
-  if (site_writer_write_album_pages(&state->writer, (const struct Album* const*)state->albums,
-                                    state->album_count, state->rendered_pages, state->scratch,
-                                    log) != 0) {
+  if (site_writer_write_album_pages(&state->writer, &state->output_cache,
+                                    (const struct Album* const*)state->albums, state->album_count,
+                                    state->rendered_pages, state->scratch, log) != 0) {
     return -1;
   }
   verbose_printf(&state->verbose, "rendering aggregate templates");
-  return site_writer_write_aggregates(&state->writer, &state->site_config, state->template_set,
-                                      state->albums[0], state->perm, state->scratch, log);
+  return site_writer_write_aggregates(&state->writer, &state->output_cache, &state->site_config,
+                                      state->template_set, state->albums[0], state->perm,
+                                      state->scratch, log);
+}
+
+static int write_output_cache(struct BuildState* state, struct Log* log) {
+  verbose_printf(&state->verbose, "writing output cache");
+  oom_set_job(state->output_cache_path, NULL);
+  struct Arena scratch = state->scratch;
+  struct OutputCacheFact* facts = arena_new(&scratch, state->media_count, struct OutputCacheFact);
+  for (ptrdiff_t i = 0; i < state->media_count; i++) {
+    facts[i] = album_scan_probe_fact(state->media[i], state->site_config.media_dir, &scratch);
+  }
+  return output_cache_write(&state->writer, state->output_cache_path, facts, state->media_count,
+                            scratch, log);
 }
 
 static int prune_stale_outputs(struct BuildState* state, struct Log* log) {

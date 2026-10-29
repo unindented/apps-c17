@@ -138,9 +138,9 @@ static const char* build_and_take_tool_runs(const char* root_dir,
   return str_cstr(runs, arena);
 }
 
-// A video the build cache answers for runs neither `ffprobe` nor `ffmpeg` while its derivatives are
-// fresh. Once one is stale, the build extracts the frame for it, so only `ffmpeg` runs, and the
-// derivative is written again.
+// A video whose probe fact answers for it runs neither `ffprobe` nor `ffmpeg` while the output
+// cache vouches for its derivatives. Once one is deleted, the build extracts the frame to make it,
+// so only `ffmpeg` runs, and the derivative is written again.
 static void test_cached_video_extracts_its_frame_only_when_needed(void) {
   char root_dir[] = "/tmp/fram-build-cached-video.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {

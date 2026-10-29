@@ -109,7 +109,7 @@ static void test_help_action_reports_ok(void) {
       "    -c, --config PATH  Read the configuration from PATH (default: fram.toml)\n"
       "    -w, --workers N    Use at most N worker threads (default: detected CPU count)\n"
       "    -n, --dry-run      Report what would be written, kept, or removed, changing nothing\n"
-      "    --force            Ignore the build cache for this build\n"
+      "    --force            Make every output again, keeping nothing\n"
       "    -v, --verbose      Print build progress to stderr\n"
       "    -h, --help         Print this help and exit\n"));
 }
@@ -148,7 +148,7 @@ static void test_config_command_is_dispatched(void) {
 // config path, the worker count, the verbose flag, the dry-run flag and the force flag reach the
 // build rather than being dropped on the way. A dry run of `sub/fram.toml` prints a listing below
 // `sub/public` and leaves no output directory, which only a carried path and flag explain. The
-// verbose phase lines naming the requested count, and the one saying the build cache is ignored,
+// verbose phase lines naming the requested count, and the one saying the output cache is ignored,
 // are the only externally visible evidence that the other three fields were carried across. The
 // test asks for one worker, so a dropped count would show the detected count, on a host with more
 // than one core. One worker also finishes the jobs in order, so the progress lines can be compared.
@@ -160,7 +160,7 @@ static void test_build_command_receives_parsed_options(void) {
   // renames, so only the first and the last line are spelled out.
   const struct Str listing = os_memory_printed(os, 1);
   TEST_CHECK(str_startswith(listing, S("write\tsub/public/index.html\n")));
-  TEST_CHECK(str_endswith(listing, S("write\tsub/public/_fram/v1-build-cache.tsv\n")));
+  TEST_CHECK(str_endswith(listing, S("write\tsub/public/_fram/output-cache.tsv\n")));
   TEST_MSG("stdout: '%.*s'", STR_FMT(listing));
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
   TEST_CHECK(!os_memory_has_path(os, "sub/public"));
@@ -178,18 +178,18 @@ static void test_build_command_receives_parsed_options(void) {
                                   "discovering templates and static files\n"
                                   "compiling templates\n"
                                   "planning albums\n"
-                                  "ignoring build cache, probing every source\n"
+                                  "ignoring output cache, probing every source\n"
                                   "probing media, workers: 1\n"
                                   "\rprobing media 1/2\rprobing media 2/2\n"
                                   "building output manifest\n"
                                   "copying static files\n"
-                                  "writing build cache\n"
                                   "generating derivatives, workers: 1\n"
                                   "\rgenerating derivatives 1/2\rgenerating derivatives 2/2\n"
                                   "rendering albums, workers: 1\n"
                                   "\rrendering albums 1/1\n"
                                   "writing album pages\n"
                                   "rendering aggregate templates\n"
+                                  "writing output cache\n"
                                   "removing stale outputs\n"
                                   "removed stale outputs: 0\n"
                                   "build complete\n"));

@@ -24,6 +24,30 @@ enum ManifestMark {
 };
 
 /**
+ * What the manifest records about how one output is made, besides its path and its label. A zeroed
+ * one declares no inputs and is no copy.
+ */
+struct ManifestOutput {
+  /**
+   * Text that names every input the output is made from, such as `blob=3f2a mode=100644`, and that
+   * holds no tab or newline. The output writer keeps an output whose attributes equal those its
+   * output cache recorded, so only an output that is expensive to make and whose inputs can be
+   * named exactly declares them. Empty for an output that declares no inputs, which is always made.
+   */
+  struct Str attributes;
+
+  /** Input file the output is a copy of, or empty for an output the build makes. */
+  struct Str copy_source_path;
+
+  /**
+   * Size in bytes of `copy_source_path` in the stat its attributes were made from, which the output
+   * writer records as the size of a copy it streams. `0` gives no size, so the output cache stats a
+   * copy of an empty source, or one recorded without its source's size, instead.
+   */
+  ptrdiff_t copy_source_len;
+};
+
+/**
  * Insertion-ordered set of intended build output paths, each mapped to its producing source. A
  * zeroed manifest is empty and ready to add to.
  */
@@ -78,6 +102,30 @@ int manifest_add(struct Manifest* manifest,
                  struct Str source_label,
                  struct Arena* arena,
                  struct Str* source_label_existing_out) __attribute__((nonnull(1, 4)));
+
+/**
+ * @brief Records `output_path`, the source that produces it, and how it is made, as `manifest_add`
+ *        records a path.
+ *
+ * The manifest copies every string into `arena`.
+ *
+ * @param manifest                  Manifest to append to. Must not be `NULL`.
+ * @param output_path               Filesystem output path to record.
+ * @param source_label              Diagnostic label for the source producing `output_path`.
+ * @param output                    How the output is made. Must not be `NULL`.
+ * @param arena                     Arena that owns the manifest's entries and copies, as for
+ *                                  `manifest_add`. Must not be `NULL`.
+ * @param source_label_existing_out Receives the label of the earlier claim on `-1`. Ignored when
+ *                                  `NULL`.
+ * @return `0` when the path was recorded, or `-1` when it was already claimed and the manifest is
+ *         unchanged.
+ */
+int manifest_add_output(struct Manifest* manifest,
+                        struct Str output_path,
+                        struct Str source_label,
+                        const struct ManifestOutput* output,
+                        struct Arena* arena,
+                        struct Str* source_label_existing_out) __attribute__((nonnull(1, 4, 5)));
 
 /**
  * A pair of recorded output paths where one is a `/`-delimited prefix of the other under ASCII case
@@ -139,18 +187,24 @@ bool manifest_next_output_path(const struct Manifest* manifest, struct Str* outp
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Marks the recorded output path equal to `output_path` under ASCII case folding.
+ * @brief Marks the recorded output path equal to `output_path` under ASCII case folding, with the
+ *        size of the file now at the path.
  *
- * It changes the entry's mark and nothing else, so jobs running at once may each mark a path of
- * their own while the others look theirs up.
+ * It changes the entry's mark and size and nothing else, so jobs running at once may each mark a
+ * path of their own while the others look theirs up, and the size is written by the thread that
+ * writes the mark.
  *
  * @param manifest    Manifest whose entry is marked. Must not be `NULL`.
  * @param output_path Path to mark.
  * @param mark        Mark the entry receives.
+ * @param len         Size in bytes of the file now at `output_path`, or `-1` when the caller does
+ *                    not know it, as for `MANIFEST_MARK_PENDING`.
  * @return `0` when the path is recorded, or `-1` when it is not and nothing was marked.
  */
-int manifest_mark(struct Manifest* manifest, struct Str output_path, enum ManifestMark mark)
-    __attribute__((nonnull(1)));
+int manifest_mark(struct Manifest* manifest,
+                  struct Str output_path,
+                  enum ManifestMark mark,
+                  ptrdiff_t len) __attribute__((nonnull(1)));
 
 /**
  * @brief Finds the mark of the recorded output path equal to `output_path` under ASCII case
@@ -162,5 +216,35 @@ int manifest_mark(struct Manifest* manifest, struct Str output_path, enum Manife
  */
 enum ManifestMark manifest_find_mark(const struct Manifest* manifest, struct Str output_path)
     __attribute__((nonnull(1)));
+
+/**
+ * @brief Finds the size that the mark of the recorded output path equal to `output_path` under
+ *        ASCII case folding recorded.
+ *
+ * @param manifest    Manifest to read. Must not be `NULL`.
+ * @param output_path Path whose size is read.
+ * @return The size in bytes, or `-1` when the path is pending, was marked without a size, or is not
+ *         recorded.
+ */
+ptrdiff_t manifest_find_len(const struct Manifest* manifest, struct Str output_path)
+    __attribute__((nonnull(1)));
+
+/**
+ * @brief Finds how the recorded output path equal to `output_path` under ASCII case folding is
+ *        made.
+ *
+ * What it reads never changes once the path is recorded, so jobs running at once may each read it
+ * while they mark their paths.
+ *
+ * @param manifest    Manifest to read. Must not be `NULL`.
+ * @param output_path Path to find.
+ * @param output_out  Receives how the output is made, with strings borrowed from the manifest, when
+ *                    the path is recorded. Must not be `NULL`.
+ * @return `true` when the path is recorded, or `false` when it is not and `output_out` is
+ *         untouched.
+ */
+bool manifest_find_output(const struct Manifest* manifest,
+                          struct Str output_path,
+                          struct ManifestOutput* output_out) __attribute__((nonnull(1, 3)));
 
 #endif

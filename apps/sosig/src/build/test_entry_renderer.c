@@ -18,6 +18,7 @@
 #include "domain/site_config.h"
 #include "os/os_memory.h"
 #include "output/manifest.h"
+#include "output/output_cache.h"
 #include "output/output_writer.h"
 #include "runtime/job.h"
 #include "templates/template_set.h"
@@ -122,11 +123,11 @@ static int render_pages(const struct SiteConfig* site_config,
     return -1;
   }
   const struct OutputWriter writer = {.manifest = &manifest, .os = os};
-  bool* entry_list_flags = arena_new(log->buf.arena, source_entry_count, bool);
+  const struct OutputCache cache = {0};
   const int rc = page_renderer_render_pages(
-      &writer, site_config, template_set, (const struct ContentEntry* const*)source_entries,
-      source_entry_count, (const struct ContentEntry* const*)entries, entry_count, NULL,
-      worker_count, worker_arenas, false, os, test_arena(), entry_list_flags, log);
+      &writer, &cache, site_config, template_set, (const struct ContentEntry* const*)source_entries,
+      source_entry_count, (const struct ContentEntry* const*)entries, entry_count, worker_count,
+      worker_arenas, false, os, test_arena(), log);
   template_set_release(template_set);
   return rc;
 }

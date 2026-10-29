@@ -468,7 +468,7 @@ static void site_config_load_fields_limits(struct SurgeLimits* limits,
       {
           .key = "raw_len_max",
           .field = &limits->raw_len_max,
-          .value_max = PTRDIFF_MAX,
+          .value_max = SURGE_RAW_LEN_MAX_LIMIT,
           .limit_name = "raw length",
           .is_len = true,
       },

@@ -42,7 +42,7 @@ macos-arm64 = { url = "https://github.com/unindented/apps-c17/releases/download/
   - `-c, --config PATH`: Read the configuration from `PATH`. The default is `surge.toml` in the working directory.
   - `-w, --workers N`: Set the maximum number of worker threads for the build. `N` must be a positive integer. The default is the number of CPUs that `surge` detects. The build never runs more than four workers for each online CPU, and a parallel phase never starts more workers than it has jobs.
   - `-n, --dry-run`: Report the changes that the build would make, but do not make them. See [Dry run](#dry-run).
-  - `--force`: Ignore the [build cache](#build-cache) for this build.
+  - `--force`: Make every output again, keeping nothing from earlier builds. See [Output cache](#output-cache).
   - `-v, --verbose`: Print build progress to `stderr`.
 - `surge config`: Print the resolved configuration as TOML. It also takes `-c, --config PATH`.
 
@@ -141,7 +141,7 @@ The `[limits]` table:
 | Key | Default | Bounds | Meaning |
 | --- | --- | --- | --- |
 | `blob_len_max` | `1048576` (1 MiB) | 0 to 4194304 (4 MiB) | The largest blob, in bytes, that the build reads for a page. A larger blob gets a blob page without contents, is never a document or a README, and shows no lines in a diff. |
-| `raw_len_max` | `104857600` (100 MiB) | 0 or more | The largest blob, in bytes, that gets a raw copy. A larger blob gets none, and a verbose build counts these blobs. |
+| `raw_len_max` | `104857600` (100 MiB) | 0 to 1073741824 (1 GiB) | The largest blob, in bytes, that gets a raw copy. A larger blob gets none, and a verbose build counts these blobs. |
 | `diff_file_count_max` | `300` | 0 or more | The most changed files whose diffs a commit page shows. |
 | `diff_line_count_max` | `20000` | 0 or more | The most diff lines that a commit page shows. |
 | `diff_len_max` | `1048576` (1 MiB) | 0 to 4194304 (4 MiB) | The most bytes of diff lines that a commit page shows. |
@@ -184,7 +184,7 @@ The build writes this tree to `output_dir`. `<r>` is a repository name, `<ref>` 
 index.html                                     site index
 404.html                                       not-found page
 _headers                                       with headers_file = true
-_surge/v1-build-cache.tsv                      build cache
+_surge/output-cache.tsv                        output cache
 <static files>
 <r>/index.html                                 repo home
 <r>/branches/index.html                        branches
@@ -237,14 +237,14 @@ The build creates `output_dir` only after all of these checks pass, so a rejecte
 
 ### Dry run
 
-`surge build --dry-run` runs every phase of a build and renders every page that the build would write. But it changes nothing in `output_dir`, and it does not create `output_dir`. For each path that the build would change or keep, it prints one line to `stdout`. Each line has a mark, a tab, and the path. This is a shortened listing:
+`surge build --dry-run` runs every phase of a build, but it changes nothing in `output_dir`, and it does not create `output_dir`. For each path that the build would change or keep, it prints one line to `stdout`. Each line has a mark, a tab, and the path. This is a shortened listing:
 
 ```text
 keep	public/apps-c17.git/HEAD
 write	public/apps-c17.git/info/refs
 write	public/apps-c17/index.html
 keep	public/apps-c17/blob/main/README.md/index.html
-write	public/_surge/v1-build-cache.tsv
+write	public/_surge/output-cache.tsv
 remove	public/apps-c17/tree/old-branch
 remove	public/apps-c17/tree/old-branch/index.html
 ```
@@ -252,7 +252,7 @@ remove	public/apps-c17/tree/old-branch/index.html
 | Mark | Meaning |
 | --- | --- |
 | `write` | The build would write this output. |
-| `keep` | The build would not change this output, because the [build cache](#build-cache) shows that it is current, or because the output already holds the bytes that the build would write. |
+| `keep` | The build would not change this output, because the [output cache](#output-cache) shows that it is current, or because the output already holds the bytes that the build would write. |
 | `remove` | The build would remove this path, because the current inputs no longer produce it. The path can be a directory. |
 
 The `write` and `keep` lines come first, in the order that the build plans them:
@@ -263,36 +263,34 @@ The `write` and `keep` lines come first, in the order that the build plans them:
 4. The release outputs of each repository.
 5. `index.html` and `404.html`.
 6. The static files.
-7. The build cache.
+7. The output cache.
 
 The `remove` lines come after them, in sorted order. To get only the paths, for `sort`, `diff`, or `comm`, use `cut -f2-`. A dry run reports a failure in the same way as a build: on `stderr`, with the same exit code. A dry run that fails prints no listing. With `-v`, the progress messages still go to `stderr`, so `stdout` contains only the listing when you send it through a pipe.
 
-A dry run still writes the pack of a clone export whose refs changed, below `TMPDIR`, because the name of the pack is the hash of its content, and the plan needs the name. It removes the pack before it ends. A dry run writes nothing else, so a build can still fail after a dry run succeeds. A dry run cannot find these failures:
+A dry run lists an output whose inputs changed since the [output cache](#output-cache) recorded them as `write` without making it, so it renders no such page, and makes no pack for a clone export whose refs changed. It lists that pack as `pack-<id>.pack`, with the id of the new `info/refs`, because the real name is the hash of the pack's bytes. It makes only the outputs that have no recorded inputs, such as `HEAD` and `info/refs`, to compare them with the output. A dry run writes nothing, so a build can still fail after a dry run succeeds. A dry run cannot find these failures:
 
 - The build has no permission to write to `output_dir`, or its disk is full.
 - `surge` cannot read a static file or a release asset. A dry run does not open the files that it would copy.
 - An old file is at a path where a new output needs a directory, or an old directory is at a path where a new output needs a file. For example, the old output is the file `public/apps-c17/raw/main/docs`, and the new output is `public/apps-c17/raw/main/docs/guide.md`.
 - `output_dir` exists but is not a usable directory.
 
-### Build cache
+### Output cache
 
-A build writes the build cache to `_surge/v1-build-cache.tsv` below `output_dir`. Its first line is the page recipe: `title`, `description`, `author`, `base_url`, `log_page_size`, `feed_count`, every limit but `pack_len_max`, the `surge` version, the grammars that the binary includes, and a version of the page format. Each later line records one input that the outputs depend on:
+A build writes the output cache to `_surge/output-cache.tsv` below `output_dir`. It has one row for each output whose inputs the build can name: the output's path, its inputs, and its size. The next build keeps an output, and does not make it again, when its inputs are the same and the file still has that size. Every other output is made on every build and written only when its bytes change.
 
-- The size and modification time of each template and each static file.
-- For each repository, its place in the config, its description, its default branch, the date of the default branch's newest commit, and its projects.
-- For each repository, what the `repo` map of its pages shows: its default branch, when that branch names a commit, and whether it has a release project.
-- The commit or object that each branch and tag points at.
-- For each clone export, its pack, the sizes of the pack and its idx, and its `info/refs`.
-- For each repository with a release project, its projects, and each release's tag, version, and the name, size and modification time of each asset.
-- For each tree page, blob page, raw copy, log page and feed, the ids of what it shows.
+- Every page depends on the page recipe: the `surge` version, the grammars that the binary includes, `title`, `description`, `author`, `base_url`, `log_page_size`, `feed_count`, every limit but `pack_len_max`, and the path, size and modification time of every file below `templates_dir`. A change to any of them, a partial included, makes every page again.
+- Every page of a repository also depends on what its `repo` map shows: the default branch, whether the branch names a commit, the description, and whether the repository has a release project.
+- A commit page depends on its commit. A blob page depends on its blob and mode, a tree page on its tree, and both on the branch's root tree when they show Markdown or Org, because their links resolve against every path of the branch. The page of a branch's root also depends on the branch's newest commit. A log page depends on its commits and the refs that name them, and a feed on its entries.
+- The home, the branches and tags pages and the site index depend on every ref and on the repository's place in the config, description, newest commit date and projects. The tags page and the release outputs also depend on the releases.
+- A raw copy depends only on its blob. A static file and a release asset depend on their path, size and modification time. A clone pack depends on `info/refs`.
 
-The next build keeps an output, and does not make it again, when nothing that it shows changed. A commit page shows only its commit and the `repo` map of its repository, so a later build keeps it while the templates, the page recipe and that map do not change. A new default branch, a new description, or a first or last release project, changes the map and makes every page of the repository again. A blob page follows its blob and mode, a raw copy its blob, a tree page its tree, and a log page its commits and the refs that name them. The page of a branch's root also follows the branch's newest commit, which it shows. A tree page with a Markdown or Org document, and the blob page of a Markdown or Org file, also follow the branch's root tree, because their links resolve against every path of the branch. A new commit on a branch makes the branch's log pages and feed, the new commit's page, the page of the branch's root, the repository's home and refs pages, the site index, and the changed files and new pack of the clone export again. The build keeps every other output, except the log pages of other branches that show a commit whose branches or tags changed. A change to any template, a partial included, makes every page again. Some outputs need no build cache: the build keeps `HEAD`, `info/refs`, `objects/info/packs` and `_headers` whenever the output already holds their bytes, even after `--force`. A change to the page recipe makes every other output again.
+A new commit on a branch makes the branch's log pages and feed, the new commit's page, the tree and blob pages and raw copies of the paths that it changes, the pages that show Markdown or Org, the page of the branch's root, the repository's home and refs pages, the site index, and the changed files and new pack of the clone export again. `--force` ignores the output cache and writes every output.
 
-Some tools change a file but keep its size and modification time. After such a change, the build can keep a page that no longer matches its template. libgit2 also reads `$GIT_DIR/info/attributes` and a work tree's `.gitattributes` when it makes a diff, and the build cache does not record them. After a change to either, or after any change that the build cache does not see, run `surge build --force` once. That build makes every page again and writes a new build cache.
+Some tools change a file but keep its size and modification time, and libgit2 reads `$GIT_DIR/info/attributes` and a work tree's `.gitattributes` for a diff, which the output cache does not record. After such a change, run `surge build --force` once.
 
-A build writes the build cache as zero bytes before its first page, and writes the full build cache after every other output. A build that fails or is interrupted leaves the empty file, and the next build makes every output again.
+A build writes the output cache after its last output, also when an output failed, with a row only for what it wrote or kept. An interrupted build leaves the cache of the build before it, which keeps no output that the build cut short, because the file no longer has the recorded size, and none that it rewrote, because its inputs changed.
 
-When you publish `output_dir`, you also publish the build cache. Its rows name the template and static files with their sizes and modification times, the refs of each repository, and the output paths. If you do not want to publish this information, exclude `_surge/v1-build-cache.tsv` when you deploy.
+When you publish `output_dir`, you also publish the output cache. Its rows name the output paths and the ids of the commits, trees and blobs they show. If you do not want to publish this information, exclude `_surge/output-cache.tsv` when you deploy.
 
 ### Limits
 
@@ -304,7 +302,7 @@ The build rejects an input file that is too large before it reads the file. The 
 | Template or partial | 4 MiB |
 | A repository's `description` file | 64 KiB |
 
-A site can have at most 64 partials in the `partials/` directory of `templates_dir`. A rendered page can be at most 256 MiB, a render can use at most 300,000 partial expansions, and a render that passes a limit fails. A build cache over 256 MiB is not read, and the build makes every output again. A blob over `blob_len_max` or `raw_len_max` gets the treatment that [Configuration](#configuration) describes. A static file and a release asset have no size limit, because the build copies each one from the file itself.
+A site can have at most 64 partials in the `partials/` directory of `templates_dir`. A rendered page can be at most 256 MiB, a render can use at most 300,000 partial expansions, and a render that passes a limit fails. An output cache over 256 MiB is not read, and the build makes every output again. A blob over `blob_len_max` or `raw_len_max` gets the treatment that [Configuration](#configuration) describes. A static file and a release asset have no size limit, because the build copies each one from the file itself.
 
 The build reserves its memory once, when it starts, in fixed sizes that come from these limits: 4 GiB of address space for the persistent data of each thread, 3 GiB for its temporary data, and 256 MiB for the log and for each worker's job logs. Reserved memory that the build does not use takes address space but no memory. When the system refuses the reservation, for example under an address-space limit (`ulimit -v`), the build halves its worker count, down to one, and then halves the reservation. A build that needs more memory than it reserved prints the errors that it logged up to that point, then `surge: out of memory`, with the name of the repository or the file that the thread was working on when there was one, and exits with status 1.
 
@@ -483,7 +481,7 @@ The export holds `HEAD`, `info/refs`, `objects/info/packs`, and one pack with it
 - `HEAD` names the default branch, so a detached `HEAD` is never published.
 - An empty repository has no pack, an empty `info/refs` and an empty `objects/info/packs`.
 
-The name of the pack is the hash of its content, and the same refs give the same pack. A build keeps the pack while the refs do not change. When the refs change, the build writes a new pack, and keeps the previous pack for one more build, without listing it, so a client that read an older `info/refs` from a cache can still finish its clone. The build after that removes it. A `--force` build does not read the build cache, so it does not know the previous pack and removes it at once.
+The name of the pack is the hash of its content, and the same refs give the same pack. A build keeps the pack while the refs do not change. When the refs change, the build writes a new pack, and keeps the previous pack for one more build, without listing it, so a client that read an older `info/refs` from a cache can still finish its clone. The build after that removes it, also when a build between them failed before it wrote the new pack. A `--force` build does not read the output cache, so it does not know the previous pack and removes it at once. A dry run does not make a changed pack, as [Dry run](#dry-run) describes.
 
 ## Templates
 
@@ -804,7 +802,7 @@ ctest --preset debug -R template -j 8
 
 The fixture repositories are `git fast-import` streams in [tests/repos/](tests/repos/), with fixed dates, so every object id is the same on every run. A test that reads a repository makes them first with `git`. `surge.fixture_repos` checks that each one holds exactly the refs and ids of its `tests/repos/<name>.refs` file.
 
-The golden test `surge.golden.site` builds the fixture site in [tests/fixtures/site/](tests/fixtures/site/), over four repositories, three times: with one worker, with two workers and the build cache, and with eight workers and `--force`. The later builds must not change a generated file. It then compares the output with [tests/expected/site/](tests/expected/site/) byte for byte, the packs included, and the first build's warnings with [tests/expected/site.warnings.txt](tests/expected/site.warnings.txt). It checks each pack with `git verify-pack` and a strict `git index-pack`, and each `info/refs` against the refs of its source. It then moves a branch and changes the release directories, and checks what each dry run writes, keeps and removes. Each `refuse-*` fixture site is a golden test of a site that the build must refuse. A verbose build on one worker must print the exact `stderr` in its `tests/expected/<site>/stderr.txt`, so the file also shows which phases ran before the build stopped.
+The golden test `surge.golden.site` builds the fixture site in [tests/fixtures/site/](tests/fixtures/site/), over four repositories, three times: with one worker, with two workers and the output cache, and with eight workers and `--force`. The later builds must not change a generated file. It then compares the output with [tests/expected/site/](tests/expected/site/) byte for byte, the packs included, and the first build's warnings with [tests/expected/site.warnings.txt](tests/expected/site.warnings.txt). It checks each pack with `git verify-pack` and a strict `git index-pack`, and each `info/refs` against the refs of its source. It then moves a branch, changes the release directories, the default branch, a template, the limits and a blob, and checks what each dry run writes, keeps and removes. Each `refuse-*` fixture site is a golden test of a site that the build must refuse. A verbose build on one worker must print the exact `stderr` in its `tests/expected/<site>/stderr.txt`, so the file also shows which phases ran before the build stopped.
 
 With `python3`, the golden test also runs [tests/clone_test.py](tests/clone_test.py). It serves the output on localhost, clones every `<r>.git` over dumb HTTP, and compares the refs of each clone with its source. It then clones from a server that answers a missing path with 200 and an HTML page, and checks for the corrupt-object errors that [404 handling](#404-handling) describes.
 

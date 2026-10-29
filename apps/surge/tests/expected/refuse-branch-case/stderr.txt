@@ -1,8 +1,8 @@
 loading config
 discovering templates and static files
 compiling templates
-loading build cache
-no build cache, making every output
+loading output cache
+no output cache, making every output
 scanning repos, workers: 1
 scanning repos 1/1
 ref name is not valid UTF-8: 'refs/heads/caf\xE9' (in repo 'branch-case')

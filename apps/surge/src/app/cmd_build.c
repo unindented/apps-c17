@@ -1,10 +1,10 @@
 #include "app/cmd_build.h"
 
 #include <errno.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 #include "build/export_writer.h"
 #include "build/page_feed.h"
@@ -22,14 +22,17 @@
 #include "core/path_list.h"
 #include "core/str.h"
 #include "core/text.h"
-#include "domain/build_cache.h"
 #include "domain/repo_model.h"
 #include "domain/site_config.h"
+#include "domain/surge_version.h"
+#include "formats/tsv.h"
+#include "markup/highlight.h"
 #include "os/oom.h"
 #include "os/os.h"
 #include "output/build_cache_file.h"
 #include "output/manifest.h"
 #include "output/manifest_builder.h"
+#include "output/output_cache.h"
 #include "output/output_pruner.h"
 #include "output/output_writer.h"
 #include "runtime/build_run.h"
@@ -39,6 +42,12 @@
 #include "runtime/walk.h"
 #include "templates/template_set.h"
 #include "vcs/repository.h"
+
+/** Path of the output cache below `output_dir`. */
+#define OUTPUT_CACHE_PATH S("_surge/output-cache.tsv")
+
+/** Hex digits of the page recipe's id that every page declares. */
+enum { BUILD_RECIPE_ID_LEN = 16 };
 
 /** Bytes in a mebibyte, the unit of the sizes below. */
 #define BUILD_MIB ((ptrdiff_t)1024 * 1024)
@@ -56,8 +65,14 @@ _Static_assert(PTRDIFF_MAX > 0xffffffff, "the arenas below need a 64-bit address
  */
 #define BUILD_PERM_LEN (16 * (ptrdiff_t)TEMPLATE_RENDER_OUTPUT_LEN_MAX)
 
-/** Bytes of each thread's scratch, which holds one job's temporaries. */
+/**
+ * Bytes of each thread's scratch, which holds one job's temporaries. The largest is a raw copy's
+ * comparison: its blob, up to `SURGE_RAW_LEN_MAX_LIMIT`, beside the file in the output of the same
+ * size and the 64 KiB that its read adds, with the blob's slack and the job's paths.
+ */
 #define BUILD_SCRATCH_LEN (3 * 1024 * BUILD_MIB)
+_Static_assert(2 * SURGE_RAW_LEN_MAX_LIMIT + BUILD_MIB <= BUILD_SCRATCH_LEN,
+               "the scratch must hold a raw copy's comparison");
 
 /** The page templates a build renders, the release templates last. */
 static const struct Str BUILD_PAGE_TEMPLATES[] = {
@@ -70,19 +85,11 @@ struct BuildInputs {
   /** Paths of the files, sorted. */
   struct PathList paths;
 
-  /** Stat of each of `paths`, parallel to it. A file that cannot be inspected has one that no row
-   * matches.
+  /**
+   * Stat of each of `paths`, parallel to it. A file that cannot be inspected has a negative `len`,
+   * as `walk_stat_paths` marks it.
    */
   struct OsStat* stats;
-};
-
-/** The build cache rows of one kind that a copy of files checks its sources against. */
-struct CopyRows {
-  /** Rows an earlier build left. */
-  const struct BuildCache* cache;
-
-  /** Kind of the rows the sources have. */
-  enum BuildCacheKind kind;
 };
 
 /** Mutable state owned by one `cmd_build_execute` invocation. */
@@ -108,7 +115,7 @@ struct BuildState {
   /** Compiled templates, released when the build ends, or `NULL` until they load. */
   struct TemplateSet* template_set;
 
-  /** Every file below `templates_dir`, which the build cache records a row for. */
+  /** Every file below `templates_dir`, which the page recipe names. */
   struct BuildInputs templates;
 
   /** Every file below `static_dir`, empty when it does not exist. */
@@ -130,20 +137,29 @@ struct BuildState {
   /** Writer every change under `output_dir` goes through. */
   struct OutputWriter writer;
 
-  /** Path of the build cache below `output_dir`. */
-  struct Str build_cache_path;
+  /** Path of the output cache below `output_dir`. */
+  struct Str cache_path;
 
-  /** Rows an earlier build left, empty when there are none or the build ignores them. */
-  struct BuildCache build_cache;
+  /** What an earlier build left, empty when there is none or the build ignores it. */
+  struct OutputCache cache;
+
+  /** Id of the page recipe, which every page declares. */
+  struct Str recipe_id;
 
   /** Workers a parallel phase runs. */
   ptrdiff_t worker_count;
 
   /** Where the build's status lines go, which `--verbose` enables. */
   struct Verbose verbose;
+};
 
-  /** Whether the build ignores the build cache. */
-  bool is_forced;
+/** What makes a page of the root, for `output_writer_produce`. */
+struct SitePageMake {
+  /** Build state. */
+  const struct BuildState* state;
+
+  /** Name of the page's template, and of its output below `output_dir`. */
+  struct Str name;
 };
 
 /**
@@ -244,8 +260,12 @@ static int load_build_inputs_walk(struct BuildState* state,
 static bool has_release_projects(const struct SiteConfig* site_config) __attribute__((nonnull(1)));
 
 /**
- * @brief Runs the phases after the inputs are loaded: the templates, the build cache, the scan, the
- *        manifest, and then the writes, the build cache, the prune and a dry run's report.
+ * @brief Runs the phases after the inputs are loaded: the templates, the page recipe, the build
+ *        cache, the scan, the manifest, and then the writes, the output cache, the prune and a dry
+ *        run's report.
+ *
+ * Once `output_dir` is prepared, the output cache is written even when a write fails, as it records
+ * only the outputs this build wrote or kept.
  *
  * @param state Build state whose inputs are loaded. Must not be `NULL`.
  * @param log   Log that receives every error. Must not be `NULL`.
@@ -275,26 +295,25 @@ static ptrdiff_t load_templates_count(const struct SiteConfig* site_config)
     __attribute__((nonnull(1)));
 
 /**
- * @brief Reads the build cache an earlier build left, unless the build ignores it. A missing or
- *        unusable one is an empty one, with a verbose note.
+ * @brief Returns the id of the page recipe: what every page depends on besides its own inputs.
  *
- * @param state Build state that receives the build cache. Must not be `NULL`.
+ * The recipe is the generator string with the version, the grammars the build links, the site keys
+ * and the limits of the config but `pack_len_max`, and the path, size and modification time of
+ * every file below `templates_dir`, each text with its `\`, tab and newline escaped, one
+ * `name=value` line each.
+ *
+ * @param state Build state whose inputs are loaded. Must not be `NULL`.
+ * @return The id, in the main thread's perm.
  */
-static void load_build_cache(struct BuildState* state) __attribute__((nonnull(1)));
+static struct Str load_recipe_id(struct BuildState* state) __attribute__((nonnull(1)));
 
 /**
- * @brief Parses the text of the build cache into the build state, as `BuildCacheFileParseFn`.
+ * @brief Reads the output cache an earlier build left, unless the build ignores it. A missing or
+ *        unusable one is an empty one, with a verbose note.
  *
- * @param text     Bytes of the build cache.
- * @param perm     Arena that owns the rows. Must not be `NULL`.
- * @param log      Log that receives the reason the build cache cannot be used. Must not be `NULL`.
- * @param userdata The `struct BuildState`, which receives the build cache.
- * @return `0` on success, or `-1` when the build cache cannot be used.
+ * @param state Build state that receives the output cache. Must not be `NULL`.
  */
-static int load_build_cache_parse(struct Str text,
-                                  struct Arena* perm,
-                                  struct Log* log,
-                                  void* userdata) __attribute__((nonnull(2, 3, 4)));
+static void load_output_cache(struct BuildState* state) __attribute__((nonnull(1)));
 
 /**
  * @brief Scans every repo on the worker pool.
@@ -327,6 +346,19 @@ static struct PathList populate_output_manifest_inputs(struct BuildState* state)
     __attribute__((nonnull(1)));
 
 /**
+ * @brief Records `index.html` and `404.html`: the site index declares the page recipe and every
+ *        repo and ref, and the not-found page the recipe.
+ *
+ * @param state   Build state whose repos are scanned. Must not be `NULL`.
+ * @param builder Prepared manifest builder. Must not be `NULL`.
+ * @param log     Log that receives every refusal. Must not be `NULL`.
+ * @return `0` when both paths were recorded, or `-1` otherwise.
+ */
+static int populate_output_manifest_site_pages(const struct BuildState* state,
+                                               struct ManifestBuilder* builder,
+                                               struct Log* log) __attribute__((nonnull(1, 2, 3)));
+
+/**
  * @brief Refuses a top-level static entry whose name, folded, is a repo's or its clone export's,
  *        once per entry, and marks every file below it.
  *
@@ -342,17 +374,38 @@ static int populate_output_manifest_check_statics(const struct BuildState* state
                                                   struct Log* log) __attribute__((nonnull(1, 3)));
 
 /**
- * @brief Creates `output_dir` and empties the build cache, the build's first writes.
+ * @brief Creates `output_dir`, the build's first write.
  *
  * @param state Build state. Must not be `NULL`.
  * @param log   Log that receives the failure. Must not be `NULL`.
- * @return `0` on success, or `-1` when either write fails.
+ * @return `0` on success, or `-1` when a component of `output_dir` cannot be created.
  */
 static int prepare_output_dir(const struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Writes every repo's pages on the worker pool, or keeps each one the build cache vouches
+ * @brief Writes every output, or keeps each one the output cache vouches for, phase by phase, and
+ *        stops at the first phase that fails.
+ *
+ * @param state Build state whose manifest is complete. Must not be `NULL`.
+ * @param log   Log that receives every failure. Must not be `NULL`.
+ * @return `0` on success, or `-1` when an output cannot be made or written.
+ */
+static int write_outputs(struct BuildState* state, struct Log* log) __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Keeps the pack before each repo's new clone pack, first, so a build that fails before it
+ *        writes the new pack still records the old one for the next build.
+ *
+ * @param state Build state whose repos are scanned. Must not be `NULL`.
+ * @param log   Log that receives the failure. Must not be `NULL`.
+ * @return `0` on success, or `-1` when a keep fails.
+ */
+static int keep_previous_packs(const struct BuildState* state, struct Log* log)
+    __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Writes every repo's pages on the worker pool, or keeps each one the output cache vouches
  *        for, and notes what they left out when the build is verbose.
  *
  * @param state Build state whose repos are scanned. Must not be `NULL`.
@@ -361,17 +414,6 @@ static int prepare_output_dir(const struct BuildState* state, struct Log* log)
  */
 static int write_repo_pages(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
-
-/**
- * @brief Reports whether the build cache's repo row and ref rows of one repo are exactly what the
- *        scan found, which keeps its home and refs pages.
- *
- * @param state      Build state whose repos are scanned. Must not be `NULL`.
- * @param repo_index Index of the repo in the config.
- * @return `true` when the repo and every ref of it are as the earlier build saw them.
- */
-static bool is_repo_unchanged(const struct BuildState* state, ptrdiff_t repo_index)
-    __attribute__((nonnull(1)));
 
 /**
  * @brief Writes every repo's clone export, and `_headers` when the config asks for it.
@@ -395,28 +437,6 @@ static int write_release_outputs(const struct BuildState* state, struct Log* log
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Reports whether the build cache's releases row of one repo is what the scan found, which
- *        keeps its release outputs.
- *
- * @param state      Build state whose repos are scanned. Must not be `NULL`.
- * @param repo_index Index of the repo in the config.
- * @return `true` when the repo's releases are as the earlier build saw them.
- */
-static bool is_releases_unchanged(const struct BuildState* state, ptrdiff_t repo_index)
-    __attribute__((nonnull(1)));
-
-/**
- * @brief Reports whether the build cache's repo map row of one repo is what the scan found, which
- *        every page of the repo needs to be kept, because each one shows its `repo` map.
- *
- * @param state      Build state whose repos are scanned. Must not be `NULL`.
- * @param repo_index Index of the repo in the config.
- * @return `true` when the repo's `repo` map is as the earlier build saw it.
- */
-static bool is_repo_map_unchanged(const struct BuildState* state, ptrdiff_t repo_index)
-    __attribute__((nonnull(1)));
-
-/**
  * @brief Renders and writes the site index and the not-found page, or keeps each one the build
  *        cache vouches for.
  *
@@ -428,45 +448,34 @@ static int write_site_pages(const struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Renders one page of the root into the output, or keeps it.
+ * @brief Makes one page of the root, or keeps it.
  *
- * @param state      Build state. Must not be `NULL`.
- * @param name       Name of the page's template, and of its output below `output_dir`.
- * @param value      Data tree of the page. Must not be `NULL`.
- * @param is_vouched Whether the build cache vouches for the page, which is then kept when it
- *                   exists.
- * @param scratch    Arena for the render, past the bytes that hold `value`.
- * @param log        Log that receives the failure. Must not be `NULL`.
+ * @param state   Build state. Must not be `NULL`.
+ * @param name    Name of the page's template, and of its output below `output_dir`.
+ * @param scratch Arena for the page and its render.
+ * @param log     Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` when the render or the write fails.
  */
 static int write_site_page(const struct BuildState* state,
                            struct Str name,
-                           const struct TemplateValue* value,
-                           bool is_vouched,
                            struct Arena scratch,
-                           struct Log* log) __attribute__((nonnull(1, 3, 6)));
+                           struct Log* log) __attribute__((nonnull(1, 4)));
 
 /**
- * @brief Reports whether the build cache's rows of `kind` are exactly the files of `inputs`.
+ * @brief Renders one page of the root into `perm`, its data tree first, as `OutputWriterMakeFn`.
  *
- * @param state    Build state holding the build cache. Must not be `NULL`.
- * @param kind     Kind of the rows.
- * @param inputs   Files and their stats. Must not be `NULL`.
- * @param root_dir Directory the files are below.
- * @return `true` when the rows match the files one for one.
+ * @param perm      Arena that owns the data tree and the page. Must not be `NULL`.
+ * @param scratch   Arena for the render's temporaries.
+ * @param bytes_out Receives the page. Must not be `NULL`.
+ * @param log       Log that receives the failure. Must not be `NULL`.
+ * @param userdata  The `struct SitePageMake`.
+ * @return `0` on success, or `-1` when the render fails.
  */
-static bool is_every_file_unchanged(const struct BuildState* state,
-                                    enum BuildCacheKind kind,
-                                    const struct BuildInputs* inputs,
-                                    struct Str root_dir) __attribute__((nonnull(1, 3)));
-
-/**
- * @brief Reports whether the build cache's repo and ref rows are exactly what the scan found.
- *
- * @param state Build state whose repos are scanned. Must not be `NULL`.
- * @return `true` when every repo and every ref is as the earlier build saw it.
- */
-static bool is_every_repo_unchanged(const struct BuildState* state) __attribute__((nonnull(1)));
+static int write_site_page_make(struct Arena* perm,
+                                struct Arena scratch,
+                                struct Str* bytes_out,
+                                struct Log* log,
+                                void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
 
 /**
  * @brief Copies every static file into the output, or keeps each copy whose source did not change.
@@ -479,78 +488,15 @@ static int copy_static_files(const struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Reports whether a source has a row of the copy's kind with its stat, as
- *        `OutputWriterIsUnchangedFn`.
- *
- * @param name        Path of the source below the root of the copies.
- * @param source_stat What `os_stat` reported for the source. Must not be `NULL`.
- * @param userdata    The `struct CopyRows`.
- * @return `true` when the build cache records the source with that stat.
- */
-static bool copy_static_files_is_unchanged(struct Str name,
-                                           const struct OsStat* source_stat,
-                                           void* userdata) __attribute__((nonnull(2, 3)));
-
-/**
- * @brief Writes the build cache: the page recipe and a row for every input this build read.
+ * @brief Writes the output cache: a row for every output this build wrote or kept that declares
+ *        attributes, and the fact of each clone export's pack.
  *
  * @param state Build state. Must not be `NULL`.
  * @param log   Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` when the write fails.
  */
-static int write_build_cache(const struct BuildState* state, struct Log* log)
+static int write_output_cache(const struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
-
-/**
- * @brief Appends the rows of `kind` for the files of `inputs`, named relative to `root_dir`.
- *
- * @param cache    Cache that receives the rows, with room for them. Must not be `NULL`.
- * @param kind     Kind of the rows.
- * @param inputs   Files and their stats. Must not be `NULL`.
- * @param root_dir Directory the files are below.
- */
-static void append_file_rows(struct BuildCache* cache,
-                             enum BuildCacheKind kind,
-                             const struct BuildInputs* inputs,
-                             struct Str root_dir) __attribute__((nonnull(1, 3)));
-
-/**
- * @brief Appends the repo row of each scanned repo and the ref row of each of its refs.
- *
- * @param cache Cache that receives the rows, with room for them. Must not be `NULL`.
- * @param state Build state whose repos are scanned. Must not be `NULL`.
- * @param arena Arena for the rows' names. Must not be `NULL`.
- */
-static void append_repo_rows(struct BuildCache* cache,
-                             const struct BuildState* state,
-                             struct Arena* arena) __attribute__((nonnull(1, 2, 3)));
-
-/**
- * @brief Returns the number of rows `append_repo_rows` appends.
- *
- * @param state Build state whose repos are scanned. Must not be `NULL`.
- * @return The number of repo and ref rows.
- */
-static ptrdiff_t count_repo_rows(const struct BuildState* state) __attribute__((nonnull(1)));
-
-/**
- * @brief Appends each repo's `repo-map` and `export` rows, and its `releases` row when it has
- *        release projects.
- *
- * @param cache Cache that receives the rows, with room for `count_repo_export_rows`. Must not be
- *              `NULL`.
- * @param state Build state whose repos are scanned. Must not be `NULL`.
- */
-static void append_repo_export_rows(struct BuildCache* cache, const struct BuildState* state)
-    __attribute__((nonnull(1, 2)));
-
-/**
- * @brief Counts the rows `append_repo_export_rows` appends.
- *
- * @param state Build state whose repos are scanned. Must not be `NULL`.
- * @return The number of rows.
- */
-static ptrdiff_t count_repo_export_rows(const struct BuildState* state) __attribute__((nonnull(1)));
 
 /**
  * @brief Removes every directory entry below `output_dir` that the build did not write.
@@ -627,11 +573,11 @@ static void build_state_init(struct BuildState* state,
               .manifest = &state->manifest,
               .os = os,
               .is_dry_run = options->is_dry_run,
+              .is_forced = options->is_forced,
               .perm = &state->perm,
           },
       .worker_count = options->worker_count,
       .verbose = {.os = os, .is_enabled = options->is_verbose, .scratch = &state->scratch},
-      .is_forced = options->is_forced,
   };
   site_config_init(&state->site_config);
 }
@@ -643,6 +589,7 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
     return -1;
   }
   const struct SiteConfig* site_config = &state->site_config;
+  state->writer.output_dir = site_config->output_dir;
   const bool has_config_errors = log->errors > 0;
   const int roots_rc = load_build_inputs_require_read_roots(state, log);
   // A rejected directory holds a default the user never chose, so nothing checks or walks it.
@@ -764,9 +711,10 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
   // A template that fails to load still lets the scan and the manifest run, so one run reports
   // their errors too, and the check of the log before the first write stops the build.
   (void)load_templates(state, log);
-  // The build cache loads before the scan, because the scan decides whether a clone export's pack
+  state->recipe_id = load_recipe_id(state);
+  // The output cache loads before the scan, because the scan decides whether a clone export's pack
   // is current, and it writes a new pack before the manifest, which needs the pack's name.
-  load_build_cache(state);
+  load_output_cache(state);
   if (scan_repos(state, log) != 0) {
     return -1;
   }
@@ -775,10 +723,12 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
     return -1;
   }
   // Nothing before this point writes below `output_dir`.
-  if (prepare_output_dir(state, log) != 0 || write_repo_pages(state, log) != 0 ||
-      write_clone_exports(state, log) != 0 || write_release_outputs(state, log) != 0 ||
-      write_site_pages(state, log) != 0 || copy_static_files(state, log) != 0 ||
-      write_build_cache(state, log) != 0 || prune_stale_outputs(state, log) != 0) {
+  if (prepare_output_dir(state, log) != 0) {
+    return -1;
+  }
+  const int write_rc = write_outputs(state, log);
+  if (write_output_cache(state, log) != 0 || write_rc != 0 ||
+      prune_stale_outputs(state, log) != 0) {
     return -1;
   }
   if (state->writer.is_dry_run && output_writer_report(&state->writer, state->scratch, log) != 0) {
@@ -804,38 +754,72 @@ static ptrdiff_t load_templates_count(const struct SiteConfig* site_config) {
   return has_release_projects(site_config) ? count : count - release_count;
 }
 
-static void load_build_cache(struct BuildState* state) {
-  state->build_cache_path = build_cache_path(state->site_config.output_dir, &state->perm);
-  if (state->is_forced) {
-    verbose_printf(&state->verbose, "ignoring build cache, making every output");
+static struct Str load_recipe_id(struct BuildState* state) {
+  const struct SiteConfig* site_config = &state->site_config;
+  const struct SurgeLimits* limits = &site_config->limits;
+  struct Arena scratch = state->scratch;
+  struct Buf text = {.arena = &scratch};
+  const struct Str generator = surge_generator_string();
+  const struct Str grammars = highlight_grammar_list();
+  buf_printf(&text, "generator=%.*s\ngrammars=%.*s\n", STR_FMT(generator), STR_FMT(grammars));
+  const struct {
+    const char* name;
+    struct Str value;
+  } texts[] = {
+      {"title", site_config->title},
+      {"description", site_config->description},
+      {"author", site_config->author},
+      {"base_url", site_config->base_url},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(texts) / sizeof(texts[0])); i++) {
+    buf_printf(&text, "%s=", texts[i].name);
+    tsv_escape_append(&text, texts[i].value);
+    buf_append_char(&text, '\n');
+  }
+  buf_printf(&text,
+             "log_page_size=%td\nfeed_count=%td\nblob_len_max=%td\nraw_len_max=%td\n"
+             "diff_file_count_max=%td\ndiff_line_count_max=%td\ndiff_len_max=%td\n"
+             "image_len_max=%td\n",
+             site_config->log_page_size, site_config->feed_count, limits->blob_len_max,
+             limits->raw_len_max, limits->diff_file_count_max, limits->diff_line_count_max,
+             limits->diff_len_max, limits->image_len_max);
+  for (ptrdiff_t i = 0; i < state->templates.paths.count; i++) {
+    const struct OsStat* stat = &state->templates.stats[i];
+    struct Str relative = {0};
+    (void)path_is_below(state->templates.paths.items[i], site_config->templates_dir, &relative);
+    buf_append(&text, S("template="));
+    tsv_escape_append(&text, relative);
+    buf_printf(&text, " len=%td mtime=%" PRId64 ".%09" PRId64 "\n", stat->len, stat->mtime_s,
+               stat->mtime_ns);
+  }
+  // Every page declares the id, so a prefix of it, which two recipes share by chance once in 2^64,
+  // keeps the output cache short.
+  return str_head(repository_text_id(buf_str(&text), &state->perm), BUILD_RECIPE_ID_LEN);
+}
+
+static void load_output_cache(struct BuildState* state) {
+  state->cache_path = path_join(state->site_config.output_dir, OUTPUT_CACHE_PATH, &state->perm);
+  if (state->writer.is_forced) {
+    verbose_printf(&state->verbose, "ignoring output cache, making every output");
     return;
   }
-  verbose_printf(&state->verbose, "loading build cache");
+  verbose_printf(&state->verbose, "loading output cache");
   struct Str reason = {0};
-  const enum BuildCacheFileState cache_state = build_cache_file_load(
-      state->build_cache_path, BUILD_CACHE_FILE_LEN_MAX, load_build_cache_parse, state, state->os,
-      &state->perm, state->scratch, &reason);
+  const enum BuildCacheFileState cache_state = output_cache_load(
+      state->cache_path, state->os, &state->perm, state->scratch, &state->cache, &reason);
   if (cache_state == BUILD_CACHE_FILE_MISSING) {
-    verbose_printf(&state->verbose, "no build cache, making every output");
+    verbose_printf(&state->verbose, "no output cache, making every output");
   } else if (cache_state == BUILD_CACHE_FILE_UNUSABLE) {
-    verbose_printf(&state->verbose, "build cache not used, making every output: %.*s",
+    verbose_printf(&state->verbose, "output cache not used, making every output: %.*s",
                    STR_FMT(reason));
   }
 }
 
-static int load_build_cache_parse(struct Str text,
-                                  struct Arena* perm,
-                                  struct Log* log,
-                                  void* userdata) {
-  struct BuildState* state = userdata;
-  return build_cache_parse(text, &state->site_config, perm, &state->build_cache, log);
-}
-
 static int scan_repos(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "scanning repos, workers: %td", state->worker_count);
-  return repo_scan_run(&state->site_config, &state->build_cache, state->worker_count,
-                       state->worker_arenas, state->verbose.is_enabled, state->os, state->scratch,
-                       state->scans, log);
+  return repo_scan_run(&state->site_config, &state->cache, state->writer.is_dry_run,
+                       state->worker_count, state->worker_arenas, state->verbose.is_enabled,
+                       state->os, state->scratch, state->scans, log);
 }
 
 static int populate_output_manifest(struct BuildState* state, struct Log* log) {
@@ -853,7 +837,8 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log) {
       rc = -1;
     }
   }
-  if (repo_pages_register(&builder, site_config, state->scans, state->scratch, log) != 0) {
+  if (repo_pages_register(&builder, site_config, state->scans, state->recipe_id, state->scratch,
+                          log) != 0) {
     rc = -1;
   }
   if (site_config->has_headers_file &&
@@ -862,25 +847,23 @@ static int populate_output_manifest(struct BuildState* state, struct Log* log) {
     rc = -1;
   }
   for (ptrdiff_t i = 0; i < site_config->repo_count; i++) {
-    if (release_writer_register(&builder, &state->scans[i].model, state->scratch, log) != 0) {
+    if (release_writer_register(&builder, &state->scans[i], state->recipe_id, state->scratch,
+                                log) != 0) {
       rc = -1;
     }
   }
-  const struct Str pages[] = {PAGE_INDEX_TEMPLATE, PAGE_INDEX_NOT_FOUND_TEMPLATE};
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(pages) / sizeof(pages[0])); i++) {
-    if (manifest_builder_add(&builder, pages[i], pages[i], state->scratch, log) != 0) {
-      rc = -1;
-    }
-  }
-  // A colliding file has been reported, and its path would only collide again.
-  if (manifest_builder_add_files(&builder, &state->statics.paths, state->site_config.static_dir,
-                                 is_colliding, state->scratch, log) != 0) {
+  if (populate_output_manifest_site_pages(state, &builder, log) != 0) {
     rc = -1;
   }
-  // The build cache is recorded last, so a dry run lists it last.
-  struct Str cache_relative = {0};
-  (void)path_is_below(state->build_cache_path, site_config->output_dir, &cache_relative);
-  if (manifest_builder_add(&builder, cache_relative, S("build cache"), state->scratch, log) != 0) {
+  // A colliding file has been reported, and its path would only collide again.
+  if (manifest_builder_add_copies(&builder, &state->statics.paths, state->statics.stats,
+                                  state->site_config.static_dir, is_colliding, state->scratch,
+                                  log) != 0) {
+    rc = -1;
+  }
+  // The output cache is recorded last, so a dry run lists it last.
+  if (manifest_builder_add(&builder, OUTPUT_CACHE_PATH, S("output cache"), state->scratch, log) !=
+      0) {
     rc = -1;
   }
   if (manifest_builder_finish(&builder, log) != 0) {
@@ -908,6 +891,39 @@ static struct PathList populate_output_manifest_inputs(struct BuildState* state)
     }
   }
   return inputs;
+}
+
+static int populate_output_manifest_site_pages(const struct BuildState* state,
+                                               struct ManifestBuilder* builder,
+                                               struct Log* log) {
+  // The site index shows every repo and its refs, as the home and the refs pages do.
+  struct Arena scratch = state->scratch;
+  struct Buf repos = {.arena = &scratch};
+  for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
+    const struct RepoScan* scan = &state->scans[i];
+    buf_printf(&repos, "%.*s %.*s %.*s\n", STR_FMT(scan->model.config->name),
+               STR_FMT(scan->repo_id), STR_FMT(scan->export.info_refs_id));
+  }
+  const struct Str repos_id = repository_text_id(buf_str(&repos), &scratch);
+  struct Buf index = {.arena = &scratch};
+  buf_printf(&index, "recipe=%.*s repos=%.*s", STR_FMT(state->recipe_id), STR_FMT(repos_id));
+  const struct Str index_attributes = buf_str(&index);
+  const struct Str not_found_attributes = str_concat(S("recipe="), state->recipe_id, &scratch);
+  const struct {
+    struct Str name;
+    struct Str attributes;
+  } pages[] = {
+      {PAGE_INDEX_TEMPLATE, index_attributes},
+      {PAGE_INDEX_NOT_FOUND_TEMPLATE, not_found_attributes},
+  };
+  int rc = 0;
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(pages) / sizeof(pages[0])); i++) {
+    if (manifest_builder_add_output(builder, pages[i].name, pages[i].name, pages[i].attributes,
+                                    scratch, log) != 0) {
+      rc = -1;
+    }
+  }
+  return rc;
 }
 
 static int populate_output_manifest_check_statics(const struct BuildState* state,
@@ -950,41 +966,36 @@ static int populate_output_manifest_check_statics(const struct BuildState* state
 }
 
 static int prepare_output_dir(const struct BuildState* state, struct Log* log) {
-  if (output_writer_mkdirs(&state->writer, state->site_config.output_dir,
-                           S("failed to prepare output directory"), log) != 0) {
-    return -1;
+  return output_writer_mkdirs(&state->writer, state->site_config.output_dir,
+                              S("failed to prepare output directory"), log);
+}
+
+static int write_outputs(struct BuildState* state, struct Log* log) {
+  return keep_previous_packs(state, log) != 0 || write_repo_pages(state, log) != 0 ||
+                 write_clone_exports(state, log) != 0 || write_release_outputs(state, log) != 0 ||
+                 write_site_pages(state, log) != 0 || copy_static_files(state, log) != 0
+             ? -1
+             : 0;
+}
+
+static int keep_previous_packs(const struct BuildState* state, struct Log* log) {
+  for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
+    if (export_writer_keep_previous(&state->writer, state->site_config.output_dir, &state->scans[i],
+                                    state->scratch, log) != 0) {
+      return -1;
+    }
   }
-  // A build that fails or is interrupted from here on leaves an empty build cache, which the next
-  // build does not use, so it never keeps an output this build may have cut short.
-  oom_set_job(state->build_cache_path, NULL);
-  const int rc = output_writer_write(&state->writer, state->build_cache_path, (struct OsSource){0},
-                                     S("failed to empty build cache"), log);
-  // The phases that follow name their own files, and the main thread's work between them none.
-  oom_set_job((struct Str){0}, NULL);
-  return rc;
+  return 0;
 }
 
 static int write_repo_pages(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "rendering repo pages, workers: %td", state->worker_count);
   const ptrdiff_t repo_count = state->site_config.repo_count;
-  bool* is_repo_fresh = arena_new(&state->perm, repo_count, bool);
-  bool* is_releases_fresh = arena_new(&state->perm, repo_count, bool);
-  bool* is_repo_map_fresh = arena_new(&state->perm, repo_count, bool);
-  for (ptrdiff_t i = 0; i < repo_count; i++) {
-    is_repo_fresh[i] = is_repo_unchanged(state, i);
-    is_releases_fresh[i] = is_releases_unchanged(state, i);
-    is_repo_map_fresh[i] = is_repo_map_unchanged(state, i);
-  }
   const struct RepoPagesInputs inputs = {
       .site_config = &state->site_config,
       .scans = state->scans,
       .template_set = state->template_set,
-      .cache = &state->build_cache,
-      .is_templates_fresh = is_every_file_unchanged(
-          state, BUILD_CACHE_KIND_TEMPLATE, &state->templates, state->site_config.templates_dir),
-      .is_repo_fresh = is_repo_fresh,
-      .is_releases_fresh = is_releases_fresh,
-      .is_repo_map_fresh = is_repo_map_fresh,
+      .cache = &state->cache,
   };
   struct RepoPagesNotes* notes = NULL;
   if (repo_pages_write(&inputs, &state->writer, state->worker_count, state->worker_arenas,
@@ -1010,47 +1021,18 @@ static int write_repo_pages(struct BuildState* state, struct Log* log) {
   return 0;
 }
 
-static bool is_repo_unchanged(const struct BuildState* state, ptrdiff_t repo_index) {
-  const struct RepoScan* scan = &state->scans[repo_index];
-  const struct Str repo_name = scan->model.config->name;
-  const struct BuildCacheRow* repo_row =
-      build_cache_find(&state->build_cache, BUILD_CACHE_KIND_REPO, repo_name);
-  if (repo_row == NULL || !str_eq(repo_row->id, scan->repo_id)) {
-    return false;
-  }
-  struct Arena scratch = state->scratch;
-  for (ptrdiff_t i = 0; i < scan->model.refset.count; i++) {
-    const struct Ref* ref = &scan->model.refset.refs[i];
-    const struct BuildCacheRow* row =
-        build_cache_find(&state->build_cache, BUILD_CACHE_KIND_REF,
-                         build_cache_ref_name(repo_name, ref->name, &scratch));
-    if (row == NULL || !str_eq(row->id, ref->oid)) {
-      return false;
-    }
-  }
-  // A ref the earlier build saw and this one does not changes the refs pages too. A repo name holds
-  // no `/`, so `<repo>/` starts exactly this repo's ref rows.
-  const struct Str prefix = str_concat(repo_name, S("/"), &scratch);
-  ptrdiff_t cached_count = 0;
-  for (ptrdiff_t i = 0; i < state->build_cache.count; i++) {
-    const struct BuildCacheRow* row = &state->build_cache.rows[i];
-    cached_count += row->kind == BUILD_CACHE_KIND_REF && str_startswith(row->name, prefix);
-  }
-  return cached_count == scan->model.refset.count;
-}
-
 static int write_clone_exports(const struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "writing clone exports");
   for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
     oom_set_job(state->site_config.repos[i].name, NULL);
     if (export_writer_write(&state->writer, state->site_config.output_dir, &state->scans[i],
-                            state->os, state->scratch, log) != 0) {
+                            &state->cache, state->scratch, log) != 0) {
       return -1;
     }
   }
   if (state->site_config.has_headers_file) {
     oom_set_job(EXPORT_WRITER_HEADERS_PAGE, NULL);
-    return export_writer_write_headers(&state->writer, &state->site_config, state->os,
+    return export_writer_write_headers(&state->writer, &state->site_config, &state->cache,
                                        state->scratch, log);
   }
   return 0;
@@ -1058,8 +1040,6 @@ static int write_clone_exports(const struct BuildState* state, struct Log* log) 
 
 static int write_release_outputs(const struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "writing releases");
-  const bool is_templates_fresh = is_every_file_unchanged(
-      state, BUILD_CACHE_KIND_TEMPLATE, &state->templates, state->site_config.templates_dir);
   int rc = 0;
   for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
     oom_set_job(state->site_config.repos[i].name, NULL);
@@ -1067,225 +1047,95 @@ static int write_release_outputs(const struct BuildState* state, struct Log* log
         .site_config = &state->site_config,
         .template_set = state->template_set,
         .repo = &state->scans[i].model,
-        .is_templates_fresh = is_templates_fresh,
-        .is_releases_fresh = is_releases_unchanged(state, i),
-        .is_repo_map_fresh = is_repo_map_unchanged(state, i),
+        .cache = &state->cache,
     };
-    if (release_writer_write(&inputs, &state->writer, state->os, state->scratch, log) != 0) {
+    if (release_writer_write(&inputs, &state->writer, state->scratch, log) != 0) {
       rc = -1;
     }
   }
   return rc;
 }
 
-static bool is_releases_unchanged(const struct BuildState* state, ptrdiff_t repo_index) {
-  const struct RepoScan* scan = &state->scans[repo_index];
-  const struct BuildCacheRow* row =
-      build_cache_find(&state->build_cache, BUILD_CACHE_KIND_RELEASES, scan->model.config->name);
-  // A repo without release projects has no row, and is fresh when the earlier build left none.
-  if (scan->model.release_project_count == 0) {
-    return row == NULL && state->build_cache.count > 0;
-  }
-  return row != NULL && str_eq(row->id, scan->releases_id);
-}
-
-static bool is_repo_map_unchanged(const struct BuildState* state, ptrdiff_t repo_index) {
-  const struct RepoScan* scan = &state->scans[repo_index];
-  const struct BuildCacheRow* row =
-      build_cache_find(&state->build_cache, BUILD_CACHE_KIND_REPO_MAP, scan->model.config->name);
-  return row != NULL && str_eq(row->id, scan->repo_map_id);
-}
-
 static int write_site_pages(const struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "rendering site index");
-  const bool is_templates_fresh = is_every_file_unchanged(
-      state, BUILD_CACHE_KIND_TEMPLATE, &state->templates, state->site_config.templates_dir);
-  const bool is_index_fresh = is_templates_fresh && is_every_repo_unchanged(state);
-  // Each value tree lives in a copy of the scratch, and its render gets the rest of that copy.
-  struct Arena scratch = state->scratch;
-  struct RepoModel* models = arena_new(&scratch, state->site_config.repo_count, struct RepoModel);
-  for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
-    models[i] = state->scans[i].model;
-  }
-  const struct TemplateValue* index_value =
-      page_index_value(&state->site_config, models, state->site_config.repo_count, &scratch);
-  if (write_site_page(state, PAGE_INDEX_TEMPLATE, index_value, is_index_fresh, scratch, log) != 0) {
+  if (write_site_page(state, PAGE_INDEX_TEMPLATE, state->scratch, log) != 0) {
     return -1;
   }
-  scratch = state->scratch;
-  const struct TemplateValue* not_found_value =
-      page_index_not_found_value(&state->site_config, &scratch);
-  return write_site_page(state, PAGE_INDEX_NOT_FOUND_TEMPLATE, not_found_value, is_templates_fresh,
-                         scratch, log);
+  return write_site_page(state, PAGE_INDEX_NOT_FOUND_TEMPLATE, state->scratch, log);
 }
 
 static int write_site_page(const struct BuildState* state,
                            struct Str name,
-                           const struct TemplateValue* value,
-                           bool is_vouched,
                            struct Arena scratch,
                            struct Log* log) {
   oom_set_job(name, NULL);
   const struct Str output_path = path_join(state->site_config.output_dir, name, &scratch);
-  struct OsStat st;
-  if (is_vouched && os_stat(state->os, output_path, &st) == 0 && !st.is_dir) {
-    return output_writer_keep(&state->writer, output_path, log);
-  }
-  // The page grows in a perm of its own, which the render's scratch does not overlap, so it grows
-  // in place. Each gets half of what is left, up to the region's limit, so a halved reservation
-  // halves both.
+  // The page grows in a perm of its own, after its data tree, which the render's scratch does not
+  // overlap, so it grows in place. Each gets half of what is left, up to the region's limit, so a
+  // halved reservation halves both, and the scratch holds the read of the page in the output too.
   const char* region_end = scratch.limit != NULL ? scratch.limit : scratch.end;
-  struct Arena render_scratch = arena_split(&scratch, (region_end - scratch.beg) / 2);
-  struct Str html = {0};
-  if (template_value_render(state->template_set, name, value, name, &scratch, render_scratch, &html,
-                            log) != 0) {
-    return -1;
-  }
-  return output_writer_write(&state->writer, output_path, (struct OsSource){.bytes = html},
-                             S("failed to write page"), log);
+  struct Arena page_arena = arena_split(&scratch, (region_end - scratch.beg) / 2);
+  struct SitePageMake make = {.state = state, .name = name};
+  return output_writer_produce(&state->writer, output_path, &state->cache, write_site_page_make,
+                               &make, page_arena, scratch, S("failed to write page"), log);
 }
 
-static bool is_every_file_unchanged(const struct BuildState* state,
-                                    enum BuildCacheKind kind,
-                                    const struct BuildInputs* inputs,
-                                    struct Str root_dir) {
-  struct Arena scratch = state->scratch;
-  struct BuildCache rows = {.rows = arena_new(&scratch, inputs->paths.count, struct BuildCacheRow)};
-  append_file_rows(&rows, kind, inputs, root_dir);
-  // An empty build cache has no rows, and a site always has its templates, so this also rejects a
-  // build cache that was not read.
-  return state->build_cache.count > 0 &&
-         build_cache_has_rows(&state->build_cache, kind, rows.rows, rows.count);
-}
-
-static bool is_every_repo_unchanged(const struct BuildState* state) {
-  struct Arena scratch = state->scratch;
-  struct BuildCache rows = {
-      .rows = arena_new(&scratch, count_repo_rows(state), struct BuildCacheRow),
-  };
-  append_repo_rows(&rows, state, &scratch);
-  if (rows.count > 0) {
-    qsort(rows.rows, (size_t)rows.count, sizeof(*rows.rows), build_cache_compare_rows);
+static int write_site_page_make(struct Arena* perm,
+                                struct Arena scratch,
+                                struct Str* bytes_out,
+                                struct Log* log,
+                                void* userdata) {
+  const struct SitePageMake* make = userdata;
+  const struct BuildState* state = make->state;
+  const struct TemplateValue* value = NULL;
+  if (str_eq(make->name, PAGE_INDEX_TEMPLATE)) {
+    struct RepoModel* models = arena_new(perm, state->site_config.repo_count, struct RepoModel);
+    for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
+      models[i] = state->scans[i].model;
+    }
+    value = page_index_value(&state->site_config, models, state->site_config.repo_count, perm);
+  } else {
+    value = page_index_not_found_value(&state->site_config, perm);
   }
-  // The repo rows sort before the ref rows, so each kind is one contiguous run.
-  ptrdiff_t repo_count = 0;
-  while (repo_count < rows.count && rows.rows[repo_count].kind == BUILD_CACHE_KIND_REPO) {
-    repo_count++;
-  }
-  return build_cache_has_rows(&state->build_cache, BUILD_CACHE_KIND_REPO, rows.rows, repo_count) &&
-         build_cache_has_rows(&state->build_cache, BUILD_CACHE_KIND_REF, rows.rows + repo_count,
-                              rows.count - repo_count);
+  return template_value_render(state->template_set, make->name, value, make->name, perm, scratch,
+                               bytes_out, log);
 }
 
 static int copy_static_files(const struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "copying static files");
-  struct CopyRows rows = {.cache = &state->build_cache, .kind = BUILD_CACHE_KIND_STATIC};
-  return output_writer_copy_files(&state->writer, &state->statics.paths, state->statics.stats,
-                                  copy_static_files_is_unchanged, &rows,
-                                  state->site_config.static_dir, state->site_config.output_dir,
-                                  state->scratch, S("failed to copy static file"), log);
-}
-
-static bool copy_static_files_is_unchanged(struct Str name,
-                                           const struct OsStat* source_stat,
-                                           void* userdata) {
-  const struct CopyRows* rows = userdata;
-  return build_cache_has_stat(rows->cache, rows->kind, name, source_stat);
-}
-
-static int write_build_cache(const struct BuildState* state, struct Log* log) {
-  verbose_printf(&state->verbose, "writing build cache");
-  oom_set_job(state->build_cache_path, NULL);
-  struct Arena scratch = state->scratch;
-  const ptrdiff_t row_count = state->templates.paths.count + state->statics.paths.count +
-                              count_repo_rows(state) + count_repo_export_rows(state) +
-                              repo_pages_count_rows(&state->site_config, state->scans);
-  struct BuildCache cache = {.rows = arena_new(&scratch, row_count, struct BuildCacheRow)};
-  append_file_rows(&cache, BUILD_CACHE_KIND_TEMPLATE, &state->templates,
-                   state->site_config.templates_dir);
-  append_file_rows(&cache, BUILD_CACHE_KIND_STATIC, &state->statics, state->site_config.static_dir);
-  append_repo_rows(&cache, state, &scratch);
-  append_repo_export_rows(&cache, state);
-  repo_pages_append_rows(&cache, &state->site_config, state->scans, &scratch);
-  struct Buf text = {.arena = &scratch};
-  build_cache_format(&text, &state->site_config, &cache);
-  return output_writer_write(&state->writer, state->build_cache_path,
-                             (struct OsSource){.bytes = buf_str(&text)},
-                             S("failed to write build cache"), log);
-}
-
-static void append_file_rows(struct BuildCache* cache,
-                             enum BuildCacheKind kind,
-                             const struct BuildInputs* inputs,
-                             struct Str root_dir) {
-  for (ptrdiff_t i = 0; i < inputs->paths.count; i++) {
+  for (ptrdiff_t i = 0; i < state->statics.paths.count; i++) {
+    const struct Str source_path = state->statics.paths.items[i];
+    oom_set_job(source_path, NULL);
+    // Each copy works in its own copy of the scratch, so one file's path is dead before the next.
+    struct Arena scratch = state->scratch;
     struct Str relative = {0};
-    (void)path_is_below(inputs->paths.items[i], root_dir, &relative);
-    cache->rows[cache->count++] = (struct BuildCacheRow){
-        .kind = kind,
-        .name = relative,
-        .len = inputs->stats[i].len,
-        .mtime_s = inputs->stats[i].mtime_s,
-        .mtime_ns = inputs->stats[i].mtime_ns,
-    };
-  }
-}
-
-static void append_repo_rows(struct BuildCache* cache,
-                             const struct BuildState* state,
-                             struct Arena* arena) {
-  for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
-    const struct RepoScan* scan = &state->scans[i];
-    const struct Str repo_name = scan->model.config->name;
-    cache->rows[cache->count++] = (struct BuildCacheRow){
-        .kind = BUILD_CACHE_KIND_REPO,
-        .name = repo_name,
-        .id = scan->repo_id,
-    };
-    for (ptrdiff_t j = 0; j < scan->model.refset.count; j++) {
-      const struct Ref* ref = &scan->model.refset.refs[j];
-      cache->rows[cache->count++] = (struct BuildCacheRow){
-          .kind = BUILD_CACHE_KIND_REF,
-          .name = build_cache_ref_name(repo_name, ref->name, arena),
-          .id = ref->oid,
-      };
+    (void)path_is_below(source_path, state->site_config.static_dir, &relative);
+    const struct Str output_path = path_join(state->site_config.output_dir, relative, &scratch);
+    // A copy is streamed, never made, so it needs no make.
+    if (output_writer_produce(&state->writer, output_path, &state->cache, NULL, NULL, scratch,
+                              scratch, S("failed to copy static file"), log) != 0) {
+      return -1;
     }
   }
+  oom_set_job((struct Str){0}, NULL);
+  return 0;
 }
 
-static ptrdiff_t count_repo_rows(const struct BuildState* state) {
-  ptrdiff_t count = state->site_config.repo_count;
+static int write_output_cache(const struct BuildState* state, struct Log* log) {
+  verbose_printf(&state->verbose, "writing output cache");
+  oom_set_job(state->cache_path, NULL);
+  struct Arena scratch = state->scratch;
+  struct OutputCacheFact* facts =
+      arena_new(&scratch, state->site_config.repo_count, struct OutputCacheFact);
+  ptrdiff_t fact_count = 0;
   for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
-    count += state->scans[i].model.refset.count;
-  }
-  return count;
-}
-
-static void append_repo_export_rows(struct BuildCache* cache, const struct BuildState* state) {
-  for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
-    const struct RepoScan* scan = &state->scans[i];
-    cache->rows[cache->count++] = (struct BuildCacheRow){
-        .kind = BUILD_CACHE_KIND_REPO_MAP,
-        .name = scan->model.config->name,
-        .id = scan->repo_map_id,
-    };
-    cache->rows[cache->count++] = export_writer_row(scan);
-    if (scan->model.release_project_count > 0) {
-      cache->rows[cache->count++] = (struct BuildCacheRow){
-          .kind = BUILD_CACHE_KIND_RELEASES,
-          .name = scan->model.config->name,
-          .id = scan->releases_id,
-      };
+    const struct OutputCacheFact fact = repo_scan_export_fact(
+        &state->scans[i], &state->manifest, state->site_config.output_dir, &scratch);
+    if (fact.key.len > 0) {
+      facts[fact_count++] = fact;
     }
   }
-}
-
-static ptrdiff_t count_repo_export_rows(const struct BuildState* state) {
-  ptrdiff_t count = 0;
-  for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
-    count += 2 + (state->scans[i].model.release_project_count > 0);
-  }
-  return count;
+  return output_cache_write(&state->writer, state->cache_path, facts, fact_count, scratch, log);
 }
 
 static int prune_stale_outputs(struct BuildState* state, struct Log* log) {

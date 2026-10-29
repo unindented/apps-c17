@@ -281,8 +281,9 @@ def sync(manifest, manifest_text, repo, names):
         file.write(manifest_text)
     record_notices(manifest)
     if changed:
-        print("Port any query changes above to libs/markup/queries/, and bump the version of a "
-              "cache whose output depends on the project, such as sosig's PAGE_RECIPE_VERSION.")
+        print("Port any query changes above to libs/markup/queries/. When the output changes, bump "
+              "the app's version before a release, and bump fram's DERIVATIVE_RECIPE_VERSION when "
+              "derivative bytes change.")
 
 
 def main():

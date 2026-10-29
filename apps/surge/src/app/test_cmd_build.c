@@ -16,6 +16,8 @@
 #include "core/str.h"
 #include "os/os.h"
 #include "os/os_posix.h"
+#include "output/build_cache_file.h"
+#include "output/output_cache.h"
 #include "runtime/job.h"
 #include "runtime/walk.h"
 #include "testing/test_support.h"
@@ -144,8 +146,26 @@ static struct OsStat stat_below(struct Str site_dir, const char* name, bool* is_
   return st;
 }
 
-// A build of a site writes its pages and its build cache, and logs nothing.
-static void test_builds_the_site_and_its_build_cache(void) {
+/**
+ * @brief Returns `attributes` with each value, which names an id, replaced by `#`.
+ *
+ * @param attributes Space-separated `key=value` pairs.
+ * @param arena      Arena that owns the result. Must not be `NULL`.
+ * @return The masked attributes.
+ */
+static struct Str mask_ids(struct Str attributes, struct Arena* arena) {
+  struct Buf masked = {.arena = arena};
+  struct StrCut cut = {.tail = attributes, .is_found = true};
+  while (cut.is_found) {
+    cut = str_cut(cut.tail, ' ');
+    buf_append(&masked, str_cut(cut.head, '=').head);
+    buf_append(&masked, cut.is_found ? S("=# ") : S("=#"));
+  }
+  return buf_str(&masked);
+}
+
+// A build of a site writes its pages and its output cache, and logs nothing.
+static void test_builds_the_site_and_its_output_cache(void) {
   struct Arena arena = test_arena();
   const struct Str site = make_site(NULL, &arena);
   struct Log log = test_log();
@@ -154,7 +174,7 @@ static void test_builds_the_site_and_its_build_cache(void) {
   bool is_found = false;
   (void)stat_below(site, "public/index.html", &is_found);
   TEST_CHECK(is_found);
-  const struct OsStat cache = stat_below(site, "public/_surge/v1-build-cache.tsv", &is_found);
+  const struct OsStat cache = stat_below(site, "public/_surge/output-cache.tsv", &is_found);
   TEST_CHECK(is_found && cache.len > 0);
   remove_site(str_cstr(site, &arena));
 }
@@ -189,9 +209,9 @@ static void test_reports_an_output_dir_that_is_a_file(void) {
   remove_site(str_cstr(site, &arena));
 }
 
-// A build that fails after it starts writing leaves an empty build cache, which the next build does
-// not trust, so it never keeps an output that the failed build may have cut short.
-static void test_failed_build_leaves_an_empty_build_cache(void) {
+// A build that fails after it starts writing still writes its output cache, with a row for each
+// page it wrote and none for the page that failed, so the next build keeps only what this one made.
+static void test_failed_build_records_what_it_wrote(void) {
   struct Arena arena = test_arena();
   const struct Str site = make_site(NULL, &arena);
   struct Log log = test_log();
@@ -202,17 +222,33 @@ static void test_failed_build_leaves_an_empty_build_cache(void) {
                        &write_log) == 0);
   log = test_log();
   TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == -1);
-  TEST_CHECK(strstr(buf_cstr(&log.buf), "unescaped Mustache interpolation") != NULL);
+  TEST_CHECK(
+      test_log_is(&log,
+                  "unescaped Mustache interpolation is supported only for a key that ends in "
+                  "'_html' (in 'index.html') (while rendering 'index.html')\n"));
+  struct OutputCache cache = {0};
+  struct Str reason = {0};
+  TEST_ASSERT(output_cache_load(path_join(site, S("public/_surge/output-cache.tsv"), &arena),
+                                os_posix(), &arena, test_arena(), &cache,
+                                &reason) == BUILD_CACHE_FILE_LOADED);
+  const struct OutputCacheRow* row = output_cache_find(&cache, S("showcase/index.html"));
+  TEST_ASSERT(row != NULL);
+  if (row == NULL) {
+    return;
+  }
+  TEST_CHECK(str_eq(mask_ids(row->attributes, &arena), S("recipe=# map=# repo=# refs=#")));
+  TEST_MSG("attributes: '%.*s'", STR_FMT(row->attributes));
   bool is_found = false;
-  const struct OsStat cache = stat_below(site, "public/_surge/v1-build-cache.tsv", &is_found);
-  TEST_CHECK(is_found && cache.len == 0);
+  const struct OsStat page = stat_below(site, "public/showcase/index.html", &is_found);
+  TEST_CHECK(is_found && row->len == page.len);
+  TEST_CHECK(output_cache_find(&cache, S("index.html")) == NULL);
   remove_site(str_cstr(site, &arena));
 }
 
 TEST_LIST = {
-    {"builds the site and its build cache", test_builds_the_site_and_its_build_cache},
+    {"builds the site and its output cache", test_builds_the_site_and_its_output_cache},
     {"dry run creates nothing", test_dry_run_creates_nothing},
     {"reports an output dir that is a file", test_reports_an_output_dir_that_is_a_file},
-    {"failed build leaves an empty build cache", test_failed_build_leaves_an_empty_build_cache},
+    {"failed build records what it wrote", test_failed_build_records_what_it_wrote},
     {NULL, NULL},
 };

@@ -313,7 +313,7 @@ static void test_load_rejects_base_url_with_path_breaking_byte(void) {
 
 // A count below its minimum or above its maximum is rejected with its bound, and keeps its default.
 // `BLOB_LEN_MAX_LIMIT` and `LOG_PAGE_SIZE_MAX` are file-local to `site_config.c`, so they are
-// spelled out here, and changing them there must update this test.
+// spelled out here with `SURGE_RAW_LEN_MAX_LIMIT`, and changing any of them must update this test.
 static void test_load_bounds_integers(void) {
   struct SiteConfig site_config;
   struct Log log = test_log();
@@ -321,6 +321,7 @@ static void test_load_bounds_integers(void) {
                                  "feed_count = -1\n"
                                  "[limits]\n"
                                  "blob_len_max = 4194305\n"
+                                 "raw_len_max = 1073741825\n"
                                  "image_len_max = 4194305\n" REPO_TABLE,
                        &site_config, &log) == 0);
   TEST_CHECK(test_log_is(&log,
@@ -328,11 +329,14 @@ static void test_load_bounds_integers(void) {
                          "config key 'feed_count' must be at least 0: -1\n"
                          "config key 'limits.blob_len_max' exceeds max blob length (4194304 "
                          "bytes) at 4194305 bytes\n"
+                         "config key 'limits.raw_len_max' exceeds max raw length (1073741824 "
+                         "bytes) at 1073741825 bytes\n"
                          "config key 'limits.image_len_max' exceeds max image length (4194304 "
                          "bytes) at 4194305 bytes\n"));
   TEST_CHECK(site_config.log_page_size == 100);
   TEST_CHECK(site_config.feed_count == 25);
   TEST_CHECK(site_config.limits.blob_len_max == 1024 * 1024);
+  TEST_CHECK(site_config.limits.raw_len_max == 100 * 1024 * 1024);
   struct SiteConfig large;
   struct Log large_log = test_log();
   TEST_CHECK(load_text(SITE_KEYS "log_page_size = 10001\n" REPO_TABLE, &large, &large_log) == 0);

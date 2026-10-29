@@ -7,11 +7,11 @@
 #include "core/arena.h"
 #include "core/str.h"
 
-struct BuildCacheRow;
 struct ContentEntry;
 struct JobArenas;
 struct Log;
 struct Os;
+struct OutputCache;
 struct OutputWriter;
 struct SiteConfig;
 struct TemplateSet;
@@ -26,13 +26,13 @@ struct TemplateSet;
  * exactly as an aggregate template does.
  *
  * One job runs per slot of `source_entries`. Each job renders its entry's page into a copy of its
- * worker's `perm` and its temporaries into a copy of its worker's scratch, writes the page to the
- * entry's `output_path` through `writer`, and leaves both regions as it found them, so at most one
- * page per worker is held in memory. A slot whose `fresh_rows` entry is set and whose page exists
- * keeps the page through `writer` instead, with no render. `NULL` slots are skipped. A failed write
- * is that entry's diagnostic, like a failed render, and leaves the other pages written. Each
- * finished job reports progress when `is_verbose`. Failing jobs' errors go to `log` in entry order,
- * as `job_run` collects them.
+ * worker's `perm` and its temporaries into a copy of its worker's scratch, and hands the page to
+ * `output_writer_produce` for the entry's `output_path`, which keeps an existing file of the same
+ * bytes and writes any other. Each job leaves both regions as it found them, so at most one page
+ * per worker is held in memory. `NULL` slots are skipped. A failed write is that entry's
+ * diagnostic, like a failed render, and leaves the other pages written. Each finished job reports
+ * progress when `is_verbose`. Failing jobs' errors go to `log` in entry order, as `job_run`
+ * collects them.
  *
  * Call this only after `output_manifest_populate` accepts every output path. Jobs write
  * concurrently, and the manifest is what guarantees that no two of them target the same file, so
@@ -40,6 +40,8 @@ struct TemplateSet;
  *
  * @param writer              Writer every page is written through, by every worker at once. Must
  *                            not be `NULL`.
+ * @param cache               Output cache of the previous build, which `output_writer_produce`
+ *                            reads. Must not be `NULL`.
  * @param site_config         Site configuration supplying the default content template. Must not be
  *                            `NULL`.
  * @param template_set        Templates every page renders from, read by every worker at once. Must
@@ -51,38 +53,31 @@ struct TemplateSet;
  * @param content_entries     Non-draft entries, sorted newest-first, visible to every page. May be
  *                            `NULL` only when `content_entry_count` is 0.
  * @param content_entry_count Number of entries in `content_entries`.
- * @param fresh_rows          One slot per source, holding the build cache row that vouches for the
- *                            page's inputs, or `NULL` where the page must be made. May be `NULL`
- *                            when no page is fresh.
  * @param worker_count        Requested worker threads, as for `pool_run`.
  * @param worker_arenas       One `JobArenas` per requested worker, as for `job_run`. Must not be
  *                            `NULL`.
  * @param is_verbose          Whether progress is printed to `stderr`.
- * @param os                  Host the outputs are inspected on and progress printed on, by every
- *                            worker at once. Must not be `NULL`.
+ * @param os                  Host progress is printed on, by every worker at once. Must not be
+ *                            `NULL`.
  * @param scratch             Arena for the phase's own bookkeeping, as for `job_run`.
- * @param entry_list_flags    One slot per source, which receives whether the page read the entry
- *                            list: the render's answer, or the row's for a kept page. A skipped
- *                            slot is left as it is. Must not be `NULL`.
  * @param log                 Log that receives the collected render errors. Its arena must be none
  *                            of the others. Must not be `NULL`.
  * @return `0` when every job succeeded, or `-1` when a page failed to render or write or the worker
  *         pool could not start.
  */
 int page_renderer_render_pages(const struct OutputWriter* writer,
+                               const struct OutputCache* cache,
                                const struct SiteConfig* site_config,
                                const struct TemplateSet* template_set,
                                const struct ContentEntry* const* source_entries,
                                ptrdiff_t source_entry_count,
                                const struct ContentEntry* const* content_entries,
                                ptrdiff_t content_entry_count,
-                               const struct BuildCacheRow* const* fresh_rows,
                                ptrdiff_t worker_count,
                                struct JobArenas* worker_arenas,
                                bool is_verbose,
                                struct Os* os,
                                struct Arena scratch,
-                               bool* entry_list_flags,
-                               struct Log* log) __attribute__((nonnull(1, 2, 3, 10, 12, 14, 15)));
+                               struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 10, 12, 14)));
 
 #endif

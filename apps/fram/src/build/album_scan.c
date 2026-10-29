@@ -1,18 +1,21 @@
 #include "build/album_scan.h"
 
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/log.h"
+#include "core/parse.h"
 #include "core/path.h"
 #include "core/path_list.h"
 #include "core/str.h"
 #include "core/text.h"
 #include "domain/album.h"
-#include "domain/build_cache.h"
+#include "domain/fram_version.h"
 #include "domain/media_item.h"
 #include "domain/site_config.h"
 #include "media/exif.h"
@@ -20,6 +23,7 @@
 #include "media/video.h"
 #include "os/oom.h"
 #include "os/os.h"
+#include "output/output_cache.h"
 #include "output/output_path.h"
 #include "runtime/job.h"
 
@@ -58,10 +62,10 @@ struct SkeletonState {
 };
 
 /**
- * Worker context shared by all probe jobs. Every field is read-only to a job, except `video_frames`
- * and `source_stats`, where each job writes its own slot, and `media`, where each job writes its
- * own item's probe fields: `duration_ms`, `orientation`, `width_px`, `height_px`, and each
- * derivative's dimensions.
+ * Worker context shared by all probe jobs. Every field is read-only to a job, except
+ * `video_frames`, where each job writes its own slot, and `media`, where each job writes its own
+ * item's probe fields: `source_stat`, `duration_ms`, `orientation`, `width_px`, `height_px`, and
+ * each derivative's dimensions.
  */
 struct ProbeContext {
   /** Configured derivatives each probed item is sized against. Read-only during the run. */
@@ -73,17 +77,14 @@ struct ProbeContext {
    */
   struct MediaItem* const* media;
 
-  /** Probe facts from an earlier build, which every job looks its source up in. */
-  const struct BuildCache* build_cache;
+  /** Cache of an earlier build, whose probe facts every job looks its source up in. */
+  const struct OutputCache* output_cache;
 
   /**
    * One frame slot per item, whose file the probe creates for a video it probes. A job writes only
    * `video_frames[index]`, and only its `is_created` and the name `mkostemp` fills in.
    */
   struct VideoFrame* video_frames;
-
-  /** One stat slot per item, which receives its source's stat. A job writes only its own. */
-  struct OsStat* source_stats;
 
   /** Host every job reads its source or frame from. */
   struct Os* os;
@@ -320,10 +321,9 @@ static int classify_media(struct Str file_name, enum MediaKind* kind_out)
  *
  * This is the `JobFn` of the probe phase, so it runs concurrently with other indexes and writes
  * only the slots belonging to `index`: the item's scalar probe fields, its derivative dimensions,
- * `source_stats[index]`, and, for a video it probes, `video_frames[index]`. A source whose build
- * cache row still matches its stat takes its probe fields from the row instead. It allocates
- * nothing in the skeleton's arena: the bytes it reads go into a copy of its worker's scratch. A
- * failure goes to the job's own log.
+ * and, for a video it probes, `video_frames[index]`. A source whose probe fact still matches its
+ * stat takes its probe fields from the fact instead. It allocates nothing in the skeleton's arena:
+ * the bytes it reads go into a copy of its worker's scratch. A failure goes to the job's own log.
  *
  * @param index    Media index this job handles. Must be below the media count.
  * @param arenas   Arenas of the worker running the job. Must not be `NULL`.
@@ -350,6 +350,18 @@ static int probe_media_job(ptrdiff_t index,
  * @param log       Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` on a read failure or invalid JPEG data.
  */
+/**
+ * @brief Fills an item's probe fields from its probe fact, when the fact names the source's current
+ *        stat and this fram version.
+ *
+ * @param item  Item whose `source_stat` is filled, and whose other probe fields are written on
+ *              success. Must not be `NULL`.
+ * @param value Value of the item's fact, as `album_scan_probe_fact` writes it.
+ * @param arena Arena for the expected text. Must not be `NULL`.
+ * @return `true` when the fact answered for the source.
+ */
+static bool probe_media_job_take_fact(struct MediaItem* item, struct Str value, struct Arena arena);
+
 static int probe_image(struct MediaItem* item,
                        struct Os* os,
                        struct Arena scratch,
@@ -404,6 +416,16 @@ static int probe_frame(struct Str source_path,
                        struct Str operation,
                        struct Log* log) __attribute__((nonnull(3, 5, 6, 8)));
 
+/**
+ * @brief Appends the part of a probe fact that names its source:
+ *        `version=<v> len=<n> mtime=<s>.<ns>`.
+ *
+ * @param buffer      Buffer that receives the text. Must not be `NULL`.
+ * @param source_stat What `os_stat` reported for the source. Must not be `NULL`.
+ */
+static void format_probe_fact_source(struct Buf* buffer, const struct OsStat* source_stat)
+    __attribute__((nonnull(1, 2)));
+
 int album_scan_build_skeleton(const struct SiteConfig* site_config,
                               const struct PathList* source_paths,
                               struct Arena* perm,
@@ -457,25 +479,36 @@ int album_scan_build_skeleton(const struct SiteConfig* site_config,
 int album_scan_probe_media(const struct SiteConfig* site_config,
                            struct MediaItem* const* media,
                            ptrdiff_t media_count,
-                           const struct BuildCache* build_cache,
+                           const struct OutputCache* output_cache,
                            struct VideoFrame* video_frames,
                            ptrdiff_t worker_count,
                            struct JobArenas* worker_arenas,
                            bool is_verbose,
                            struct Os* os,
                            struct Arena scratch,
-                           struct OsStat* source_stats,
                            struct Log* log) {
   struct ProbeContext context = {
       .site_config = site_config,
       .media = media,
-      .build_cache = build_cache,
+      .output_cache = output_cache,
       .video_frames = video_frames,
-      .source_stats = source_stats,
       .os = os,
   };
   return job_run(media_count, worker_count, worker_arenas, probe_media_job, &context,
                  S("probing media"), (struct Str){0}, is_verbose, os, scratch, log);
+}
+
+struct OutputCacheFact album_scan_probe_fact(const struct MediaItem* item,
+                                             struct Str media_dir,
+                                             struct Arena* arena) {
+  struct OutputCacheFact fact = {0};
+  (void)path_is_below(item->source_path, media_dir, &fact.key);
+  struct Buf value = {.arena = arena};
+  format_probe_fact_source(&value, &item->source_stat);
+  buf_printf(&value, " width=%td height=%td orientation=%d duration_ms=%td", item->width_px,
+             item->height_px, (int)item->orientation, item->duration_ms);
+  fact.value = buf_str(&value);
+  return fact;
 }
 
 void album_scan_remove_video_frames(struct VideoFrame* video_frames, ptrdiff_t media_count) {
@@ -789,27 +822,21 @@ static int probe_media_job(ptrdiff_t index,
   oom_set_job(item->source_path, log);
   const struct Str operation = S("failed to probe media");
   // A source that cannot be inspected is probed, so the read reports why.
-  struct OsStat* source_stat = &context->source_stats[index];
-  const struct BuildCacheRow* row = NULL;
-  if (os_stat(context->os, item->source_path, source_stat) == 0) {
+  bool is_answered = false;
+  if (os_stat(context->os, item->source_path, &item->source_stat) == 0) {
     struct Str relative = {0};
     (void)path_is_below(item->source_path, context->site_config->media_dir, &relative);
-    row = build_cache_find(context->build_cache, BUILD_CACHE_KIND_MEDIA, relative, source_stat);
+    const struct OutputCacheFact* fact = output_cache_find_fact(context->output_cache, relative);
+    is_answered = fact != NULL && probe_media_job_take_fact(item, fact->value, arenas->scratch);
   }
-  int rc = 0;
-  if (row != NULL) {
-    item->duration_ms = row->duration_ms;
-    item->orientation = row->orientation;
-    item->width_px = row->width_px;
-    item->height_px = row->height_px;
-  } else if (item->kind == MEDIA_KIND_IMAGE) {
-    rc = probe_image(item, context->os, arenas->scratch, operation, log);
-  } else {
-    rc = probe_video(item, &context->video_frames[index], context->site_config, context->os,
-                     arenas->scratch, operation, log);
-  }
-  if (rc != 0) {
-    return -1;
+  if (!is_answered) {
+    const int rc = item->kind == MEDIA_KIND_IMAGE
+                       ? probe_image(item, context->os, arenas->scratch, operation, log)
+                       : probe_video(item, &context->video_frames[index], context->site_config,
+                                     context->os, arenas->scratch, operation, log);
+    if (rc != 0) {
+      return -1;
+    }
   }
   for (ptrdiff_t i = 0; i < item->derivative_count; i++) {
     const struct GalleryDerivative* config_derivative = &context->site_config->derivatives[i];
@@ -835,6 +862,45 @@ static int probe_media_job(ptrdiff_t index,
     }
   }
   return 0;
+}
+
+static bool probe_media_job_take_fact(struct MediaItem* item,
+                                      struct Str value,
+                                      struct Arena arena) {
+  struct Buf source = {.arena = &arena};
+  format_probe_fact_source(&source, &item->source_stat);
+  if (!str_startswith(value, buf_str(&source))) {
+    return false;
+  }
+  // The rest is ` width=<w> height=<h> orientation=<o> duration_ms=<d>`, each field in that order.
+  static const struct Str names[] = {STR_INIT("width="), STR_INIT("height="),
+                                     STR_INIT("orientation="), STR_INIT("duration_ms=")};
+  enum { FIELD_COUNT = sizeof(names) / sizeof(names[0]) };
+  ptrdiff_t values[FIELD_COUNT] = {0};
+  struct StrCut rest = str_cut(str_tail(value, buf_str(&source).len), ' ');
+  if (rest.head.len != 0 || !rest.is_found) {
+    return false;
+  }
+  for (ptrdiff_t i = 0; i < FIELD_COUNT; i++) {
+    if (!rest.is_found) {
+      return false;
+    }
+    rest = str_cut(rest.tail, ' ');
+    if (!str_startswith(rest.head, names[i]) ||
+        parse_size(str_tail(rest.head, names[i].len), &values[i]) != 0) {
+      return false;
+    }
+  }
+  const ptrdiff_t orientation = values[2];
+  if (rest.is_found || values[0] == 0 || values[1] == 0 ||
+      orientation < IMAGE_ORIENTATION_TOP_LEFT || orientation > IMAGE_ORIENTATION_LEFT_BOTTOM) {
+    return false;
+  }
+  item->width_px = values[0];
+  item->height_px = values[1];
+  item->orientation = (enum ImageOrientation)orientation;
+  item->duration_ms = values[3];
+  return true;
 }
 
 static int probe_image(struct MediaItem* item,
@@ -907,4 +973,10 @@ static int probe_frame(struct Str source_path,
   *width_out = header.width_px;
   *height_out = header.height_px;
   return 0;
+}
+
+static void format_probe_fact_source(struct Buf* buffer, const struct OsStat* source_stat) {
+  const struct Str version = fram_version_string();
+  buf_printf(buffer, "version=%.*s len=%td mtime=%" PRId64 ".%09" PRId64, STR_FMT(version),
+             source_stat->len, source_stat->mtime_s, source_stat->mtime_ns);
 }

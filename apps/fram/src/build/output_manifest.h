@@ -11,6 +11,7 @@ struct SiteConfig;
 struct Log;
 struct Manifest;
 struct Os;
+struct OsStat;
 struct PathList;
 
 /**
@@ -48,14 +49,26 @@ int output_manifest_check_output_dir(const struct SiteConfig* site_config,
                                      struct Log* log) __attribute__((nonnull(1, 3, 5)));
 
 /**
+ * @brief Returns the path of the output cache below `output_dir`, `_fram/output-cache.tsv`.
+ *
+ * @param output_dir Output directory the cache lives in.
+ * @param arena      Arena that owns the path. Must not be `NULL`.
+ * @return The path, owned by `arena`.
+ */
+struct Str output_manifest_cache_path(struct Str output_dir, struct Arena* arena)
+    __attribute__((nonnull(2)));
+
+/**
  * @brief Records every intended output path in the build manifest, rejecting duplicates and any
  *        output that would land inside a build input tree or overwrite a build input file.
  *
  * Registers album page, derivative, original, aggregate, and static file output paths before
- * writing any file, and the build cache's path last, so it catches a collision between two
- * producers up front. A static file at the build cache's path is a duplicate rather than a silent
- * overwrite, and being recorded is what keeps the build cache through the stale-output prune. It
- * rejects four kinds of collision:
+ * writing any file, and the output cache's path last, so it catches a collision between two
+ * producers up front. A derivative declares its source's size and modification time as its
+ * attributes, an original and a static file are copies of their sources, and a page, an aggregate
+ * and the output cache declare none. A static file at the output cache's path is a duplicate rather
+ * than a silent overwrite, and being recorded is what keeps the output cache through the
+ * stale-output prune. It rejects four kinds of collision:
  * - an output path at or below `media_dir`, `templates_dir`, or `static_dir`
  * - an output path that names a build input
  * - two producers that claim one output path, compared after folding ASCII case
@@ -96,10 +109,12 @@ int output_manifest_check_output_dir(const struct SiteConfig* site_config,
  * @param static_paths   Every enumerated file below `static_dir`, each claimed as an input and
  *                       registered at its path relative to `static_dir`, below `output_dir`. Must
  *                       not be `NULL`.
+ * @param static_stats   What `walk_stat_paths` reported for each of `static_paths`, parallel to
+ *                       them. Must not be `NULL` unless `static_paths` is empty.
  * @param template_paths Every file below `templates_dir`, partials included, each claimed as an
  *                       input. Must not be `NULL`.
- * @param albums         Planned albums whose page, derivative, and original output paths, each
- *                       joined onto `output_dir`, are recorded. Must not be `NULL`.
+ * @param albums         Planned and probed albums whose page, derivative, and original output
+ *                       paths, each joined onto `output_dir`, are recorded. Must not be `NULL`.
  * @param album_count    Number of albums in `albums`.
  * @param os             Host the inputs and outputs are on. Must not be `NULL`.
  * @param perm           Arena that owns the manifest's entries, for as long as the manifest is
@@ -116,12 +131,14 @@ int output_manifest_populate(struct Manifest* manifest,
                              struct Str config_path,
                              const struct PathList* source_paths,
                              const struct PathList* static_paths,
+                             const struct OsStat* static_stats,
                              const struct PathList* template_paths,
                              const struct Album* const* albums,
                              ptrdiff_t album_count,
                              struct Os* os,
                              struct Arena* perm,
                              struct Arena scratch,
-                             struct Log* log) __attribute__((nonnull(1, 2, 4, 5, 6, 7, 9, 10, 12)));
+                             struct Log* log)
+    __attribute__((nonnull(1, 2, 4, 5, 7, 8, 10, 11, 13)));
 
 #endif

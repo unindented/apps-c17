@@ -6,7 +6,6 @@
 #include "core/path.h"
 #include "core/path_list.h"
 #include "core/str.h"
-#include "domain/build_cache.h"
 #include "domain/content_entry.h"
 #include "domain/site_config.h"
 #include "os/os.h"
@@ -73,7 +72,9 @@ int output_manifest_populate(struct Manifest* manifest,
                              struct Str config_path,
                              const struct PathList* source_paths,
                              const struct PathList* static_paths,
+                             const struct OsStat* static_stats,
                              const struct PathList* asset_paths,
+                             const struct OsStat* asset_stats,
                              const struct PathList* template_paths,
                              const struct ContentEntry* const* content_entries,
                              ptrdiff_t content_entry_count,
@@ -111,18 +112,17 @@ int output_manifest_populate(struct Manifest* manifest,
                                          site_config->feed_template_count, scratch, log) != 0) {
     rc = -1;
   }
-  if (manifest_builder_add_files(&builder, static_paths, site_config->static_dir, NULL, scratch,
-                                 log) != 0) {
+  if (manifest_builder_add_copies(&builder, static_paths, static_stats, site_config->static_dir,
+                                  NULL, scratch, log) != 0) {
     rc = -1;
   }
-  if (manifest_builder_add_files(&builder, asset_paths, site_config->content_dir, NULL, scratch,
-                                 log) != 0) {
+  if (manifest_builder_add_copies(&builder, asset_paths, asset_stats, site_config->content_dir,
+                                  NULL, scratch, log) != 0) {
     rc = -1;
   }
-  // The build cache is recorded last, so a dry run lists it last. The path is made before the call,
-  // so the copy of the scratch the add gets starts past it.
-  const struct Str cache_path = build_cache_path(site_config->output_dir, &scratch);
-  if (output_manifest_populate_add(&builder, cache_path, S("build cache"), scratch, log) != 0) {
+  // The output cache is recorded last, so a dry run lists it last.
+  if (manifest_builder_add(&builder, S(OUTPUT_MANIFEST_CACHE_PATH), S("output cache"), scratch,
+                           log) != 0) {
     rc = -1;
   }
   // Every path is now recorded, so the prefix scan sees all of them.

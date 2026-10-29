@@ -376,7 +376,7 @@ static void test_walk_reports_uninspectable_entries_in_order(void) {
 }
 
 // Each listed path gets its stat, and one that cannot be inspected gets a negative `len`, which no
-// build cache row holds, not even that of an empty file dated at the epoch.
+// output cache row holds, not even that of an empty file dated at the epoch.
 static void test_stat_paths_marks_an_uninspectable_path(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "static/a.css", "abc");

@@ -86,7 +86,7 @@ static void test_help_action_reports_ok(void) {
       "    -c, --config PATH  Read the configuration from PATH (default: surge.toml)\n"
       "    -w, --workers N    Use at most N worker threads (default: detected CPU count)\n"
       "    -n, --dry-run      Report what would be written, kept, or removed, changing nothing\n"
-      "    --force            Ignore the build cache for this build\n"
+      "    --force            Make every output again, keeping nothing\n"
       "    -v, --verbose      Print build progress to stderr\n"
       "    -h, --help         Print this help and exit\n"));
 }

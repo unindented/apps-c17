@@ -10,7 +10,7 @@ struct Log;
 struct Os;
 
 /**
- * @brief Prepares for the rows of a build cache, before the first row is parsed, so the app can
+ * @brief Prepares for the rows of an output cache, before the first row is parsed, so the app can
  *        size the array its rows go in.
  *
  * @param row_count Number of rows the file holds.
@@ -20,7 +20,7 @@ struct Os;
 typedef void (*BuildCacheFileBeginFn)(ptrdiff_t row_count, struct Arena* perm, void* userdata);
 
 /**
- * @brief Parses one row of a build cache into the app's own row type.
+ * @brief Parses one row of an output cache into the app's own row type.
  *
  * @param line     The row, without its newline.
  * @param index    Zero-based index of the row, below the count that `BuildCacheFileBeginFn` got.
@@ -36,7 +36,7 @@ typedef int (*BuildCacheFileRowFn)(struct Str line,
                                    void* userdata);
 
 /**
- * @brief Parses the text of a build cache whose first line must be `header`, handing each row to
+ * @brief Parses the text of an output cache whose first line must be `header`, handing each row to
  *        `parse_row`.
  *
  * A build writes its cache in place, so an interrupted write leaves the file empty or cut short: an
@@ -44,10 +44,10 @@ typedef int (*BuildCacheFileRowFn)(struct Str line,
  * as it found it.
  *
  * The reason a cache cannot be used is
- * `build cache is empty, as a build that did not finish leaves it`, the app's `header_mismatch`, or
- * `build cache does not parse at line <n>`, counting the header's lines.
+ * `output cache is empty, as a build that did not finish leaves it`, the app's `header_mismatch`,
+ * or `output cache does not parse at line <n>`, counting the header's lines.
  *
- * @param text            Bytes of the build cache.
+ * @param text            Bytes of the output cache.
  * @param header          The first line that this build writes, with its newline.
  * @param header_mismatch Reason given when the text does not start with `header`, which names what
  *                        the header records, such as the app's version.
@@ -69,9 +69,9 @@ int build_cache_file_parse(struct Str text,
                            struct Log* log) __attribute__((nonnull(4, 5, 7, 8)));
 
 /**
- * @brief Parses the read text of a build cache, as the app's own `build_cache_parse` does.
+ * @brief Parses the read text of an output cache, as the app's own `build_cache_parse` does.
  *
- * @param text     Bytes of the build cache.
+ * @param text     Bytes of the output cache.
  * @param perm     Arena that owns the parsed cache. Must not be `NULL`.
  * @param log      Log that receives the reason the cache cannot be used, which a `-1` must write.
  *                 Must not be `NULL`.
@@ -83,7 +83,7 @@ typedef int (*BuildCacheFileParseFn)(struct Str text,
                                      struct Log* log,
                                      void* userdata);
 
-/** What a load found at the build cache's path. */
+/** What a load found at the output cache's path. */
 enum BuildCacheFileState {
   /** No file, the usual case of a first build. */
   BUILD_CACHE_FILE_MISSING,
@@ -96,13 +96,13 @@ enum BuildCacheFileState {
 };
 
 /**
- * @brief Reads and parses the build cache at `path`, and says why it is not used when it is not.
+ * @brief Reads and parses the output cache at `path`, and says why it is not used when it is not.
  *
- * A build cache that cannot be used is a note for the verbose log and never a build error, so the
+ * An output cache that cannot be used is a note for the verbose log and never a build error, so the
  * reason does not go to the build's log. A file that cannot be read gives the read's message, as
- * `failed to read build cache: <cause> ('<path>')`, and one that does not parse gives the parse's.
+ * `failed to read output cache: <cause> ('<path>')`, and one that does not parse gives the parse's.
  *
- * @param path         Path of the build cache.
+ * @param path         Path of the output cache.
  * @param file_len_max Largest file read, in bytes. A larger one is unusable.
  * @param parse        Parses the text into the app's cache. Must not be `NULL`.
  * @param userdata     Opaque pointer passed to `parse`.

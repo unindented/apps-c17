@@ -349,10 +349,10 @@ struct ReleaseAsset {
   /** Path of the file, which the build copies. */
   struct Str source_path;
 
-  /** Size of the file in bytes, which the build cache records. */
+  /** Size of the file in bytes, which the output cache records. */
   ptrdiff_t len;
 
-  /** Modification time in whole seconds since the Unix epoch, which the build cache records. */
+  /** Modification time in whole seconds since the Unix epoch, which the output cache records. */
   int64_t mtime_s;
 
   /** Nanoseconds within `mtime_s`. */

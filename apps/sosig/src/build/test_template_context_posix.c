@@ -78,8 +78,7 @@ static int render(const char* template_name,
     return -1;
   }
   struct Str html = {0};
-  const int rc =
-      template_context_render(set, name, context, name, perm, test_arena(), &html, NULL, &log);
+  const int rc = template_context_render(set, name, context, name, perm, test_arena(), &html, &log);
   template_set_release(set);
   if (rc != 0) {
     return -1;

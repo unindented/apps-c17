@@ -33,11 +33,20 @@ struct ManifestEntry {
   /** Diagnostic source label owned by the manifest's arena. */
   struct Str source_label;
 
+  /** How the output is made, with its strings owned by the manifest's arena. */
+  struct ManifestOutput output;
+
   /**
    * What the build has done with `output_path`. A plain field rather than a bit-field, so a job
    * marking its own entry writes no byte that another job's lookup reads.
    */
   enum ManifestMark mark;
+
+  /**
+   * Size in bytes of the file at `output_path` that the mark recorded, or `-1` when it recorded
+   * none. A plain field, written with `mark`, for the same reason.
+   */
+  ptrdiff_t len;
 };
 
 /**
@@ -99,6 +108,16 @@ int manifest_add(struct Manifest* manifest,
                  struct Str source_label,
                  struct Arena* arena,
                  struct Str* source_label_existing_out) {
+  return manifest_add_output(manifest, output_path, source_label, &(struct ManifestOutput){0},
+                             arena, source_label_existing_out);
+}
+
+int manifest_add_output(struct Manifest* manifest,
+                        struct Str output_path,
+                        struct Str source_label,
+                        const struct ManifestOutput* output,
+                        struct Arena* arena,
+                        struct Str* source_label_existing_out) {
   struct ManifestEntry* parent = NULL;
   ptrdiff_t digit = 0;
   const struct ManifestEntry* existing = descend_trie(manifest, output_path, &parent, &digit);
@@ -112,6 +131,12 @@ int manifest_add(struct Manifest* manifest,
   struct ManifestEntry* entry = arena_new(arena, 1, struct ManifestEntry);
   entry->output_path = str_clone(output_path, arena);
   entry->source_label = str_clone(source_label, arena);
+  entry->output = (struct ManifestOutput){
+      .attributes = str_clone(output->attributes, arena),
+      .copy_source_path = str_clone(output->copy_source_path, arena),
+      .copy_source_len = output->copy_source_len,
+  };
+  entry->len = -1;
   if (parent == NULL) {
     manifest->root = entry;
   } else {
@@ -169,7 +194,10 @@ bool manifest_next_output_path(const struct Manifest* manifest, struct Str* outp
   return true;
 }
 
-int manifest_mark(struct Manifest* manifest, struct Str output_path, enum ManifestMark mark) {
+int manifest_mark(struct Manifest* manifest,
+                  struct Str output_path,
+                  enum ManifestMark mark,
+                  ptrdiff_t len) {
   struct ManifestEntry* parent = NULL;
   ptrdiff_t digit = 0;
   struct ManifestEntry* entry = descend_trie(manifest, output_path, &parent, &digit);
@@ -177,12 +205,29 @@ int manifest_mark(struct Manifest* manifest, struct Str output_path, enum Manife
     return -1;
   }
   entry->mark = mark;
+  entry->len = len;
   return 0;
 }
 
 enum ManifestMark manifest_find_mark(const struct Manifest* manifest, struct Str output_path) {
   const struct ManifestEntry* entry = lookup_entry(manifest, output_path);
   return entry == NULL ? MANIFEST_MARK_PENDING : entry->mark;
+}
+
+ptrdiff_t manifest_find_len(const struct Manifest* manifest, struct Str output_path) {
+  const struct ManifestEntry* entry = lookup_entry(manifest, output_path);
+  return entry == NULL || entry->mark == MANIFEST_MARK_PENDING ? -1 : entry->len;
+}
+
+bool manifest_find_output(const struct Manifest* manifest,
+                          struct Str output_path,
+                          struct ManifestOutput* output_out) {
+  const struct ManifestEntry* entry = lookup_entry(manifest, output_path);
+  if (entry == NULL) {
+    return false;
+  }
+  *output_out = entry->output;
+  return true;
 }
 
 static struct ManifestEntry* descend_trie(const struct Manifest* manifest,

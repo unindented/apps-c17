@@ -76,10 +76,10 @@ int walk_files_with_suffixes(struct PathList* paths,
 enum { WALK_STAT_LEN_FAILED = -1 };
 
 /**
- * @brief Returns what `os_stat` reports for each of `paths`, which a build cache's rows record.
+ * @brief Returns what `os_stat` reports for each of `paths`, which an output cache's rows record.
  *
  * A file that cannot be inspected gets a stat whose `len` is `WALK_STAT_LEN_FAILED`. No row of a
- * build cache holds a negative size, so no row matches it, the build makes its outputs again, and
+ * output cache holds a negative size, so no row matches it, the build makes its outputs again, and
  * the read that follows reports why.
  *
  * @param paths Files to inspect. Must not be `NULL`.

@@ -1,13 +1,14 @@
 #include "build/output_manifest.h"
 
+#include <inttypes.h>
 #include <stddef.h>
 
 #include "core/arena.h"
+#include "core/buf.h"
 #include "core/path.h"
 #include "core/path_list.h"
 #include "core/str.h"
 #include "domain/album.h"
-#include "domain/build_cache.h"
 #include "domain/media_item.h"
 #include "domain/site_config.h"
 #include "os/os.h"
@@ -47,9 +48,14 @@ static int output_manifest_populate_add(struct ManifestBuilder* builder,
  * @brief Records an album's page, and each derivative and original of its media, which stops at a
  *        media item's first refused output, so each item is reported once.
  *
+ * A derivative's attributes name its source's size and modification time. Its settings and the
+ * recipe version are in its path, so they need not be named again. The original is a copy of its
+ * source.
+ *
  * @param builder   Prepared builder. Must not be `NULL`.
  * @param album     Album to record. Must not be `NULL`.
- * @param media_dir Directory the album's source directory is below, which labels its page.
+ * @param media_dir Directory the album's source directory is below, which labels its page, and
+ *                  below which each source is named in its outputs' attributes.
  * @param scratch   Arena for the labels and the checks.
  * @param log       Log that receives every refusal. Must not be `NULL`.
  * @return `0` when every output was recorded, or `-1` otherwise.
@@ -87,11 +93,16 @@ int output_manifest_check_output_dir(const struct SiteConfig* site_config,
       site_config->output_dir, roots, OUTPUT_MANIFEST_ROOT_COUNT, config_path, os, scratch, log);
 }
 
+struct Str output_manifest_cache_path(struct Str output_dir, struct Arena* arena) {
+  return path_join(output_dir, S("_fram/output-cache.tsv"), arena);
+}
+
 int output_manifest_populate(struct Manifest* manifest,
                              const struct SiteConfig* site_config,
                              struct Str config_path,
                              const struct PathList* source_paths,
                              const struct PathList* static_paths,
+                             const struct OsStat* static_stats,
                              const struct PathList* template_paths,
                              const struct Album* const* albums,
                              ptrdiff_t album_count,
@@ -128,14 +139,14 @@ int output_manifest_populate(struct Manifest* manifest,
           site_config->aggregate_template_count, scratch, log) != 0) {
     rc = -1;
   }
-  if (manifest_builder_add_files(&builder, static_paths, site_config->static_dir, NULL, scratch,
-                                 log) != 0) {
+  if (manifest_builder_add_copies(&builder, static_paths, static_stats, site_config->static_dir,
+                                  NULL, scratch, log) != 0) {
     rc = -1;
   }
-  // The build cache is recorded last, so a dry run lists it last. The path is made before the call,
-  // so the copy of the scratch the add gets starts past it.
-  const struct Str cache_path = build_cache_path(site_config->output_dir, &scratch);
-  if (output_manifest_populate_add(&builder, cache_path, S("build cache"), scratch, log) != 0) {
+  // The output cache is recorded last, so a dry run lists it last. The path is made before the
+  // call, so the copy of the scratch the add gets starts past it.
+  const struct Str cache_path = output_manifest_cache_path(site_config->output_dir, &scratch);
+  if (output_manifest_populate_add(&builder, cache_path, S("output cache"), scratch, log) != 0) {
     rc = -1;
   }
   // Every path is now recorded, so the prefix scan sees all of them.
@@ -186,14 +197,28 @@ static int output_manifest_populate_album(struct ManifestBuilder* builder,
   int rc = output_manifest_populate_add(builder, album->output_path, album_label, scratch, log);
   for (ptrdiff_t i = 0; i < album->media_count; i++) {
     const struct MediaItem* media = album->media[i];
+    // Each item's attributes live in a copy of `scratch`, which the next item reuses.
+    struct Arena media_scratch = scratch;
+    const struct OsStat* source_stat = &media->source_stat;
+    // A source is named by its path below `media_dir`, so a renamed source makes its outputs again,
+    // and moving the whole gallery makes none.
+    struct Str source_name = {0};
+    (void)path_is_below(media->source_path, media_dir, &source_name);
+    struct Buf attributes = {.arena = &media_scratch};
+    buf_printf(&attributes, "src=%.*s len=%td mtime=%" PRId64 ".%09" PRId64, STR_FMT(source_name),
+               source_stat->len, source_stat->mtime_s, source_stat->mtime_ns);
     int media_rc = 0;
     for (ptrdiff_t j = 0; media_rc == 0 && j < media->derivative_count; j++) {
-      media_rc = output_manifest_populate_add(builder, media->derivatives[j].path,
-                                              media->source_path, scratch, log);
+      struct Str relative = {0};
+      (void)path_is_below(media->derivatives[j].path, builder->output_dir, &relative);
+      media_rc = manifest_builder_add_output(builder, relative, media->source_path,
+                                             buf_str(&attributes), media_scratch, log);
     }
     if (media_rc == 0) {
-      media_rc = output_manifest_populate_add(builder, media->original_path, media->source_path,
-                                              scratch, log);
+      struct Str relative = {0};
+      (void)path_is_below(media->original_path, builder->output_dir, &relative);
+      media_rc = manifest_builder_add_copy(builder, relative, media->source_path, source_name,
+                                           source_stat, media_scratch, log);
     }
     if (media_rc != 0) {
       rc = -1;

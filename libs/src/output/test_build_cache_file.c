@@ -60,7 +60,7 @@ static int rows_parse(struct Str line, ptrdiff_t index, struct Arena* perm, void
 /**
  * @brief Parses `text` under the header `v1\n` into `rows`.
  *
- * @param text  Text of the build cache.
+ * @param text  Text of the output cache.
  * @param rows  Receives the rows. Must not be `NULL`.
  * @param arena Arena that owns the rows. Must not be `NULL`.
  * @param log   Log that receives the reason. Must not be `NULL`.
@@ -75,7 +75,7 @@ static int parse_text(const char* text, struct Rows* rows, struct Arena* arena, 
 /**
  * @brief Parses the text of a cache with `parse_text`, as `BuildCacheFileParseFn`.
  *
- * @param text     Text of the build cache.
+ * @param text     Text of the output cache.
  * @param perm     Arena that owns the rows. Must not be `NULL`.
  * @param log      Log that receives the reason. Must not be `NULL`.
  * @param userdata The `struct Rows`.
@@ -126,7 +126,7 @@ static void test_parse_counts_every_line_of_the_header(void) {
   TEST_CHECK(build_cache_file_parse(S("v1\nx\na\nbad\n"), S("v1\nx\n"),
                                     S("written by another build"), rows_begin, rows_parse, &rows,
                                     &arena, &log) == -1);
-  TEST_CHECK(test_log_is(&log, "build cache does not parse at line 4\n"));
+  TEST_CHECK(test_log_is(&log, "output cache does not parse at line 4\n"));
 }
 
 // An empty file, which an interrupted write leaves, and a file of another header are each reported,
@@ -136,7 +136,8 @@ static void test_parse_reports_an_empty_file_and_another_header(void) {
   struct Rows rows;
   struct Log log = test_log();
   TEST_CHECK(parse_text("", &rows, &arena, &log) == -1);
-  TEST_CHECK(test_log_is(&log, "build cache is empty, as a build that did not finish leaves it\n"));
+  TEST_CHECK(
+      test_log_is(&log, "output cache is empty, as a build that did not finish leaves it\n"));
   TEST_CHECK(rows.count == -1);
 
   log = test_log();
@@ -150,9 +151,9 @@ static void test_parse_reports_an_empty_file_and_another_header(void) {
 // it was.
 static void test_parse_reports_the_line_of_a_bad_row(void) {
   static const char* const cases[][2] = {
-      {"v1\na\nbad\n", "build cache does not parse at line 3\n"},
-      {"v1\nb\na\n", "build cache does not parse at line 3\n"},
-      {"v1\na\nb", "build cache does not parse at line 3\n"},
+      {"v1\na\nbad\n", "output cache does not parse at line 3\n"},
+      {"v1\nb\na\n", "output cache does not parse at line 3\n"},
+      {"v1\na\nb", "output cache does not parse at line 3\n"},
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
     TEST_CASE(cases[i][0]);
@@ -188,14 +189,14 @@ static void test_load_tells_missing_loaded_and_unusable_apart(void) {
                                    &reason) == BUILD_CACHE_FILE_UNUSABLE);
   // What the load wrote in the scratch is free again, so the next allocation there writes over it.
   memset(arena_new(&scratch, 256, char), 'x', 256);
-  TEST_CHECK(str_eq(reason, S("build cache does not parse at line 2")));
+  TEST_CHECK(str_eq(reason, S("output cache does not parse at line 2")));
 
   os_memory_fail(os, OS_MEMORY_OP_READ, "cache.tsv", EACCES);
   TEST_CHECK(build_cache_file_load(S("cache.tsv"), 1024, parse_cache, &rows, os, &perm,
                                    test_arena(), &reason) == BUILD_CACHE_FILE_UNUSABLE);
   struct Arena arena = test_arena();
   struct Buf expected = {.arena = &arena};
-  buf_printf(&expected, "failed to read build cache: %s ('cache.tsv')", strerror(EACCES));
+  buf_printf(&expected, "failed to read output cache: %s ('cache.tsv')", strerror(EACCES));
   TEST_CHECK(str_eq(reason, buf_str(&expected)));
   TEST_MSG("reason: '%.*s'", STR_FMT(reason));
 }

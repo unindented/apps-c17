@@ -4,8 +4,10 @@
 #include <stddef.h>
 
 #include "build/page_release.h"
+#include "build/repo_scan.h"
 #include "build/template_value.h"
 #include "core/arena.h"
+#include "core/buf.h"
 #include "core/path.h"
 #include "core/str.h"
 #include "domain/repo_model.h"
@@ -66,63 +68,61 @@ static struct ReleaseOutput* list_outputs(const struct RepoModel* repo,
                                           ptrdiff_t* count_out)
     __attribute__((nonnull(1, 2, 3), returns_nonnull));
 
-/**
- * @brief Writes or keeps one release output.
- *
- * @param inputs  What the outputs are made from. Must not be `NULL`.
- * @param output  The output. Must not be `NULL`.
- * @param writer  Writer of the build. Must not be `NULL`.
- * @param os      Host the output is inspected on. Must not be `NULL`.
- * @param scratch Arena for the page.
- * @param log     Log that receives the failure. Must not be `NULL`.
- * @return `0` when the output was written or kept, or `-1` otherwise.
- */
-static int release_writer_write_one(const struct ReleaseWriterInputs* inputs,
-                                    const struct ReleaseOutput* output,
-                                    const struct OutputWriter* writer,
-                                    struct Os* os,
-                                    struct Arena scratch,
-                                    struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 6)));
+/** What makes one release output, for `output_writer_produce`. */
+struct ReleaseMake {
+  /** What the outputs are made from. */
+  const struct ReleaseWriterInputs* inputs;
+
+  /** The output. */
+  const struct ReleaseOutput* output;
+};
 
 /**
- * @brief Renders a release page into the output.
+ * @brief Records one release output with what it declares.
  *
- * @param inputs  What the outputs are made from. Must not be `NULL`.
- * @param output  The page. Must not be `NULL`.
- * @param writer  Writer of the build. Must not be `NULL`.
- * @param scratch Arena for the page's data tree and its render.
- * @param log     Log that receives the failure. Must not be `NULL`.
- * @return `0` when the page was written, or `-1` otherwise.
+ * @param builder   Prepared manifest builder. Must not be `NULL`.
+ * @param scan      What the scan found for the repo. Must not be `NULL`.
+ * @param output    The output. Must not be `NULL`.
+ * @param recipe_id Id of the page recipe.
+ * @param scratch   Arena for the label and the attributes.
+ * @param log       Log that receives the refusal. Must not be `NULL`.
+ * @return `0` when the path was recorded, or `-1` otherwise.
  */
-static int release_writer_write_one_page(const struct ReleaseWriterInputs* inputs,
-                                         const struct ReleaseOutput* output,
-                                         const struct OutputWriter* writer,
-                                         struct Arena scratch,
-                                         struct Log* log) __attribute__((nonnull(1, 2, 3, 5)));
+static int release_writer_register_one(struct ManifestBuilder* builder,
+                                       const struct RepoScan* scan,
+                                       const struct ReleaseOutput* output,
+                                       struct Str recipe_id,
+                                       struct Arena scratch,
+                                       struct Log* log) __attribute__((nonnull(1, 2, 3, 6)));
+
+/**
+ * @brief Makes a page or a version list, as `OutputWriterMakeFn`.
+ *
+ * A page's data tree goes in `perm` before the page, and its temporaries in `scratch`.
+ *
+ * @param perm      Arena that owns the bytes. Must not be `NULL`.
+ * @param scratch   Arena for the data tree's temporaries and the render.
+ * @param bytes_out Receives the bytes. Must not be `NULL`.
+ * @param log       Log that receives the failure. Must not be `NULL`.
+ * @param userdata  The `struct ReleaseMake`.
+ * @return `0` on success, or `-1` when the render fails.
+ */
+static int release_writer_write_make(struct Arena* perm,
+                                     struct Arena scratch,
+                                     struct Str* bytes_out,
+                                     struct Log* log,
+                                     void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
 
 int release_writer_register(struct ManifestBuilder* builder,
-                            const struct RepoModel* repo,
+                            const struct RepoScan* scan,
+                            struct Str recipe_id,
                             struct Arena scratch,
                             struct Log* log) {
   ptrdiff_t count = 0;
-  const struct ReleaseOutput* outputs = list_outputs(repo, &scratch, &count);
+  const struct ReleaseOutput* outputs = list_outputs(&scan->model, &scratch, &count);
   int rc = 0;
   for (ptrdiff_t i = 0; i < count; i++) {
-    const struct ReleaseOutput* output = &outputs[i];
-    // An asset's diagnostic names the file it is copied from, as a static file's does, and a
-    // release's page its repo and tag, as a commit page's names its repo and commit.
-    struct Arena label_scratch = scratch;
-    struct Str label = repo->config->name;
-    if (output->asset != NULL) {
-      label = output->asset->source_path;
-    } else if (output->release != NULL) {
-      label = str_concat(str_concat(repo->config->name, S(":"), &label_scratch),
-                         output->release->tag->short_name, &label_scratch);
-    } else if (output->project != NULL) {
-      label = str_concat(str_concat(repo->config->name, S(":"), &label_scratch),
-                         output->project->name, &label_scratch);
-    }
-    if (manifest_builder_add(builder, output->relative_path, label, label_scratch, log) != 0) {
+    if (release_writer_register_one(builder, scan, &outputs[i], recipe_id, scratch, log) != 0) {
       rc = -1;
     }
   }
@@ -131,14 +131,29 @@ int release_writer_register(struct ManifestBuilder* builder,
 
 int release_writer_write(const struct ReleaseWriterInputs* inputs,
                          const struct OutputWriter* writer,
-                         struct Os* os,
                          struct Arena scratch,
                          struct Log* log) {
   ptrdiff_t count = 0;
   const struct ReleaseOutput* outputs = list_outputs(inputs->repo, &scratch, &count);
   int rc = 0;
   for (ptrdiff_t i = 0; i < count; i++) {
-    if (release_writer_write_one(inputs, &outputs[i], writer, os, scratch, log) != 0) {
+    struct Arena output_scratch = scratch;
+    const struct Str file_path =
+        path_join(inputs->site_config->output_dir, outputs[i].relative_path, &output_scratch);
+    // The output takes one half of the scratch, and its temporaries, and then the read of the file
+    // in the output, the other.
+    const char* region_end =
+        output_scratch.limit != NULL ? output_scratch.limit : output_scratch.end;
+    struct Arena output_arena = arena_split(&output_scratch, (region_end - output_scratch.beg) / 2);
+    struct ReleaseMake make = {.inputs = inputs, .output = &outputs[i]};
+    const struct Str operation = outputs[i].kind == RELEASE_OUTPUT_ASSET
+                                     ? S("failed to copy release asset")
+                                 : outputs[i].kind == RELEASE_OUTPUT_VERSIONS_TEXT ||
+                                         outputs[i].kind == RELEASE_OUTPUT_VERSIONS_JSON
+                                     ? S("failed to write release versions")
+                                     : S("failed to write page");
+    if (output_writer_produce(writer, file_path, inputs->cache, release_writer_write_make, &make,
+                              output_arena, output_scratch, operation, log) != 0) {
       rc = -1;
     }
   }
@@ -204,79 +219,78 @@ static struct ReleaseOutput* list_outputs(const struct RepoModel* repo,
   return outputs;
 }
 
-static int release_writer_write_one(const struct ReleaseWriterInputs* inputs,
-                                    const struct ReleaseOutput* output,
-                                    const struct OutputWriter* writer,
-                                    struct Os* os,
-                                    struct Arena scratch,
-                                    struct Log* log) {
-  const struct Str file_path =
-      path_join(inputs->site_config->output_dir, output->relative_path, &scratch);
-  struct OsStat st;
-  const bool is_present = os_stat(os, file_path, &st) == 0 && !st.is_dir;
-  if (output->kind == RELEASE_OUTPUT_ASSET) {
-    if (inputs->is_releases_fresh && is_present && st.len == output->asset->len) {
-      return output_writer_keep(writer, file_path, log);
-    }
-    return output_writer_write(
-        writer, file_path,
-        (struct OsSource){.kind = OS_SOURCE_FILE, .file_path = output->asset->source_path},
-        S("failed to copy release asset"), log);
+static int release_writer_register_one(struct ManifestBuilder* builder,
+                                       const struct RepoScan* scan,
+                                       const struct ReleaseOutput* output,
+                                       struct Str recipe_id,
+                                       struct Arena scratch,
+                                       struct Log* log) {
+  const struct RepoModel* repo = &scan->model;
+  if (output->asset != NULL) {
+    // An asset's diagnostic names the file it is copied from, as a static file's does.
+    const struct OsStat source_stat = {
+        .len = output->asset->len,
+        .mtime_s = output->asset->mtime_s,
+        .mtime_ns = output->asset->mtime_ns,
+    };
+    struct Str source_name = {0};
+    (void)path_is_below(output->asset->source_path, repo->config->releases_dir, &source_name);
+    return manifest_builder_add_copy(builder, output->relative_path, output->asset->source_path,
+                                     source_name, &source_stat, scratch, log);
   }
-  const bool is_versions =
-      output->kind == RELEASE_OUTPUT_VERSIONS_TEXT || output->kind == RELEASE_OUTPUT_VERSIONS_JSON;
+  // A release's page names its repo and tag, as a commit page's names its repo and commit.
+  struct Str label = repo->config->name;
+  if (output->release != NULL) {
+    label = str_concat(str_concat(repo->config->name, S(":"), &scratch),
+                       output->release->tag->short_name, &scratch);
+  } else if (output->project != NULL) {
+    label = str_concat(str_concat(repo->config->name, S(":"), &scratch), output->project->name,
+                       &scratch);
+  }
   // A page also shows the repo's `repo` map, and a version list does not.
-  if (inputs->is_templates_fresh && inputs->is_releases_fresh &&
-      (is_versions || inputs->is_repo_map_fresh) && is_present) {
-    return output_writer_keep(writer, file_path, log);
+  struct Buf attributes = {.arena = &scratch};
+  buf_printf(&attributes, "recipe=%.*s", STR_FMT(recipe_id));
+  if (output->kind != RELEASE_OUTPUT_VERSIONS_TEXT &&
+      output->kind != RELEASE_OUTPUT_VERSIONS_JSON) {
+    buf_printf(&attributes, " map=%.*s", STR_FMT(scan->repo_map_id));
   }
-  if (is_versions) {
-    const struct Str text = output->kind == RELEASE_OUTPUT_VERSIONS_TEXT
-                                ? page_release_versions_text(output->project, &scratch)
-                                : page_release_versions_json(output->project, &scratch);
-    return output_writer_write(writer, file_path, (struct OsSource){.bytes = text},
-                               S("failed to write release versions"), log);
-  }
-  return release_writer_write_one_page(inputs, output, writer, scratch, log);
+  buf_printf(&attributes, " releases=%.*s", STR_FMT(scan->releases_id));
+  const struct Str text = buf_str(&attributes);
+  return manifest_builder_add_output(builder, output->relative_path, label, text, scratch, log);
 }
 
-static int release_writer_write_one_page(const struct ReleaseWriterInputs* inputs,
-                                         const struct ReleaseOutput* output,
-                                         const struct OutputWriter* writer,
-                                         struct Arena scratch,
-                                         struct Log* log) {
-  const struct SiteConfig* site_config = inputs->site_config;
-  const struct RepoModel* repo = inputs->repo;
-  // The data tree takes one half of the scratch, and the render the other.
-  const char* region_end = scratch.limit != NULL ? scratch.limit : scratch.end;
-  struct Arena value_arena = arena_split(&scratch, (region_end - scratch.beg) / 2);
-  struct Arena value_scratch = scratch;
+static int release_writer_write_make(struct Arena* perm,
+                                     struct Arena scratch,
+                                     struct Str* bytes_out,
+                                     struct Log* log,
+                                     void* userdata) {
+  const struct ReleaseMake* make = userdata;
+  const struct SiteConfig* site_config = make->inputs->site_config;
+  const struct RepoModel* repo = make->inputs->repo;
+  const struct ReleaseOutput* output = make->output;
   const struct TemplateValue* value = NULL;
   struct Str template_name = {0};
   switch (output->kind) {
+    case RELEASE_OUTPUT_VERSIONS_TEXT:
+      *bytes_out = page_release_versions_text(output->project, perm);
+      return 0;
+    case RELEASE_OUTPUT_VERSIONS_JSON:
+      *bytes_out = page_release_versions_json(output->project, perm);
+      return 0;
     case RELEASE_OUTPUT_INDEX:
-      value = page_release_index_value(site_config, repo, &value_arena, value_scratch);
+      value = page_release_index_value(site_config, repo, perm, scratch);
       template_name = PAGE_RELEASE_INDEX_TEMPLATE;
       break;
     case RELEASE_OUTPUT_PROJECT:
-      value = page_release_project_value(site_config, repo, output->project, &value_arena,
-                                         value_scratch);
+      value = page_release_project_value(site_config, repo, output->project, perm, scratch);
       template_name = PAGE_RELEASE_PROJECT_TEMPLATE;
       break;
     default:
-      value =
-          page_release_tag_value(site_config, repo, output->release, &value_arena, value_scratch);
+      value = page_release_tag_value(site_config, repo, output->release, perm, scratch);
       template_name = PAGE_RELEASE_TAG_TEMPLATE;
       break;
   }
-  const struct Str file_path =
-      path_join(site_config->output_dir, output->relative_path, &value_arena);
-  struct Arena page_arena = value_arena;
-  struct Str html = {0};
-  if (template_value_render(inputs->template_set, template_name, value, output->relative_path,
-                            &page_arena, scratch, &html, log) != 0) {
-    return -1;
-  }
-  return output_writer_write(writer, file_path, (struct OsSource){.bytes = html},
-                             S("failed to write page"), log);
+  // The page grows in `perm` after its data tree.
+  return template_value_render(make->inputs->template_set, template_name, value,
+                               output->relative_path, perm, scratch, bytes_out, log);
 }

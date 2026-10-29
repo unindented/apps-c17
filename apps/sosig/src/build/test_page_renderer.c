@@ -15,6 +15,7 @@
 #include "domain/site_config.h"
 #include "os/os_memory.h"
 #include "output/manifest.h"
+#include "output/output_cache.h"
 #include "output/output_writer.h"
 #include "runtime/job.h"
 #include "templates/template_set.h"
@@ -126,11 +127,12 @@ static int render_entry_slots(struct ContentEntry* const* source_entries,
     return -1;
   }
   const struct OutputWriter writer = {.manifest = &manifest, .os = os};
-  bool* entry_list_flags = arena_new(&perm, source_entry_count > 0 ? source_entry_count : 1, bool);
+  const struct OutputCache cache = {0};
   const int rc = page_renderer_render_pages(
-      &writer, &site_config, template_set, (const struct ContentEntry* const*)source_entries,
-      source_entry_count, (const struct ContentEntry* const*)entries, entry_count, NULL,
-      worker_count, worker_arenas, false, os, test_arena(), entry_list_flags, log);
+      &writer, &cache, &site_config, template_set,
+      (const struct ContentEntry* const*)source_entries, source_entry_count,
+      (const struct ContentEntry* const*)entries, entry_count, worker_count, worker_arenas, false,
+      os, test_arena(), log);
   template_set_release(template_set);
   return rc;
 }
@@ -270,10 +272,9 @@ static void test_accepts_empty_entry_set(void) {
   struct TemplateSet* template_set = NULL;
   TEST_ASSERT(template_set_load(site_config.templates_dir, NULL, NULL, 0, os, &arena, test_arena(),
                                 &template_set, &log) == 0);
-  bool entry_list_flag = false;
-  TEST_CHECK(page_renderer_render_pages(&writer, &site_config, template_set, NULL, 0, NULL, 0, NULL,
-                                        1, &worker_arenas, false, os, test_arena(),
-                                        &entry_list_flag, &log) == 0);
+  const struct OutputCache cache = {0};
+  TEST_CHECK(page_renderer_render_pages(&writer, &cache, &site_config, template_set, NULL, 0, NULL,
+                                        0, 1, &worker_arenas, false, os, test_arena(), &log) == 0);
   template_set_release(template_set);
   TEST_CHECK(test_log_is_empty(&log));
 }

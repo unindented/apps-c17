@@ -24,7 +24,11 @@ struct Os;
  */
 extern const struct Str SITE_CONFIG_PATH_DEFAULT;
 
-/** Stable derivative recipe version. Increment when output bytes must be regenerated. */
+/**
+ * Stable derivative recipe version, which every derivative's path names. Increment it when a
+ * derivative's bytes change for the same source and settings: a change to the resize, the WebP
+ * settings or the decode-scale rule, or a libwebp upgrade.
+ */
 enum { DERIVATIVE_RECIPE_VERSION = 2 };
 
 /**

@@ -292,7 +292,7 @@ int cli_print_usage(const struct CliSpec* spec,
           "    -w, --workers N    Use at most N worker threads (default: detected CPU count)\n"
           "    -n, --dry-run      Report what would be written, kept, or removed, changing "
           "nothing\n"
-          "    --force            Ignore the build cache for this build\n"
+          "    --force            Make every output again, keeping nothing\n"
           "    -v, --verbose      Print build progress to stderr\n"
           "    -h, --help         Print this help and exit\n",
           STR_FMT(spec->noun), STR_FMT(program_name), STR_FMT(spec->config_path_default));

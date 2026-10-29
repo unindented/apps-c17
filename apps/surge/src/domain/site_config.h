@@ -23,6 +23,13 @@ extern const struct Str SITE_CONFIG_PATH_DEFAULT;
  */
 enum { SURGE_NAME_LEN_MAX = 255 - 4 };
 
+/**
+ * Largest `limits.raw_len_max`: 1 GiB. Comparing a raw copy holds its blob and the file in the
+ * output side by side in one job's scratch, which `cmd_build.c` sizes for this bound. Changing it
+ * must update `test_load_bounds_integers`.
+ */
+#define SURGE_RAW_LEN_MAX_LIMIT ((ptrdiff_t)1024 * 1024 * 1024)
+
 /** One `[[repo.project]]` table: a sub-project of a repo that the site index nests under it. */
 struct SurgeProject {
   /** Required name, unique within its repo after ASCII case folding. */

@@ -9,6 +9,7 @@
 struct Album;
 struct Log;
 struct SiteConfig;
+struct OutputCache;
 struct OutputWriter;
 struct RenderedPage;
 struct TemplateSet;
@@ -17,55 +18,63 @@ struct TemplateSet;
 // claims every intended output path before this module writes anything.
 
 /**
- * @brief Writes each already-rendered album page through `writer` to its planned output path.
+ * @brief Produces each already-rendered album page through `writer` at its planned output path,
+ *        leaving a file that holds the same bytes untouched.
  *
  * Call this only once `page_renderer_render_pages` returns `0`, which guarantees that every
  * `rendered_pages[i].html` is filled. An unfilled slot is a caller error, not a skipped album.
  *
  * @param writer         Writer every page is written through. Must not be `NULL`.
+ * @param cache          Cache of the previous build. A page declares no attributes, so the cache
+ *                       never keeps one. Must not be `NULL`.
  * @param albums         Albums whose `output_path` receives the matching page. Must not be `NULL`.
  * @param album_count    Number of albums in `albums`, and of slots in `rendered_pages`.
  * @param rendered_pages Rendered page per album, parallel to `albums`. Every `html` must be filled.
  *                       Borrowed. Must not be `NULL`.
- * @param scratch        Arena for the failure message's operation.
+ * @param scratch        Arena for the failure message's operation and the read of an existing page,
+ *                       so it must hold the largest page and 64 KiB more.
  * @param log            Log that receives the first failure, which names the album and the path
  *                       that could not be written. Must not be `NULL`.
  * @return `0` on success, or `-1` on the first write failure.
  */
 int site_writer_write_album_pages(const struct OutputWriter* writer,
+                                  const struct OutputCache* cache,
                                   const struct Album* const* albums,
                                   ptrdiff_t album_count,
                                   const struct RenderedPage* rendered_pages,
                                   struct Arena scratch,
-                                  struct Log* log) __attribute__((nonnull(1, 2, 4, 6)));
+                                  struct Log* log) __attribute__((nonnull(1, 2, 3, 5, 7)));
 
 /**
- * @brief Renders each configured aggregate template and writes it through `writer` below the output
- *        directory.
+ * @brief Renders each configured aggregate template and produces it through `writer` below the
+ *        output directory, leaving a file that holds the same bytes untouched.
  *
  * Each aggregate renders with the root album's data as `album_current`, but with `path_to_root`
  * rebased onto the aggregate's own output depth, so a page-relative URL resolves from the directory
  * the aggregate is written to.
  *
  * @param writer       Writer every output is written through. Must not be `NULL`.
+ * @param cache        Cache of the previous build. Must not be `NULL`.
  * @param site_config  Configuration supplying `output_dir` and the aggregate template list. Must
  *                     not be `NULL`.
  * @param template_set Templates the aggregates render from. Must not be `NULL`.
  * @param root_album   Root album whose data every aggregate renders against. Must not be `NULL`.
  * @param output       Arena whose free space holds each rendered output until it is written.
  *                     Nothing in it outlives the call. Must not overlap `scratch`.
- * @param scratch      Arena for each render's temporaries.
+ * @param scratch      Arena for each render's temporaries, and then for the read of an existing
+ *                     output, so it must hold the largest output and 64 KiB more.
  * @param log          Log that receives the first failure. Its arena must be none of the others.
  *                     Must not be `NULL`.
  * @return `0` on success, including when no aggregate is configured, or `-1` on the first template
  *         that fails to render or write.
  */
 int site_writer_write_aggregates(const struct OutputWriter* writer,
+                                 const struct OutputCache* cache,
                                  const struct SiteConfig* site_config,
                                  const struct TemplateSet* template_set,
                                  const struct Album* root_album,
                                  struct Arena output,
                                  struct Arena scratch,
-                                 struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 7)));
+                                 struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 5, 8)));
 
 #endif

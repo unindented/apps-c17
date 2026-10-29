@@ -321,7 +321,7 @@ static void test_write_snippets(void) {
 }
 
 // The list of grammars names every grammar the tests link, in the order `vendor.cmake` gives them,
-// as an app's `--version` prints it and sosig's build cache records it. Adding a grammar must
+// as an app's `--version` prints it and surge's page recipe records it. Adding a grammar must
 // update the literal.
 static void test_grammar_list_names_every_grammar(void) {
   TEST_CHECK(

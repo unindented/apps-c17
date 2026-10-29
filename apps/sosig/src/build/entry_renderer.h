@@ -114,12 +114,11 @@ int entry_renderer_parse_entries(const struct SiteConfig* site_config,
  * `denote link '<identifier>' names no file`, or
  * `denote link '<identifier>' names draft '<source>'`. A link to a source whose parse failed
  * reports nothing, because that source's own error fails the build. A link that fails keeps the
- * HTML that a conversion without links to content files gives it. Each job sets its entry's
- * `has_entry_link` and `has_asset_link`.
+ * HTML that a conversion without links to content files gives it.
  *
  * @param source_entries Entry slots the parse phase filled, one per source path. Each job writes
- *                       the body and the link flags of its own entry. May be `NULL` only when
- *                       `source_paths->count` is 0.
+ *                       the body of its own entry. May be `NULL` only when `source_paths->count` is
+ *                       0.
  * @param draft_flags    Draft flags the parse phase set, one per source path. May be `NULL` only
  *                       when `source_paths->count` is 0.
  * @param site_config    Site configuration, whose `content_dir` the paths are below. Must not be

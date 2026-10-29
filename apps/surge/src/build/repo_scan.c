@@ -12,17 +12,21 @@
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
-#include "domain/build_cache.h"
 #include "domain/repo_model.h"
 #include "domain/site_config.h"
 #include "os/oom.h"
 #include "os/os.h"
+#include "output/manifest.h"
+#include "output/output_cache.h"
 #include "runtime/job.h"
 #include "vcs/filetree.h"
 #include "vcs/pack_export.h"
 #include "vcs/refset.h"
 #include "vcs/repository.h"
 #include "vcs/revision.h"
+
+/** Hex digits of the id of a repo's `repo` map that every page of the repo declares. */
+enum { REPO_SCAN_MAP_ID_LEN = 16 };
 
 /** Largest `description` file of a repository read, in bytes. git's own is one line. */
 enum { REPO_SCAN_DESCRIPTION_LEN_MAX = 64 * 1024 };
@@ -36,8 +40,11 @@ struct RepoScanJobs {
   /** Loaded configuration. */
   const struct SiteConfig* site_config;
 
-  /** Build cache an earlier build left. */
-  const struct BuildCache* cache;
+  /** Output cache an earlier build left. */
+  const struct OutputCache* cache;
+
+  /** Whether the build is a dry run, which makes no pack. */
+  bool is_dry_run;
 
   /** Host the output is inspected on. */
   struct Os* os;
@@ -147,22 +154,37 @@ static int repo_scan_job_export(struct RepoScan* scan,
                                 struct Arena* perm,
                                 struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 5)));
 
+/** What the output cache recorded of one repo's clone export, with the pack still in the output. */
+struct CachedExport {
+  /** Hex name of the pack. */
+  struct Str pack_id;
+
+  /** Id of the `info/refs` the pack was made for. */
+  struct Str info_refs_id;
+
+  /** Row of the pack. */
+  const struct OutputCacheRow* pack_row;
+
+  /** Row of the pack's idx. */
+  const struct OutputCacheRow* idx_row;
+};
+
 /**
- * @brief Reports whether the output holds the pack a build cache row names, and its idx, each with
- *        the size the row records.
+ * @brief Finds what the output cache recorded of one repo's clone export: its fact, and the rows of
+ *        its pack and idx, which must both be in the output with the sizes the rows record.
  *
- * @param output_dir Output directory.
+ * @param jobs       Shared state of the scan. Must not be `NULL`.
  * @param repo_name  Name of the repo.
- * @param row        The repo's export row. Must not be `NULL`.
- * @param os         Host the output is on. Must not be `NULL`.
  * @param perm       Arena for the paths. Must not be `NULL`.
- * @return `true` when both files are there with those sizes.
+ * @param cached_out Receives what the cache recorded, whose strings point into the cache. Must not
+ *                   be `NULL`.
+ * @return `true` when the cache records a pack that is still in the output.
  */
-static bool is_pack_in_output(struct Str output_dir,
-                              struct Str repo_name,
-                              const struct BuildCacheRow* row,
-                              struct Os* os,
-                              struct Arena* perm) __attribute__((nonnull(3, 4, 5)));
+static bool repo_scan_job_export_find(const struct RepoScanJobs* jobs,
+                                      struct Str repo_name,
+                                      struct Arena* perm,
+                                      struct CachedExport* cached_out)
+    __attribute__((nonnull(1, 3, 4)));
 
 /**
  * @brief Reports whether the output holds `file_path` with the size `len`.
@@ -188,6 +210,23 @@ static bool is_present_with_len(struct Str file_path, ptrdiff_t len, struct Os* 
 static struct Str repo_scan_job_repo_id(const struct RepoScan* scan,
                                         ptrdiff_t repo_index,
                                         struct Arena* arena) __attribute__((nonnull(1, 3)));
+
+/**
+ * @brief Reports whether `manifest` marks both the pack `pack_id` of a repo's clone export and its
+ *        idx written or kept.
+ *
+ * @param manifest   Manifest of the build. Must not be `NULL`.
+ * @param output_dir Output directory the manifest's paths are below.
+ * @param repo_name  Name of the repo.
+ * @param pack_id    Hex name of the pack.
+ * @param scratch    Arena for the paths.
+ * @return `true` when both are marked.
+ */
+static bool is_pack_marked(const struct Manifest* manifest,
+                           struct Str output_dir,
+                           struct Str repo_name,
+                           struct Str pack_id,
+                           struct Arena scratch) __attribute__((nonnull(1)));
 
 int repo_scan_locate(const struct SiteConfig* site_config,
                      struct Arena* perm,
@@ -215,7 +254,8 @@ int repo_scan_locate(const struct SiteConfig* site_config,
 }
 
 int repo_scan_run(const struct SiteConfig* site_config,
-                  const struct BuildCache* cache,
+                  const struct OutputCache* cache,
+                  bool is_dry_run,
                   ptrdiff_t worker_count,
                   struct JobArenas* worker_arenas,
                   bool is_verbose,
@@ -223,9 +263,39 @@ int repo_scan_run(const struct SiteConfig* site_config,
                   struct Arena scratch,
                   struct RepoScan* scans,
                   struct Log* log) {
-  struct RepoScanJobs jobs = {.site_config = site_config, .cache = cache, .os = os, .scans = scans};
+  struct RepoScanJobs jobs = {
+      .site_config = site_config,
+      .cache = cache,
+      .is_dry_run = is_dry_run,
+      .os = os,
+      .scans = scans,
+  };
   return job_run(site_config->repo_count, worker_count, worker_arenas, repo_scan_job, &jobs,
                  S("scanning repos"), (struct Str){0}, is_verbose, os, scratch, log);
+}
+
+struct OutputCacheFact repo_scan_export_fact(const struct RepoScan* scan,
+                                             const struct Manifest* manifest,
+                                             struct Str output_dir,
+                                             struct Arena* arena) {
+  const struct RepoExport* export = &scan->export;
+  const struct Str repo_name = scan->model.config->name;
+  struct Str pack_id = export->previous_pack_id;
+  struct Str info_refs_id = export->previous_info_refs_id;
+  if (export->pack_id.len > 0 &&
+      is_pack_marked(manifest, output_dir, repo_name, export->pack_id, *arena)) {
+    pack_id = export->pack_id;
+    info_refs_id = export->info_refs_id;
+  }
+  if (pack_id.len == 0) {
+    return (struct OutputCacheFact){0};
+  }
+  struct Buf value = {.arena = arena};
+  buf_printf(&value, "pack=%.*s refs=%.*s", STR_FMT(pack_id), STR_FMT(info_refs_id));
+  return (struct OutputCacheFact){
+      .key = str_concat(scan->model.config->name, S(".git"), arena),
+      .value = buf_str(&value),
+  };
 }
 
 const struct BranchTree* repo_scan_default_tree(const struct RepoModel* model) {
@@ -268,7 +338,10 @@ static int repo_scan_job(ptrdiff_t index,
     goto cleanup;
   }
   scan->repo_id = repo_scan_job_repo_id(scan, index, &perm);
-  scan->repo_map_id = repository_text_id(page_context_repo_text(&scan->model, &perm), &perm);
+  // Every page of the repo declares it, so a prefix of it keeps the output cache short, as the page
+  // recipe's does.
+  scan->repo_map_id = str_head(
+      repository_text_id(page_context_repo_text(&scan->model, &perm), &perm), REPO_SCAN_MAP_ID_LEN);
   scan->releases_id = release_scan_id(&scan->model, &perm);
   arenas->perm = perm;
   rc = 0;
@@ -431,30 +504,34 @@ static int repo_scan_job_export(struct RepoScan* scan,
   export->info_refs = refset_format_info_refs(&model->refset, perm);
   export->info_refs_id = repository_text_id(export->info_refs, perm);
 
-  const struct Str output_dir = jobs->site_config->output_dir;
-  const struct BuildCacheRow* row =
-      build_cache_find(jobs->cache, BUILD_CACHE_KIND_EXPORT, repo_name);
-  if (row != NULL && row->id.len > 0 && str_eq(row->info_refs_id, export->info_refs_id) &&
-      is_pack_in_output(output_dir, repo_name, row, jobs->os, perm)) {
+  struct CachedExport cached = {0};
+  const bool has_cached = repo_scan_job_export_find(jobs, repo_name, perm, &cached);
+  if (has_cached && str_eq(cached.info_refs_id, export->info_refs_id)) {
     // The same refs make the same pack, so the one in the output stays. The pack it replaced has
     // stayed one build already, so it goes now.
-    export->pack_id = row->id;
-    export->pack_len = row->pack_len;
-    export->idx_len = row->idx_len;
+    export->pack_id = cached.pack_id;
+    export->pack_len = cached.pack_row->len;
     export->is_pack_kept = true;
+    export->pack_attributes = cached.pack_row->attributes;
+    export->idx_attributes = cached.idx_row->attributes;
+  } else if (jobs->is_dry_run) {
+    // A pack's name is the hash of its bytes, which a dry run does not make, so it names the pack
+    // by the refs it would be made from.
+    export->pack_id = model->refset.count > 0 ? export->info_refs_id : (struct Str){0};
   } else {
     if (pack_export_build(&export->built, repository, &model->refset, jobs->os, perm, log) != 0) {
       return -1;
     }
     export->pack_id = export->built.pack_id;
     export->pack_len = export->built.pack_len;
-    export->idx_len = export->built.idx_len;
-    // The pack this one replaces stays one build, unlisted, for a client that read the old
-    // `info/refs`, when it is still in the output with its idx.
-    if (row != NULL && row->id.len > 0 && !str_eq(row->id, export->pack_id) &&
-        is_pack_in_output(output_dir, repo_name, row, jobs->os, perm)) {
-      export->previous_pack_id = row->id;
-    }
+  }
+  // The pack this one replaces stays one build, unlisted, for a client that read the old
+  // `info/refs`, when it is still in the output with its idx.
+  if (!export->is_pack_kept && has_cached && !str_eq(cached.pack_id, export->pack_id)) {
+    export->previous_pack_id = cached.pack_id;
+    export->previous_info_refs_id = cached.info_refs_id;
+    export->previous_pack_attributes = cached.pack_row->attributes;
+    export->previous_idx_attributes = cached.idx_row->attributes;
   }
   export->packs = pack_export_format_packs(export->pack_id, perm);
   // A host refuses a file over its limit, which a clone needs whole, so a large pack only warns.
@@ -470,17 +547,34 @@ static int repo_scan_job_export(struct RepoScan* scan,
   return 0;
 }
 
-static bool is_pack_in_output(struct Str output_dir,
-                              struct Str repo_name,
-                              const struct BuildCacheRow* row,
-                              struct Os* os,
-                              struct Arena* perm) {
-  const struct Str pack_path =
-      path_join(output_dir, pack_export_output_path(repo_name, row->id, S("pack"), perm), perm);
-  const struct Str idx_path =
-      path_join(output_dir, pack_export_output_path(repo_name, row->id, S("idx"), perm), perm);
-  return is_present_with_len(pack_path, row->pack_len, os) &&
-         is_present_with_len(idx_path, row->idx_len, os);
+static bool repo_scan_job_export_find(const struct RepoScanJobs* jobs,
+                                      struct Str repo_name,
+                                      struct Arena* perm,
+                                      struct CachedExport* cached_out) {
+  const struct OutputCacheFact* fact =
+      output_cache_find_fact(jobs->cache, str_concat(repo_name, S(".git"), perm));
+  if (fact == NULL) {
+    return false;
+  }
+  const struct StrCut fields = str_cut(fact->value, ' ');
+  if (!str_startswith(fields.head, S("pack=")) || !str_startswith(fields.tail, S("refs="))) {
+    return false;
+  }
+  cached_out->pack_id = str_tail(fields.head, 5);
+  cached_out->info_refs_id = str_tail(fields.tail, 5);
+  const struct Str extensions[] = {S("pack"), S("idx")};
+  const struct OutputCacheRow** rows[] = {&cached_out->pack_row, &cached_out->idx_row};
+  for (ptrdiff_t i = 0; i < 2; i++) {
+    const struct Str relative =
+        pack_export_output_path(repo_name, cached_out->pack_id, extensions[i], perm);
+    *rows[i] = output_cache_find(jobs->cache, relative);
+    if (*rows[i] == NULL ||
+        !is_present_with_len(path_join(jobs->site_config->output_dir, relative, perm),
+                             (*rows[i])->len, jobs->os)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 static bool is_present_with_len(struct Str file_path, ptrdiff_t len, struct Os* os) {
@@ -515,4 +609,21 @@ static struct Str repo_scan_job_repo_id(const struct RepoScan* scan,
     }
   }
   return repository_text_id(buf_str(&text), arena);
+}
+
+static bool is_pack_marked(const struct Manifest* manifest,
+                           struct Str output_dir,
+                           struct Str repo_name,
+                           struct Str pack_id,
+                           struct Arena scratch) {
+  const struct Str extensions[] = {S("pack"), S("idx")};
+  for (ptrdiff_t i = 0; i < 2; i++) {
+    const struct Str relative =
+        pack_export_output_path(repo_name, pack_id, extensions[i], &scratch);
+    if (manifest_find_mark(manifest, path_join(output_dir, relative, &scratch)) ==
+        MANIFEST_MARK_PENDING) {
+      return false;
+    }
+  }
+  return true;
 }

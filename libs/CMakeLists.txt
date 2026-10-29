@@ -104,8 +104,8 @@ endfunction()
 # Gives `target` the include root of `library`: a directory in the build tree that holds one link,
 # named for the library, to the library's source directory, `src/<library>/`. `#include
 # "<library>/<module>.h"` then finds the library's headers through that root and no other file of
-# `libs/`, so a library can have the same layer name as a directory of an app, as `runtime` has in
-# cwrap and fram. A link that names another directory is replaced.
+# `libs/`, so an app may have a source directory with the same name as a library without either
+# hiding the other's headers. A link that names another directory is replaced.
 function(libs_add_include_root target library)
   set(root "${PROJECT_BINARY_DIR}/include/${library}")
   set(source_dir "${PROJECT_SOURCE_DIR}/src/${library}")

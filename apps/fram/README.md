@@ -42,7 +42,7 @@ macos-arm64 = { url = "https://github.com/unindented/apps-c17/releases/download/
   - `-c, --config PATH`: Read the configuration from `PATH`. The default is `fram.toml` in the working directory.
   - `-w, --workers N`: Set the maximum number of worker threads for the build. `N` must be a positive integer. The default is the number of CPUs that `fram` detects. The build never runs more workers than the number of media files or the number of albums, whichever is larger, and never more than four workers for each online CPU.
   - `-n, --dry-run`: Report the changes that the build would make, but do not make them. See [Dry run](#dry-run).
-  - `--force`: Ignore the [build cache](#build-cache) for this build.
+  - `--force`: Make every output again, keeping nothing from earlier builds. See [Output cache](#output-cache).
   - `-v, --verbose`: Print build progress to `stderr`.
 - `fram config`: Print the resolved configuration as TOML. It also takes `-c, --config PATH`.
 
@@ -129,7 +129,7 @@ A template name in the configuration must be a safe relative path. It can contai
 > [!caution]
 > The first build into a directory removes everything in that directory that the build did not write, including hidden files. Set `output_dir` to a directory that you use for nothing else.
 
-When a build writes an output, it replaces any file that is already at that path. The build compares the metadata of each media file with the metadata of its outputs, and it skips a derivative or a copied original that is current. It also keeps the copy of a static file whose size and modification time match what the [build cache](#build-cache) recorded. After a successful build, the build removes every file and directory below `output_dir` that it did not write, so `output_dir` contains only the outputs of the current inputs. For example, the build removes the pages of removed albums, the outputs of deleted media files and removed static files, the derivatives of an earlier configuration, and anything that you added by hand. If a symlink does not lead to a current output, the build removes the symlink itself. It does not change the file or directory that the symlink points to. A failed build removes nothing. If rendering or writing fails before the build completes, some outputs can be new while other outputs stay unchanged.
+When a build writes an output, it replaces any file that is already at that path. A build keeps an output that is current, as the [output cache](#output-cache) describes, and leaves its file untouched. After a successful build, the build removes every file and directory below `output_dir` that it did not write, so `output_dir` contains only the outputs of the current inputs. For example, the build removes the pages of removed albums, the outputs of deleted media files and removed static files, the derivatives of an earlier configuration, and anything that you added by hand. If a symlink does not lead to a current output, the build removes the symlink itself. It does not change the file or directory that the symlink points to. A failed build removes nothing. If rendering or writing fails before the build completes, some outputs can be new while other outputs stay unchanged.
 
 Before a build searches the media directory, `fram` rejects `output_dir` in these cases:
 
@@ -157,7 +157,7 @@ These checks compare the directories themselves, not the text of the paths, so t
 write	public/album/index.html
 keep	public/_fram/v2-s-120x120c-q70-m-1200x800-q85-f1000/album/one-jpg-m.webp
 keep	public/_fram/originals/album/one-jpg.jpg
-write	public/_fram/v1-build-cache.tsv
+write	public/_fram/output-cache.tsv
 remove	public/_fram/v1-s-120x120c-q70-m-1200x800-q85-f1000
 remove	public/_fram/v1-s-120x120c-q70-m-1200x800-q85-f1000/album
 remove	public/_fram/v1-s-120x120c-q70-m-1200x800-q85-f1000/album/one-jpg-m.webp
@@ -166,7 +166,7 @@ remove	public/_fram/v1-s-120x120c-q70-m-1200x800-q85-f1000/album/one-jpg-m.webp
 | Mark | Meaning |
 | --- | --- |
 | `write` | The build would write this output. |
-| `keep` | The build would not change this derivative, copied original or static file, because it is current. |
+| `keep` | The build would not change this output, because it is current. |
 | `remove` | The build would remove this path, because the current inputs no longer produce it. The path can be a directory. |
 
 The `write` and `keep` lines come first, in the order that the build plans them:
@@ -174,7 +174,7 @@ The `write` and `keep` lines come first, in the order that the build plans them:
 1. The outputs of each album, in album order.
 2. Aggregates.
 3. Static files.
-4. The build cache.
+4. The output cache.
 
 The `remove` lines come after them, in sorted order. To get only the paths, for `sort`, `diff`, or `comm`, use `cut -f2-`. A dry run reports a failure in the same way as a build: on `stderr`, with the same exit code. A dry run that fails prints no listing. With `-v`, the progress messages still go to `stderr`, so `stdout` contains only the listing when you send it through a pipe.
 
@@ -186,13 +186,18 @@ A dry run writes nothing, so a build can still fail after a dry run succeeds. A 
 - `output_dir` exists but is not a usable directory.
 - A source image is damaged after its header. A dry run does not decode images.
 
-### Build cache
+### Output cache
 
-A build writes the build cache to `_fram/v1-build-cache.tsv` below `output_dir`. The build cache records what the build read from each media file: its dimensions, its EXIF orientation, and the duration of a video. It also records the size and modification time of each static file, so a build keeps a copy whose source did not change. The next build reuses the row of a media file if the size and modification time of the file did not change. Thus the build does not read an unchanged photo, does not run `ffprobe` for an unchanged video, and does not read the whole source tree after you edit a template. After a new release, or when the build cache is missing or damaged, the build probes every media file again.
+A build writes the output cache to `_fram/output-cache.tsv` below `output_dir`, even when the build fails after it creates `output_dir`. The next build reads it to decide what to keep:
 
-Some tools, such as `exiftool -P`, change a file but keep its size and modification time. After such a change, the build cache can keep a row that no longer describes the file. To correct this, run `fram build --force` once. That build probes every media file again, copies every static file again, and writes a new build cache.
+- A derivative is kept while its media file has the path, size and modification time that the cache recorded, and the derivative still has the size that the cache recorded. Its settings are in its path, so a changed setting makes a new derivative.
+- A copied original or static file is kept in the same way, by its source.
+- A page or an aggregate is rendered on every build, but it is written only when its bytes change.
+- What a probe read from a media file, its dimensions, its EXIF orientation and the duration of a video, is reused while the file has the size and modification time that the cache recorded, and the same `fram` version wrote the cache. Thus the build does not read an unchanged photo and does not run `ffprobe` for an unchanged video.
 
-When you publish `output_dir`, you also publish the build cache. It contains the path of each media file relative to `media_dir`, with the raw filename that page titles and URL slugs change. It also contains the size and modification time of each media file and static file, which no other published file contains. If you do not want to publish this information, exclude `_fram/v1-build-cache.tsv` when you deploy.
+Some tools, such as `exiftool -P`, change a file but keep its size and modification time. To correct this, run `fram build --force` once. That build probes every media file again and writes every output again.
+
+When you publish `output_dir`, you also publish the output cache. It contains the path of each media file relative to `media_dir`, with the raw filename that page titles and URL slugs change, and the size and modification time of each media file and static file. If you do not want to publish this information, exclude `_fram/output-cache.tsv` when you deploy.
 
 ### Limits
 
@@ -204,7 +209,7 @@ The build rejects an input file that is too large before it reads the file. The 
 | Config file | 1 MiB |
 | Template or partial | 4 MiB |
 
-A source image can have at most 100 million pixels. A gallery can have at most 64 partials in the `partials/` directory of `templates_dir`. A rendered page can be at most 256 MiB, a render can use at most 300,000 partial expansions, and a render that passes a limit fails. A build cache over 64 MiB is not read, and the build probes every media file again.
+A source image can have at most 100 million pixels. A gallery can have at most 64 partials in the `partials/` directory of `templates_dir`. A rendered page can be at most 256 MiB, a render can use at most 300,000 partial expansions, and a render that passes a limit fails. An output cache over 256 MiB is not read, and the build probes every media file again.
 
 The build reserves its memory once, when it starts, in fixed sizes that come from these limits. Reserved memory that the build does not use takes address space but no memory. Decoded images are not part of the reservation. An address-space limit (`ulimit -v`) can refuse the full reservation. When that happens, the build runs fewer workers, down to one. If the reservation still does not fit, the build makes it smaller until it fits, so the build has less room for its data. The smaller reservation leaves room for the memory that the build does not reserve, such as decoded images. [ARCHITECTURE.md](ARCHITECTURE.md#memory-reserve-then-commit-on-demand) describes this process. Because the build runs fewer workers before it makes its reservation smaller, the address-space limit that a build needs does not increase with `-w`:
 
@@ -243,7 +248,7 @@ A `derivatives` table replaces the defaults and does not add to them, so a galle
 
 A gallery can define from one through six derivatives, named after their size: `xs`, `s`, `m`, `l`, `xl` and `xxl`. Each name becomes a field of each media item and an output directory, and a fixed name never hides another key of the template data. Each derivative must set `width` and `height`, each at most 16,383, which define a bounding box, and `quality`, the WebP quality, from 1 through 100. With `crop = true`, `fram` crops the image around its center to the aspect ratio of the bounding box before it resizes the image. The default value of `crop` is `false`. `fram` does not enlarge a media file that is smaller than the bounding box.
 
-`fram` applies the EXIF orientation before it sizes the derivatives, and then applies the crop policy of each derivative separately. It decodes each media file at a smaller scale, in eighths, and uses the smallest scale that still gives each stale derivative of the file at least twice its own size to resize from. So `fram` decodes only a fraction of the pixels of a large photo. The derivative workers share one memory budget of about 2 GiB to decode media files and write derivatives, so this memory does not increase with `--workers`. The budget lets at least two images of the maximum size decode at the same time, and more images of a smaller size. If a derivative has more than about 55 million pixels, each job that writes it runs alone.
+`fram` applies the EXIF orientation before it sizes the derivatives, and then applies the crop policy of each derivative separately. It decodes each media file at a smaller scale, in eighths, and uses the smallest scale that still gives each derivative of the file at least twice its own size to resize from. So `fram` decodes only a fraction of the pixels of a large photo. The derivative workers share one memory budget of about 2 GiB to decode media files and write derivatives, so this memory does not increase with `--workers`. The budget lets at least two images of the maximum size decode at the same time, and more images of a smaller size. If a derivative has more than about 55 million pixels, each job that writes it runs alone.
 
 ### Output paths
 

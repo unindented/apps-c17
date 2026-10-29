@@ -103,10 +103,11 @@ static int populate(struct Manifest* manifest,
   static const struct PathList empty = {0};
   struct Arena perm = test_arena();
   const struct PathList template_paths = list_templates(site_config, os, &perm);
-  return output_manifest_populate(manifest, site_config, CONFIG_PATH,
-                                  source_paths != NULL ? source_paths : &empty,
-                                  static_paths != NULL ? static_paths : &empty, &template_paths,
-                                  albums, album_count, os, &perm, test_arena(), log);
+  const struct PathList* statics = static_paths != NULL ? static_paths : &empty;
+  const struct OsStat* static_stats = walk_stat_paths(statics, os, &perm);
+  return output_manifest_populate(
+      manifest, site_config, CONFIG_PATH, source_paths != NULL ? source_paths : &empty, statics,
+      static_stats, &template_paths, albums, album_count, os, &perm, test_arena(), log);
 }
 
 /**
@@ -176,6 +177,8 @@ static void check_rejects_output_dir_holding(const struct SiteConfig* site_confi
 }
 
 // Every album, derivative, original, aggregate, and static file output is registered exactly once.
+// A derivative declares its source's name, size and modification time, an original and a static
+// file are copies of their sources, and a page, an aggregate and the output cache declare nothing.
 static void test_registers_complete_output_set(void) {
   struct SiteConfig site_config;
   struct Os* os = init_manifest_fixture(&site_config);
@@ -193,7 +196,8 @@ static void test_registers_complete_output_set(void) {
   struct MediaItem media = {.source_path = S("gallery/photos/x.jpg"),
                             .derivatives = derivatives,
                             .derivative_count = 3,
-                            .original_path = S("gallery/public/_fram/originals/x.jpg")};
+                            .original_path = S("gallery/public/_fram/originals/x.jpg"),
+                            .source_stat = {.len = 6, .mtime_s = 12, .mtime_ns = 5}};
   struct MediaItem* media_items[] = {&media};
   struct Album album = {.source_dir = S(""),
                         .output_path = S("gallery/public/index.html"),
@@ -210,8 +214,31 @@ static void test_registers_complete_output_set(void) {
 
   TEST_CHECK(populate(&manifest, &site_config, &sources, &static_paths, albums, 1, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  // The seven outputs of the gallery, and the build cache.
+  // The seven outputs of the gallery, and the output cache.
   TEST_CHECK(manifest.count == 7 + 1);
+  struct ManifestOutput output = {0};
+  TEST_CHECK(manifest_find_output(&manifest, derivatives[1].path, &output) &&
+             str_eq(output.attributes, S("src=x.jpg len=6 mtime=12.000000005")) &&
+             output.copy_source_path.len == 0);
+  TEST_CHECK(manifest_find_output(&manifest, media.original_path, &output) &&
+             str_eq(output.attributes, S("src=x.jpg len=6 mtime=12.000000005")) &&
+             str_eq(output.copy_source_path, media.source_path));
+  struct OsStat static_stat;
+  TEST_ASSERT(os_stat(os, S("gallery/static/a.txt"), &static_stat) == 0);
+  struct Buf static_attributes = {.arena = &arena};
+  buf_printf(&static_attributes, "src=a.txt len=6 mtime=%lld.%09lld",
+             (long long)static_stat.mtime_s, (long long)static_stat.mtime_ns);
+  TEST_CHECK(manifest_find_output(&manifest, S("gallery/public/a.txt"), &output) &&
+             str_eq(output.attributes, buf_str(&static_attributes)) &&
+             str_eq(output.copy_source_path, S("gallery/static/a.txt")));
+  static const struct Str undeclared[] = {STR_INIT("gallery/public/index.html"),
+                                          STR_INIT("gallery/public/map.xml"),
+                                          STR_INIT("gallery/public/_fram/output-cache.tsv")};
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(undeclared) / sizeof(undeclared[0])); i++) {
+    TEST_CHECK_(manifest_find_output(&manifest, undeclared[i], &output) &&
+                    output.attributes.len == 0 && output.copy_source_path.len == 0,
+                "'%.*s' declares nothing", STR_FMT(undeclared[i]));
+  }
 }
 
 // An output beside an input root, in a directory whose name only starts with the root's name, is
@@ -299,7 +326,7 @@ static void test_reports_every_collision(void) {
                          "duplicate output path for 'gallery/photos/c' and 'gallery/photos/d': "
                          "'gallery/public/two/index.html'\n"));
   TEST_CHECK(log.errors == 2);
-  // The two outputs that were accepted, and the build cache.
+  // The two outputs that were accepted, and the output cache.
   TEST_CHECK(manifest.count == 3);
 }
 

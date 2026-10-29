@@ -11,9 +11,10 @@
 #include "core/buf.h"
 #include "core/exit_code.h"
 #include "core/log.h"
+#include "core/path.h"
 #include "core/path_list.h"
 #include "core/str.h"
-#include "domain/build_cache.h"
+#include "domain/fram_version.h"
 #include "domain/site_config.h"
 #include "media/image.h"
 #include "os/oom.h"
@@ -99,7 +100,7 @@ static void write_gallery_fixture(struct Os* os, const char* config_extra) {
 /** Files `every_output_kind_fixture` builds to, in byte order. */
 static const char* const EVERY_OUTPUT_KIND_FILES[] = {
     "public/_fram/originals/album/one-jpg.jpg",
-    "public/_fram/v1-build-cache.tsv",
+    "public/_fram/output-cache.tsv",
     "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp",
     "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp",
     "public/album/index.html",
@@ -262,14 +263,95 @@ static bool is_write_set_of(struct Os* dry_run_os, struct Os* real_os) {
   return is_equal;
 }
 
+/** Path of the output cache below `public`. */
+static const char* const OUTPUT_CACHE_FILE = "public/_fram/output-cache.tsv";
+
+/** Directory below `public` of the derivatives that `SITE_CONFIG` configures. */
+#define DERIVATIVE_DIR "_fram/v2-s-8x8c-q70-m-16x16-q75-f1000"
+
 /**
- * @brief Returns the path of the build cache below `public`, as a terminated string.
+ * @brief Appends the output cache's row of `public/<output_name>`, made from
+ *        `<source_root>/<source_name>`, with the sizes and the time that `os_stat` reports now.
  *
- * @param arena Arena that owns the path. Must not be `NULL`.
- * @return The path, owned by `arena`.
+ * @param text        Text that receives the row. Must not be `NULL`.
+ * @param os          Host to inspect. Must not be `NULL`.
+ * @param output_name Terminated path of the output below `public`. Must not be `NULL`.
+ * @param source_root Terminated root the source is below, such as `photos`. Must not be `NULL`.
+ * @param source_name Terminated path of the source below `source_root`. Must not be `NULL`.
  */
-static const char* build_cache_file(struct Arena* arena) {
-  return str_cstr(build_cache_path(S("public"), arena), arena);
+static void append_cache_row(struct Buf* text,
+                             struct Os* os,
+                             const char* output_name,
+                             const char* source_root,
+                             const char* source_name) {
+  struct Arena arena = test_arena();
+  struct OsStat source = {0};
+  struct OsStat output = {0};
+  TEST_CHECK(os_stat(os, path_join(str_from_cstr(source_root), str_from_cstr(source_name), &arena),
+                     &source) == 0);
+  TEST_CHECK(os_stat(os, path_join(S("public"), str_from_cstr(output_name), &arena), &output) == 0);
+  buf_printf(text, "output\t%s\tsrc=%s len=%td mtime=%lld.%09lld\t%td\n", output_name, source_name,
+             source.len, (long long)source.mtime_s, (long long)source.mtime_ns, output.len);
+}
+
+/**
+ * @brief Appends the output cache's probe fact of `photos/<source_name>`, whose probe read `probe`,
+ *        with the size and the time that `os_stat` reports now.
+ *
+ * @param text        Text that receives the fact. Must not be `NULL`.
+ * @param os          Host to inspect. Must not be `NULL`.
+ * @param source_name Terminated path of the source below `photos`. Must not be `NULL`.
+ * @param probe       Terminated dimensions, orientation and duration, as the fact spells them. Must
+ *                    not be `NULL`.
+ */
+static void append_cache_fact(struct Buf* text,
+                              struct Os* os,
+                              const char* source_name,
+                              const char* probe) {
+  struct Arena arena = test_arena();
+  struct OsStat source = {0};
+  TEST_CHECK(os_stat(os, path_join(S("photos"), str_from_cstr(source_name), &arena), &source) == 0);
+  buf_printf(text, "fact\t%s\tversion=%.*s len=%td mtime=%lld.%09lld %s\n", source_name,
+             STR_FMT(fram_version_string()), source.len, (long long)source.mtime_s,
+             (long long)source.mtime_ns, probe);
+}
+
+/**
+ * @brief Appends the output cache's rows of the original and the derivatives of
+ *        `photos/album/<stem>.jpg`, in the cache's order.
+ *
+ * @param text Text that receives the rows. Must not be `NULL`.
+ * @param os   Host to inspect. Must not be `NULL`.
+ * @param stem Terminated name of the photo without `.jpg`. Must not be `NULL`.
+ */
+static void append_cache_photo_rows(struct Buf* text, struct Os* os, const char* stem) {
+  struct Arena arena = test_arena();
+  struct Buf name = {.arena = &arena};
+  buf_printf(&name, "album/%s.jpg", stem);
+  struct Buf original = {.arena = &arena};
+  buf_printf(&original, "_fram/originals/album/%s-jpg.jpg", stem);
+  struct Buf medium = {.arena = &arena};
+  buf_printf(&medium, DERIVATIVE_DIR "/album/%s-jpg-m.webp", stem);
+  struct Buf small = {.arena = &arena};
+  buf_printf(&small, DERIVATIVE_DIR "/album/%s-jpg-s.webp", stem);
+  const char* source_name = buf_cstr(&name);
+  append_cache_row(text, os, buf_cstr(&original), "photos", source_name);
+  append_cache_row(text, os, buf_cstr(&medium), "photos", source_name);
+  append_cache_row(text, os, buf_cstr(&small), "photos", source_name);
+}
+
+/**
+ * @brief Reports whether two files of `os` carry the same modification time.
+ *
+ * @param os     Host to inspect. Must not be `NULL`.
+ * @param path   Terminated path of the file now. Must not be `NULL`.
+ * @param before What `os_stat` reported for it earlier. Must not be `NULL`.
+ * @return `true` when the file exists and the seconds and the nanoseconds agree.
+ */
+static bool is_untouched(struct Os* os, const char* path, const struct OsStat* before) {
+  struct OsStat now;
+  return os_stat(os, str_from_cstr(path), &now) == 0 && now.mtime_s == before->mtime_s &&
+         now.mtime_ns == before->mtime_ns;
 }
 
 /**
@@ -407,7 +489,7 @@ static void test_tolerates_trailing_slash_on_media_dir(void) {
   // No output, page, derivative or original, carries the name of `media_dir`.
   static const char* const expected[] = {
       "public/_fram/originals/album/one-jpg.jpg",
-      "public/_fram/v1-build-cache.tsv",
+      "public/_fram/output-cache.tsv",
       "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp",
       "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp",
       "public/album/index.html",
@@ -432,7 +514,7 @@ static void test_builds_from_config_in_a_subdirectory(void) {
   TEST_CHECK(test_log_is_empty(&log));
   static const char* const expected[] = {
       "sub/public/_fram/originals/album/one-jpg.jpg",
-      "sub/public/_fram/v1-build-cache.tsv",
+      "sub/public/_fram/output-cache.tsv",
       "sub/public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp",
       "sub/public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp",
       "sub/public/album/index.html",
@@ -547,7 +629,7 @@ static void test_rebuild_succeeds_and_repeats_its_outputs(void) {
   const ptrdiff_t public_count_built = os_memory_files(os, "public").count;
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  // The album page, the root page, both derivatives, the copied original and the build cache: the
+  // The album page, the root page, both derivatives, the copied original and the output cache: the
   // second build adds nothing and removes nothing.
   TEST_CHECK(public_count_built == 6);
   TEST_CHECK(os_memory_files(os, "public").count == public_count_built);
@@ -571,7 +653,7 @@ static void test_rebuild_removes_stale_outputs(void) {
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   // The album page, the root page, both derivatives and the copied original of the one source left,
-  // and the build cache.
+  // and the output cache.
   TEST_CHECK(os_memory_files(os, "public").count == 6);
   TEST_CHECK(os_memory_has_path(os, "public/_fram/originals/album/one-jpg.jpg"));
   TEST_CHECK(!os_memory_has_path(os, "public/_fram/originals/album/two-jpg.jpg"));
@@ -596,7 +678,7 @@ static void test_rebuild_skips_output_dir_linked_from_media_dir(void) {
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  // The album page, the root page, both derivatives, the copied original and the build cache, and
+  // The album page, the root page, both derivatives, the copied original and the output cache, and
   // no album for the linked output tree.
   TEST_CHECK(os_memory_files(os, "public").count == 6);
   TEST_CHECK(!os_memory_has_path(os, "public/published"));
@@ -617,9 +699,10 @@ static void test_dry_run_lists_every_output_and_writes_nothing(void) {
   TEST_CHECK(is_write_set_of(dry_run_os, real_os));
 }
 
-// After a build, a dry run lists every derivative and the original as `keep`, because they are
-// fresh, and every page as `write`, in manifest order.
-static void test_dry_run_keeps_fresh_media(void) {
+// After a build, a dry run lists every output as `keep`, in manifest order: a derivative and the
+// original because the cache vouches for them, and a page because its bytes are unchanged. Only the
+// output cache, which every build writes, is listed as `write`.
+static void test_dry_run_keeps_unchanged_outputs(void) {
   struct Os* os = os_memory();
   struct Log log = test_log();
   write_gallery_fixture(os, NULL);
@@ -630,12 +713,12 @@ static void test_dry_run_keeps_fresh_media(void) {
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_printed(
       os, 1,
-      "write\tpublic/index.html\n"
-      "write\tpublic/album/index.html\n"
+      "keep\tpublic/index.html\n"
+      "keep\tpublic/album/index.html\n"
       "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp\n"
       "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
       "keep\tpublic/_fram/originals/album/one-jpg.jpg\n"
-      "write\tpublic/_fram/v1-build-cache.tsv\n"));
+      "write\tpublic/_fram/output-cache.tsv\n"));
 }
 
 // After a build, a changed `[derivatives.*]` table makes a dry run list the new derivatives as
@@ -659,12 +742,12 @@ static void test_dry_run_lists_stale_recipe_and_keeps_it(void) {
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_printed(
       os, 1,
-      "write\tpublic/index.html\n"
-      "write\tpublic/album/index.html\n"
+      "keep\tpublic/index.html\n"
+      "keep\tpublic/album/index.html\n"
       "write\tpublic/_fram/v2-s-4x4c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp\n"
       "write\tpublic/_fram/v2-s-4x4c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
       "keep\tpublic/_fram/originals/album/one-jpg.jpg\n"
-      "write\tpublic/_fram/v1-build-cache.tsv\n"
+      "write\tpublic/_fram/output-cache.tsv\n"
       "remove\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000\n"
       "remove\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album\n"
       "remove\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
@@ -687,15 +770,15 @@ static void test_dry_run_keeps_unchanged_static_files(void) {
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_printed(
       os, 1,
-      "write\tpublic/index.html\n"
-      "write\tpublic/album/index.html\n"
+      "keep\tpublic/index.html\n"
+      "keep\tpublic/album/index.html\n"
       "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp\n"
       "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
       "keep\tpublic/_fram/originals/album/one-jpg.jpg\n"
-      "write\tpublic/sitemap.xml\n"
+      "keep\tpublic/sitemap.xml\n"
       "keep\tpublic/fram.css\n"
       "write\tpublic/robots.txt\n"
-      "write\tpublic/_fram/v1-build-cache.tsv\n"));
+      "write\tpublic/_fram/output-cache.tsv\n"));
 }
 
 // A build that fails after it copied the static files still records each copy it made. A source
@@ -721,26 +804,110 @@ static void test_failed_render_keeps_the_static_copies_it_made(void) {
   TEST_CHECK(os_memory_is_file(os, "public/robots.txt", "User-agent: a\n"));
 }
 
-// A failed static copy leaves the build cache with no static row, so the next build copies every
-// static file again, and the cache still keeps the probe facts of every media source, so the next
-// build probes none again.
-static void test_failed_static_copy_keeps_the_probe_facts(void) {
+// A build that fails after the probe still writes the output cache, here where a page fails to
+// render after every derivative and original was kept. Every probe fact and every row stay, so the
+// next build neither probes nor reads a media source again.
+static void test_failed_build_keeps_the_probe_facts(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  os_memory_write(os, "templates/album.html", "{{{album.title}}}");
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(
+      test_log_is(&log,
+                  "unescaped Mustache interpolation is supported only for a key that ends "
+                  "in '_html' (in 'album.html') (while rendering 'index.html')\n\xE2\x80\xA6 "
+                  "and 1 more failure\n"));
+  struct Buf cache = {.arena = &arena};
+  buf_append(&cache, S("output cache v1\n"));
+  append_cache_photo_rows(&cache, os, "one");
+  append_cache_fact(&cache, os, "album/one.jpg", "width=24 height=12 orientation=1 duration_ms=0");
+  TEST_CHECK(os_memory_is_file(os, OUTPUT_CACHE_FILE, buf_cstr(&cache)));
+
+  os_memory_write(os, "templates/album.html", ALBUM_TEMPLATE);
+  os_memory_fail(os, OS_MEMORY_OP_READ, "photos", EACCES);
+  log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+}
+
+// A copy whose write failed gets no row in the output cache, so the next build copies it again,
+// while the derivatives the failed build made keep theirs.
+static void test_failed_copy_gets_no_row(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  struct Str jpeg = {0};
+  TEST_ASSERT(test_jpeg_encode(12, 24, &arena, &jpeg) == 0);
+  os_memory_write_bytes(os, S("photos/album/one.jpg"), jpeg);
+  os_memory_fail(os, OS_MEMORY_OP_WRITE_DATA, "public/_fram/originals/album/one-jpg.jpg", ENOSPC);
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(
+      &log, "failed to copy original: %s ('public/_fram/originals/album/one-jpg.jpg')\n",
+      strerror(ENOSPC)));
+  struct Buf cache = {.arena = &arena};
+  buf_append(&cache, S("output cache v1\n"));
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/one-jpg-m.webp", "photos", "album/one.jpg");
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/one-jpg-s.webp", "photos", "album/one.jpg");
+  append_cache_fact(&cache, os, "album/one.jpg", "width=12 height=24 orientation=1 duration_ms=0");
+  TEST_CHECK(os_memory_is_file(os, OUTPUT_CACHE_FILE, buf_cstr(&cache)));
+
+  os_memory_fail(os, OS_MEMORY_OP_WRITE_DATA, "public/_fram/originals/album/one-jpg.jpg", 0);
+  log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(str_eq(file_contents(os, "public/_fram/originals/album/one-jpg.jpg", &arena), jpeg));
+}
+
+// A static copy whose write failed gets no row, so the next build copies it again, and the probe
+// facts stay.
+static void test_failed_static_copy_gets_no_row(void) {
   struct Os* os = every_output_kind_fixture();
   struct Arena arena = test_arena();
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == 0);
-  const char* cache_file = build_cache_file(&arena);
-  const struct Str cache = file_contents(os, cache_file, &arena);
   os_memory_write(os, "static/fram.css", "body{x}\n");
   os_memory_fail(os, OS_MEMORY_OP_READ, "static/fram.css", EACCES);
 
   TEST_CHECK(execute_build(os, &log) == -1);
   TEST_CHECK(
       test_log_is(&log, "failed to copy static file: %s ('static/fram.css')\n", strerror(EACCES)));
-  const char* rewritten = str_cstr(file_contents(os, cache_file, &arena), &arena);
-  TEST_CHECK(strstr(rewritten, "\nmedia\talbum/one.jpg\t") != NULL);
-  TEST_CHECK(strstr(str_cstr(cache, &arena), "\nstatic\tfram.css\t") != NULL);
-  TEST_CHECK(strstr(rewritten, "\nstatic\tfram.css\t") == NULL);
+  // The static files are copied first, so the failure stops the build before any derivative.
+  struct Buf cache = {.arena = &arena};
+  buf_append(&cache, S("output cache v1\n"));
+  append_cache_fact(&cache, os, "album/one.jpg", "width=24 height=12 orientation=1 duration_ms=0");
+  TEST_CHECK(os_memory_is_file(os, OUTPUT_CACHE_FILE, buf_cstr(&cache)));
+
+  os_memory_fail(os, OS_MEMORY_OP_READ, "static/fram.css", 0);
+  log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_file(os, "public/fram.css", "body{x}\n"));
+}
+
+// An interrupted build leaves the output cache of the build before it, here beside a static copy
+// that it cut short. The next build takes every probe fact from that cache and keeps every
+// derivative and original, so it reads no media source, and copies the cut file again, which leaves
+// every output, the output cache included, byte for byte as the first build wrote it.
+static void test_interrupted_build_keeps_the_probe_facts(void) {
+  struct Os* os = every_output_kind_fixture();
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  const struct FileSnapshot built = snapshot_files(os, "public", &arena);
+  os_memory_write(os, "public/fram.css", "bod");
+  os_memory_fail(os, OS_MEMORY_OP_READ, "photos", EACCES);
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(is_snapshot(os, "public", &built));
 }
 
 // A dry run over an existing tree, with a new photo to write and a stale file to remove, where
@@ -772,9 +939,9 @@ static void test_dry_run_leaves_no_state(void) {
   TEST_CHECK(os_memory_is_file(os, "public/sitemap.xml", "sitemap\n"));
 }
 
-// A build after an unchanged build takes every source's probe facts from the build cache, so it
-// reads no source, here where every read of one would fail, and it leaves every output, the build
-// cache included, byte for byte as the first build wrote it.
+// A build after an unchanged build takes every source's probe facts from the output cache and keeps
+// every derivative and original, so it reads no source, here where every read of one would fail,
+// and it leaves every output, the output cache included, byte for byte as the first build wrote it.
 static void test_warm_build_reads_no_source_and_repeats_its_bytes(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
@@ -791,7 +958,7 @@ static void test_warm_build_reads_no_source_and_repeats_its_bytes(void) {
   TEST_CHECK(is_snapshot(os, "public", &built));
 }
 
-// `--force` ignores the build cache for one build, so it probes every source, here where the read
+// `--force` ignores the output cache for one build, so it probes every source, here where the read
 // of the one source fails.
 static void test_force_probes_every_source(void) {
   struct Os* os = os_memory();
@@ -807,9 +974,134 @@ static void test_force_probes_every_source(void) {
       test_log_is(&log, "failed to probe media: %s ('photos/album/one.jpg')\n", strerror(EACCES)));
 }
 
-// A build rewrites the build cache with a row for each current source, sorted by path, and none for
-// a source deleted since.
-static void test_rewrites_build_cache_without_deleted_sources(void) {
+// `--force` keeps nothing, so a forced dry run after a build lists every output as `write`, and a
+// forced build writes every output again, an unchanged page included.
+static void test_force_writes_every_output(void) {
+  struct Os* os = every_output_kind_fixture();
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  struct OsStat page_before;
+  struct OsStat derivative_before;
+  TEST_ASSERT(os_stat(os, S("public/index.html"), &page_before) == 0);
+  TEST_ASSERT(os_stat(os, S("public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp"),
+                      &derivative_before) == 0);
+
+  const struct BuildOptions dry_run = {
+      .config_path = SITE_CONFIG_PATH_DEFAULT, .is_dry_run = true, .is_forced = true};
+  TEST_CHECK(execute_build_with_options(&dry_run, os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(is_write_set_of(os, os));
+  const struct BuildOptions forced = {.config_path = SITE_CONFIG_PATH_DEFAULT, .is_forced = true};
+  TEST_CHECK(execute_build_with_options(&forced, os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(!is_untouched(os, "public/index.html", &page_before));
+  TEST_CHECK(!is_untouched(os, "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp",
+                           &derivative_before));
+}
+
+// A second build leaves every output untouched: a derivative and the original because the cache
+// vouches for them, and a page because the bytes it renders are those already there. A page whose
+// bytes change is written.
+static void test_rebuild_leaves_unchanged_outputs_untouched(void) {
+  struct Os* os = every_output_kind_fixture();
+  struct Log log = test_log();
+  write_jpeg(os, "photos/two.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  static const char* const paths[] = {
+      "public/index.html",
+      "public/album/index.html",
+      "public/sitemap.xml",
+      "public/fram.css",
+      "public/_fram/originals/album/one-jpg.jpg",
+      "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp",
+  };
+  enum { PATH_COUNT = sizeof(paths) / sizeof(paths[0]) };
+  struct OsStat before[PATH_COUNT];
+  for (ptrdiff_t i = 0; i < PATH_COUNT; i++) {
+    TEST_ASSERT(os_stat(os, str_from_cstr(paths[i]), &before[i]) == 0);
+  }
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  for (ptrdiff_t i = 0; i < PATH_COUNT; i++) {
+    TEST_CHECK_(is_untouched(os, paths[i], &before[i]), "'%s' is untouched", paths[i]);
+  }
+  // The root page lists its own media, so a renamed title changes it, and no other page.
+  TEST_CHECK(os_remove(os, S("photos/two.jpg"), S("failed to remove fixture"), &log) == 0);
+  write_jpeg(os, "photos/three.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(!is_untouched(os, "public/index.html", &before[0]));
+  TEST_CHECK(is_untouched(os, "public/album/index.html", &before[1]));
+}
+
+// A source that changed makes its derivatives and its copy again, from the new bytes, and probes it
+// again, so its probe fact names the new size. A source that did not change keeps its outputs.
+static void test_changed_source_remakes_its_outputs(void) {
+  struct Os* os = os_memory();
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  write_jpeg(os, "photos/album/two.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  const char* const one_s = "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp";
+  const char* const two_s = "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/two-jpg-s.webp";
+  const struct Str one_before = file_contents(os, one_s, &arena);
+  struct OsStat two_before;
+  TEST_ASSERT(os_stat(os, str_from_cstr(two_s), &two_before) == 0);
+  struct Str jpeg = {0};
+  TEST_ASSERT(test_jpeg_encode(12, 24, &arena, &jpeg) == 0);
+  os_memory_write_bytes(os, S("photos/album/one.jpg"), jpeg);
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(!str_eq(file_contents(os, one_s, &arena), one_before));
+  TEST_CHECK(str_eq(file_contents(os, "public/_fram/originals/album/one-jpg.jpg", &arena), jpeg));
+  TEST_CHECK(is_untouched(os, two_s, &two_before));
+  struct Buf cache = {.arena = &arena};
+  buf_append(&cache, S("output cache v1\n"));
+  append_cache_row(&cache, os, "_fram/originals/album/one-jpg.jpg", "photos", "album/one.jpg");
+  append_cache_row(&cache, os, "_fram/originals/album/two-jpg.jpg", "photos", "album/two.jpg");
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/one-jpg-m.webp", "photos", "album/one.jpg");
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/one-jpg-s.webp", "photos", "album/one.jpg");
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/two-jpg-m.webp", "photos", "album/two.jpg");
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/two-jpg-s.webp", "photos", "album/two.jpg");
+  append_cache_fact(&cache, os, "album/one.jpg", "width=12 height=24 orientation=1 duration_ms=0");
+  append_cache_fact(&cache, os, "album/two.jpg", "width=24 height=12 orientation=1 duration_ms=0");
+  TEST_CHECK(os_memory_is_file(os, OUTPUT_CACHE_FILE, buf_cstr(&cache)));
+}
+
+// A derivative deleted from the output is made again, which a dry run lists as `write`, while the
+// other outputs are kept.
+static void test_deleted_derivative_is_made_again(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, NULL);
+  write_jpeg(os, "photos/album/one.jpg");
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(os_remove(os, S("public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp"),
+                       S("failed to remove fixture"), &log) == 0);
+
+  TEST_CHECK(execute_dry_run(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_printed(
+      os, 1,
+      "keep\tpublic/index.html\n"
+      "keep\tpublic/album/index.html\n"
+      "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp\n"
+      "write\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
+      "keep\tpublic/_fram/originals/album/one-jpg.jpg\n"
+      "write\tpublic/_fram/output-cache.tsv\n"));
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(
+      os_memory_has_path(os, "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp"));
+}
+
+// A build writes the output cache with a probe fact for each current source, sorted by path, and
+// none for a source deleted since.
+static void test_rewrites_probe_facts_without_deleted_sources(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
   struct Log log = test_log();
@@ -822,34 +1114,33 @@ static void test_rewrites_build_cache_without_deleted_sources(void) {
 
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  struct Buf header = {.arena = &arena};
-  build_cache_format_header(&header);
-  const struct Str cache = file_contents(os, build_cache_file(&arena), &arena);
-  struct StrCut cut = str_cut(cache, '\n');
-  TEST_CHECK(str_eq(str_head(cache, cut.head.len + 1), buf_str(&header)));
-  cut = str_cut(cut.tail, '\n');
-  TEST_CHECK(str_startswith(cut.head, S("media\talbum/a.jpg\t")));
-  cut = str_cut(cut.tail, '\n');
-  TEST_CHECK(str_startswith(cut.head, S("media\talbum/c.jpg\t")));
-  TEST_CHECK(cut.tail.len == 0);
-  TEST_MSG("build cache: '%.*s'", STR_FMT(cache));
+  struct Buf cache = {.arena = &arena};
+  buf_append(&cache, S("output cache v1\n"));
+  append_cache_row(&cache, os, "_fram/originals/album/a-jpg.jpg", "photos", "album/a.jpg");
+  append_cache_row(&cache, os, "_fram/originals/album/c-jpg.jpg", "photos", "album/c.jpg");
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/a-jpg-m.webp", "photos", "album/a.jpg");
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/a-jpg-s.webp", "photos", "album/a.jpg");
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/c-jpg-m.webp", "photos", "album/c.jpg");
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/c-jpg-s.webp", "photos", "album/c.jpg");
+  append_cache_fact(&cache, os, "album/a.jpg", "width=24 height=12 orientation=1 duration_ms=0");
+  append_cache_fact(&cache, os, "album/c.jpg", "width=24 height=12 orientation=1 duration_ms=0");
+  TEST_CHECK(os_memory_is_file(os, OUTPUT_CACHE_FILE, buf_cstr(&cache)));
 }
 
-// A build cache whose first line names another build, such as an earlier release, is not used, so
-// the build probes every source, and the verbose log says why.
-static void test_ignores_build_cache_of_another_build(void) {
+// An output cache in another format is not used, so the build probes every source, and the verbose
+// log says why.
+static void test_ignores_output_cache_of_another_format(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
   struct Log log = test_log();
   write_gallery_fixture(os, NULL);
   write_jpeg(os, "photos/album/one.jpg");
   TEST_CHECK(execute_build(os, &log) == 0);
-  const char* cache_file = build_cache_file(&arena);
-  const struct Str cache = file_contents(os, cache_file, &arena);
+  const struct Str cache = file_contents(os, OUTPUT_CACHE_FILE, &arena);
   struct Buf other = {.arena = &arena};
-  buf_append(&other, S("fram-build-cache\tfram 0.0.0-other\n"));
+  buf_append(&other, S("output cache v0\n"));
   buf_append(&other, str_cut(cache, '\n').tail);
-  os_memory_write_bytes(os, str_from_cstr(cache_file), buf_str(&other));
+  os_memory_write_bytes(os, str_from_cstr(OUTPUT_CACHE_FILE), buf_str(&other));
   os_memory_fail(os, OS_MEMORY_OP_READ, "photos", EACCES);
 
   const struct BuildOptions options = {.config_path = SITE_CONFIG_PATH_DEFAULT, .is_verbose = true};
@@ -857,37 +1148,35 @@ static void test_ignores_build_cache_of_another_build(void) {
   TEST_CHECK(
       test_log_is(&log, "failed to probe media: %s ('photos/album/one.jpg')\n", strerror(EACCES)));
   TEST_CHECK(has_printed_line(os, 2,
-                              "build cache not used, probing every source: build cache was written "
-                              "by another fram version"));
+                              "output cache not used, probing every source: output cache is not in "
+                              "the current format"));
 }
 
-// A build cache of another format version has another name, so a build never reads it, and the
-// stale-output prune removes it as it removes any output the build no longer makes.
-static void test_prunes_build_cache_of_another_version(void) {
+// The build cache of an earlier fram release is no output of this one, so the stale-output prune
+// removes it as it removes any output the build no longer makes.
+static void test_prunes_the_old_build_cache(void) {
   struct Os* os = os_memory();
-  struct Arena arena = test_arena();
   struct Log log = test_log();
   write_gallery_fixture(os, NULL);
   write_jpeg(os, "photos/album/one.jpg");
-  os_memory_write(os, "public/_fram/v0-build-cache.tsv", "an older format\n");
+  os_memory_write(os, "public/_fram/v1-build-cache.tsv", "an older format\n");
 
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  TEST_CHECK(!os_memory_has_path(os, "public/_fram/v0-build-cache.tsv"));
-  TEST_CHECK(os_memory_has_path(os, build_cache_file(&arena)));
+  TEST_CHECK(!os_memory_has_path(os, "public/_fram/v1-build-cache.tsv"));
+  TEST_CHECK(os_memory_has_path(os, OUTPUT_CACHE_FILE));
 }
 
-// A build whose probe fails stops before it writes anything, so the build cache an earlier build
+// A build whose probe fails stops before it writes anything, so the output cache an earlier build
 // left is unchanged.
-static void test_failed_probe_keeps_build_cache(void) {
+static void test_failed_probe_keeps_output_cache(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
   struct Log log = test_log();
   write_gallery_fixture(os, NULL);
   write_jpeg(os, "photos/album/one.jpg");
   TEST_CHECK(execute_build(os, &log) == 0);
-  const char* cache_file = build_cache_file(&arena);
-  const struct Str cache = file_contents(os, cache_file, &arena);
+  const struct Str cache = file_contents(os, OUTPUT_CACHE_FILE, &arena);
   TEST_CHECK(cache.len > 0);
   os_memory_write(os, "photos/album/bad.jpg", "not jpeg");
 
@@ -897,12 +1186,12 @@ static void test_failed_probe_keeps_build_cache(void) {
              str_endswith(errors, S(" ('photos/album/bad.jpg')\n")));
   TEST_MSG("log: '%.*s'", STR_FMT(errors));
   TEST_CHECK(log.errors == 1);
-  TEST_CHECK(str_eq(file_contents(os, cache_file, &arena), cache));
+  TEST_CHECK(str_eq(file_contents(os, OUTPUT_CACHE_FILE, &arena), cache));
 }
 
-// A dry run uses the build cache as a build does, so it reads no source, and it leaves the build
+// A dry run uses the output cache as a build does, so it reads no source, and it leaves the output
 // cache unchanged.
-static void test_dry_run_uses_build_cache_and_leaves_it(void) {
+static void test_dry_run_uses_output_cache_and_leaves_it(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
   struct Log log = test_log();
@@ -1052,15 +1341,15 @@ static void test_skips_empty_phases_in_verbose_output(void) {
                                   "discovering templates and static files\n"
                                   "compiling templates\n"
                                   "planning albums\n"
-                                  "loading build cache\n"
-                                  "no build cache, probing every source\n"
+                                  "loading output cache\n"
+                                  "no output cache, probing every source\n"
                                   "building output manifest\n"
                                   "copying static files\n"
-                                  "writing build cache\n"
                                   "rendering albums, workers: 3\n"
                                   "\rrendering albums 1/1\n"
                                   "writing album pages\n"
                                   "rendering aggregate templates\n"
+                                  "writing output cache\n"
                                   "removing stale outputs\n"
                                   "removed stale outputs: 0\n"
                                   "build complete\n"));
@@ -1561,9 +1850,9 @@ static void test_rejects_oversize_source_at_probe(void) {
 // album has rendered successfully. That is the last of `cmd_build_execute`'s phase arms and the
 // only one reached with a complete set of rendered pages in hand, so a write failure reported as
 // success would otherwise pass the suite with the pages silently missing. One page path is an
-// existing directory. The phase stops at its first failure, so a second build fails the root
-// album's page, which is written first, with an injected `EACCES`, as an unwritable directory would
-// refuse it.
+// existing directory. The phase stops at its first failure, so a second build, where a new source
+// changes the root album's page, fails that page, which is written first, with an injected
+// `EACCES`, as an unwritable directory would refuse it.
 static void test_reports_unwritable_output(void) {
   struct Os* os = os_memory();
   write_gallery_fixture(os, NULL);
@@ -1576,6 +1865,7 @@ static void test_reports_unwritable_output(void) {
   TEST_CHECK(test_log_is(&log, "failed to write page for 'album': %s ('public/album/index.html')\n",
                          strerror(EISDIR)));
 
+  write_jpeg(os, "photos/two.jpg");
   os_memory_fail(os, OS_MEMORY_OP_WRITE, "public/index.html", EACCES);
   log = test_log();
   TEST_CHECK(execute_build(os, &log) == -1);
@@ -1631,7 +1921,7 @@ TEST_LIST = {
      test_rebuild_skips_output_dir_linked_from_media_dir},
     {"dry run lists every output and writes nothing",
      test_dry_run_lists_every_output_and_writes_nothing},
-    {"dry run keeps fresh media", test_dry_run_keeps_fresh_media},
+    {"dry run keeps unchanged outputs", test_dry_run_keeps_unchanged_outputs},
     {"dry run lists stale recipe and keeps it", test_dry_run_lists_stale_recipe_and_keeps_it},
     {"dry run keeps unchanged static files", test_dry_run_keeps_unchanged_static_files},
     {"dry run attempts no change", test_dry_run_attempts_no_change},
@@ -1639,12 +1929,16 @@ TEST_LIST = {
     {"warm build reads no source and repeats its bytes",
      test_warm_build_reads_no_source_and_repeats_its_bytes},
     {"force probes every source", test_force_probes_every_source},
-    {"rewrites build cache without deleted sources",
-     test_rewrites_build_cache_without_deleted_sources},
-    {"ignores build cache of another build", test_ignores_build_cache_of_another_build},
-    {"prunes build cache of another version", test_prunes_build_cache_of_another_version},
-    {"failed probe keeps build cache", test_failed_probe_keeps_build_cache},
-    {"dry run uses build cache and leaves it", test_dry_run_uses_build_cache_and_leaves_it},
+    {"force writes every output", test_force_writes_every_output},
+    {"rebuild leaves unchanged outputs untouched", test_rebuild_leaves_unchanged_outputs_untouched},
+    {"changed source remakes its outputs", test_changed_source_remakes_its_outputs},
+    {"deleted derivative is made again", test_deleted_derivative_is_made_again},
+    {"rewrites probe facts without deleted sources",
+     test_rewrites_probe_facts_without_deleted_sources},
+    {"ignores output cache of another format", test_ignores_output_cache_of_another_format},
+    {"prunes the old build cache", test_prunes_the_old_build_cache},
+    {"failed probe keeps output cache", test_failed_probe_keeps_output_cache},
+    {"dry run uses output cache and leaves it", test_dry_run_uses_output_cache_and_leaves_it},
     {"honors requested worker count", test_honors_requested_worker_count},
     {"caps the worker count at four per CPU", test_caps_the_worker_count_at_four_per_cpu},
     {"cuts workers before arenas under limit", test_cuts_workers_before_arenas_under_limit},
@@ -1681,7 +1975,10 @@ TEST_LIST = {
     {"reports a shared render failure once", test_reports_a_shared_render_failure_once},
     {"failed render keeps the static copies it made",
      test_failed_render_keeps_the_static_copies_it_made},
-    {"failed static copy keeps the probe facts", test_failed_static_copy_keeps_the_probe_facts},
+    {"failed build keeps the probe facts", test_failed_build_keeps_the_probe_facts},
+    {"failed copy gets no row", test_failed_copy_gets_no_row},
+    {"failed static copy gets no row", test_failed_static_copy_gets_no_row},
+    {"interrupted build keeps the probe facts", test_interrupted_build_keeps_the_probe_facts},
     {"reports one line per failing media item", test_reports_one_line_per_failing_media_item},
     {"reports every independent error", test_reports_every_independent_error},
     {"rejects oversize source at probe", test_rejects_oversize_source_at_probe},

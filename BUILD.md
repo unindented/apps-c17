@@ -248,11 +248,11 @@ The golden tests highlight code blocks, so they need every tree-sitter grammar, 
 
 1. It copies the site into a scratch tree of its own.
 2. It puts stale files in the output. The first build must remove these files.
-3. It builds the site three times: on one worker, on two workers with the build cache, and on eight workers with `--force`. The later two builds must not change a generated file. The first build's `stderr` must be the warnings in `tests/expected/<site>.warnings.txt`, or empty without that file.
-4. A dry run must keep every output but the build cache.
+3. It builds the site three times: on one worker, on two workers with the output cache, and on eight workers with `--force`. The later two builds must not change a generated file. The first build's `stderr` must be the warnings in `tests/expected/<site>.warnings.txt`, or empty without that file.
+4. A dry run must keep every output but the output cache.
 5. It compares the list of output files with `tests/expected/<site>`, and it compares every file byte for byte.
 
-The comparison leaves out the build cache, `_sosig/v1-build-cache.tsv`, which holds the modification times of the copied sources and has no expected copy.
+The comparison leaves out the output cache, `_sosig/output-cache.tsv`, whose rows hold the modification times of the copied sources, and which has no expected copy.
 
 The steps that the golden tests of `sosig`, `fram` and `surge` share are functions in [cmake/apps_golden.cmake](cmake/apps_golden.cmake). They compare the two lists by looking each name up on the other side, because a sync tool can rewrite the Unicode normalization of a checked-out name. The script finds the expected files and the actual files with globs after `sosig` runs. These globs run in the test and are not inputs of the CMake build, so a change to a fixture does not require CMake to configure the project again.
 
@@ -294,11 +294,11 @@ The golden test `fram.golden` builds the fixture gallery in `tests/fixtures/gall
 
 1. It copies the gallery into a scratch tree of its own.
 2. It puts stale files in the output. The first build must remove these files.
-3. It builds the gallery three times: on one worker, on two workers with the build cache, and on eight workers with `--force`. The later two builds must not change a generated file. The first build's `stderr` must be the warnings in `tests/expected/gallery.warnings.txt`, or empty without that file.
-4. A dry run must keep every derivative, original and static file. It writes the pages, because `fram` renders every page on every build.
+3. It builds the gallery three times: on one worker, on two workers with the output cache, and on eight workers with `--force`. The later two builds must not change a generated file. The first build's `stderr` must be the warnings in `tests/expected/gallery.warnings.txt`, or empty without that file.
+4. A dry run must keep every output but the output cache.
 5. It compares the list of output files with `tests/expected/gallery`.
 
-The comparison leaves out the build cache, `_fram/v1-build-cache.tsv`, which holds the modification times of the copied sources and has no expected copy.
+The comparison leaves out the output cache, `_fram/output-cache.tsv`, whose rows and probe facts hold the modification times of the sources, and which has no expected copy.
 
 The script compares the non-media files and the copied originals byte for byte, after it replaces the `@PROJECT_VERSION@` placeholder in each expected page with the project version. For each generated derivative, it checks only that the file is not empty, because the WebP output can change with the libwebp version and the SIMD path. Unit tests check the dimensions and the pixels of derivatives.
 
@@ -382,12 +382,12 @@ The fixture repositories are `git fast-import` streams in [apps/surge/tests/repo
 
 1. It copies the site into a scratch tree, makes the fixture repositories there, and sets `TMPDIR` to a scratch directory.
 2. For a site whose expected directory holds only `stderr.txt`, it runs one build, which must exit with status 1 with exactly that text, and create no `public/`, and stops.
-3. Otherwise it puts stale files in the output, which the first build must remove, and builds the site three times: with `-w 1`, with `-w 2` over the build cache, and with `--force -w 8`. The first build's `stderr` must match `tests/expected/<site>.warnings.txt`, and the later builds must not change a generated file.
+3. Otherwise it puts stale files in the output, which the first build must remove, and builds the site three times: with `-w 1`, with `-w 2` over the output cache, and with `--force -w 8`. The first build's `stderr` must match `tests/expected/<site>.warnings.txt`, and the later builds must not change a generated file.
 4. A dry run must keep every output, and `TMPDIR` must be empty.
 5. It compares the list of output files with `tests/expected/<site>`, and every file byte for byte, the packs included, after it replaces the `@PROJECT_VERSION@` placeholder in each expected text file. It checks each pack with `git verify-pack` and `git index-pack --strict`, and each `info/refs` against `git for-each-ref`.
 6. With `SURGE_PYTHON`, it runs [apps/surge/tests/clone_test.py](apps/surge/tests/clone_test.py) with `python3 -I`, and with `SURGE_MISE` as well, [apps/surge/tests/mise_test.py](apps/surge/tests/mise_test.py).
-7. It moves a branch and changes the release directories, and checks what each dry run writes, keeps and removes, and that the previous pack stays one build. Last, a `--force` dry run and one after a template change must make every page and feed again.
+7. It moves a branch and changes the release directories, and checks what each dry run writes, keeps and removes, and that the previous pack stays one build, also after a failed build. Last, a `--force` dry run and one after a template change must make every page and feed again.
 
-The configure step looks for `python3` and `mise`. Without `python3`, the golden test runs without the clone test and the mise test, and without `mise`, it runs without the mise test. CI installs mise 2026.11.0 for the `surge` job through the `mise` input of [checks.yml](.github/workflows/checks.yml), and the [Containerfile](Containerfile) installs `git` and the same mise release. The comparison leaves out the build cache, `_surge/v1-build-cache.tsv`, which holds the modification times of the copied templates and has no expected copy.
+The configure step looks for `python3` and `mise`. Without `python3`, the golden test runs without the clone test and the mise test, and without `mise`, it runs without the mise test. CI installs mise 2026.11.0 for the `surge` job through the `mise` input of [checks.yml](.github/workflows/checks.yml), and the [Containerfile](Containerfile) installs `git` and the same mise release. The comparison leaves out the output cache, `_surge/output-cache.tsv`, whose rows hold the modification times of the static files and a page recipe that hashes those of the copied templates, and which has no expected copy.
 
 The script finds the expected files and the actual files with globs after `surge` runs, and looks each name up on the other side's filesystem, because a sync tool can rewrite the Unicode normalization of a checked-out name. These globs run in the test and are not inputs of the CMake build, so a change to a fixture does not require CMake to configure the project again.

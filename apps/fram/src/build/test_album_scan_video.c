@@ -18,13 +18,13 @@
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
-#include "domain/build_cache.h"
 #include "domain/media_item.h"
 #include "domain/site_config.h"
 #include "media/image.h"
 #include "media/video.h"
 #include "os/os.h"
 #include "os/os_posix.h"
+#include "output/output_cache.h"
 #include "runtime/job.h"
 #include "test_jpeg_fixture.h"
 #include "testing/test_support.h"
@@ -33,8 +33,8 @@
 // frame they write is a file on the real host, so these run against the POSIX one. The other probe
 // and skeleton cases are in `test_album_scan.c`, on the in-memory host.
 
-/** A build cache with no rows, for a probe that reads every source. */
-static const struct BuildCache NO_BUILD_CACHE = {0};
+/** An output cache with no facts, for a probe that reads every source. */
+static const struct OutputCache NO_OUTPUT_CACHE = {0};
 
 /** Largest file a test here reads back, in bytes. Every fixture file is at most a few kilobytes. */
 enum { TEST_FILE_LEN_MAX = 1024 * 1024 };
@@ -186,7 +186,6 @@ static void test_probe_media_retains_clamped_video_frame(void) {
                            .derivative_count = 3};
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
-  struct OsStat stats[1] = {0};
   struct JobArenas* worker_arenas = NULL;
   struct Log log = test_log();
   struct Log read_log = test_log();
@@ -202,8 +201,8 @@ static void test_probe_media_retains_clamped_video_frame(void) {
   video_frame_init(&frames[0], &arena);
 
   worker_arenas = test_job_arenas(1, &arena);
-  TEST_CHECK(album_scan_probe_media(&site_config, media, 1, &NO_BUILD_CACHE, frames, 1,
-                                    worker_arenas, false, os_posix(), arena, stats, &log) == 0);
+  TEST_CHECK(album_scan_probe_media(&site_config, media, 1, &NO_OUTPUT_CACHE, frames, 1,
+                                    worker_arenas, false, os_posix(), arena, &log) == 0);
   TEST_CHECK(item.duration_ms == 400);
   TEST_CHECK(item.orientation == IMAGE_ORIENTATION_TOP_LEFT);
   TEST_CHECK(item.width_px == 2);
@@ -251,7 +250,6 @@ static void test_probe_media_names_video_of_invalid_frame(void) {
   struct MediaItem item = {.source_path = S("short.mp4"), .kind = MEDIA_KIND_VIDEO};
   struct MediaItem* media[] = {&item};
   struct VideoFrame frames[1] = {0};
-  struct OsStat stats[1] = {0};
   struct JobArenas* worker_arenas = NULL;
   struct Log log = test_log();
   if (write_fake_video_tools(root_dir, &arena) != 0) {
@@ -262,8 +260,8 @@ static void test_probe_media_names_video_of_invalid_frame(void) {
   video_frame_init(&frames[0], &arena);
 
   worker_arenas = test_job_arenas(1, &arena);
-  TEST_CHECK(album_scan_probe_media(&site_config, media, 1, &NO_BUILD_CACHE, frames, 1,
-                                    worker_arenas, false, os_posix(), arena, stats, &log) == -1);
+  TEST_CHECK(album_scan_probe_media(&site_config, media, 1, &NO_OUTPUT_CACHE, frames, 1,
+                                    worker_arenas, false, os_posix(), arena, &log) == -1);
   TEST_CHECK(str_startswith(buf_str(&log.buf), S("failed to probe media: failed to probe JPEG: ")));
   TEST_CHECK(str_endswith(buf_str(&log.buf), S(" ('short.mp4')\n")));
   TEST_CHECK(log.errors == 1);

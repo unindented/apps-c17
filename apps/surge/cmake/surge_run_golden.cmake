@@ -1,18 +1,19 @@
 # This script builds one copied fixture site three times, over fixture repositories it makes from
-# their `git fast-import` streams. It checks that the second build, which reuses the build cache,
+# their `git fast-import` streams. It checks that the second build, which reuses the output cache,
 # and a third, `--force` build, which ignores it, each leave the output unchanged, then compares
 # the result with the expected output. The release workflow runs it against a packaged binary, with
 # `SURGE_EMULATOR` naming a launcher such as `qemu-aarch64` when the binary targets another
 # architecture.
 #
-# The comparison leaves out the build cache, `_surge/v1-build-cache.tsv`, which holds the
-# modification times of the copied templates. The packs of the clone exports are compared byte for
+# The comparison leaves out the output cache, `_surge/output-cache.tsv`, whose rows name a page
+# recipe that hashes the modification times of the copied templates. The packs are compared byte for
 # byte too: libgit2 writes the same pack for the same objects on one thread. Each pack is also
 # checked with `git verify-pack` and a strict `git index-pack`, and each `info/refs` against
 # `git for-each-ref` of its source. Before the comparison, a dry run must keep every output. After
-# it, a commit moves a branch: a dry run must write only what the move decides, and the next two
-# builds must keep the previous pack one build. Last, limits that give a blob a raw copy but no
-# shown page, and a `base_url` with a path, check that copy and the paths of `_headers`. The first
+# it, a commit moves a branch: a dry run must write only what the move decides, and after a build
+# that fails at a page, the next two builds must keep the previous pack one build. Then limits that
+# give a blob a raw copy but no shown page, and a `base_url` with a path, check that copy and the
+# paths of `_headers`, and last a changed blob must make only what it decides again. The first
 # build's `stderr` must be the warnings in `<expected>.warnings.txt`, or empty without that file.
 #
 # An expected file's `@PROJECT_VERSION@` stands for `SURGE_VERSION`, as in fram's golden test.
@@ -122,18 +123,18 @@ foreach(build IN ITEMS first second third)
     continue()
   endif()
   if(build STREQUAL "second"
-     AND NOT build_stderr MATCHES "\ncompiling templates\nloading build cache\nscanning repos, "
+     AND NOT build_stderr MATCHES "\ncompiling templates\nloading output cache\nscanning repos, "
   )
-    message(FATAL_ERROR "the second build did not load and use the build cache:\n${build_stderr}")
+    message(FATAL_ERROR "the second build did not load and use the output cache:\n${build_stderr}")
   endif()
-  # The build cache holds the times of the copied templates, so it may change.
+  # The output cache holds the times of the copied templates, so it may change.
   apps_golden_check_unchanged(
     FIRST_DIR "${first_dir}" ACTUAL_DIR "${actual_dir}" LABEL "${build}" IGNORE "^_surge/"
   )
 endforeach()
 
 # A dry run after the builds keeps every output, the packs included, and would write only the
-# build cache, which every build writes again. It changes nothing, which the comparison below shows.
+# output cache, which every build writes again. It changes nothing, which the comparison below shows.
 apps_golden_run_build(
   EXECUTABLE "${SURGE_EXECUTABLE}"
   EMULATOR ${SURGE_EMULATOR}
@@ -143,7 +144,7 @@ apps_golden_run_build(
   STDOUT dry_run_stdout
 )
 apps_golden_check_dry_run_keeps(
-  LISTING "${dry_run_stdout}" CACHE_PATH "public/_surge/v1-build-cache.tsv"
+  LISTING "${dry_run_stdout}" CACHE_PATH "public/_surge/output-cache.tsv"
 )
 if(NOT dry_run_stdout MATCHES "\nkeep\tpublic/showcase\.git/objects/pack/pack-[0-9a-f]+\.pack\n")
   message(FATAL_ERROR "the dry run does not keep the clone pack:\n${dry_run_stdout}")
@@ -162,7 +163,7 @@ apps_golden_compare_trees(
   SCRATCH_DIR "${SURGE_SCRATCH_DIR}"
   VERSION "${SURGE_VERSION}"
   VERSIONED "\\.(html|xml|atom|txt|json)$"
-  EXCLUDE "_surge/v1-build-cache.tsv"
+  EXCLUDE "_surge/output-cache.tsv"
 )
 
 # Each clone export holds a pack git reads, and the refs of its source.
@@ -283,9 +284,9 @@ set(pack_dir "${actual_dir}/showcase.git/objects/pack")
 
 # A dry run after the move writes only what the moved ref decides: the repo's home and refs pages,
 # the site index, the moved branch's log pages and feed, the page of its root, which shows its newest
-# commit, the new commit's page, the clone export's changed files and new pack, and the build cache.
+# commit, the new commit's page, the clone export's changed files and new pack, and the output cache.
 # The commit changes no tree, so every other tree page, every blob page and raw copy, and every
-# other commit page, is kept.
+# other commit page, is kept. The dry run makes no pack, so it names the new one by its refs.
 execute_process(
   COMMAND "${SURGE_GIT}" rev-parse HEAD
   WORKING_DIRECTORY "${SURGE_SCRATCH_DIR}/repos/showcase"
@@ -313,7 +314,7 @@ set(moved_writes
     "public/showcase/tags/index.html"
     "public/showcase.git/info/refs"
     "public/showcase.git/objects/info/packs"
-    "public/_surge/v1-build-cache.tsv"
+    "public/_surge/output-cache.tsv"
 )
 string(REGEX MATCHALL "write\t[^\n]+" written_lines "${dry_run_stdout}")
 foreach(line IN LISTS written_lines)
@@ -332,6 +333,21 @@ foreach(written IN LISTS moved_writes)
     message(FATAL_ERROR "the dry run after a move would keep '${written}'")
   endif()
 endforeach()
+# A build that fails at a page, before it writes the new pack, still records the old one, so the
+# build after it keeps that pack one build, as it would after a build that succeeded.
+set(tree_template "${SURGE_SCRATCH_DIR}/templates/tree.html")
+file(READ "${tree_template}" tree_template_text)
+file(WRITE "${tree_template}" "{{{site.title}}}")
+execute_process(
+  COMMAND ${SURGE_EMULATOR} "${SURGE_EXECUTABLE}" build
+  WORKING_DIRECTORY "${SURGE_SCRATCH_DIR}"
+  RESULT_VARIABLE build_result
+  OUTPUT_QUIET ERROR_QUIET
+)
+file(WRITE "${tree_template}" "${tree_template_text}")
+if(NOT build_result EQUAL 1)
+  message(FATAL_ERROR "the build with a broken tree template did not fail")
+endif()
 foreach(build IN ITEMS moved settled)
   execute_process(
     COMMAND ${SURGE_EMULATOR} "${SURGE_EXECUTABLE}" build --workers 2
@@ -377,7 +393,7 @@ if(IS_DIRECTORY "${showcase_releases}/v0.1.0")
   string(REGEX MATCHALL "write\t[^\n]+" written_lines "${dry_run_stdout}")
   foreach(line IN LISTS written_lines)
     if(NOT line MATCHES "^write\tpublic/showcase/(releases/|tags/index\\.html$|tags\\.atom$|releases\\.atom$)"
-       AND NOT line STREQUAL "write\tpublic/_surge/v1-build-cache.tsv"
+       AND NOT line STREQUAL "write\tpublic/_surge/output-cache.tsv"
     )
       message(FATAL_ERROR "the dry run after a release change would write an output it does not "
                           "decide: '${line}'")
@@ -451,9 +467,9 @@ if(default_commit_found EQUAL -1)
 endif()
 file(WRITE "${default_config_file}" "${default_config_text}")
 
-# Last, as they change the site's inputs: a forced dry run makes every output again, keeping only the
-# clone exports' small files and `_headers`, whose bytes it compares with the output's. A changed template makes
-# every page again too, and keeps the raw copies, the static files and the clone exports.
+# Next, as they change the site's inputs: a forced dry run keeps no output, not even one whose bytes
+# are unchanged. A changed template makes every page again, and keeps the raw copies, the static
+# files and the clone exports.
 function(surge_dry_run stdout_var)
   execute_process(
     COMMAND ${SURGE_EMULATOR} "${SURGE_EXECUTABLE}" build --dry-run ${ARGN}
@@ -469,13 +485,9 @@ function(surge_dry_run stdout_var)
 endfunction()
 surge_dry_run(forced_stdout --force)
 string(REGEX MATCHALL "keep\t[^\n]+" forced_keeps "${forced_stdout}")
-foreach(line IN LISTS forced_keeps)
-  if(NOT line MATCHES "^keep\tpublic/[^/]+\\.git/(HEAD|info/refs|objects/info/packs)$"
-     AND NOT line STREQUAL "keep\tpublic/_headers"
-  )
-    message(FATAL_ERROR "the forced dry run keeps an output: '${line}'")
-  endif()
-endforeach()
+if(forced_keeps)
+  message(FATAL_ERROR "the forced dry run keeps an output: '${forced_keeps}'")
+endif()
 file(APPEND "${SURGE_SCRATCH_DIR}/templates/partials/head.html" "<!-- changed -->\n")
 surge_dry_run(template_stdout)
 string(REGEX MATCHALL "keep\t[^\n]+" template_keeps "${template_stdout}")
@@ -554,3 +566,69 @@ if(NOT actual_headers STREQUAL expected_headers)
   message(FATAL_ERROR "'_headers' of a 'base_url' with a path differs from expected:\n"
                       "${actual_headers}")
 endif()
+
+# Last, a commit that changes one blob of showcase's `main`: a dry run writes that file's blob page
+# and raw copy, the tree pages of the directories above it, the pages that show Markdown or Org,
+# whose links resolve against the branch's root tree, the pages that the new commit moves, as after
+# the move above, and the clone export, and keeps every other output.
+set(changed_blob "${SURGE_SCRATCH_DIR}/repos/showcase/lib/main.c")
+file(APPEND "${changed_blob}" "/* changed */\n")
+execute_process(
+  COMMAND "${SURGE_GIT}" commit --quiet -am "Change main.c"
+  WORKING_DIRECTORY "${SURGE_SCRATCH_DIR}/repos/showcase"
+  RESULT_VARIABLE commit_result
+  ERROR_VARIABLE commit_error
+)
+if(NOT commit_result EQUAL 0)
+  message(FATAL_ERROR "changing showcase's 'lib/main.c' failed:\n${commit_error}")
+endif()
+execute_process(
+  COMMAND "${SURGE_GIT}" rev-parse HEAD
+  WORKING_DIRECTORY "${SURGE_SCRATCH_DIR}/repos/showcase"
+  OUTPUT_VARIABLE changed_oid
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+surge_dry_run(blob_stdout)
+set(blob_writes
+    "public/showcase.git/info/refs"
+    "public/showcase.git/objects/info/packs"
+    "public/showcase/index.html"
+    "public/showcase/branches/index.html"
+    "public/showcase/tags/index.html"
+    "public/showcase/tree/main/index.html"
+    "public/showcase/tree/main/docs/index.html"
+    "public/showcase/tree/main/lib/index.html"
+    "public/showcase/blob/main/CONTRIBUTING.md/index.html"
+    "public/showcase/blob/main/README.md/index.html"
+    "public/showcase/blob/main/notes.org/index.html"
+    "public/showcase/blob/main/docs/CODE_OF_CONDUCT.md/index.html"
+    "public/showcase/blob/main/docs/manual.md/index.html"
+    "public/showcase/blob/main/lib/README.md/index.html"
+    "public/showcase/blob/main/lib/main.c/index.html"
+    "public/showcase/raw/main/lib/main.c"
+    "public/showcase/commits/main/index.html"
+    "public/showcase/commits/main.atom"
+    "public/showcase/commit/${changed_oid}/index.html"
+    "public/index.html"
+    "public/_surge/output-cache.tsv"
+)
+string(REGEX MATCHALL "[^\n]+" blob_lines "${blob_stdout}")
+foreach(line IN LISTS blob_lines)
+  if(line MATCHES "^keep\t")
+    continue()
+  endif()
+  string(REGEX REPLACE "^write\t" "" written "${line}")
+  if(written STREQUAL line
+     OR (NOT written IN_LIST blob_writes
+         AND NOT written MATCHES "^public/showcase\\.git/objects/pack/pack-[0-9a-f]+\\.(pack|idx)$"
+         AND NOT written MATCHES "^public/showcase/commits/main/page-[0-9]+\\.html$")
+  )
+    message(FATAL_ERROR "the dry run after a blob change would change an output it does not "
+                        "decide: '${line}'")
+  endif()
+endforeach()
+foreach(written IN LISTS blob_writes)
+  if(NOT "write\t${written}" IN_LIST blob_lines)
+    message(FATAL_ERROR "the dry run after a blob change would keep '${written}'")
+  endif()
+endforeach()

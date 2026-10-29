@@ -59,4 +59,6 @@ if(APPS_BUILD_TESTING)
   endforeach()
   # Its partials are read through `os/os.h`, so it runs against the in-memory host.
   apps_add_unit_test(template_value OS memory)
+  # It writes through the output writer, so it runs against the in-memory host.
+  apps_add_unit_test(export_writer OS memory)
 endif()

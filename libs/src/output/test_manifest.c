@@ -287,22 +287,84 @@ static void test_marks_recorded_path(void) {
   TEST_CHECK(manifest_find_mark(&manifest, S("public/About.html")) == MANIFEST_MARK_PENDING);
   TEST_CHECK(manifest_find_mark(&manifest, S("public/index.html")) == MANIFEST_MARK_PENDING);
 
-  TEST_CHECK(manifest_mark(&manifest, S("public/About.html"), MANIFEST_MARK_WRITTEN) == 0);
+  TEST_CHECK(manifest_mark(&manifest, S("public/About.html"), MANIFEST_MARK_WRITTEN, -1) == 0);
   TEST_CHECK(manifest_find_mark(&manifest, S("public/about.html")) == MANIFEST_MARK_WRITTEN);
-  TEST_CHECK(manifest_mark(&manifest, S("PUBLIC/ABOUT.HTML"), MANIFEST_MARK_KEPT) == 0);
+  TEST_CHECK(manifest_mark(&manifest, S("PUBLIC/ABOUT.HTML"), MANIFEST_MARK_KEPT, -1) == 0);
   TEST_CHECK(manifest_find_mark(&manifest, S("public/About.html")) == MANIFEST_MARK_KEPT);
   TEST_CHECK(manifest_find_mark(&manifest, S("public/index.html")) == MANIFEST_MARK_PENDING);
+}
+
+// A mark records the size it is given, which reads back through any ASCII-case spelling of the
+// path. A path still pending, one marked without a size, and one never recorded have none.
+static void test_mark_records_a_size(void) {
+  struct Arena arena = test_arena();
+  struct Manifest manifest = {0};
+  TEST_CHECK(manifest_add(&manifest, S("public/About.html"), S("about.md"), &arena, NULL) == 0);
+  TEST_CHECK(manifest_add(&manifest, S("public/index.html"), S("index.md"), &arena, NULL) == 0);
+  TEST_CHECK(manifest_find_len(&manifest, S("public/About.html")) == -1);
+
+  TEST_CHECK(manifest_mark(&manifest, S("public/About.html"), MANIFEST_MARK_WRITTEN, 42) == 0);
+  TEST_CHECK(manifest_find_len(&manifest, S("PUBLIC/ABOUT.HTML")) == 42);
+  TEST_CHECK(manifest_mark(&manifest, S("public/About.html"), MANIFEST_MARK_KEPT, 0) == 0);
+  TEST_CHECK(manifest_find_len(&manifest, S("public/About.html")) == 0);
+  TEST_CHECK(manifest_mark(&manifest, S("public/About.html"), MANIFEST_MARK_PENDING, 7) == 0);
+  TEST_CHECK(manifest_find_len(&manifest, S("public/About.html")) == -1);
+  TEST_CHECK(manifest_mark(&manifest, S("public/index.html"), MANIFEST_MARK_KEPT, -1) == 0);
+  TEST_CHECK(manifest_find_len(&manifest, S("public/index.html")) == -1);
+  TEST_CHECK(manifest_find_len(&manifest, S("public/other.html")) == -1);
 }
 
 // A path that was never recorded cannot be marked, and reads as pending.
 static void test_mark_rejects_unrecorded_path(void) {
   struct Arena arena = test_arena();
   struct Manifest manifest = {0};
-  TEST_CHECK(manifest_mark(&manifest, S("public/index.html"), MANIFEST_MARK_WRITTEN) == -1);
+  TEST_CHECK(manifest_mark(&manifest, S("public/index.html"), MANIFEST_MARK_WRITTEN, -1) == -1);
   TEST_CHECK(manifest_add(&manifest, S("public/index.html"), S("index.md"), &arena, NULL) == 0);
-  TEST_CHECK(manifest_mark(&manifest, S("public/other.html"), MANIFEST_MARK_WRITTEN) == -1);
+  TEST_CHECK(manifest_mark(&manifest, S("public/other.html"), MANIFEST_MARK_WRITTEN, -1) == -1);
   TEST_CHECK(manifest_find_mark(&manifest, S("public/other.html")) == MANIFEST_MARK_PENDING);
   TEST_CHECK(manifest_find_mark(&manifest, S("public/index.html")) == MANIFEST_MARK_PENDING);
+}
+
+// An output recorded with how it is made gives back copies of its attributes, its copy source and
+// its source's size through any ASCII-case spelling of its path, an output recorded without
+// declares none, and a path never recorded is not found.
+static void test_finds_how_an_output_is_made(void) {
+  struct Arena arena = test_arena();
+  struct Manifest manifest = {0};
+  char attributes[] = "blob=3f2a";
+  const struct ManifestOutput copy = {.attributes = str_from_cstr(attributes),
+                                      .copy_source_path = S("static/a.css"),
+                                      .copy_source_len = 12};
+  TEST_CHECK(manifest_add_output(&manifest, S("public/a.css"), S("static/a.css"), &copy, &arena,
+                                 NULL) == 0);
+  TEST_CHECK(manifest_add(&manifest, S("public/index.html"), S("index.md"), &arena, NULL) == 0);
+  attributes[0] = 'x';
+
+  struct ManifestOutput output = {0};
+  TEST_CHECK(manifest_find_output(&manifest, S("PUBLIC/A.CSS"), &output));
+  TEST_CHECK(str_eq(output.attributes, S("blob=3f2a")));
+  TEST_CHECK(str_eq(output.copy_source_path, S("static/a.css")));
+  TEST_CHECK(output.copy_source_len == 12);
+  TEST_CHECK(manifest_find_output(&manifest, S("public/index.html"), &output));
+  TEST_CHECK(output.attributes.len == 0 && output.copy_source_path.len == 0 &&
+             output.copy_source_len == 0);
+  TEST_CHECK(!manifest_find_output(&manifest, S("public/other.html"), &output));
+}
+
+// An output recorded with how it is made is still a duplicate of an earlier claim, which keeps its
+// own.
+static void test_add_output_detects_duplicate(void) {
+  struct Arena arena = test_arena();
+  struct Manifest manifest = {0};
+  TEST_CHECK(manifest_add(&manifest, S("public/a.html"), S("a.md"), &arena, NULL) == 0);
+  struct Str existing = {0};
+  TEST_CHECK(manifest_add_output(&manifest, S("public/A.html"), S("b.md"),
+                                 &(struct ManifestOutput){.attributes = S("x=1")}, &arena,
+                                 &existing) == -1);
+  TEST_CHECK(str_eq(existing, S("a.md")));
+  struct ManifestOutput output = {0};
+  TEST_CHECK(manifest_find_output(&manifest, S("public/a.html"), &output));
+  TEST_CHECK(output.attributes.len == 0);
 }
 
 TEST_LIST = {
@@ -320,6 +382,9 @@ TEST_LIST = {
     {"next output path visits paths in recorded order",
      test_next_output_path_visits_paths_in_recorded_order},
     {"marks recorded path", test_marks_recorded_path},
+    {"mark records a size", test_mark_records_a_size},
     {"mark rejects unrecorded path", test_mark_rejects_unrecorded_path},
+    {"finds how an output is made", test_finds_how_an_output_is_made},
+    {"add output detects duplicate", test_add_output_detects_duplicate},
     {NULL, NULL},
 };

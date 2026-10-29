@@ -9,7 +9,7 @@
 
 struct ContentEntry;
 struct Log;
-struct Os;
+struct OutputCache;
 struct OutputWriter;
 struct SiteConfig;
 struct TemplateSet;
@@ -19,14 +19,16 @@ struct TemplateSet;
 // entries happens earlier still, in `content_entry` (`content_entry_sort`).
 
 /**
- * @brief Renders each of `template_names` with `content_entries` visible and writes it through
- *        `writer` to its matching path under `output_dir`.
+ * @brief Renders each of `template_names` with `content_entries` visible and hands it to
+ *        `output_writer_produce` for its matching path under `output_dir`.
  *
  * `cmd_build` calls this once for the aggregate templates, with every non-draft entry, and once for
- * the feed templates, with the newest `feed_count`. When `is_inputs_fresh`, an output that exists
- * is kept through `writer` instead, with no render.
+ * the feed templates, with the newest `feed_count`. Every output is rendered, and an existing file
+ * of the same bytes is kept.
  *
  * @param writer              Writer every output is written through. Must not be `NULL`.
+ * @param cache               Output cache of the previous build, which `output_writer_produce`
+ *                            reads. Must not be `NULL`.
  * @param site_config         Configuration supplying `output_dir`. Must not be `NULL`.
  * @param template_set        Templates the outputs render from. Must not be `NULL`.
  * @param template_names      Array of `template_count` safe relative template names. May be `NULL`
@@ -36,18 +38,17 @@ struct TemplateSet;
  *                            `NULL` only when `content_entry_count` is 0.
  * @param content_entry_count Number of entries in `content_entries`.
  * @param is_feed             Whether the templates are feed templates, whose links are absolute.
- * @param is_inputs_fresh     Whether the build cache vouches that every template and every entry,
- *                            and the page recipe, are as they were when the outputs were made.
- * @param os                  Host the outputs are inspected on. Must not be `NULL`.
  * @param output              Arena whose free space holds each rendered output until it is written.
  *                            Nothing in it outlives the call. Must not overlap `scratch`.
- * @param scratch             Arena for each render's temporaries.
+ * @param scratch             Arena for each render's temporaries, and then for the read of the
+ *                            existing output it is compared with.
  * @param log                 Log that receives the first failure. Its arena must be none of the
  *                            others. Must not be `NULL`.
  * @return `0` on success, including when `template_count` is 0, or `-1` on the first template that
  *         fails to render or write.
  */
 int site_writer_write_templates(const struct OutputWriter* writer,
+                                const struct OutputCache* cache,
                                 const struct SiteConfig* site_config,
                                 const struct TemplateSet* template_set,
                                 const struct Str* template_names,
@@ -55,10 +56,8 @@ int site_writer_write_templates(const struct OutputWriter* writer,
                                 const struct ContentEntry* const* content_entries,
                                 ptrdiff_t content_entry_count,
                                 bool is_feed,
-                                bool is_inputs_fresh,
-                                struct Os* os,
                                 struct Arena output,
                                 struct Arena scratch,
-                                struct Log* log) __attribute__((nonnull(1, 2, 3, 10, 13)));
+                                struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 12)));
 
 #endif

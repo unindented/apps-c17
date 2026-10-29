@@ -10,8 +10,16 @@ struct ContentEntry;
 struct Log;
 struct Manifest;
 struct Os;
+struct OsStat;
 struct PathList;
 struct SiteConfig;
+
+/**
+ * Path of the output cache below `output_dir`, in the output cache format of
+ * `output/output_cache.h`. The name holds no version: the file's first line names its format, so a
+ * file of another version is unusable rather than misread.
+ */
+#define OUTPUT_MANIFEST_CACHE_PATH "_sosig/output-cache.tsv"
 
 /**
  * @brief Rejects an `output_dir` at or below `content_dir`, `templates_dir`, or `static_dir`,
@@ -52,9 +60,11 @@ int output_manifest_check_output_dir(const struct SiteConfig* site_config,
  *        output that would land inside a build input tree or overwrite a build input file.
  *
  * Registers content entry, template, and static file output paths before writing any file, and the
- * build cache's path last, so it catches a collision between two producers up front. A static file
- * at the build cache's path is a duplicate rather than a silent overwrite, and being recorded is
- * what keeps the build cache through the stale-output prune. It rejects four kinds of collision:
+ * output cache's path last, so it catches a collision between two producers up front. A static file
+ * at the output cache's path is a duplicate rather than a silent overwrite, and being recorded is
+ * what keeps the output cache through the stale-output prune. Each static file and asset is a copy
+ * whose attributes are its source's size and modification time, so the output writer keeps a copy
+ * whose source is unchanged. It rejects four kinds of collision:
  * - an output path at or below `content_dir`, `templates_dir`, or `static_dir`
  * - an output path that names a build input
  * - two producers that claim one output path, compared after folding ASCII case
@@ -94,11 +104,16 @@ int output_manifest_check_output_dir(const struct SiteConfig* site_config,
  * @param source_paths        Every discovered content source path, drafts included, whose files
  *                            must not be overwritten. Must not be `NULL`.
  * @param static_paths        Every enumerated file below `static_dir`, each claimed as an input and
- *                            registered at its path relative to `static_dir`, below `output_dir`.
- *                            Must not be `NULL`.
+ *                            registered as a copy at its path relative to `static_dir`, below
+ *                            `output_dir`. Must not be `NULL`.
+ * @param static_stats        What `walk_stat_paths` reported for each of `static_paths`, parallel
+ *                            to them, which give each copy its attributes. Must not be `NULL`
+ *                            unless `static_paths` is empty.
  * @param asset_paths         Every file below `content_dir` that is not a content source, each
- *                            claimed and registered as a static file whose root is `content_dir`.
- *                            Must not be `NULL`.
+ *                            claimed and registered as a copy whose root is `content_dir`. Must not
+ *                            be `NULL`.
+ * @param asset_stats         What `walk_stat_paths` reported for each of `asset_paths`, as for
+ *                            `static_stats`. Must not be `NULL` unless `asset_paths` is empty.
  * @param template_paths      Every file below `templates_dir`, partials included, each claimed as
  *                            an input. Must not be `NULL`.
  * @param content_entries     Rendered non-draft content entries whose output paths, each joined
@@ -120,7 +135,9 @@ int output_manifest_populate(struct Manifest* manifest,
                              struct Str config_path,
                              const struct PathList* source_paths,
                              const struct PathList* static_paths,
+                             const struct OsStat* static_stats,
                              const struct PathList* asset_paths,
+                             const struct OsStat* asset_stats,
                              const struct PathList* template_paths,
                              const struct ContentEntry* const* content_entries,
                              ptrdiff_t content_entry_count,
@@ -128,6 +145,6 @@ int output_manifest_populate(struct Manifest* manifest,
                              struct Arena* perm,
                              struct Arena scratch,
                              struct Log* log)
-    __attribute__((nonnull(1, 2, 4, 5, 6, 7, 10, 11, 13)));
+    __attribute__((nonnull(1, 2, 4, 5, 7, 9, 12, 13, 15)));
 
 #endif

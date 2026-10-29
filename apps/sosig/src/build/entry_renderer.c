@@ -106,12 +106,6 @@ struct BodyLinks {
 
   /** Log of the job, which receives each link error. */
   struct Log* log;
-
-  /** Whether a link named another content source. */
-  bool has_entry_link;
-
-  /** Whether a link named an asset. */
-  bool has_asset_link;
 };
 
 /** A link target that names a content file, by its path or by its denote identifier. */
@@ -150,11 +144,10 @@ static int parse_content_entry_job(ptrdiff_t index,
                                    void* userdata) __attribute__((nonnull(2, 3, 4)));
 
 /**
- * @brief Stats and reads a content entry source file and parses its frontmatter or Org keywords
- *        into the entry.
+ * @brief Reads a content entry source file and parses its frontmatter or Org keywords into the
+ *        entry.
  *
- * @param entry          Entry that receives the source's stat and the parsed metadata. Must not be
- *                       `NULL`.
+ * @param entry          Entry that receives the parsed metadata. Must not be `NULL`.
  * @param site_config    Configuration supplying `frontmatter_ignored_keys`. Must not be `NULL`.
  * @param source_path    Path of the source file to read.
  * @param source_len_max Largest source file accepted, in bytes.
@@ -369,8 +362,9 @@ static bool is_type_named(struct Str type, struct Str name);
  * @param target Path as written, relative to the directory of the linking source.
  * @return `0` after appending the URL, or `-1` with nothing appended, as for `write_content_link`.
  */
-static int write_content_link_path(struct BodyLinks* links, struct Buf* buffer, struct Str target)
-    __attribute__((nonnull(1, 2)));
+static int write_content_link_path(const struct BodyLinks* links,
+                                   struct Buf* buffer,
+                                   struct Str target) __attribute__((nonnull(1, 2)));
 
 /**
  * @brief Appends the path that a path link names, below `content_dir`, with its `.` and `..`
@@ -396,8 +390,9 @@ static int write_content_link_path_resolved(struct Buf* buffer,
  * @param target Denote identifier.
  * @return `0` after appending the URL, or `-1` with nothing appended, as for `write_content_link`.
  */
-static int write_content_link_denote(struct BodyLinks* links, struct Buf* buffer, struct Str target)
-    __attribute__((nonnull(1, 2)));
+static int write_content_link_denote(const struct BodyLinks* links,
+                                     struct Buf* buffer,
+                                     struct Str target) __attribute__((nonnull(1, 2)));
 
 /**
  * @brief Appends the URL of a source's page, or reports why the page cannot be linked.
@@ -410,7 +405,7 @@ static int write_content_link_denote(struct BodyLinks* links, struct Buf* buffer
  * @return `0` after appending the URL, or `-1` with nothing appended when the source is a draft,
  *         which is reported, or its parse failed.
  */
-static int write_source_page_url(struct BodyLinks* links,
+static int write_source_page_url(const struct BodyLinks* links,
                                  struct Buf* buffer,
                                  ptrdiff_t index,
                                  const char* link_kind,
@@ -525,9 +520,6 @@ static int parse_content_entry_load_source(struct ContentEntry* entry,
                                            struct Arena scratch,
                                            struct Str* body_out,
                                            struct Log* log) {
-  // The stat comes first, so an edit made during the read changes the stat the build cache records
-  // and the next build sees it. A source that cannot be inspected fails the read below.
-  (void)os_stat(os, source_path, &entry->source_stat);
   struct Str text = {0};
   if (os_read(os, source_path, source_len_max, OS_READ_TEXT, perm, &text,
               S("failed to read content"), log) != 0) {
@@ -702,8 +694,6 @@ static int convert_content_body_job(ptrdiff_t index,
                                  &arenas->perm, arenas->scratch)
                    : markdown_to_html(entry->body_source, &link_targets, CONTENT_TOP_HEADING_LEVEL,
                                       &arenas->perm, arenas->scratch);
-  entry->has_entry_link = links.has_entry_link;
-  entry->has_asset_link = links.has_asset_link;
   return log->errors > 0 ? -1 : 0;
 }
 
@@ -713,7 +703,7 @@ static int write_content_link(struct Buf* buffer,
                               bool is_image,
                               bool* is_written_out,
                               void* userdata) {
-  struct BodyLinks* links = userdata;
+  const struct BodyLinks* links = userdata;
   *is_written_out = false;
   // An image keeps the path as written, which the copy of an asset keeps too.
   struct ContentLink link = {0};
@@ -793,7 +783,9 @@ static bool is_type_named(struct Str type, struct Str name) {
   return type.len == name.len && text_has_suffix_folded(type, name);
 }
 
-static int write_content_link_path(struct BodyLinks* links, struct Buf* buffer, struct Str target) {
+static int write_content_link_path(const struct BodyLinks* links,
+                                   struct Buf* buffer,
+                                   struct Str target) {
   const struct BodyConvertContext* context = links->context;
   const struct Str source_path = links->entry->source_path;
   // The converter's arena belongs to the HTML while it runs, so the path is built past the HTML's
@@ -849,7 +841,7 @@ static int write_content_link_path_resolved(struct Buf* buffer,
   return 0;
 }
 
-static int write_content_link_denote(struct BodyLinks* links,
+static int write_content_link_denote(const struct BodyLinks* links,
                                      struct Buf* buffer,
                                      struct Str target) {
   const struct BodyConvertContext* context = links->context;
@@ -877,11 +869,10 @@ static int write_content_link_denote(struct BodyLinks* links,
   (void)path_is_below(context->asset_paths->items[file->index], context->site_config->content_dir,
                       &asset_relative);
   write_relative_url(buffer, str_tail(links->entry->url_path, 1), asset_relative);
-  links->has_asset_link = true;
   return 0;
 }
 
-static int write_source_page_url(struct BodyLinks* links,
+static int write_source_page_url(const struct BodyLinks* links,
                                  struct Buf* buffer,
                                  ptrdiff_t index,
                                  const char* link_kind,
@@ -899,7 +890,6 @@ static int write_source_page_url(struct BodyLinks* links,
   }
   write_relative_url(buffer, str_tail(links->entry->url_path, 1),
                      str_tail(target_entry->url_path, 1));
-  links->has_entry_link = true;
   return 0;
 }
 

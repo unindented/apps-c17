@@ -17,7 +17,7 @@ int build_cache_file_parse(struct Str text,
                            struct Arena* perm,
                            struct Log* log) {
   if (text.len == 0) {
-    return log_error(log, "build cache is empty, as a build that did not finish leaves it");
+    return log_error(log, "output cache is empty, as a build that did not finish leaves it");
   }
   if (!str_startswith(text, header)) {
     return log_error(log, "%.*s", STR_FMT(header_mismatch));
@@ -40,13 +40,13 @@ int build_cache_file_parse(struct Str text,
   struct StrCut cut = str_cut(rows, '\n');
   for (; cut.is_found; cut = str_cut(cut.tail, '\n')) {
     if (parse_row(cut.head, index, &arena, userdata) != 0) {
-      return log_error(log, "build cache does not parse at line %td",
+      return log_error(log, "output cache does not parse at line %td",
                        header_line_count + index + 1);
     }
     index++;
   }
   if (cut.head.len > 0) {
-    return log_error(log, "build cache does not parse at line %td", header_line_count + index + 1);
+    return log_error(log, "output cache does not parse at line %td", header_line_count + index + 1);
   }
   *perm = arena;
   return 0;
@@ -60,7 +60,7 @@ enum BuildCacheFileState build_cache_file_load(struct Str path,
                                                struct Arena* perm,
                                                struct Arena scratch,
                                                struct Str* reason_out) {
-  // `os_stat` finds a missing build cache without a message, which is the usual case on a first
+  // `os_stat` finds a missing output cache without a message, which is the usual case on a first
   // build.
   struct OsStat st;
   if (os_stat(os, path, &st) != 0) {
@@ -70,7 +70,7 @@ enum BuildCacheFileState build_cache_file_load(struct Str path,
   // into `perm` once it is whole.
   struct Log cache_log = {.buf = {.arena = &scratch}};
   struct Str text = {0};
-  if (os_read(os, path, file_len_max, OS_READ_TEXT, perm, &text, S("failed to read build cache"),
+  if (os_read(os, path, file_len_max, OS_READ_TEXT, perm, &text, S("failed to read output cache"),
               &cache_log) != 0 ||
       parse(text, perm, &cache_log, userdata) != 0) {
     // Each reason is one line, whose newline the note leaves out.

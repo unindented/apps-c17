@@ -1,5 +1,6 @@
 #include "output/manifest_builder.h"
 
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -13,6 +14,38 @@
 #include "os/os.h"
 #include "output/manifest.h"
 #include "output/output_path.h"
+
+/**
+ * @brief Records the output `relative_path` below `output_dir`, made as `output` says, unless it is
+ *        refused, as `manifest_builder_add` describes.
+ *
+ * @param builder       Prepared builder. Must not be `NULL`.
+ * @param relative_path Output path relative to `output_dir`.
+ * @param source_label  What produces the output, which a diagnostic names.
+ * @param output        How the output is made. Must not be `NULL`.
+ * @param scratch       Arena for the joined path.
+ * @param log           Log that receives the failure. Must not be `NULL`.
+ * @return `0` when the path was recorded, or `-1` when it was refused.
+ */
+static int add_output(struct ManifestBuilder* builder,
+                      struct Str relative_path,
+                      struct Str source_label,
+                      const struct ManifestOutput* output,
+                      struct Arena scratch,
+                      struct Log* log) __attribute__((nonnull(1, 4, 6)));
+
+/**
+ * @brief Returns the attributes of a copy of the file `source_name` whose stat is `source_stat`:
+ *        its name, size and modification time, or empty when the stat failed.
+ *
+ * @param source_name Path of the source relative to its root.
+ * @param source_stat What `os_stat` reported for the source. Must not be `NULL`.
+ * @param arena       Arena that owns the text. Must not be `NULL`.
+ * @return The attributes.
+ */
+static struct Str copy_attributes(struct Str source_name,
+                                  const struct OsStat* source_stat,
+                                  struct Arena* arena) __attribute__((nonnull(2, 3)));
 
 /**
  * @brief Returns the root whose identity is `identity`.
@@ -197,57 +230,52 @@ int manifest_builder_add(struct ManifestBuilder* builder,
                          struct Str source_label,
                          struct Arena scratch,
                          struct Log* log) {
-  if (output_path_check_limits(relative_path, source_label, log) != 0) {
-    return -1;
-  }
-  const struct Str output_path = path_join(builder->output_dir, relative_path, &scratch);
-  // The root check runs first, because it is the broader rule: it rejects an output below an input
-  // root whether or not a file already sits there.
-  struct Str root_dir = {0};
-  const ptrdiff_t root_index = find_root_holding_output_path(builder, output_path, &root_dir);
-  if (root_index >= 0) {
-    // An output that reaches the root through a reported directory, from a reported source or one
-    // below it, lands there for the same reason, so it fails without a line of its own. Any other
-    // output is reported, because it may land there for a reason of its own.
-    if (is_reported(builder, root_dir, source_label)) {
-      return -1;
-    }
-    add_report(builder, root_dir, source_label);
-    return log_error(log, "output path would write inside %.*s for '%.*s': '%.*s'",
-                     STR_FMT(builder->roots[root_index].label), STR_FMT(source_label),
-                     STR_FMT(output_path));
-  }
-  struct OsIdentity identity;
-  if (identify(output_path, builder->os, &identity) == 0 && builder->input_count > 0 &&
-      bsearch(&identity, builder->input_items, (size_t)builder->input_count,
-              sizeof(*builder->input_items), os_identity_compare) != NULL) {
-    return log_error(log, "output path would overwrite build input for '%.*s': '%.*s'",
-                     STR_FMT(source_label), STR_FMT(output_path));
-  }
-  struct Str source_label_existing = {0};
-  if (manifest_add(builder->manifest, output_path, source_label, builder->perm,
-                   &source_label_existing) != 0) {
-    return log_error(log, "duplicate output path for '%.*s' and '%.*s': '%.*s'",
-                     STR_FMT(source_label_existing), STR_FMT(source_label), STR_FMT(output_path));
-  }
-  return 0;
+  return add_output(builder, relative_path, source_label, &(struct ManifestOutput){0}, scratch,
+                    log);
 }
 
-int manifest_builder_add_files(struct ManifestBuilder* builder,
-                               const struct PathList* paths,
-                               struct Str root_dir,
-                               const bool* is_skipped,
-                               struct Arena scratch,
-                               struct Log* log) {
+int manifest_builder_add_output(struct ManifestBuilder* builder,
+                                struct Str relative_path,
+                                struct Str source_label,
+                                struct Str attributes,
+                                struct Arena scratch,
+                                struct Log* log) {
+  return add_output(builder, relative_path, source_label,
+                    &(struct ManifestOutput){.attributes = attributes}, scratch, log);
+}
+
+int manifest_builder_add_copy(struct ManifestBuilder* builder,
+                              struct Str relative_path,
+                              struct Str source_path,
+                              struct Str source_name,
+                              const struct OsStat* source_stat,
+                              struct Arena scratch,
+                              struct Log* log) {
+  const struct ManifestOutput output = {
+      .attributes = copy_attributes(source_name, source_stat, &scratch),
+      .copy_source_path = source_path,
+      .copy_source_len = source_stat->len,
+  };
+  return add_output(builder, relative_path, source_path, &output, scratch, log);
+}
+
+int manifest_builder_add_copies(struct ManifestBuilder* builder,
+                                const struct PathList* paths,
+                                const struct OsStat* stats,
+                                struct Str root_dir,
+                                const bool* is_skipped,
+                                struct Arena scratch,
+                                struct Log* log) {
   int rc = 0;
   for (ptrdiff_t i = 0; i < paths->count; i++) {
     if (is_skipped != NULL && is_skipped[i]) {
       continue;
     }
-    // The walk lists only files below `root_dir`, so this always finds the relative part.
     struct Str relative = {0};
     (void)path_is_below(paths->items[i], root_dir, &relative);
-    if (manifest_builder_add(builder, relative, paths->items[i], scratch, log) != 0) {
+    // A copy's path below the output is its source's path below the root, which also names it.
+    if (manifest_builder_add_copy(builder, relative, paths->items[i], relative, &stats[i], scratch,
+                                  log) != 0) {
       rc = -1;
     }
   }
@@ -281,6 +309,60 @@ int manifest_builder_finish(const struct ManifestBuilder* builder, struct Log* l
                    STR_FMT(collision.descendant_path));
   }
   return rc;
+}
+
+static int add_output(struct ManifestBuilder* builder,
+                      struct Str relative_path,
+                      struct Str source_label,
+                      const struct ManifestOutput* output,
+                      struct Arena scratch,
+                      struct Log* log) {
+  if (output_path_check_limits(relative_path, source_label, log) != 0) {
+    return -1;
+  }
+  const struct Str output_path = path_join(builder->output_dir, relative_path, &scratch);
+  // The root check runs first, because it is the broader rule: it rejects an output below an input
+  // root whether or not a file already sits there.
+  struct Str root_dir = {0};
+  const ptrdiff_t root_index = find_root_holding_output_path(builder, output_path, &root_dir);
+  if (root_index >= 0) {
+    // An output that reaches the root through a reported directory, from a reported source or one
+    // below it, lands there for the same reason, so it fails without a line of its own. Any other
+    // output is reported, because it may land there for a reason of its own.
+    if (is_reported(builder, root_dir, source_label)) {
+      return -1;
+    }
+    add_report(builder, root_dir, source_label);
+    return log_error(log, "output path would write inside %.*s for '%.*s': '%.*s'",
+                     STR_FMT(builder->roots[root_index].label), STR_FMT(source_label),
+                     STR_FMT(output_path));
+  }
+  struct OsIdentity identity;
+  if (identify(output_path, builder->os, &identity) == 0 && builder->input_count > 0 &&
+      bsearch(&identity, builder->input_items, (size_t)builder->input_count,
+              sizeof(*builder->input_items), os_identity_compare) != NULL) {
+    return log_error(log, "output path would overwrite build input for '%.*s': '%.*s'",
+                     STR_FMT(source_label), STR_FMT(output_path));
+  }
+  struct Str source_label_existing = {0};
+  if (manifest_add_output(builder->manifest, output_path, source_label, output, builder->perm,
+                          &source_label_existing) != 0) {
+    return log_error(log, "duplicate output path for '%.*s' and '%.*s': '%.*s'",
+                     STR_FMT(source_label_existing), STR_FMT(source_label), STR_FMT(output_path));
+  }
+  return 0;
+}
+
+static struct Str copy_attributes(struct Str source_name,
+                                  const struct OsStat* source_stat,
+                                  struct Arena* arena) {
+  if (source_stat->len < 0) {
+    return (struct Str){0};
+  }
+  struct Buf attributes = {.arena = arena};
+  buf_printf(&attributes, "src=%.*s len=%td mtime=%" PRId64 ".%09" PRId64, STR_FMT(source_name),
+             source_stat->len, source_stat->mtime_s, source_stat->mtime_ns);
+  return buf_str(&attributes);
 }
 
 static ptrdiff_t find_root(const struct ManifestRoot* roots,

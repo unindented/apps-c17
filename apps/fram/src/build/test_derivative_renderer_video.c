@@ -119,14 +119,15 @@ static void init_item(struct MediaItem* item,
 }
 
 /**
- * @brief Runs a quiet derivative phase over fresh worker arenas, reading sources up to the media
- *        read limit.
+ * @brief Runs one quiet build's derivative phase below `output_dir`, with the output cache an
+ *        earlier run left.
  *
  * @param site_config  Configured derivatives shared by every job. Must not be `NULL`.
  * @param media        Media items, one job per item. Must not be `NULL`.
  * @param media_count  Number of items in `media`.
  * @param video_frames Video frame slots, one per item in `media`. Must not be `NULL`.
  * @param worker_count Number of worker threads to request.
+ * @param output_dir   Directory every output of `media` is below.
  * @param log          Log that receives derivative errors. Must not be `NULL`.
  * @return The renderer result.
  */
@@ -135,14 +136,12 @@ static int generate(const struct SiteConfig* site_config,
                     ptrdiff_t media_count,
                     struct VideoFrame* video_frames,
                     ptrdiff_t worker_count,
+                    struct Str output_dir,
                     struct Log* log) {
-  struct Arena arenas_perm = test_arena();
   struct Manifest manifest = {0};
-  test_derivative_renderer_record_outputs(&manifest, media, media_count, &arenas_perm);
-  const struct OutputWriter writer = {.manifest = &manifest, .os = os_posix()};
-  return derivative_renderer_generate(&writer, site_config, media, media_count, video_frames,
-                                      worker_count, test_job_arenas(worker_count, &arenas_perm),
-                                      false, os_posix(), test_arena(), log);
+  return test_derivative_renderer_run(site_config, media, media_count, video_frames, worker_count,
+                                      false, &(struct TestDerivativeMode){0}, output_dir,
+                                      os_posix(), &manifest, log);
 }
 
 // A video uses its retained auto-rotated JPEG, copies the actual video original, and unlinks the
@@ -159,6 +158,7 @@ static void test_generate_video_unlinks_frame_on_success_and_failure(void) {
   struct MediaItem item;
   struct Str jpeg = {0};
   const struct Str frame_path = fixture_path(root_dir, "frame.jpg", &arena);
+  const struct Str output_dir = fixture_path(root_dir, "public", &arena);
   struct SiteConfig site_config;
   test_derivative_renderer_init_config(&site_config, 2, 2, 8, 8, 82);
   struct MediaItem* media[] = {&item};
@@ -177,11 +177,12 @@ static void test_generate_video_unlinks_frame_on_success_and_failure(void) {
     goto cleanup;
   }
 
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, &log) == 0);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, output_dir, &log) == 0);
   TEST_CHECK(!frames[0].is_created);
   TEST_CHECK(access(frame_path.data, F_OK) != 0);
 
-  // Force all derivatives stale, then hand the next job an invalid retained frame.
+  // Empty every derivative, so none has the size its cache row records, and give the original the
+  // wrong size, then hand the next job an invalid retained frame.
   for (ptrdiff_t i = 0; i < item.derivative_count; i++) {
     if (write_fixture_bytes(item.derivatives[i].path, S("")) != 0) {
       goto cleanup;
@@ -193,7 +194,7 @@ static void test_generate_video_unlinks_frame_on_success_and_failure(void) {
   }
   frames[0].is_created = true;
   TEST_CHECK(test_log_is_empty(&log));
-  TEST_CHECK(generate(&site_config, media, 1, frames, 1, &failure_log) == -1);
+  TEST_CHECK(generate(&site_config, media, 1, frames, 1, output_dir, &failure_log) == -1);
   TEST_CHECK(!frames[0].is_created);
   TEST_CHECK(access(frame_path.data, F_OK) != 0);
   // The decoder's own reason sits between the operation and the frame path, so only those two ends
