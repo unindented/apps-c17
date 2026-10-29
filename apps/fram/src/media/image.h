@@ -267,6 +267,18 @@ int image_encode_webp(const struct Image* image,
                       struct Log* log) __attribute__((nonnull(1, 3, 4, 7)));
 
 /**
+ * @brief Returns the versions of the two codecs whose code decides a derivative's bytes, as
+ *        `jpeg=<version> webp=<version>`.
+ *
+ * A derivative declares them in its attributes, so an upgrade of libjpeg-turbo or of libwebp makes
+ * every derivative again without a bump of `DERIVATIVE_RECIPE_VERSION`.
+ *
+ * @param arena Arena that owns the text. Must not be `NULL`.
+ * @return The versions.
+ */
+struct Str image_codec_versions(struct Arena* arena) __attribute__((nonnull(1)));
+
+/**
  * @brief Fits dimensions within a box without enlarging or changing aspect ratio.
  *
  * All input dimensions must be from 1 through `IMAGE_DIMENSION_MAX`.

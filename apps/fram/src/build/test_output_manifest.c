@@ -15,6 +15,7 @@
 #include "domain/album.h"
 #include "domain/media_item.h"
 #include "domain/site_config.h"
+#include "media/image.h"
 #include "os/os.h"
 #include "os/os_memory.h"
 #include "output/manifest.h"
@@ -217,9 +218,10 @@ static void test_registers_complete_output_set(void) {
   // The seven outputs of the gallery, and the output cache.
   TEST_CHECK(manifest.count == 7 + 1);
   struct ManifestOutput output = {0};
+  const struct Str derivative_attributes =
+      str_concat(S("src=x.jpg len=6 mtime=12.000000005 "), image_codec_versions(&arena), &arena);
   TEST_CHECK(manifest_find_output(&manifest, derivatives[1].path, &output) &&
-             str_eq(output.attributes, S("src=x.jpg len=6 mtime=12.000000005")) &&
-             output.copy_source_path.len == 0);
+             str_eq(output.attributes, derivative_attributes) && output.copy_source_path.len == 0);
   TEST_CHECK(manifest_find_output(&manifest, media.original_path, &output) &&
              str_eq(output.attributes, S("src=x.jpg len=6 mtime=12.000000005")) &&
              str_eq(output.copy_source_path, media.source_path));

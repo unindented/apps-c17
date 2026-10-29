@@ -11,6 +11,7 @@
 #include "domain/album.h"
 #include "domain/media_item.h"
 #include "domain/site_config.h"
+#include "media/image.h"
 #include "os/os.h"
 #include "output/manifest_builder.h"
 
@@ -204,9 +205,13 @@ static int output_manifest_populate_album(struct ManifestBuilder* builder,
     // and moving the whole gallery makes none.
     struct Str source_name = {0};
     (void)path_is_below(media->source_path, media_dir, &source_name);
+    // The codecs' versions are part of a derivative's recipe, so an upgrade of either makes it
+    // again. A copied original holds the source's bytes, so its attributes need no versions.
+    const struct Str codec_versions = image_codec_versions(&media_scratch);
     struct Buf attributes = {.arena = &media_scratch};
-    buf_printf(&attributes, "src=%.*s len=%td mtime=%" PRId64 ".%09" PRId64, STR_FMT(source_name),
-               source_stat->len, source_stat->mtime_s, source_stat->mtime_ns);
+    buf_printf(&attributes, "src=%.*s len=%td mtime=%" PRId64 ".%09" PRId64 " %.*s",
+               STR_FMT(source_name), source_stat->len, source_stat->mtime_s, source_stat->mtime_ns,
+               STR_FMT(codec_versions));
     int media_rc = 0;
     for (ptrdiff_t j = 0; media_rc == 0 && j < media->derivative_count; j++) {
       struct Str relative = {0};

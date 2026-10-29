@@ -621,7 +621,14 @@ static void test_image_orient_top_left_keeps_buffer(void) {
 }
 
 // A pixel allocation that cannot succeed ends in `os_oom`, as every other allocation does, rather
-// than returning `NULL` to a caller that would report a decode error.
+// than returning `NULL` to a caller that would report a decode error. The codec versions name the
+// vendored releases, so a vendor upgrade of either fails this test until it names the new release,
+// which every derivative then declares.
+static void test_image_codec_versions_name_the_vendored_releases(void) {
+  struct Arena arena = test_arena();
+  TEST_CHECK(str_eq(image_codec_versions(&arena), S("jpeg=3.2.0 webp=1.6.0")));
+}
+
 static void test_image_alloc_ends_in_oom(void) {
   TEST_CHECK(test_is_oom(alloc_beyond_object_len, NULL));
 }
@@ -658,6 +665,8 @@ TEST_LIST = {
     {"image resize constant color", test_image_resize_constant_color},
     {"image center crop geometry", test_image_center_crop_geometry},
     {"image resize center region", test_image_resize_center_region},
+    {"image codec versions name the vendored releases",
+     test_image_codec_versions_name_the_vendored_releases},
     {"image orient all eight values", test_image_orient_all_eight_values},
     {"image orient size", test_image_orient_size},
     {"image orient top left keeps buffer", test_image_orient_top_left_keeps_buffer},

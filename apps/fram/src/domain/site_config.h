@@ -26,8 +26,10 @@ extern const struct Str SITE_CONFIG_PATH_DEFAULT;
 
 /**
  * Stable derivative recipe version, which every derivative's path names. Increment it when a
- * derivative's bytes change for the same source and settings: a change to the resize, the WebP
- * settings or the decode-scale rule, or a libwebp upgrade.
+ * derivative's bytes change for the same source and settings because of fram's own code or the
+ * vendored resizer: a change to the resize, the WebP settings or the decode-scale rule, or an
+ * upgrade of stb_image_resize2. An upgrade of libjpeg-turbo or libwebp needs no bump, because each
+ * derivative declares their versions (`image_codec_versions`).
  */
 enum { DERIVATIVE_RECIPE_VERSION = 2 };
 

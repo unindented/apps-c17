@@ -381,6 +381,16 @@ int image_encode_webp(const struct Image* image,
   return 0;
 }
 
+struct Str image_codec_versions(struct Arena* arena) {
+  // libjpeg-turbo packs its version as `MMMmmmppp`, and libwebp's encoder as `0xMMmmpp`.
+  const int jpeg = LIBJPEG_TURBO_VERSION_NUMBER;
+  const int webp = WebPGetEncoderVersion();
+  struct Buf text = {.arena = arena};
+  buf_printf(&text, "jpeg=%d.%d.%d webp=%d.%d.%d", jpeg / 1000000, jpeg / 1000 % 1000, jpeg % 1000,
+             (webp >> 16) & 0xff, (webp >> 8) & 0xff, webp & 0xff);
+  return buf_str(&text);
+}
+
 void image_fit(ptrdiff_t width_px,
                ptrdiff_t height_px,
                ptrdiff_t width_px_max,

@@ -190,7 +190,7 @@ A dry run writes nothing, so a build can still fail after a dry run succeeds. A 
 
 A build writes the output cache to `_fram/output-cache.tsv` below `output_dir`, even when the build fails after it creates `output_dir`. The next build reads it to decide what to keep:
 
-- A derivative is kept while its media file has the path, size and modification time that the cache recorded, and the derivative still has the size that the cache recorded. Its settings are in its path, so a changed setting makes a new derivative.
+- A derivative is kept while its media file has the path, size and modification time that the cache recorded, and the derivative still has the size that the cache recorded. Its settings are in its path, so a changed setting makes a new derivative. The cache also records the versions of libjpeg-turbo and libwebp, so a `fram` built with a new release of either makes every derivative again.
 - A copied original or static file is kept in the same way, by its source.
 - A page or an aggregate is rendered on every build, but it is written only when its bytes change.
 - What a probe read from a media file, its dimensions, its EXIF orientation and the duration of a video, is reused while the file has the size and modification time that the cache recorded, and the same `fram` version wrote the cache. Thus the build does not read an unchanged photo and does not run `ffprobe` for an unchanged video.

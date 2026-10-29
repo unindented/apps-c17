@@ -273,25 +273,32 @@ static const char* const OUTPUT_CACHE_FILE = "public/_fram/output-cache.tsv";
  * @brief Appends the output cache's row of `public/<output_name>`, made from
  *        `<source_root>/<source_name>`, with the sizes and the time that `os_stat` reports now.
  *
- * @param text        Text that receives the row. Must not be `NULL`.
- * @param os          Host to inspect. Must not be `NULL`.
- * @param output_name Terminated path of the output below `public`. Must not be `NULL`.
- * @param source_root Terminated root the source is below, such as `photos`. Must not be `NULL`.
- * @param source_name Terminated path of the source below `source_root`. Must not be `NULL`.
+ * A derivative's attributes also name the codecs' versions, which a copied original's do not.
+ *
+ * @param text          Text that receives the row. Must not be `NULL`.
+ * @param os            Host to inspect. Must not be `NULL`.
+ * @param output_name   Terminated path of the output below `public`. Must not be `NULL`.
+ * @param source_root   Terminated root the source is below, such as `photos`. Must not be `NULL`.
+ * @param source_name   Terminated path of the source below `source_root`. Must not be `NULL`.
+ * @param is_derivative Whether the output is a derivative rather than a copied original.
  */
 static void append_cache_row(struct Buf* text,
                              struct Os* os,
                              const char* output_name,
                              const char* source_root,
-                             const char* source_name) {
+                             const char* source_name,
+                             bool is_derivative) {
   struct Arena arena = test_arena();
   struct OsStat source = {0};
   struct OsStat output = {0};
   TEST_CHECK(os_stat(os, path_join(str_from_cstr(source_root), str_from_cstr(source_name), &arena),
                      &source) == 0);
   TEST_CHECK(os_stat(os, path_join(S("public"), str_from_cstr(output_name), &arena), &output) == 0);
-  buf_printf(text, "output\t%s\tsrc=%s len=%td mtime=%lld.%09lld\t%td\n", output_name, source_name,
-             source.len, (long long)source.mtime_s, (long long)source.mtime_ns, output.len);
+  const struct Str versions =
+      is_derivative ? str_concat(S(" "), image_codec_versions(&arena), &arena) : (struct Str){0};
+  buf_printf(text, "output\t%s\tsrc=%s len=%td mtime=%lld.%09lld%.*s\t%td\n", output_name,
+             source_name, source.len, (long long)source.mtime_s, (long long)source.mtime_ns,
+             STR_FMT(versions), output.len);
 }
 
 /**
@@ -335,9 +342,9 @@ static void append_cache_photo_rows(struct Buf* text, struct Os* os, const char*
   struct Buf small = {.arena = &arena};
   buf_printf(&small, DERIVATIVE_DIR "/album/%s-jpg-s.webp", stem);
   const char* source_name = buf_cstr(&name);
-  append_cache_row(text, os, buf_cstr(&original), "photos", source_name);
-  append_cache_row(text, os, buf_cstr(&medium), "photos", source_name);
-  append_cache_row(text, os, buf_cstr(&small), "photos", source_name);
+  append_cache_row(text, os, buf_cstr(&original), "photos", source_name, false);
+  append_cache_row(text, os, buf_cstr(&medium), "photos", source_name, true);
+  append_cache_row(text, os, buf_cstr(&small), "photos", source_name, true);
 }
 
 /**
@@ -854,8 +861,10 @@ static void test_failed_copy_gets_no_row(void) {
       strerror(ENOSPC)));
   struct Buf cache = {.arena = &arena};
   buf_append(&cache, S("output cache v1\n"));
-  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/one-jpg-m.webp", "photos", "album/one.jpg");
-  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/one-jpg-s.webp", "photos", "album/one.jpg");
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/one-jpg-m.webp", "photos", "album/one.jpg",
+                   true);
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/one-jpg-s.webp", "photos", "album/one.jpg",
+                   true);
   append_cache_fact(&cache, os, "album/one.jpg", "width=12 height=24 orientation=1 duration_ms=0");
   TEST_CHECK(os_memory_is_file(os, OUTPUT_CACHE_FILE, buf_cstr(&cache)));
 
@@ -1061,12 +1070,18 @@ static void test_changed_source_remakes_its_outputs(void) {
   TEST_CHECK(is_untouched(os, two_s, &two_before));
   struct Buf cache = {.arena = &arena};
   buf_append(&cache, S("output cache v1\n"));
-  append_cache_row(&cache, os, "_fram/originals/album/one-jpg.jpg", "photos", "album/one.jpg");
-  append_cache_row(&cache, os, "_fram/originals/album/two-jpg.jpg", "photos", "album/two.jpg");
-  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/one-jpg-m.webp", "photos", "album/one.jpg");
-  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/one-jpg-s.webp", "photos", "album/one.jpg");
-  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/two-jpg-m.webp", "photos", "album/two.jpg");
-  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/two-jpg-s.webp", "photos", "album/two.jpg");
+  append_cache_row(&cache, os, "_fram/originals/album/one-jpg.jpg", "photos", "album/one.jpg",
+                   false);
+  append_cache_row(&cache, os, "_fram/originals/album/two-jpg.jpg", "photos", "album/two.jpg",
+                   false);
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/one-jpg-m.webp", "photos", "album/one.jpg",
+                   true);
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/one-jpg-s.webp", "photos", "album/one.jpg",
+                   true);
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/two-jpg-m.webp", "photos", "album/two.jpg",
+                   true);
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/two-jpg-s.webp", "photos", "album/two.jpg",
+                   true);
   append_cache_fact(&cache, os, "album/one.jpg", "width=12 height=24 orientation=1 duration_ms=0");
   append_cache_fact(&cache, os, "album/two.jpg", "width=24 height=12 orientation=1 duration_ms=0");
   TEST_CHECK(os_memory_is_file(os, OUTPUT_CACHE_FILE, buf_cstr(&cache)));
@@ -1116,12 +1131,12 @@ static void test_rewrites_probe_facts_without_deleted_sources(void) {
   TEST_CHECK(test_log_is_empty(&log));
   struct Buf cache = {.arena = &arena};
   buf_append(&cache, S("output cache v1\n"));
-  append_cache_row(&cache, os, "_fram/originals/album/a-jpg.jpg", "photos", "album/a.jpg");
-  append_cache_row(&cache, os, "_fram/originals/album/c-jpg.jpg", "photos", "album/c.jpg");
-  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/a-jpg-m.webp", "photos", "album/a.jpg");
-  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/a-jpg-s.webp", "photos", "album/a.jpg");
-  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/c-jpg-m.webp", "photos", "album/c.jpg");
-  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/c-jpg-s.webp", "photos", "album/c.jpg");
+  append_cache_row(&cache, os, "_fram/originals/album/a-jpg.jpg", "photos", "album/a.jpg", false);
+  append_cache_row(&cache, os, "_fram/originals/album/c-jpg.jpg", "photos", "album/c.jpg", false);
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/a-jpg-m.webp", "photos", "album/a.jpg", true);
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/a-jpg-s.webp", "photos", "album/a.jpg", true);
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/c-jpg-m.webp", "photos", "album/c.jpg", true);
+  append_cache_row(&cache, os, DERIVATIVE_DIR "/album/c-jpg-s.webp", "photos", "album/c.jpg", true);
   append_cache_fact(&cache, os, "album/a.jpg", "width=24 height=12 orientation=1 duration_ms=0");
   append_cache_fact(&cache, os, "album/c.jpg", "width=24 height=12 orientation=1 duration_ms=0");
   TEST_CHECK(os_memory_is_file(os, OUTPUT_CACHE_FILE, buf_cstr(&cache)));
