@@ -25,6 +25,23 @@ url = "https://github.com/fardaniqbal/copt"
 commit = "1b466222f51ac59cc6c972d68afa340b4e024d71"
 files = ["LICENSE", "copt.h"]
 
+[libgit2]
+url = "https://github.com/libgit2/libgit2"
+release = "1.9.7"
+commit = "49e408b3208bc3093757a1c2db938d3590f3f412"
+files = [
+  "CMakeLists.txt",
+  "COPYING",
+  "cmake/**/*",
+  "deps/llhttp/**/*",
+  "deps/xdiff/**/*",
+  "deps/zlib/**/*",
+  "include/**/*",
+  "src/CMakeLists.txt",
+  "src/libgit2/**/*",
+  "src/util/**/*",
+]
+
 [libjpeg-turbo]
 url = "https://github.com/libjpeg-turbo/libjpeg-turbo"
 release = "3.2.0"

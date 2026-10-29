@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<id>{{feed.id}}</id>
+<title>{{repo.name}}: commits on {{ref.name}}</title>
+<link rel="self" href="{{feed.url}}"/>
+<link rel="alternate" type="text/html" href="{{feed.html_url}}"/>
+<updated>{{feed.modified}}</updated>
+<generator>{{generator}}</generator>
+<author><name>{{site.author}}</name></author>
+{{>feed-entries}}
+</feed>

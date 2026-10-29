@@ -1,0 +1,86 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="generator" content="surge @PROJECT_VERSION@">
+<link rel="stylesheet" href="../../../style.css">
+<title>Add a table over the diff caps &middot; showcase &middot; Fixture code</title>
+</head>
+<body>
+<header><a href="../../../index.html">Fixture code</a> / <a href="../../../showcase/index.html">showcase</a> &middot; <a href="../../../showcase/branches/index.html">branches</a> &middot; <a href="../../../showcase/tags/index.html">tags</a> &middot; <a href="../../../showcase/commits/main/index.html">commits</a> &middot; <a href="../../../showcase/releases/index.html">releases</a></header>
+<h1>Add a table over the diff caps</h1>
+
+<p>Grace Hopper authored <time>2026-01-09T12:00:00+01:00</time>; Grace Hopper committed <time>2026-01-09T12:00:00+01:00</time></p>
+<p>commit <code>aa02d29453a240bab99ef9357b50480a5ada392e</code> &middot; parent <a href="../../../showcase/commit/730686c20ef19f0b7e4fccd7f6ccde465f692e0b/index.html">730686c</a></p>
+<p>1 files changed, +50 -0 &middot; the diff is truncated</p>
+<details open><summary>Changed files</summary>
+<ul>
+<li><details open><summary>lib/</summary><ul>
+<li><a class="added" href="#diff-0">table.c</a> +50 -0</li>
+</ul>
+</details></li>
+</ul>
+
+</details>
+<section id="diff-0">
+<h2>lib/table.c <span class="added">added</span></h2>
+
+
+
+<pre class="surge-diff"><code><span class="code-line surge-hunk"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text">@@ -0,0 +1,60 @@
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R1" href="#diff-0-hunk-0-R1">1</a></span><span class="code-line-text">+int row_00 = 0;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R2" href="#diff-0-hunk-0-R2">2</a></span><span class="code-line-text">+int row_01 = 1;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R3" href="#diff-0-hunk-0-R3">3</a></span><span class="code-line-text">+int row_02 = 2;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R4" href="#diff-0-hunk-0-R4">4</a></span><span class="code-line-text">+int row_03 = 3;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R5" href="#diff-0-hunk-0-R5">5</a></span><span class="code-line-text">+int row_04 = 4;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R6" href="#diff-0-hunk-0-R6">6</a></span><span class="code-line-text">+int row_05 = 5;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R7" href="#diff-0-hunk-0-R7">7</a></span><span class="code-line-text">+int row_06 = 6;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R8" href="#diff-0-hunk-0-R8">8</a></span><span class="code-line-text">+int row_07 = 7;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R9" href="#diff-0-hunk-0-R9">9</a></span><span class="code-line-text">+int row_08 = 8;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R10" href="#diff-0-hunk-0-R10">10</a></span><span class="code-line-text">+int row_09 = 9;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R11" href="#diff-0-hunk-0-R11">11</a></span><span class="code-line-text">+int row_10 = 10;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R12" href="#diff-0-hunk-0-R12">12</a></span><span class="code-line-text">+int row_11 = 11;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R13" href="#diff-0-hunk-0-R13">13</a></span><span class="code-line-text">+int row_12 = 12;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R14" href="#diff-0-hunk-0-R14">14</a></span><span class="code-line-text">+int row_13 = 13;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R15" href="#diff-0-hunk-0-R15">15</a></span><span class="code-line-text">+int row_14 = 14;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R16" href="#diff-0-hunk-0-R16">16</a></span><span class="code-line-text">+int row_15 = 15;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R17" href="#diff-0-hunk-0-R17">17</a></span><span class="code-line-text">+int row_16 = 16;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R18" href="#diff-0-hunk-0-R18">18</a></span><span class="code-line-text">+int row_17 = 17;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R19" href="#diff-0-hunk-0-R19">19</a></span><span class="code-line-text">+int row_18 = 18;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R20" href="#diff-0-hunk-0-R20">20</a></span><span class="code-line-text">+int row_19 = 19;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R21" href="#diff-0-hunk-0-R21">21</a></span><span class="code-line-text">+int row_20 = 20;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R22" href="#diff-0-hunk-0-R22">22</a></span><span class="code-line-text">+int row_21 = 21;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R23" href="#diff-0-hunk-0-R23">23</a></span><span class="code-line-text">+int row_22 = 22;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R24" href="#diff-0-hunk-0-R24">24</a></span><span class="code-line-text">+int row_23 = 23;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R25" href="#diff-0-hunk-0-R25">25</a></span><span class="code-line-text">+int row_24 = 24;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R26" href="#diff-0-hunk-0-R26">26</a></span><span class="code-line-text">+int row_25 = 25;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R27" href="#diff-0-hunk-0-R27">27</a></span><span class="code-line-text">+int row_26 = 26;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R28" href="#diff-0-hunk-0-R28">28</a></span><span class="code-line-text">+int row_27 = 27;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R29" href="#diff-0-hunk-0-R29">29</a></span><span class="code-line-text">+int row_28 = 28;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R30" href="#diff-0-hunk-0-R30">30</a></span><span class="code-line-text">+int row_29 = 29;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R31" href="#diff-0-hunk-0-R31">31</a></span><span class="code-line-text">+int row_30 = 30;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R32" href="#diff-0-hunk-0-R32">32</a></span><span class="code-line-text">+int row_31 = 31;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R33" href="#diff-0-hunk-0-R33">33</a></span><span class="code-line-text">+int row_32 = 32;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R34" href="#diff-0-hunk-0-R34">34</a></span><span class="code-line-text">+int row_33 = 33;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R35" href="#diff-0-hunk-0-R35">35</a></span><span class="code-line-text">+int row_34 = 34;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R36" href="#diff-0-hunk-0-R36">36</a></span><span class="code-line-text">+int row_35 = 35;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R37" href="#diff-0-hunk-0-R37">37</a></span><span class="code-line-text">+int row_36 = 36;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R38" href="#diff-0-hunk-0-R38">38</a></span><span class="code-line-text">+int row_37 = 37;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R39" href="#diff-0-hunk-0-R39">39</a></span><span class="code-line-text">+int row_38 = 38;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R40" href="#diff-0-hunk-0-R40">40</a></span><span class="code-line-text">+int row_39 = 39;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R41" href="#diff-0-hunk-0-R41">41</a></span><span class="code-line-text">+int row_40 = 40;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R42" href="#diff-0-hunk-0-R42">42</a></span><span class="code-line-text">+int row_41 = 41;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R43" href="#diff-0-hunk-0-R43">43</a></span><span class="code-line-text">+int row_42 = 42;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R44" href="#diff-0-hunk-0-R44">44</a></span><span class="code-line-text">+int row_43 = 43;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R45" href="#diff-0-hunk-0-R45">45</a></span><span class="code-line-text">+int row_44 = 44;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R46" href="#diff-0-hunk-0-R46">46</a></span><span class="code-line-text">+int row_45 = 45;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R47" href="#diff-0-hunk-0-R47">47</a></span><span class="code-line-text">+int row_46 = 46;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R48" href="#diff-0-hunk-0-R48">48</a></span><span class="code-line-text">+int row_47 = 47;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R49" href="#diff-0-hunk-0-R49">49</a></span><span class="code-line-text">+int row_48 = 48;
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R50" href="#diff-0-hunk-0-R50">50</a></span><span class="code-line-text">+int row_49 = 49;
+</span></span></code></pre>
+
+<p>Truncated here: the diff passes its limits.</p>
+</section>
+</body>
+</html>

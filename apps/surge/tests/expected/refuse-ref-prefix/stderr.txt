@@ -1,0 +1,8 @@
+loading config
+discovering templates and static files
+compiling templates
+loading build cache
+no build cache, making every output
+scanning repos, workers: 1
+scanning repos 1/1
+ref 'refs/heads/feature' is a prefix of ref 'refs/heads/feature/x' (in repo 'ref-prefix')

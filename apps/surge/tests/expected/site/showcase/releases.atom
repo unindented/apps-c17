@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<id>https://git.example.org/showcase/releases.atom</id>
+<title>showcase: releases</title>
+<link rel="self" href="https://git.example.org/showcase/releases.atom"/>
+<link rel="alternate" type="text/html" href="https://git.example.org/showcase/releases/index.html"/>
+<updated>2026-01-07T13:00:00+01:00</updated>
+<generator>surge @PROJECT_VERSION@</generator>
+<author><name>Fixture author</name></author>
+<entry>
+<id>https://git.example.org/showcase/releases/tag/v0.2.0/index.html</id>
+<title>v0.2.0</title>
+<link href="https://git.example.org/showcase/releases/tag/v0.2.0/index.html"/>
+<updated>2026-01-07T13:00:00+01:00</updated>
+<author><name>Ada Lovelace</name></author>
+<content type="html" xml:base="https://git.example.org/showcase/releases/tag/v0.2.0/index.html">&lt;p&gt;Release 0.2.0&lt;/p&gt;
+&lt;p&gt;The &lt;strong&gt;first&lt;/strong&gt; release with a &lt;a href=&quot;feature.txt&quot;&gt;feature&lt;/a&gt;.&lt;/p&gt;
+</content>
+</entry>
+<entry>
+<id>https://git.example.org/showcase/releases/tag/v0.1.0/index.html</id>
+<title>v0.1.0</title>
+<link href="https://git.example.org/showcase/releases/tag/v0.1.0/index.html"/>
+<updated>2026-01-03T12:00:00+01:00</updated>
+<author><name>Ada Lovelace</name></author>
+</entry>
+</feed>

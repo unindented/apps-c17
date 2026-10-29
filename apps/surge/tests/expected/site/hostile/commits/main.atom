@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<id>https://git.example.org/hostile/commits/main.atom</id>
+<title>hostile: commits on main</title>
+<link rel="self" href="https://git.example.org/hostile/commits/main.atom"/>
+<link rel="alternate" type="text/html" href="https://git.example.org/hostile/commits/main/index.html"/>
+<updated>2026-01-09T23:00:00Z</updated>
+<generator>surge @PROJECT_VERSION@</generator>
+<author><name>Fixture author</name></author>
+<entry>
+<id>https://git.example.org/hostile/commit/336cc2efb3c450f9ef1a9da4b3e578093f3795b0/index.html</id>
+<title>Add names that git refuses</title>
+<link href="https://git.example.org/hostile/commit/336cc2efb3c450f9ef1a9da4b3e578093f3795b0/index.html"/>
+<updated>2026-01-09T23:00:00Z</updated>
+<author><name>Ada Lovelace</name></author>
+<content type="text">Each of them is a blob next to the stream&#39;s entries.</content>
+</entry>
+<entry>
+<id>https://git.example.org/hostile/commit/c2914601eb8581519ca31d8a4672eda4d420f5e1/index.html</id>
+<title>Add colliding and long names</title>
+<link href="https://git.example.org/hostile/commit/c2914601eb8581519ca31d8a4672eda4d420f5e1/index.html"/>
+<updated>2026-01-01T12:00:00+01:00</updated>
+<author><name>Ada Lovelace</name></author>
+</entry>
+</feed>

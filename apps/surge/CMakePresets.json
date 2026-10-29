@@ -1,0 +1,34 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "include": ["../../cmake/release-presets.json"],
+  "configurePresets": [
+    {
+      "name": "grammars",
+      "inherits": "release",
+      "displayName": "Release with only the TypeScript grammar",
+      "cacheVariables": {
+        "APPS_GRAMMARS": "typescript"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "grammars",
+      "configurePreset": "grammars"
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "ci-grammars",
+      "steps": [
+        { "type": "configure", "name": "grammars" },
+        { "type": "build", "name": "grammars" }
+      ]
+    }
+  ]
+}

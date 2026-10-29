@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<head>
+{{>head}}
+<title>Branches &middot; {{repo.name}} &middot; {{site.title}}</title>
+</head>
+<body>
+{{>repo-nav}}
+<table class="branches"><tbody>
+{{#branches}}
+<tr><td>{{#tree_url}}<a href="{{tree_url}}">{{name}}</a>{{/tree_url}}{{^tree_url}}{{name}}{{/tree_url}}{{#is_default}} (default){{/is_default}}</td><td><a href="{{commit.url}}">{{commit.short_oid}}</a> {{commit.subject}}</td><td>{{author}}</td><td><time>{{date}}</time></td><td>{{#commits_url}}<a href="{{commits_url}}">commits</a>{{/commits_url}}</td></tr>
+{{/branches}}
+</tbody></table>
+</body>
+</html>

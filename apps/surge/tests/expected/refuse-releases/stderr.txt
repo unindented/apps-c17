@@ -1,0 +1,2 @@
+loading config
+failed to resolve config directory 'repo[0].releases_dir': not a directory ('releases')

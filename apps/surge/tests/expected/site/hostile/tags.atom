@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<id>https://git.example.org/hostile/tags.atom</id>
+<title>hostile: tags</title>
+<link rel="self" href="https://git.example.org/hostile/tags.atom"/>
+<link rel="alternate" type="text/html" href="https://git.example.org/hostile/tags/index.html"/>
+<updated>2026-01-10T00:00:00Z</updated>
+<generator>surge @PROJECT_VERSION@</generator>
+<author><name>Fixture author</name></author>
+<entry>
+<id>https://git.example.org/hostile/tags/index.html#signed</id>
+<title>signed</title>
+<link href="https://git.example.org/hostile/commit/981b5711e339159fdaa6ada1e712eb54d027a64c/index.html"/>
+<updated>2026-01-10T00:00:00Z</updated>
+<author><name>Ada Lovelace</name></author>
+</entry>
+</feed>

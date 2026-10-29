@@ -10,6 +10,7 @@ RUN apt-get update \
       cppcheck \
       ffmpeg \
       "gcc-${GCC_VERSION}" \
+      git \
       libc6-dev \
       make \
       nasm \
@@ -51,6 +52,29 @@ RUN case "$(uname -m)" in \
     && sha256sum --check --quiet cwrap.sha256 \
     && tar -xzf "${archive}" -C /usr/local --strip-components=1 --no-same-owner \
       "cwrap-${CWRAP_VERSION}-${target}/bin/cwrap" \
+    && cd / \
+    && rm -rf "${dir}"
+
+# mise has no distribution package either. surge's golden test installs a release project with it,
+# so the image installs a pinned release and checks its archive against `SHASUMS256.txt`.
+ARG MISE_VERSION=2026.11.0
+RUN case "$(uname -m)" in \
+      x86_64) target=linux-x64-musl ;; \
+      aarch64) target=linux-arm64-musl ;; \
+      *) echo "no mise release for $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && archive="mise-v${MISE_VERSION}-${target}.tar.gz" \
+    && release="https://github.com/jdx/mise/releases/download/v${MISE_VERSION}" \
+    && dir="$(mktemp -d)" \
+    && cd "${dir}" \
+    && wget --quiet "${release}/${archive}" "${release}/SHASUMS256.txt" \
+    && awk -v archive="./${archive}" '$2 == archive { print $1 "  " substr($2, 3) }' \
+      SHASUMS256.txt > mise.sha256 \
+    && if [ ! -s mise.sha256 ]; then \
+      echo "no digest for '${archive}' in the SHASUMS256.txt of mise v${MISE_VERSION}" >&2; exit 1; \
+    fi \
+    && sha256sum --check --quiet mise.sha256 \
+    && tar -xzf "${archive}" -C /usr/local --strip-components=1 --no-same-owner mise/bin/mise \
     && cd / \
     && rm -rf "${dir}"
 

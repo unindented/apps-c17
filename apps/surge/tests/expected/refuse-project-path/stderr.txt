@@ -1,0 +1,8 @@
+loading config
+discovering templates and static files
+compiling templates
+loading build cache
+no build cache, making every output
+scanning repos, workers: 1
+scanning repos 1/1
+config key 'repo[0].project[1].path' names no directory with a tree page on the default branch: 'docs/missing' (in repo 'showcase', branch 'main')

@@ -9,6 +9,7 @@ on:
       - "sosig-v*"
       - "fram-v*"
       - "cwrap-v*"
+      - "surge-v*"
   workflow_dispatch:
     inputs:
       app:
@@ -19,6 +20,7 @@ on:
           - sosig
           - fram
           - cwrap
+          - surge
       version:
         description: "Version of an existing tag to publish again, for example v0.1.0"
         required: false
@@ -52,6 +54,7 @@ jobs:
       macos_packages: ${{ steps.app.outputs.macos_packages }}
       tsan: ${{ steps.app.outputs.tsan }}
       grammars: ${{ steps.app.outputs.grammars }}
+      mise: ${{ steps.app.outputs.mise }}
       matrix: ${{ steps.targets.outputs.matrix }}
       target_count: ${{ steps.targets.outputs.count }}
     steps:
@@ -105,7 +108,7 @@ jobs:
           fi
 
           case "$app" in
-            sosig | fram | cwrap) ;;
+            sosig | fram | cwrap | surge) ;;
             *)
               echo "unknown app '$app'" >&2
               exit 1
@@ -166,8 +169,13 @@ jobs:
           macos_packages=""
           tsan=true
           grammars=false
+          mise=false
           case "$APP" in
             sosig) grammars=true ;;
+            surge)
+              grammars=true
+              mise=true
+              ;;
             fram)
               linux_packages="ffmpeg nasm"
               macos_packages="ffmpeg"
@@ -179,6 +187,7 @@ jobs:
             echo "macos_packages=$macos_packages"
             echo "tsan=$tsan"
             echo "grammars=$grammars"
+            echo "mise=$mise"
           } >> "$GITHUB_OUTPUT"
 
   ci:
@@ -192,6 +201,7 @@ jobs:
       macos-packages: ${{ needs.resolve.outputs.macos_packages }}
       tsan: ${{ needs.resolve.outputs.tsan == 'true' }}
       grammars: ${{ needs.resolve.outputs.grammars == 'true' }}
+      mise: ${{ needs.resolve.outputs.mise == 'true' }}
       cwrap: ${{ !inputs.without_cwrap }}
 
   package:
@@ -348,6 +358,34 @@ jobs:
           cmake -DCWRAP_EXECUTABLE="$BIN" -DCWRAP_EMULATOR="$EMULATOR" \
             -DCWRAP_FIXTURE_DIR="$PWD/tests/fixtures" -DCWRAP_EXPECTED_DIR="$PWD/tests/expected" \
             -DCWRAP_SCRATCH_DIR="$TMP/golden" -P cmake/cwrap_run_golden.cmake
+
+      - name: Smoke test packaged binary (surge)
+        if: needs.resolve.outputs.app == 'surge'
+        shell: bash
+        env:
+          BIN: ${{ steps.unpack.outputs.bin }}
+          EMULATOR: ${{ steps.unpack.outputs.emulator }}
+          TMP: ${{ steps.unpack.outputs.tmp }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Every fixture site in the golden test suite, built by the installed binary rather than
+          # a build-tree binary, over fixture repositories made with the runner's git. A site the
+          # build must refuse has only its expected `stderr.txt`.
+          for fixture in tests/fixtures/*; do
+            site=$(basename "$fixture")
+            expected="$PWD/tests/expected/$site"
+            args=(
+              -DSURGE_EXECUTABLE="$BIN" -DSURGE_EMULATOR="$EMULATOR"
+              -DSURGE_GIT="$(command -v git)" -DSURGE_VERSION="$VERSION"
+              -DSURGE_SITE_DIR="$PWD/$fixture" -DSURGE_EXPECTED_DIR="$expected"
+              -DSURGE_FIXTURE_STREAMS_DIR="$PWD/tests/repos" -DSURGE_SCRATCH_DIR="$TMP/$site"
+            )
+            if [ -f "$expected/stderr.txt" ]; then
+              args+=(-DSURGE_EXPECTED_STDERR="$expected/stderr.txt")
+            fi
+            cmake "${args[@]}" -P cmake/surge_run_golden.cmake
+          done
 
       - name: Verify archive contents
         shell: bash

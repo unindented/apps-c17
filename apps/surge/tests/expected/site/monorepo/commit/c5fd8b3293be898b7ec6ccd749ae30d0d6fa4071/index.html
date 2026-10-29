@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="generator" content="surge @PROJECT_VERSION@">
+<link rel="stylesheet" href="../../../style.css">
+<title>Add a build script for alpha &middot; monorepo &middot; Fixture code</title>
+</head>
+<body>
+<header><a href="../../../index.html">Fixture code</a> / <a href="../../../monorepo/index.html">monorepo</a> &middot; <a href="../../../monorepo/branches/index.html">branches</a> &middot; <a href="../../../monorepo/tags/index.html">tags</a> &middot; <a href="../../../monorepo/commits/main/index.html">commits</a> &middot; <a href="../../../monorepo/releases/index.html">releases</a></header>
+<h1>Add a build script for alpha</h1>
+
+<p>Ada Lovelace authored <time>2026-01-03T12:00:00+01:00</time>; Ada Lovelace committed <time>2026-01-03T12:00:00+01:00</time></p>
+<p>commit <code>c5fd8b3293be898b7ec6ccd749ae30d0d6fa4071</code> &middot; parent <a href="../../../monorepo/commit/eb78090e19b5347e704ccec0a696aa5149fa3e82/index.html">eb78090</a></p>
+<p>1 files changed, +2 -0</p>
+<details open><summary>Changed files</summary>
+<ul>
+<li><details open><summary>apps/</summary><ul>
+<li><details open><summary>alpha/</summary><ul>
+<li><a class="added" href="#diff-0">build.sh</a> +2 -0</li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+</ul>
+
+</details>
+<section id="diff-0">
+<h2>apps/alpha/build.sh <span class="added">added</span></h2>
+
+
+
+<pre class="surge-diff"><code><span class="code-line surge-hunk"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text">@@ -0,0 +1,2 @@
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R1" href="#diff-0-hunk-0-R1">1</a></span><span class="code-line-text">+<span class="tok-comment">#!/bin/sh</span>
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R2" href="#diff-0-hunk-0-R2">2</a></span><span class="code-line-text">+<span class="tok-function">exec</span> cc <span class="tok-constant">-o</span> alpha alpha.c
+</span></span></code></pre>
+
+
+</section>
+</body>
+</html>

@@ -1,0 +1,9 @@
+f6dce922b2cca31b54d59ab58e19c2d71428e1b5	refs/heads/feature/x
+63168a25b70d4f363faa8db3ffb0bd71d71af2c6	refs/heads/main
+8c34330d6ca054502613039e6b49ad730172bd9b	refs/tags/tree-tag
+9cd55e463731637cb0615b33086f7cc36387246b	refs/tags/tree-tag^{}
+8d028c5c6a8323cf091b48aaf86542b633a9986f	refs/tags/v0.1.0
+6782e3d0a69a41c625265afdeb5b023ce1a54828	refs/tags/v0.2.0
+f39d4f8eed9b346a0f6e4b51fa0ae919559bc871	refs/tags/v0.2.0^{}
+fe8867d68a48eafdef4f640e2cfec9e51fb40d29	refs/tags/v0.2.0-nested
+f39d4f8eed9b346a0f6e4b51fa0ae919559bc871	refs/tags/v0.2.0-nested^{}

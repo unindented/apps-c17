@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head>
+{{>head}}
+<title>Commits on {{ref.name}} &middot; {{repo.name}} &middot; {{site.title}}</title>
+</head>
+<body>
+{{>repo-nav}}
+<p>Branch <a href="{{ref.tree_url}}">{{ref.name}}</a> &middot; page {{page.number}} of {{page.count}}</p>
+<ol class="log">
+{{#commits}}
+<li><a href="{{url}}">{{short_oid}}</a> {{subject}} &mdash; {{author}}, <time>{{date}}</time>{{>signed}}{{#refs}} <a class="ref {{kind}}" href="{{url}}">{{name}}</a>{{/refs}}</li>
+{{/commits}}
+</ol>
+<nav class="pages">{{#page.first_url}}<a href="{{page.first_url}}">first</a> {{/page.first_url}}{{#page.previous_url}}<a href="{{page.previous_url}}">previous</a> {{/page.previous_url}}{{#page.next_url}}<a href="{{page.next_url}}">next</a> {{/page.next_url}}{{#page.last_url}}<a href="{{page.last_url}}">last</a>{{/page.last_url}}</nav>
+</body>
+</html>

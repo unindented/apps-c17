@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<id>https://git.example.org/showcase/tags.atom</id>
+<title>showcase: tags</title>
+<link rel="self" href="https://git.example.org/showcase/tags.atom"/>
+<link rel="alternate" type="text/html" href="https://git.example.org/showcase/tags/index.html"/>
+<updated>2026-01-09T12:00:00+01:00</updated>
+<generator>surge @PROJECT_VERSION@</generator>
+<author><name>Fixture author</name></author>
+<entry>
+<id>https://git.example.org/showcase/tags/index.html#tree-tag</id>
+<title>tree-tag</title>
+<link href="https://git.example.org/showcase/tags/index.html"/>
+<updated>2026-01-09T12:00:00+01:00</updated>
+<author><name>Ada Lovelace</name></author>
+<content type="text">A tag of the tree of main.
+</content>
+</entry>
+<entry>
+<id>https://git.example.org/showcase/tags/index.html#v0.2.0-nested</id>
+<title>v0.2.0-nested</title>
+<link href="https://git.example.org/showcase/commit/f39d4f8eed9b346a0f6e4b51fa0ae919559bc871/index.html"/>
+<updated>2026-01-09T12:00:00+01:00</updated>
+<author><name>Ada Lovelace</name></author>
+<content type="text">A tag of the tag v0.2.0.
+</content>
+</entry>
+<entry>
+<id>https://git.example.org/showcase/tags/index.html#v0.2.0</id>
+<title>v0.2.0</title>
+<link href="https://git.example.org/showcase/releases/tag/v0.2.0/index.html"/>
+<updated>2026-01-07T13:00:00+01:00</updated>
+<author><name>Ada Lovelace</name></author>
+<content type="text">Release 0.2.0
+
+The **first** release with a [feature](feature.txt).
+</content>
+</entry>
+</feed>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<id>https://git.example.org/monorepo/commits/main.atom</id>
+<title>monorepo: commits on main</title>
+<link rel="self" href="https://git.example.org/monorepo/commits/main.atom"/>
+<link rel="alternate" type="text/html" href="https://git.example.org/monorepo/commits/main/index.html"/>
+<updated>2026-01-03T12:00:00+01:00</updated>
+<generator>surge @PROJECT_VERSION@</generator>
+<author><name>Fixture author</name></author>
+<entry>
+<id>https://git.example.org/monorepo/commit/c5fd8b3293be898b7ec6ccd749ae30d0d6fa4071/index.html</id>
+<title>Add a build script for alpha</title>
+<link href="https://git.example.org/monorepo/commit/c5fd8b3293be898b7ec6ccd749ae30d0d6fa4071/index.html"/>
+<updated>2026-01-03T12:00:00+01:00</updated>
+<author><name>Ada Lovelace</name></author>
+</entry>
+<entry>
+<id>https://git.example.org/monorepo/commit/eb78090e19b5347e704ccec0a696aa5149fa3e82/index.html</id>
+<title>Return two from alpha</title>
+<link href="https://git.example.org/monorepo/commit/eb78090e19b5347e704ccec0a696aa5149fa3e82/index.html"/>
+<updated>2026-01-02T12:00:00+01:00</updated>
+<author><name>Grace Hopper</name></author>
+</entry>
+<entry>
+<id>https://git.example.org/monorepo/commit/77f1541bfa4365b6350afb8d304d09a01d80bc8e/index.html</id>
+<title>Start the monorepo</title>
+<link href="https://git.example.org/monorepo/commit/77f1541bfa4365b6350afb8d304d09a01d80bc8e/index.html"/>
+<updated>2026-01-01T12:00:00+01:00</updated>
+<author><name>Ada Lovelace</name></author>
+</entry>
+</feed>

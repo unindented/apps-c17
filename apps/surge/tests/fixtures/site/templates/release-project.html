@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head>
+{{>head}}
+<title>{{project.name}} releases &middot; {{repo.name}} &middot; {{site.title}}</title>
+</head>
+<body>
+{{>repo-nav}}
+{{#project}}
+<h1>{{name}}</h1>
+<p><a href="{{versions_url}}">versions.txt</a> &middot; <a href="{{versions_json_url}}">versions.json</a></p>
+{{>mise}}
+<table class="releases"><tbody>
+{{#releases}}
+{{>release-row}}
+{{/releases}}
+</tbody></table>
+{{/project}}
+</body>
+</html>

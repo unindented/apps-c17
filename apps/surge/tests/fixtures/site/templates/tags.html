@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<head>
+{{>head}}
+<title>Tags &middot; {{repo.name}} &middot; {{site.title}}</title>
+</head>
+<body>
+{{>repo-nav}}
+<table class="tags"><tbody>
+{{#tags}}
+<tr><td>{{name}}{{#is_annotated}} (annotated){{/is_annotated}}{{>signed}}{{#release_url}} <a href="{{release_url}}">release</a>{{/release_url}}</td><td>{{#commit}}<a href="{{url}}">{{short_oid}}</a> {{subject}}{{>signed}}{{/commit}}{{^commit}}not a commit{{/commit}}</td><td>{{author}}</td><td><time>{{date}}</time></td></tr>
+{{/tags}}
+</tbody></table>
+</body>
+</html>

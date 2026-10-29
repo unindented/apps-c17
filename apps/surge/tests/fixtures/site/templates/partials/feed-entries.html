@@ -1,0 +1,11 @@
+{{#feed_entries}}
+<entry>
+<id>{{id}}</id>
+<title>{{title}}</title>
+<link href="{{url}}"/>
+<updated>{{modified}}</updated>
+{{#author}}<author><name>{{author}}</name></author>
+{{/author}}{{#content}}<content type="text">{{content}}</content>
+{{/content}}{{#content_html}}<content type="html" xml:base="{{url}}">{{content_html}}</content>
+{{/content_html}}</entry>
+{{/feed_entries}}

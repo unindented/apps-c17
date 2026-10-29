@@ -1,0 +1,97 @@
+blob
+mark :1
+data 26
+# Monorepo
+
+Two projects.
+
+blob
+mark :2
+data 28
+# alpha
+
+The first project.
+
+blob
+mark :3
+data 30
+int alpha(void) { return 1; }
+
+blob
+mark :4
+data 46
+# beta
+
+The second project, with no releases.
+
+commit refs/heads/main
+mark :5
+author Ada Lovelace <ada@example.org> 1767265200 +0100
+committer Ada Lovelace <ada@example.org> 1767265200 +0100
+data 19
+Start the monorepo
+
+deleteall
+M 100644 :1 README.md
+M 100644 :2 apps/alpha/README.md
+M 100644 :3 apps/alpha/alpha.c
+M 100644 :4 apps/beta/README.md
+
+tag alpha-v0.1.0
+from :5
+tagger Ada Lovelace <ada@example.org> 1767268800 +0100
+data 32
+alpha 0.1.0
+
+The first release.
+
+blob
+mark :6
+data 30
+int alpha(void) { return 2; }
+
+commit refs/heads/main
+mark :7
+author Grace Hopper <grace@example.org> 1767351600 +0100
+committer Grace Hopper <grace@example.org> 1767351600 +0100
+data 22
+Return two from alpha
+
+from :5
+M 100644 :6 apps/alpha/alpha.c
+
+tag alpha-v0.2.0
+from :7
+tagger Grace Hopper <grace@example.org> 1767355200 +0100
+data 177
+alpha 0.2.0
+
+Now returns `2`.
+-----BEGIN PGP SIGNATURE-----
+
+iHUEABYKAB0WIQQ+c3VyZ2UgZml4dHVyZSBzaWduYXR1cmUFAmlXdkAACgkQc3Vy
+Z2UgZml4dHVyZQ==
+=c3Vy
+-----END PGP SIGNATURE-----
+
+reset refs/tags/alpha-v0.10.0-rc.1
+from :7
+
+reset refs/tags/alpha-vnext
+from :7
+
+blob
+mark :8
+data 35
+#!/bin/sh
+exec cc -o alpha alpha.c
+
+commit refs/heads/main
+mark :9
+author Ada Lovelace <ada@example.org> 1767438000 +0100
+committer Ada Lovelace <ada@example.org> 1767438000 +0100
+data 29
+Add a build script for alpha
+
+from :7
+M 100755 :8 apps/alpha/build.sh

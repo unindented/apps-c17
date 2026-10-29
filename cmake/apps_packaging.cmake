@@ -68,5 +68,9 @@ foreach(apps_dir IN LISTS apps_dirs)
   endif()
 endforeach()
 set(CPACK_VERBATIM_VARIABLES TRUE)
+# A binary archive installs only the app's runtime component. A vendored project that upstream's
+# CMake builds, such as surge's libgit2, has `install()` rules with no component, which would put
+# its static library and headers in the archive.
+set(CPACK_INSTALL_CMAKE_PROJECTS "${PROJECT_BINARY_DIR};${app};${app}_runtime;/")
 
 include(CPack)

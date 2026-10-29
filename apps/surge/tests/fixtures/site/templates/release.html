@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+{{>head}}
+<title>{{release.tag}} &middot; {{repo.name}} &middot; {{site.title}}</title>
+</head>
+<body>
+{{>repo-nav}}
+{{#release}}
+<h1>{{tag}}</h1>
+<p>Version {{version}}{{#project_url}} of <a href="{{project_url}}">{{project_name}}</a>{{/project_url}}, <time>{{date}}</time>{{#commit}}, commit <a href="{{commit.url}}">{{commit.short_oid}}</a>{{/commit}}{{^is_listed}}, not in versions.txt{{/is_listed}}</p>
+<div class="notes">{{{notes_html}}}</div>{{>signed}}
+<ul class="assets">
+{{#assets}}
+<li><a href="{{url}}">{{name}}</a> ({{size}} bytes)</li>
+{{/assets}}
+</ul>
+{{^has_sums}}<p>No SHA256SUMS.</p>{{/has_sums}}
+{{/release}}
+{{#project}}{{>mise}}{{/project}}
+</body>
+</html>

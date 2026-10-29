@@ -28,6 +28,16 @@
       "packageNameTemplate": "unindented/apps-c17",
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^cwrap-v(?<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "Track the mise release that surge's CI and the Linux image install.",
+      "managerFilePatterns": ["/^\\.github/workflows/checks\\.yml$/", "/^Containerfile$/"],
+      "matchStrings": ["MISE_VERSION[:=] ?(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "mise",
+      "packageNameTemplate": "jdx/mise",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+\\.\\d+)$"
     }
   ],
   "packageRules": [
@@ -40,6 +50,14 @@
       "automerge": false,
       "prBodyNotes": [
         "This updates only the release in `vendor/vendor.toml`. Before merging, run `vendor/vendor.py sync {{{depName}}}`, which replaces the sources under `vendor/` with that release and records its commit in the manifest and the notices. For a tree-sitter grammar, it also prints the upstream changes to the query files, to port to `libs/src/markup/queries/`. The Vendored sources job fails until the sources match the release."
+      ]
+    },
+    {
+      "description": "libgit2 builds with upstream's CMake, so a new release can change what it configures under the Zig toolchains, which CI does not run.",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["libgit2"],
+      "prBodyNotes": [
+        "surge builds libgit2 with upstream's CMake. After the sync, build `apps/surge` with the `release-linux-x86_64` and `release-linux-aarch64` presets, and compare the `Enabled features` that the configure step prints with the previous release's. Also check that the `files` of `vendor/vendor.toml` still cover what upstream's `CMakeLists.txt` and `src/CMakeLists.txt` read, and update the libgit2 section of `apps/surge/THIRD_PARTY_NOTICES.md` when `COPYING` changes."
       ]
     }
   ]

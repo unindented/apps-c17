@@ -1,8 +1,8 @@
 # Build system
 
-This document describes the CMake builds of the projects in this repository: their targets, how the targets link to each other, and the reasons for their settings. Every build needs CMake 3.25 or later. The Development section of each app's README lists the commands that compile, test and package that app: [sosig](apps/sosig/README.md#development), [fram](apps/fram/README.md#development) and [cwrap](apps/cwrap/README.md#development). [libs/README.md](libs/README.md#development) lists the commands of the `libs/` project.
+This document describes the CMake builds of the projects in this repository: their targets, how the targets link to each other, and the reasons for their settings. Every build needs CMake 3.25 or later. The Development section of each app's README lists the commands that compile, test and package that app: [sosig](apps/sosig/README.md#development), [fram](apps/fram/README.md#development), [cwrap](apps/cwrap/README.md#development) and [surge](apps/surge/README.md#development). [libs/README.md](libs/README.md#development) lists the commands of the `libs/` project.
 
-The first sections describe what every project shares. The sections [sosig](#sosig), [fram](#fram) and [cwrap](#cwrap) describe what one app has of its own.
+The first sections describe what every project shares. The sections [sosig](#sosig), [fram](#fram), [cwrap](#cwrap) and [surge](#surge) describe what one app has of its own.
 
 ## Projects
 
@@ -215,7 +215,7 @@ The installation of an app contains the executable and its documentation files, 
 
 ### Packages
 
-CPack creates one stripped archive for each release target, `<app>-<version>-<target>.tar.gz`. The cache variable `APPS_RELEASE_TARGET` names the release target, for example `x86_64-linux-musl` in a Linux preset.
+CPack creates one stripped archive for each release target, `<app>-<version>-<target>.tar.gz`. It installs only the `<app>_runtime` component into the archive, because a vendored project that upstream's CMake builds, such as surge's libgit2, has `install()` rules without a component. The cache variable `APPS_RELEASE_TARGET` names the release target, for example `x86_64-linux-musl` in a Linux preset.
 
 The macOS deployment target, `CMAKE_OSX_DEPLOYMENT_TARGET`, is `13.0` by default. You can set a higher value in the CMake cache.
 
@@ -331,3 +331,63 @@ The golden test `cwrap.golden` runs [apps/cwrap/cmake/cwrap_run_golden.cmake](ap
 The idempotence test `cwrap.idempotent` runs `cmake/cwrap_run_idempotent.cmake` in another scratch tree. The script rewraps the fixture files, the expected files and every first-party source file in `src/` and `tests/`, and the sources of the libraries that `APPS_LIBRARIES` in [apps/cwrap/CMakeLists.txt](apps/cwrap/CMakeLists.txt) lists, `libs/src/core`, `libs/src/os` and `libs/src/testing`, at widths 20, 40, 60 and 100. A second rewrap of each result must make no change, and `--check` must agree that the first result is stable.
 
 Both scripts find their input files with globs. These globs run in the test and are not inputs of the CMake build, so a change to a fixture or a source file does not require CMake to configure the project again.
+
+## surge
+
+![CMake target dependency graph of surge](apps/surge/media/dependencies.svg)
+
+### surge files and targets
+
+- [apps/surge/CMakeLists.txt](apps/surge/CMakeLists.txt) also finds the thread library.
+- [apps/surge/vendor.cmake](apps/surge/vendor.cmake) defines the targets of copt, tomlc17, mustache4c and acutest, includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake), as [Grammars](#grammars) describes, and adds libgit2, as [surge vendored dependencies](#surge-vendored-dependencies) describes.
+- [apps/surge/CMakePresets.json](apps/surge/CMakePresets.json) adds the `grammars` presets, which build `surge` with only the TypeScript grammar, and their workflow preset `ci-grammars`.
+- `surge` links the libraries `cli`, `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `markup`, `output` and `templates`, and for the unit tests `testing` and the in-memory host `os_memory`.
+- `surge_app` links `vendor_tomlc17`, `cli`, `core`, `formats`, `markup`, `os`, `output`, `runtime` and `templates` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
+- `src/vcs/` links `vendor_libgit2`, because only its own code uses it. `src/CMakeLists.txt` links `vendor_tomlc17`, and the libraries link the other vendored dependencies that they use, such as copt, which `cli` links, and mustache4c, which `templates` links.
+- The version template is [apps/surge/src/domain/surge_version.c.in](apps/surge/src/domain/surge_version.c.in). The file that CMake generates from it also defines `surge_generator_string()`.
+
+### surge vendored dependencies
+
+[vendor/vendor.toml](vendor/vendor.toml) pins libgit2 at release `1.9.7`. The vendored copy holds the library's sources and headers, its CMake build, and the bundled xdiff, zlib and llhttp, without the tests, the fuzzers, the examples, the CLI and the other bundled dependencies.
+
+`apps/surge/vendor.cmake` builds libgit2 with upstream's CMake, through `add_subdirectory` with `EXCLUDE_FROM_ALL` and `SYSTEM`. Upstream's configure checks find the platform's `stat` fields, `futimens`, `qsort_r` variant, `iconv` and entropy source on macOS and under both Zig `musl` toolchains, so the same build serves the debug presets, CI and the release archives, with no `pkg-config` and no `find_package`. Before it adds the directory, `vendor.cmake` forces these cache options, so a cache from another configuration cannot change them:
+
+- `BUILD_SHARED_LIBS`, `BUILD_TESTS`, `BUILD_CLI`, `BUILD_EXAMPLES` and `BUILD_FUZZERS` off
+- `USE_HTTPS`, `USE_SSH` and `USE_GSSAPI` off, so libgit2 has no network transport
+- `USE_BUNDLED_ZLIB` and `USE_THREADS` on
+- `REGEX_BACKEND=regcomp`, the POSIX regex of the C library, which `musl` and macOS have, so no `pcre2` is vendored
+
+`vendor.cmake` also sets these values for libgit2's directory only, and restores them after it:
+
+- A cache entry `CMAKE_C_STANDARD=17`. libgit2 sets `CMAKE_C_STANDARD` as a cache variable (`90`), and its old policies let that value replace a normal variable of the same name. The cache entry that `vendor.cmake` sets first stays, so the default is C17 in libgit2's directory and in `surge` on every configure. `apps_build_vendor` requires C17 of every vendored target anyway.
+- `CMAKE_POLICY_DEFAULT_CMP0077=NEW`, so that libgit2's `option()` calls, which predate the policy, do not clear the normal variables of `surge`, such as `CMAKE_C_EXTENSIONS`. CMake still warns that libgit2's `cmake_minimum_required(VERSION 3.5.1)` is deprecated.
+- `CMAKE_LINK_LIBRARIES_ONLY_TARGETS` off, because libgit2 links the system libraries that it finds, such as `rt` on Linux, by name.
+- `CMAKE_DISABLE_FIND_PACKAGE_OpenSSL` and `CMAKE_DISABLE_FIND_PACKAGE_GSSAPI`, because libgit2 looks for both whatever `USE_HTTPS` and `USE_GSSAPI` say, and a cross build would find the build host's copies.
+
+Each object library of libgit2, `libgit2`, `util`, `xdiff`, `zlib` and `llhttp`, links `apps_build_vendor`, so the sanitizer builds instrument it, and compiles with `-w`. `vendor_libgit2` is an interface target over upstream's archive, `libgit2package`, with libgit2's `include/` directory as a system include directory, so `surge` links one `vendor_<lib>` target as for every other vendored project. libgit2's own `install()` rules have no component, so [cmake/apps_packaging.cmake](cmake/apps_packaging.cmake) installs only the `surge_runtime` component into an archive, which keeps `libgit2.a` and libgit2's headers out of it.
+
+### surge tests
+
+The tests registered without `OS memory` link the POSIX host. These tests are:
+
+- the tests that read real repositories through libgit2, outside `os/os.h`: `cmd_build`, and the unit tests of `src/vcs/`, `changeset`, `filetree`, `pack_export`, `refset`, `repository` and `revision`, which also link `vendor_libgit2`
+- the tests that use no host
+
+The fixture repositories are `git fast-import` streams in [apps/surge/tests/repos/](apps/surge/tests/repos/), so every test that reads one needs `git`. The configure step looks for `git`, and without it leaves out `cmd_build`, the tests of `src/vcs/`, the golden tests and `surge.fixture_repos`, as fram leaves out its golden test without FFmpeg. These tests use the fixture repositories:
+
+- `surge.fixture_repos_setup` runs [apps/surge/cmake/surge_make_fixture_repos.cmake](apps/surge/cmake/surge_make_fixture_repos.cmake), which makes the repositories in `build/<preset>/fixture-repos/<config>` with `GIT_CONFIG_NOSYSTEM=1` and a `HOME` of its own. It is the CTest fixture setup `surge_fixture_repos`, which `cmd_build` and the `src/vcs/` tests require, and they find the repositories through `SURGE_FIXTURE_REPOS_DIR`.
+- `surge.fixture_repos` runs [apps/surge/cmake/surge_check_fixture_repos.cmake](apps/surge/cmake/surge_check_fixture_repos.cmake). It makes the repositories in a scratch tree of its own, and checks that each one holds exactly the refs and ids that its `tests/repos/<name>.refs` lists, so a change to a stream or to the script shows up as a change of the ids that the golden tests rely on.
+
+`surge_fixture_sites` in [apps/surge/tests/CMakeLists.txt](apps/surge/tests/CMakeLists.txt) lists the fixture sites in `tests/fixtures/`. Each fixture site is the golden test `surge.golden.<site>`, which [apps/surge/cmake/surge_run_golden.cmake](apps/surge/cmake/surge_run_golden.cmake) runs in `build/<preset>/golden/<config>/<site>`:
+
+1. It copies the site into a scratch tree, makes the fixture repositories there, and sets `TMPDIR` to a scratch directory.
+2. For a site whose expected directory holds only `stderr.txt`, it runs one build, which must exit with status 1 with exactly that text, and create no `public/`, and stops.
+3. Otherwise it puts stale files in the output, which the first build must remove, and builds the site three times: with `-w 1`, with `-w 2` over the build cache, and with `--force -w 8`. The first build's `stderr` must match `tests/expected/<site>.warnings.txt`, and the later builds must not change a generated file.
+4. A dry run must keep every output, and `TMPDIR` must be empty.
+5. It compares the list of output files with `tests/expected/<site>`, and every file byte for byte, the packs included, after it replaces the `@PROJECT_VERSION@` placeholder in each expected text file. It checks each pack with `git verify-pack` and `git index-pack --strict`, and each `info/refs` against `git for-each-ref`.
+6. With `SURGE_PYTHON`, it runs [apps/surge/tests/clone_test.py](apps/surge/tests/clone_test.py) with `python3 -I`, and with `SURGE_MISE` as well, [apps/surge/tests/mise_test.py](apps/surge/tests/mise_test.py).
+7. It moves a branch and changes the release directories, and checks what each dry run writes, keeps and removes, and that the previous pack stays one build. Last, a `--force` dry run and one after a template change must make every page and feed again.
+
+The configure step looks for `python3` and `mise`. Without `python3`, the golden test runs without the clone test and the mise test, and without `mise`, it runs without the mise test. CI installs mise 2026.11.0 for the `surge` job through the `mise` input of [checks.yml](.github/workflows/checks.yml), and the [Containerfile](Containerfile) installs `git` and the same mise release. The comparison leaves out the build cache, `_surge/v1-build-cache.tsv`, which holds the modification times of the copied templates and has no expected copy.
+
+The script finds the expected files and the actual files with globs after `surge` runs, and looks each name up on the other side's filesystem, because a sync tool can rewrite the Unicode normalization of a checked-out name. These globs run in the test and are not inputs of the CMake build, so a change to a fixture does not require CMake to configure the project again.

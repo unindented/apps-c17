@@ -1,0 +1,11 @@
+/* Generated from `surge_version.c.in`. Change project(VERSION), not the generated source. */
+
+#include "domain/surge_version.h"
+
+struct Str surge_version_string(void) {
+  return S("@PROJECT_VERSION@");
+}
+
+struct Str surge_generator_string(void) {
+  return S("@PROJECT_NAME@ @PROJECT_VERSION@");
+}

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<id>https://git.example.org/showcase/commits/main.atom</id>
+<title>showcase: commits on main</title>
+<link rel="self" href="https://git.example.org/showcase/commits/main.atom"/>
+<link rel="alternate" type="text/html" href="https://git.example.org/showcase/commits/main/index.html"/>
+<updated>2026-01-11T12:00:00+01:00</updated>
+<generator>surge @PROJECT_VERSION@</generator>
+<author><name>Fixture author</name></author>
+<entry>
+<id>https://git.example.org/showcase/commit/63168a25b70d4f363faa8db3ffb0bd71d71af2c6/index.html</id>
+<title>Reword the comment and bump the module</title>
+<link href="https://git.example.org/showcase/commit/63168a25b70d4f363faa8db3ffb0bd71d71af2c6/index.html"/>
+<updated>2026-01-11T12:00:00+01:00</updated>
+<author><name>Grace Hopper</name></author>
+</entry>
+<entry>
+<id>https://git.example.org/showcase/commit/9610f333d1531ef544206dc183d05fa2e612aa84/index.html</id>
+<title>Explain main and vendor a script module</title>
+<link href="https://git.example.org/showcase/commit/9610f333d1531ef544206dc183d05fa2e612aa84/index.html"/>
+<updated>2026-01-10T12:00:00+01:00</updated>
+<author><name>Ada Lovelace</name></author>
+</entry>
+<entry>
+<id>https://git.example.org/showcase/commit/aa02d29453a240bab99ef9357b50480a5ada392e/index.html</id>
+<title>Add a table over the diff caps</title>
+<link href="https://git.example.org/showcase/commit/aa02d29453a240bab99ef9357b50480a5ada392e/index.html"/>
+<updated>2026-01-09T12:00:00+01:00</updated>
+<author><name>Grace Hopper</name></author>
+</entry>
+</feed>

@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+{{>head}}
+<title>{{site.title}}</title>
+</head>
+<body>
+<h1>{{site.title}}</h1>
+<p>{{site.description}}</p>
+<ul>
+{{#repos}}
+<li><a href="{{path_to_root}}{{url}}">{{name}}</a>{{#description}} &mdash; {{description}}{{/description}}{{#modified}} <time>{{modified}}</time>{{/modified}}
+<code>git clone {{clone_url}}</code>
+{{#projects}}
+<ul>
+<li><a href="{{path_to_root}}{{url}}">{{name}}</a>{{#description}} &mdash; {{description}}{{/description}}{{#has_releases}} <a href="{{path_to_root}}{{releases_url}}">releases</a>{{/has_releases}}</li>
+</ul>
+{{/projects}}
+</li>
+{{/repos}}
+</ul>
+</body>
+</html>

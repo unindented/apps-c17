@@ -1,0 +1,5 @@
+<ul>
+{{#children}}
+<li>{{#is_dir}}<details open><summary>{{name}}/</summary>{{>changed-tree}}</details>{{/is_dir}}{{^is_dir}}{{#file}}<a class="{{status}}" href="#{{anchor}}">{{/file}}{{name}}{{#file}}</a> +{{additions}} -{{deletions}}{{/file}}{{/is_dir}}</li>
+{{/children}}
+</ul>

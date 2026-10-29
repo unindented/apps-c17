@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+{{>head}}
+<title>{{commit.subject}} &middot; {{repo.name}} &middot; {{site.title}}</title>
+</head>
+<body>
+{{>repo-nav}}
+{{#commit}}
+<h1>{{subject}}</h1>
+{{#body}}<pre class="message">{{body}}</pre>{{/body}}
+<p>{{author}} authored <time>{{author_date}}</time>{{#committer}}; {{committer}} committed <time>{{date}}</time>{{/committer}}</p>
+<p>commit <code>{{oid}}</code>{{>signed}}{{#is_root}} (root){{/is_root}}{{#is_merge}} (merge){{/is_merge}}{{#parents}} &middot; parent <a href="{{url}}">{{short_oid}}</a>{{/parents}}</p>
+{{/commit}}
+<p>{{stats.file_count}} files changed, +{{stats.additions}} -{{stats.deletions}}{{#is_truncated}} &middot; the diff is truncated{{/is_truncated}}</p>
+<details open><summary>Changed files</summary>
+{{#tree}}{{>changed-tree}}{{/tree}}
+</details>
+{{#files}}
+<section id="{{anchor}}">
+<h2>{{#is_renamed}}{{old_path}} &rarr; {{/is_renamed}}{{path}} <span class="{{status}}">{{status}}</span>{{#similarity}} {{similarity}}%{{/similarity}}</h2>
+{{#is_too_large}}<p>Too large to show.</p>{{/is_too_large}}
+{{#is_binary}}<p>Binary file.</p>{{/is_binary}}
+{{^is_shown}}<p>Not shown: the diff passes its limits.</p>{{/is_shown}}
+{{{diff_html}}}{{#is_image}}<p class="images">{{#old_image_url}}<img alt="before" src="{{old_image_url}}"> {{/old_image_url}}{{#new_image_url}}<img alt="after" src="{{new_image_url}}">{{/new_image_url}}{{#is_image_omitted}}Too large to show.{{/is_image_omitted}}</p>{{/is_image}}
+{{#is_truncated}}<p>Truncated here: the diff passes its limits.</p>{{/is_truncated}}
+</section>
+{{/files}}
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+{{>head}}
+<title>{{path}} at {{ref.name}} &middot; {{site.title}}</title>
+</head>
+<body>
+{{>repo-nav}}
+<p>Branch <a href="{{ref.tree_url}}">{{ref.name}}</a></p>
+{{>breadcrumbs}}
+<p class="blob-info">{{mode}}{{#is_executable}} (executable){{/is_executable}} &middot; {{size}} bytes{{#source_html}} &middot; {{line_count}} lines{{/source_html}}{{#has_raw}} &middot; <a href="{{raw_url}}">Raw</a> &middot; <a href="{{raw_url}}" download="{{name}}">Download</a>{{/has_raw}}</p>
+{{#is_too_large}}
+<p>This file is too large to show.</p>
+{{/is_too_large}}
+{{#is_image}}{{#has_raw}}
+<p><img src="{{raw_url}}" alt="{{name}}"></p>
+{{/has_raw}}{{/is_image}}
+{{#is_binary}}{{^is_image}}
+<p>Binary file.</p>
+{{/is_image}}{{/is_binary}}
+{{#is_markup}}
+<surge-view>
+<article class="rendered">
+{{{rendered_html}}}
+</article>
+<div class="source">
+{{{source_html}}}
+</div>
+</surge-view>
+<script src="{{path_to_root}}surge-view.js"></script>
+{{/is_markup}}
+{{^is_markup}}
+{{{source_html}}}
+{{/is_markup}}
+</body>
+</html>

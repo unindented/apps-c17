@@ -1,0 +1,3 @@
+loading config
+failed to resolve config directory 'static_dir': not a directory ('static')
+output directory would write inside 'templates_dir': 'templates/public'

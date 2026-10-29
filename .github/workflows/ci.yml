@@ -20,6 +20,7 @@ jobs:
       sosig: ${{ steps.classify.outputs.sosig }}
       fram: ${{ steps.classify.outputs.fram }}
       cwrap: ${{ steps.classify.outputs.cwrap }}
+      surge: ${{ steps.classify.outputs.surge }}
       libs: ${{ steps.classify.outputs.libs }}
     steps:
       - uses: actions/checkout@v7
@@ -36,7 +37,7 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          apps="sosig fram cwrap"
+          apps="sosig fram cwrap surge"
 
           if [ "$EVENT_NAME" = "pull_request" ]; then
             base="$BASE_SHA"
@@ -146,6 +147,16 @@ jobs:
       working-directory: apps/cwrap
       tsan: false
 
+  surge:
+    name: surge
+    needs: changes
+    if: needs.changes.outputs.surge == 'true'
+    uses: ./.github/workflows/checks.yml
+    with:
+      working-directory: apps/surge
+      grammars: true
+      mise: true
+
   libs:
     name: libs
     needs: changes
@@ -167,6 +178,7 @@ jobs:
       - sosig
       - fram
       - cwrap
+      - surge
       - libs
     runs-on: ubuntu-latest
     steps:

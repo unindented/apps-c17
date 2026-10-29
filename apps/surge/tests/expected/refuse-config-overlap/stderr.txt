@@ -1,0 +1,3 @@
+loading config
+config key 'title' must be a string
+output directory would write inside 'templates_dir': 'templates/public'

@@ -1,0 +1,6 @@
+f6dce922b2cca31b54d59ab58e19c2d71428e1b5 commit refs/heads/feature/x
+63168a25b70d4f363faa8db3ffb0bd71d71af2c6 commit refs/heads/main
+8c34330d6ca054502613039e6b49ad730172bd9b tag refs/tags/tree-tag
+8d028c5c6a8323cf091b48aaf86542b633a9986f commit refs/tags/v0.1.0
+6782e3d0a69a41c625265afdeb5b023ce1a54828 tag refs/tags/v0.2.0
+fe8867d68a48eafdef4f640e2cfec9e51fb40d29 tag refs/tags/v0.2.0-nested

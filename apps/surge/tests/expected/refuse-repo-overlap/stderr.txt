@@ -1,0 +1,3 @@
+loading config
+config key 'repo[0].name' must be a string
+output directory would write inside 'templates_dir': 'templates/public'

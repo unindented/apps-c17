@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+{{>head}}
+<title>{{#is_root}}{{repo.name}}{{/is_root}}{{^is_root}}{{path}}{{/is_root}}{{^is_home}} at {{ref.name}}{{/is_home}} &middot; {{site.title}}</title>
+</head>
+<body>
+{{>repo-nav}}
+{{#is_root}}
+{{#repo.description}}<p>{{repo.description}}</p>{{/repo.description}}
+<p><code>git clone {{repo.clone_url}}</code></p>
+{{/is_root}}
+{{#is_empty}}
+<p>No commits yet on {{ref.name}}.</p>
+{{/is_empty}}
+{{^is_empty}}
+<p>Branch <a href="{{ref.tree_url}}">{{ref.name}}</a> &middot; <a href="{{ref.commits_url}}">commits</a></p>
+{{>breadcrumbs}}
+{{#commit}}<p class="commit"><a href="{{url}}">{{short_oid}}</a> {{subject}} &mdash; {{author}}, <time>{{date}}</time></p>{{/commit}}
+{{>tree-entries}}
+<nav class="documents">{{#documents}}<a href="#document.{{kind}}">{{>document-title}}</a> {{/documents}}</nav>
+{{#documents}}
+<section id="document.{{kind}}"{{#is_main}} class="main"{{/is_main}}>
+<h2><a href="{{url}}">{{path}}</a></h2>
+{{{rendered_html}}}
+</section>
+{{/documents}}
+{{/is_empty}}
+</body>
+</html>

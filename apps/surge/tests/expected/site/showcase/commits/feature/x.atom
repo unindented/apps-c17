@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<id>https://git.example.org/showcase/commits/feature/x.atom</id>
+<title>showcase: commits on feature/x</title>
+<link rel="self" href="https://git.example.org/showcase/commits/feature/x.atom"/>
+<link rel="alternate" type="text/html" href="https://git.example.org/showcase/commits/feature/x/index.html"/>
+<updated>2026-01-05T12:00:00+01:00</updated>
+<generator>surge @PROJECT_VERSION@</generator>
+<author><name>Fixture author</name></author>
+<entry>
+<id>https://git.example.org/showcase/commit/f6dce922b2cca31b54d59ab58e19c2d71428e1b5/index.html</id>
+<title>Try a feature</title>
+<link href="https://git.example.org/showcase/commit/f6dce922b2cca31b54d59ab58e19c2d71428e1b5/index.html"/>
+<updated>2026-01-05T12:00:00+01:00</updated>
+<author><name>Grace Hopper</name></author>
+</entry>
+<entry>
+<id>https://git.example.org/showcase/commit/8d028c5c6a8323cf091b48aaf86542b633a9986f/index.html</id>
+<title>Add the images</title>
+<link href="https://git.example.org/showcase/commit/8d028c5c6a8323cf091b48aaf86542b633a9986f/index.html"/>
+<updated>2026-01-03T12:00:00+01:00</updated>
+<author><name>Ada Lovelace</name></author>
+</entry>
+<entry>
+<id>https://git.example.org/showcase/commit/cb93aa52c5ad382bd8f4c2ad81d0356edf251e79/index.html</id>
+<title>Add the documents</title>
+<link href="https://git.example.org/showcase/commit/cb93aa52c5ad382bd8f4c2ad81d0356edf251e79/index.html"/>
+<updated>2026-01-02T12:00:00+01:00</updated>
+<author><name>Grace Hopper</name></author>
+<content type="text">A body paragraph
+that wraps.</content>
+</entry>
+</feed>

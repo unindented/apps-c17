@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="generator" content="surge @PROJECT_VERSION@">
+<link rel="stylesheet" href="../../../../style.css">
+<title>alpha-v0.2.0 &middot; monorepo &middot; Fixture code</title>
+</head>
+<body>
+<header><a href="../../../../index.html">Fixture code</a> / <a href="../../../../monorepo/index.html">monorepo</a> &middot; <a href="../../../../monorepo/branches/index.html">branches</a> &middot; <a href="../../../../monorepo/tags/index.html">tags</a> &middot; <a href="../../../../monorepo/commits/main/index.html">commits</a> &middot; <a href="../../../../monorepo/releases/index.html">releases</a></header>
+<h1>alpha-v0.2.0</h1>
+<p>Version 0.2.0 of <a href="../../../../monorepo/releases/alpha/index.html">alpha</a>, <time>2026-01-02T13:00:00+01:00</time>, commit <a href="../../../../monorepo/commit/eb78090e19b5347e704ccec0a696aa5149fa3e82/index.html">eb78090</a></p>
+<div class="notes"><p>alpha 0.2.0</p>
+<p>Now returns <code>2</code>.</p>
+</div> <details class="signature"><summary>Signed (PGP)</summary><pre>-----BEGIN PGP SIGNATURE-----
+
+iHUEABYKAB0WIQQ+c3VyZ2UgZml4dHVyZSBzaWduYXR1cmUFAmlXdkAACgkQc3Vy
+Z2UgZml4dHVyZQ==
+=c3Vy
+-----END PGP SIGNATURE-----
+</pre></details>
+<ul class="assets">
+<li><a href="../../../../monorepo/releases/download/alpha-v0.2.0/CHANGES.md">CHANGES.md</a> (28 bytes)</li>
+<li><a href="../../../../monorepo/releases/download/alpha-v0.2.0/SHA256SUMS">SHA256SUMS</a> (383 bytes)</li>
+<li><a href="../../../../monorepo/releases/download/alpha-v0.2.0/alpha-0.2.0-aarch64-linux-musl.tar.gz">alpha-0.2.0-aarch64-linux-musl.tar.gz</a> (166 bytes)</li>
+<li><a href="../../../../monorepo/releases/download/alpha-v0.2.0/alpha-0.2.0-aarch64-macos.tar.gz">alpha-0.2.0-aarch64-macos.tar.gz</a> (160 bytes)</li>
+<li><a href="../../../../monorepo/releases/download/alpha-v0.2.0/alpha-0.2.0-x86_64-linux-musl.tar.gz">alpha-0.2.0-x86_64-linux-musl.tar.gz</a> (167 bytes)</li>
+</ul>
+
+<section class="mise"><p>Install with <a href="https://mise.jdx.dev/">mise</a>. Only <code>mise lock</code> records the checksums that later installs check.</p>
+<pre><code>[tools.&quot;http:alpha&quot;]
+version = &quot;latest&quot;
+version_list_url = &quot;https://git.example.org/monorepo/releases/alpha/versions.txt&quot;
+version_date_url = &quot;https://git.example.org/monorepo/releases/alpha/versions.json&quot;
+version_date_expr = &#39;map(fromJSON(body).versions, { [#.version, #.date] })&#39;
+checksum_url = &quot;https://git.example.org/monorepo/releases/download/alpha-v{{ version }}/SHA256SUMS&quot;
+strip_components = 1
+bin_path = &quot;bin&quot;
+
+[tools.&quot;http:alpha&quot;.platforms]
+linux-x64 = { url = &quot;https://git.example.org/monorepo/releases/download/alpha-v{{ version }}/alpha-{{ version }}-x86_64-linux-musl.tar.gz&quot; }
+linux-arm64 = { url = &quot;https://git.example.org/monorepo/releases/download/alpha-v{{ version }}/alpha-{{ version }}-aarch64-linux-musl.tar.gz&quot; }
+macos-arm64 = { url = &quot;https://git.example.org/monorepo/releases/download/alpha-v{{ version }}/alpha-{{ version }}-aarch64-macos.tar.gz&quot; }
+</code></pre></section>
+
+</body>
+</html>

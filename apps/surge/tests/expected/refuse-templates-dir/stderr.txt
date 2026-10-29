@@ -1,0 +1,2 @@
+loading config
+config key 'templates_dir' must not be empty

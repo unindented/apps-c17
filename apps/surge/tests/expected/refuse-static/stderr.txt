@@ -1,0 +1,10 @@
+loading config
+discovering templates and static files
+compiling templates
+loading build cache
+no build cache, making every output
+scanning repos, workers: 1
+scanning repos 1/1
+building output manifest
+static entry collides with repo 'showcase' after case folding: 'static/Showcase'
+static entry collides with repo 'showcase' after case folding: 'static/showcase.git'

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<id>https://git.example.org/monorepo/tags.atom</id>
+<title>monorepo: tags</title>
+<link rel="self" href="https://git.example.org/monorepo/tags.atom"/>
+<link rel="alternate" type="text/html" href="https://git.example.org/monorepo/tags/index.html"/>
+<updated>2026-01-02T13:00:00+01:00</updated>
+<generator>surge @PROJECT_VERSION@</generator>
+<author><name>Fixture author</name></author>
+<entry>
+<id>https://git.example.org/monorepo/tags/index.html#alpha-v0.2.0</id>
+<title>alpha-v0.2.0</title>
+<link href="https://git.example.org/monorepo/releases/tag/alpha-v0.2.0/index.html"/>
+<updated>2026-01-02T13:00:00+01:00</updated>
+<author><name>Grace Hopper</name></author>
+<content type="text">alpha 0.2.0
+
+Now returns `2`.
+</content>
+</entry>
+<entry>
+<id>https://git.example.org/monorepo/tags/index.html#alpha-v0.10.0-rc.1</id>
+<title>alpha-v0.10.0-rc.1</title>
+<link href="https://git.example.org/monorepo/releases/tag/alpha-v0.10.0-rc.1/index.html"/>
+<updated>2026-01-02T12:00:00+01:00</updated>
+<author><name>Grace Hopper</name></author>
+</entry>
+<entry>
+<id>https://git.example.org/monorepo/tags/index.html#alpha-vnext</id>
+<title>alpha-vnext</title>
+<link href="https://git.example.org/monorepo/releases/tag/alpha-vnext/index.html"/>
+<updated>2026-01-02T12:00:00+01:00</updated>
+<author><name>Grace Hopper</name></author>
+</entry>
+</feed>

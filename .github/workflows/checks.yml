@@ -39,6 +39,11 @@ on:
         required: false
         type: boolean
         default: true
+      mise:
+        description: "Install the pinned mise release, which a golden test installs a release with"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -111,12 +116,42 @@ jobs:
           tar -xzf "$archive"
           echo "$RUNNER_TEMP/cwrap-$CWRAP_VERSION-$target/bin" >> "$GITHUB_PATH"
 
+      - name: Install mise
+        if: inputs.mise
+        env:
+          MISE_VERSION: 2026.11.0
+        run: |
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) target=linux-x64-musl ;;
+            macOS-ARM64) target=macos-arm64 ;;
+            *)
+              echo "no mise release for $RUNNER_OS-$RUNNER_ARCH" >&2
+              exit 1
+              ;;
+          esac
+          archive="mise-v$MISE_VERSION-$target.tar.gz"
+          release="https://github.com/jdx/mise/releases/download/v$MISE_VERSION"
+          cd "$RUNNER_TEMP" || exit
+          curl --fail --silent --show-error --location \
+            --remote-name "$release/$archive" --remote-name "$release/SHASUMS256.txt"
+          # `SHASUMS256.txt` names each archive as `./<archive>`, so the check reads only this one.
+          awk -v archive="./$archive" '$2 == archive { print $1 "  " substr($2, 3) }' \
+            SHASUMS256.txt > mise.sha256
+          if [ ! -s mise.sha256 ]; then
+            echo "no digest for '$archive' in the SHASUMS256.txt of mise v$MISE_VERSION" >&2
+            exit 1
+          fi
+          shasum --algorithm 256 --check --quiet mise.sha256
+          tar -xzf "$archive"
+          echo "$RUNNER_TEMP/mise/bin" >> "$GITHUB_PATH"
+
       - name: Record build tool versions
         run: |
           cmake --version
           ninja --version
           "${CC:-cc}" --version
           if command -v cwrap >/dev/null; then cwrap --version; fi
+          if command -v mise >/dev/null; then mise --version; fi
 
       - name: Resolve build and test parallelism
         run: |

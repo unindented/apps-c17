@@ -1,0 +1,126 @@
+blob
+mark :1
+data 21
+This file goes away.
+
+blob
+mark :2
+data 29
+This file becomes a symlink.
+
+blob
+mark :3
+data 151
+line 1
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7
+line 8
+line 9
+line 10
+line 11
+line 12
+line 13
+line 14
+line 15
+line 16
+line 17
+line 18
+line 19
+line 20
+
+commit refs/heads/main
+mark :4
+author Ada Lovelace <ada@example.org> 1767265200 +0100
+committer Ada Lovelace <ada@example.org> 1767265200 +0100
+data 18
+Start the changes
+
+deleteall
+M 100644 :1 gone.txt
+M 100644 :2 kind.txt
+M 100644 :3 two-hunks.txt
+
+blob
+mark :5
+data 13
+two-hunks.txt
+commit refs/heads/main
+mark :6
+author Ada Lovelace <ada@example.org> 1767268800 +0100
+committer Ada Lovelace <ada@example.org> 1767268800 +0100
+data 42
+Delete a file and turn one into a symlink
+
+D gone.txt
+M 120000 :5 kind.txt
+
+blob
+mark :7
+data 151
+LINE 1
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7
+line 8
+line 9
+line 10
+line 11
+line 12
+line 13
+line 14
+line 15
+line 16
+line 17
+line 18
+line 19
+LINE 20
+
+commit refs/heads/main
+mark :8
+author Ada Lovelace <ada@example.org> 1767272400 +0100
+committer Ada Lovelace <ada@example.org> 1767272400 +0100
+data 35
+Change the first and the last line
+
+M 100644 :7 two-hunks.txt
+
+blob
+mark :9
+data 159
+LINE 1
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7
+line 8
+line 9
+line ten, moved
+line 11
+line 12
+line 13
+line 14
+line 15
+line 16
+line 17
+line 18
+line 19
+LINE 20
+
+commit refs/heads/main
+mark :10
+author Ada Lovelace <ada@example.org> 1767276000 +0100
+committer Ada Lovelace <ada@example.org> 1767276000 +0100
+data 42
+Move the two-hunks file and edit one line
+
+D two-hunks.txt
+M 100644 :9 moved.txt

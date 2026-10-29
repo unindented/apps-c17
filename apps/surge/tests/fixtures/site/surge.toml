@@ -1,0 +1,57 @@
+title = "Fixture code"
+description = "The repositories of surge's golden test"
+author = "Fixture author"
+base_url = "https://git.example.org/"
+log_page_size = 2
+feed_count = 3
+headers_file = true
+
+[limits]
+# `big.txt` of the hostile fixture is over both, and `lib/table.c` of the showcase only over the raw
+# limit.
+blob_len_max = 1200
+raw_len_max = 1000
+diff_line_count_max = 50
+# The showcase's `media/dot.png`, 69 bytes, fits, and `media/logo.svg`, 111, which the same commit
+# adds after it, does not.
+image_len_max = 100
+# The showcase's pack is over it, and the others' are not.
+pack_len_max = 4096
+
+[[repo]]
+name = "showcase"
+path = "repos/showcase"
+description = "Documents, images, odd names and a history"
+releases_dir = "releases/showcase"
+
+[[repo]]
+name = "monorepo"
+path = "repos/monorepo"
+releases_dir = "releases/monorepo"
+
+[[repo.project]]
+name = "alpha"
+path = "apps/alpha"
+description = "The first project"
+tag_prefix = "alpha-v"
+mise = true
+
+[[repo.project]]
+name = "beta"
+path = "apps/beta"
+
+[[repo]]
+name = "empty"
+path = "repos/empty"
+# An empty description shows none, and hides the repository's own `description` file.
+description = ""
+
+# An empty repo has no default branch to check a project's path against, and no tree page to link.
+[[repo.project]]
+name = "later"
+path = "later"
+
+[[repo]]
+name = "hostile"
+path = "repos/hostile"
+description = "Names that git refuses, and a file over the limits"

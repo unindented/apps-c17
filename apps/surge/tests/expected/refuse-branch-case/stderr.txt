@@ -1,0 +1,11 @@
+loading config
+discovering templates and static files
+compiling templates
+loading build cache
+no build cache, making every output
+scanning repos, workers: 1
+scanning repos 1/1
+ref name is not valid UTF-8: 'refs/heads/caf\xE9' (in repo 'branch-case')
+branches 'refs/heads/A/b' and 'refs/heads/a' collide after case folding (in repo 'branch-case')
+branches 'refs/heads/Main' and 'refs/heads/main' collide after case folding (in repo 'branch-case')
+branches 'refs/heads/X/x' and 'refs/heads/x/y' collide after case folding (in repo 'branch-case')

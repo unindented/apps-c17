@@ -1,0 +1,2 @@
+# The streams hold binary blobs and exact byte counts, so git never converts their line endings.
+*.fi -text

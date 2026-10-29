@@ -1,0 +1,14 @@
+/*.git/HEAD
+  Cache-Control: no-cache
+/*.git/info/refs
+  Cache-Control: no-cache
+/*.git/objects/info/packs
+  Cache-Control: no-cache
+/showcase.git/objects/pack/*
+  Cache-Control: public, max-age=31536000, immutable
+/monorepo.git/objects/pack/*
+  Cache-Control: public, max-age=31536000, immutable
+/empty.git/objects/pack/*
+  Cache-Control: public, max-age=31536000, immutable
+/hostile.git/objects/pack/*
+  Cache-Control: public, max-age=31536000, immutable

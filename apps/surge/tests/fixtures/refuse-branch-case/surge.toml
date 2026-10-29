@@ -1,0 +1,8 @@
+title = "Refused"
+description = "A site the build refuses"
+author = "Refused author"
+base_url = "https://git.example.org"
+
+[[repo]]
+name = "branch-case"
+path = "repos/branch-case"
