@@ -961,8 +961,8 @@ static void load_build_cache(struct BuildState* state) {
   } else {
     load_build_cache_read(state);
   }
-  // A template that cannot be inspected keeps a zeroed stat, which no row matches, so every page is
-  // made, and its render reports why.
+  // A template that cannot be inspected gets a stat that no row matches, so every page is made, and
+  // its render reports why.
   state->template_stats = walk_stat_paths(&state->template_paths, state->os, &state->perm);
   state->static_stats = walk_stat_paths(&state->static_paths, state->os, &state->perm);
   state->asset_stats = walk_stat_paths(&state->asset_paths, state->os, &state->perm);

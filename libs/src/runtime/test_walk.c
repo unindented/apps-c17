@@ -375,9 +375,9 @@ static void test_walk_reports_uninspectable_entries_in_order(void) {
       test_log_is(&log, "op: cannot inspect entry: %s ('site/a/z.md')\n", strerror(ENOTDIR)));
 }
 
-// Each listed path gets its stat, and one that cannot be inspected gets a zeroed stat, which no
-// build cache row of a file the build read matches.
-static void test_stat_paths_zeroes_an_uninspectable_path(void) {
+// Each listed path gets its stat, and one that cannot be inspected gets a negative `len`, which no
+// build cache row holds, not even that of an empty file dated at the epoch.
+static void test_stat_paths_marks_an_uninspectable_path(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "static/a.css", "abc");
   struct Arena arena = test_arena();
@@ -386,7 +386,8 @@ static void test_stat_paths_zeroes_an_uninspectable_path(void) {
   path_list_push(&paths, S("static/gone.css"), &arena);
   const struct OsStat* stats = walk_stat_paths(&paths, os, &arena);
   TEST_CHECK(stats[0].len == 3 && stats[0].mtime_s != 0);
-  TEST_CHECK(stats[1].len == 0 && stats[1].mtime_s == 0 && stats[1].mtime_ns == 0);
+  TEST_CHECK(stats[1].len == WALK_STAT_LEN_FAILED && stats[1].mtime_s == 0 &&
+             stats[1].mtime_ns == 0);
 }
 
 TEST_LIST = {
@@ -408,6 +409,6 @@ TEST_LIST = {
     {"walk rejects unstatable entry", test_walk_rejects_unstatable_entry},
     {"walk reports uninspectable entries in order",
      test_walk_reports_uninspectable_entries_in_order},
-    {"stat paths zeroes an uninspectable path", test_stat_paths_zeroes_an_uninspectable_path},
+    {"stat paths marks an uninspectable path", test_stat_paths_marks_an_uninspectable_path},
     {NULL, NULL},
 };

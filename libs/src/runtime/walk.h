@@ -72,11 +72,15 @@ int walk_files_with_suffixes(struct PathList* paths,
                              struct Str operation,
                              struct Log* log) __attribute__((nonnull(1, 7, 8, 11)));
 
+/** The `len` of a stat that `walk_stat_paths` could not take, which no file has. */
+enum { WALK_STAT_LEN_FAILED = -1 };
+
 /**
  * @brief Returns what `os_stat` reports for each of `paths`, which a build cache's rows record.
  *
- * A file that cannot be inspected keeps a zeroed stat, which no row of a file a build read matches,
- * so the build makes its outputs again, and the read that follows reports why.
+ * A file that cannot be inspected gets a stat whose `len` is `WALK_STAT_LEN_FAILED`. No row of a
+ * build cache holds a negative size, so no row matches it, the build makes its outputs again, and
+ * the read that follows reports why.
  *
  * @param paths Files to inspect. Must not be `NULL`.
  * @param os    Host the files are on. Must not be `NULL`.

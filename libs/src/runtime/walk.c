@@ -222,7 +222,9 @@ int walk_files_with_suffixes(struct PathList* paths,
 struct OsStat* walk_stat_paths(const struct PathList* paths, struct Os* os, struct Arena* perm) {
   struct OsStat* stats = arena_new(perm, paths->count, struct OsStat);
   for (ptrdiff_t i = 0; i < paths->count; i++) {
-    (void)os_stat(os, paths->items[i], &stats[i]);
+    if (os_stat(os, paths->items[i], &stats[i]) != 0) {
+      stats[i] = (struct OsStat){.len = WALK_STAT_LEN_FAILED};
+    }
   }
   return stats;
 }
