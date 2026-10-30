@@ -248,7 +248,7 @@ Each property that a test checks against the in-memory host must have a contract
 
 ## runtime
 
-- [build_run](src/runtime/build_run.h): `build_run` resolves a build's worker count, at most `BUILD_RUN_WORKER_PER_CPU_MAX` (four) per online CPU, reserves one block for every arena the app sizes, halving the workers before the arenas under an address-space limit, runs the app's build in it, prints the errors and then the warnings, and releases the block.
+- [build_run](src/runtime/build_run.h): `build_run` resolves a build's worker count, at most `BUILD_RUN_WORKER_PER_CPU_MAX` (four) per online CPU, reserves one block for every arena the app sizes, halving the workers before the arenas under an address-space limit, as [Build memory](#build-memory) describes, runs the app's build in it, prints the errors and then the warnings, and releases the block.
 - [job](src/runtime/job.h): `job_run` connects the parallel phases of a build to the worker pool. It gives each job a log of its own, in the share of the phase's scratch that the job's worker owns. It reports progress under a lock, merges the errors of the failed jobs, and merges the warnings of every job. When the lines of two jobs differ only after the text that the caller names, the two jobs count as one failure, or as one job with warnings. Each job writes its results into its own slot, which the caller owns.
 - [pool](src/runtime/pool.h): Runs indexed jobs through a pthread pool of bounded size. It completes every job, even when one job fails, and joins every worker before it returns. Each job gets the index of the worker that runs it, so the job can use that worker's arenas. The module also gets the default worker count from the number of online CPUs.
 - [read_root](src/runtime/read_root.h): `read_root_require` checks that each directory a build reads exists and is a directory, skips one whose config key the load rejected, accepts an optional one that does not exist, and reports every one that fails in one run, with its config key, its cause and its path.
@@ -256,6 +256,19 @@ Each property that a test checks against the in-memory host must have a contract
 - [walk](src/runtime/walk.h): Finds and sorts the matching regular files in a directory tree. It uses only `os_list` and `os_stat`, so it behaves the same on every host. It follows symlinked directories, but walks each directory once, by device and inode. It skips a cycle or a second alias of a directory. A caller can name one directory to exclude. The walk visits directory entries in byte order, and visits each symlinked directory only after every real directory, so it lists the path without a symlink when such a path exists. Only one directory is open at a time. `walk_stat_paths` stats each listed file for the output cache's rows.
 
 [src/runtime/test_walk_posix.c](src/runtime/test_walk_posix.c) runs the walk on the POSIX host, for the failures that only a real filesystem gives.
+
+### Build memory
+
+**Decision.** `build_run` reserves a build's memory once, before the build reads any input, as one block of address space, and splits it into the arenas that the app's `BuildRunLens` sizes: the log, a perm and a scratch for the main thread and for each worker, and in the main thread's scratch a log share for each worker and one for `job_run`. Each app derives the sizes from the limits that bound what an arena holds, so the worker count is the only input that the reservation depends on: the `-w` count, or one per online CPU, at most `BUILD_RUN_WORKER_PER_CPU_MAX` (four) per online CPU. If the system refuses the block, `build_run` halves the workers, down to one, and then `arena_reserve_halving` halves the block and every arena with it. An arena commits pages only when an allocation reaches them, one mebibyte past what it needs.
+
+**Reasons.**
+
+- Sizes from the limits hold every input that the limits accept, apart from any input shape that an app names beside its sizes as needing more, so a build without an address-space limit runs out of memory only on such an input or when the system does. An estimate from the inputs would help only under `ulimit -v`, and could be wrong in both directions.
+- Strict overcommit charges every committed page, and Linux ignores `MAP_NORESERVE` under it, so an arena commits on demand.
+- On macOS a reservation costs about 1 µs per GiB to reserve and again to release, a fraction of a millisecond at these sizes.
+- Fewer workers keep every arena at full size, so the limit that a build needs does not grow with `-w`.
+
+**Cost.** Under a `ulimit -v` below the full reservation, the arenas hold less than the limits allow, so a large input ends in the out-of-memory report and not in a sized refusal. The build still never writes wrong bytes.
 
 ## cli
 

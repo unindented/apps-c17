@@ -36,40 +36,18 @@
 /** Bytes in a mebibyte, the unit of the sizes below. */
 #define BUILD_MIB ((ptrdiff_t)1024 * 1024)
 
-// Each thread has a perm and a scratch arena of the sizes below, and the build has one log. A size
-// costs address space only, because pages are committed as an arena fills, and a build that
-// outgrows an arena ends in `os_oom`.
 _Static_assert(PTRDIFF_MAX > 0xffffffff, "the arenas below need a 64-bit address space");
 
-/**
- * Bytes of the build's log, and of each worker's share of the job logs, which hold the report: the
- * configuration and output-path errors and every failed job's messages.
- */
+/** Bytes of the build's log, and of each worker's share of the job logs. */
 #define BUILD_LOG_LEN (256 * BUILD_MIB)
 
-/**
- * Bytes of each thread's perm, which holds the main thread's paths, entry arrays, manifest and
- * output cache, or a worker's parsed entries with their sources and the bodies it converted, beside
- * one render's buffer of up to twice `TEMPLATE_RENDER_OUTPUT_LEN_MAX`.
- */
+/** Bytes of each thread's perm, which holds its paths and entries beside one render's buffer. */
 #define BUILD_PERM_LEN (16 * (ptrdiff_t)TEMPLATE_RENDER_OUTPUT_LEN_MAX)
 
 /**
- * Bytes of each thread's scratch, which holds one job's temporaries: what a converter holds, and
- * the region its code blocks are highlighted in, twice `HIGHLIGHT_MEMORY_LEN_MAX`. The source
- * itself is in the perm. A converter's buffers grow by doubling in an arena they share, so each
- * takes at most four times what it holds. Markdown holds a code block's text: four bytes for each
- * byte of the source. Org holds a source block's text and an inline source's, four bytes for each
- * byte of them, and a source block's code references, a 16-byte record for the eight bytes a
- * `(ref:name)` and its line end take, of which the held text keeps the line end: nine bytes for
- * each. Org's is the larger, with the region 2.5 GiB together. A block made almost wholly of code
- * references whose `-l` label format is shorter takes up to 32 bytes for each byte, and past about
- * 88 MiB of such lines it ends in `os_oom`: that is the one input the limits accept that this does
- * not hold. Or the scratch holds a parse's copy of the frontmatter, or a render in which a partial
- * that includes itself reaches the expansion limit long before the arena is full. Or, once a render
- * has returned, it holds the existing output that `output_writer_produce` reads back to compare
- * with the rendered one, of up to `TEMPLATE_RENDER_OUTPUT_LEN_MAX`, and 64 KiB more for the read's
- * message.
+ * Bytes of each thread's scratch, which holds one job's temporaries, at most nine bytes per byte of
+ * an Org source beside its highlight region, though Org code references with a shorter `-l` label
+ * format need up to 32 bytes per byte and end in `os_oom` past about 88 MiB of such lines.
  */
 #define BUILD_SCRATCH_LEN (3 * 1024 * BUILD_MIB)
 

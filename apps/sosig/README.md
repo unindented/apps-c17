@@ -213,7 +213,7 @@ The build rejects an input file that is too large before it reads the file. The 
 
 A site can have at most 64 partials in the `partials/` directory of `templates_dir`. A rendered page can be at most 256 MiB, a render can use at most 300,000 partial expansions, and a render that passes a limit fails. An output cache over 256 MiB is not read, and the build copies every static file and asset again.
 
-The build reserves its memory once, when it starts, in fixed sizes that come from these limits. Reserved memory that the build does not use takes address space but no memory. An address-space limit (`ulimit -v`) can refuse the full reservation. When that happens, the build runs fewer workers, down to one. If the reservation still does not fit, the build makes it smaller until it fits, so the build has less room for its data. [ARCHITECTURE.md](ARCHITECTURE.md#memory-reserve-then-commit-on-demand) describes this process. Because the build runs fewer workers before it makes its reservation smaller, the address-space limit that a build needs does not increase with `-w`:
+The build reserves its memory once, in fixed sizes that come from these limits, and under an address-space limit (`ulimit -v`) it runs fewer workers and then a smaller reservation, as [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#build-memory) describes:
 
 - A build needs about 280 MB (`ulimit -v 270000`). With a lower limit, the build stops at startup with `sosig: out of memory`.
 - The stacks of the worker threads need room beside the reservation: about 24 MB for two workers. If the limit leaves less room than this, the build fails with `cannot start worker thread`.

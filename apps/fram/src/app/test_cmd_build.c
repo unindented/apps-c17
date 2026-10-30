@@ -2,7 +2,6 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -1262,57 +1261,6 @@ static void test_honors_requested_worker_count(void) {
   }
 }
 
-// A build runs at most four workers per online CPU, however many it is asked for, and the verbose
-// phase lines name that count. The four is `BUILD_RUN_WORKER_PER_CPU_MAX` of the `runtime` library,
-// spelled here so that changing it must change this test.
-static void test_caps_the_worker_count_at_four_per_cpu(void) {
-  struct Os* os = os_memory();
-  write_gallery_fixture(os, NULL);
-  write_jpeg(os, "photos/one.jpg");
-  const struct BuildOptions options = {
-      .config_path = SITE_CONFIG_PATH_DEFAULT, .worker_count = 100000, .is_verbose = true};
-  TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
-  static const char* const phases[] = {"probing media", "generating derivatives",
-                                       "rendering albums"};
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(phases) / sizeof(phases[0])); i++) {
-    struct Arena arena = test_arena();
-    struct Buf line = {.arena = &arena};
-    buf_printf(&line, "%s, workers: %td", phases[i], 4 * pool_resolve_worker_count());
-    TEST_CHECK(has_printed_line(os, 2, buf_cstr(&line)));
-  }
-  TEST_CHECK(os_memory_has_path(os, "public/index.html"));
-}
-
-// Under an address-space limit the build halves its worker count, down to one, before it halves any
-// arena, and the verbose phase lines name the count it kept. The limits follow the sizes in
-// `cmd_build.c`: 30 GiB lies between the 22 GiB two workers need and the 36.5 GiB four need, and
-// 10 GiB is under the 14.75 GiB of one, which then runs on arenas halved twice.
-static void test_cuts_workers_before_arenas_under_limit(void) {
-  static const struct {
-    ptrdiff_t len_max;
-    ptrdiff_t worker_count;
-  } cases[] = {
-      {(ptrdiff_t)30 << 30, 2},
-      {(ptrdiff_t)10 << 30, 1},
-  };
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct Os* os = os_memory();
-    write_gallery_fixture(os, NULL);
-    write_jpeg(os, "photos/one.jpg");
-    const struct BuildOptions options = {
-        .config_path = SITE_CONFIG_PATH_DEFAULT, .worker_count = 4, .is_verbose = true};
-    arena_reserve_len_max = cases[i].len_max;
-    TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
-    arena_reserve_len_max = PTRDIFF_MAX;
-    struct Arena arena = test_arena();
-    struct Buf line = {.arena = &arena};
-    buf_printf(&line, "probing media, workers: %td", cases[i].worker_count);
-    TEST_CHECK(has_printed_line(os, 2, buf_cstr(&line)));
-    TEST_CHECK(os_memory_has_path(os, "public/index.html"));
-    TEST_MSG("case %td", i);
-  }
-}
-
 // An album of many items builds. A page render's temporaries grow with the items it lists, about a
 // kilobyte each.
 static void test_builds_a_large_album(void) {
@@ -1955,8 +1903,6 @@ TEST_LIST = {
     {"failed probe keeps output cache", test_failed_probe_keeps_output_cache},
     {"dry run uses output cache and leaves it", test_dry_run_uses_output_cache_and_leaves_it},
     {"honors requested worker count", test_honors_requested_worker_count},
-    {"caps the worker count at four per CPU", test_caps_the_worker_count_at_four_per_cpu},
-    {"cuts workers before arenas under limit", test_cuts_workers_before_arenas_under_limit},
     {"builds a large album", test_builds_a_large_album},
     {"skips empty phases in verbose output", test_skips_empty_phases_in_verbose_output},
     {"leaves log empty on success", test_leaves_log_empty_on_success},

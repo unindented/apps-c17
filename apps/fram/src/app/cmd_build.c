@@ -39,34 +39,17 @@
 /** Bytes in a mebibyte, the unit of the sizes below. */
 #define BUILD_MIB ((ptrdiff_t)1024 * 1024)
 
-// Each thread has a perm and a scratch arena of the sizes below, and the build has one log. A size
-// costs address space only, because pages are committed as an arena fills, and a build that
-// outgrows an arena ends in `os_oom`.
 _Static_assert(PTRDIFF_MAX > 0xffffffff, "the arenas below need a 64-bit address space");
 
-/**
- * Bytes of the build's log, and of each worker's share of the job logs, which hold the report: the
- * configuration and output-path errors and every failed job's messages.
- */
+/** Bytes of the build's log, and of each worker's share of the job logs. */
 #define BUILD_LOG_LEN (256 * BUILD_MIB)
 
-/**
- * Bytes of each thread's perm, which holds the main thread's paths, skeleton, frame slots, manifest
- * and output cache, or for a worker one encoded derivative of up to `IMAGE_ENCODED_LEN_MAX` while
- * it is written, and then every album page it renders until the write phase, eight pages at
- * `TEMPLATE_RENDER_OUTPUT_LEN_MAX` in buffers of up to twice their length.
- */
+/** Bytes of each thread's perm, which holds its paths, an encoded derivative or rendered pages. */
 #define BUILD_PERM_LEN (16 * (ptrdiff_t)TEMPLATE_RENDER_OUTPUT_LEN_MAX)
 _Static_assert(BUILD_PERM_LEN > (ptrdiff_t)IMAGE_ENCODED_LEN_MAX,
                "a worker's perm must hold an encoded derivative");
 
-/**
- * Bytes of each thread's scratch, which holds one job's temporaries: a source of up to
- * `IMAGE_INPUT_LEN_MAX` while its derivatives are made, and then the read of an existing derivative
- * of up to `IMAGE_ENCODED_LEN_MAX` and 64 KiB more, which the output writer compares the made bytes
- * with. On the main thread it holds an existing page or aggregate of up to
- * `TEMPLATE_RENDER_OUTPUT_LEN_MAX` beside the same 64 KiB.
- */
+/** Bytes of each thread's scratch, which holds one job's source beside its encoded derivative. */
 #define BUILD_SCRATCH_LEN (3 * 1024 * BUILD_MIB)
 _Static_assert(BUILD_SCRATCH_LEN > (ptrdiff_t)IMAGE_INPUT_LEN_MAX + IMAGE_ENCODED_LEN_MAX,
                "a worker's scratch must hold a source beside its encoded derivative");

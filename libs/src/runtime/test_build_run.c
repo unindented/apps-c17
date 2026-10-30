@@ -1,6 +1,7 @@
 #include <acutest.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "core/arena.h"
 #include "core/exit_code.h"
@@ -24,6 +25,9 @@ static const struct BuildRunLens LENS = {
 struct TestBuild {
   /** Receives the worker count the build ran with. */
   ptrdiff_t worker_count;
+
+  /** Receives the bytes of the first worker's perm. */
+  ptrdiff_t worker_perm_len;
 
   /** Whether the build logs an error and a warning and fails. */
   bool is_failing;
@@ -54,6 +58,7 @@ static int execute(ptrdiff_t worker_count,
   (void)os;
   struct TestBuild* build = userdata;
   build->worker_count = worker_count;
+  build->worker_perm_len = worker_arenas[0].perm.limit - worker_arenas[0].perm.beg;
   TEST_CHECK(perm.beg != NULL && scratch.beg != NULL && perm.beg != scratch.beg);
   for (ptrdiff_t i = 0; i < worker_count; i++) {
     TEST_CHECK(worker_arenas[i].perm.beg != NULL && worker_arenas[i].scratch.beg != NULL);
@@ -89,6 +94,31 @@ static void test_run_caps_the_workers_at_four_per_cpu(void) {
   TEST_CHECK(build.worker_count == BUILD_RUN_WORKER_PER_CPU_MAX * cpu_count);
 }
 
+// Under an address-space limit a build halves its workers, down to one, before it halves any arena.
+// With `LENS`, four workers need 679,936 bytes, two need 409,600 and one needs 274,432. So 512 KiB
+// holds two workers at full size, and 192 KiB holds one worker on arenas halved once, which
+// `arena_reserve_halving` halves once more to keep room beside them.
+static void test_run_halves_workers_before_arenas_under_limit(void) {
+  const struct {
+    ptrdiff_t len_max;
+    ptrdiff_t worker_count;
+    ptrdiff_t worker_perm_len;
+  } cases[] = {
+      {512 * 1024, 2, LENS.perm_len},
+      {192 * 1024, 1, LENS.perm_len / 4},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    struct Os* os = os_memory();
+    struct TestBuild build = {0};
+    arena_reserve_len_max = cases[i].len_max;
+    TEST_CHECK(build_run(&LENS, 4, execute, &build, os) == EXIT_CODE_OK);
+    arena_reserve_len_max = PTRDIFF_MAX;
+    TEST_CHECK(build.worker_count == cases[i].worker_count);
+    TEST_CHECK(build.worker_perm_len == cases[i].worker_perm_len);
+    TEST_MSG("case %td", i);
+  }
+}
+
 // A build that succeeds with a warning prints the warning, so it still says what it left out.
 static void test_run_prints_the_warnings_of_a_build_that_succeeds(void) {
   struct Os* os = os_memory();
@@ -108,6 +138,8 @@ static void test_run_prints_errors_then_warnings(void) {
 TEST_LIST = {
     {"run resolves the worker count", test_run_resolves_the_worker_count},
     {"run caps the workers at four per CPU", test_run_caps_the_workers_at_four_per_cpu},
+    {"run halves workers before arenas under limit",
+     test_run_halves_workers_before_arenas_under_limit},
     {"run prints the warnings of a build that succeeds",
      test_run_prints_the_warnings_of_a_build_that_succeeds},
     {"run prints errors then warnings", test_run_prints_errors_then_warnings},

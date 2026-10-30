@@ -1200,58 +1200,26 @@ static void test_honors_requested_worker_count(void) {
   }
 }
 
-// A build runs at most four workers per online CPU, however many it is asked for, and the verbose
-// phase lines name that count. The four is `BUILD_RUN_WORKER_PER_CPU_MAX` of the `runtime` library,
-// spelled here so that changing it must change this test.
-static void test_caps_the_worker_count_at_four_per_cpu(void) {
+// Under an address-space limit that refuses even one worker's full arenas, the build runs on the
+// one worker that `build_run` kept, though it asked for four, and the verbose phase lines name that
+// count, where a build that kept the requested count would name four. The limit is far below one
+// worker's arenas, and above the smallest size that halving them reaches.
+static void test_uses_the_worker_count_the_memory_allows(void) {
   struct Os* os = site_fixture(NULL);
-  os_memory_write(os, "content/hello.md", HELLO_ENTRY);
+  os_memory_write(os, "content/a.md", HELLO_ENTRY);
   const struct BuildOptions options = {
       .config_path = SITE_CONFIG_PATH_DEFAULT,
-      .worker_count = 100000,
+      .worker_count = 4,
       .is_verbose = true,
   };
-  TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
-  struct Arena arena = test_arena();
-  struct Buf parse_line = {.arena = &arena};
-  struct Buf render_line = {.arena = &arena};
-  buf_printf(&parse_line, "parsing content, workers: %td", 4 * pool_resolve_worker_count());
-  buf_printf(&render_line, "rendering content, workers: %td", 4 * pool_resolve_worker_count());
-  TEST_CHECK(has_printed_line(os, 2, buf_cstr(&parse_line)));
-  TEST_CHECK(has_printed_line(os, 2, buf_cstr(&render_line)));
-  TEST_CHECK(os_memory_is_file(os, "public/hello.html", HELLO_PAGE));
-}
-
-// Under an address-space limit the build halves its worker count, down to one, before it halves any
-// arena, and the verbose phase lines name the count it kept. The limits follow the sizes in
-// `cmd_build.c`: 30 GiB lies between the 22 GiB two workers need and the 36.5 GiB four need, and
-// 10 GiB is under the 14.75 GiB of one, which then runs on arenas halved twice.
-static void test_cuts_workers_before_arenas_under_limit(void) {
-  static const struct {
-    ptrdiff_t len_max;
-    ptrdiff_t worker_count;
-  } cases[] = {
-      {(ptrdiff_t)30 << 30, 2},
-      {(ptrdiff_t)10 << 30, 1},
-  };
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
-    struct Os* os = site_fixture(NULL);
-    os_memory_write(os, "content/hello.md", HELLO_ENTRY);
-    const struct BuildOptions options = {
-        .config_path = SITE_CONFIG_PATH_DEFAULT,
-        .worker_count = 4,
-        .is_verbose = true,
-    };
-    arena_reserve_len_max = cases[i].len_max;
-    TEST_CHECK(cmd_build_run(&options, os) == EXIT_CODE_OK);
-    arena_reserve_len_max = PTRDIFF_MAX;
-    struct Arena arena = test_arena();
-    struct Buf parse_line = {.arena = &arena};
-    buf_printf(&parse_line, "parsing content, workers: %td", cases[i].worker_count);
-    TEST_CHECK(has_printed_line(os, 2, buf_cstr(&parse_line)));
-    TEST_CHECK(os_memory_is_file(os, "public/hello.html", HELLO_PAGE));
-    TEST_MSG("case %td", i);
-  }
+  arena_reserve_len_max = (ptrdiff_t)1 << 30;
+  const enum ExitCode code = cmd_build_run(&options, os);
+  arena_reserve_len_max = PTRDIFF_MAX;
+  TEST_CHECK(code == EXIT_CODE_OK);
+  TEST_CHECK(os_memory_is_printed(os, 1, ""));
+  TEST_CHECK(has_printed_line(os, 2, "parsing content, workers: 1"));
+  TEST_CHECK(has_printed_line(os, 2, "rendering content, workers: 1"));
+  TEST_CHECK(os_memory_is_file(os, "public/a.html", HELLO_PAGE));
 }
 
 // A site with no content sources skips the parse, conversion and render phases, so the verbose log
@@ -2007,8 +1975,7 @@ TEST_LIST = {
     {"ignores output cache it cannot use", test_ignores_output_cache_it_cannot_use},
     {"prunes the old build cache", test_prunes_the_old_build_cache},
     {"honors requested worker count", test_honors_requested_worker_count},
-    {"caps the worker count at four per CPU", test_caps_the_worker_count_at_four_per_cpu},
-    {"cuts workers before arenas under limit", test_cuts_workers_before_arenas_under_limit},
+    {"uses the worker count the memory allows", test_uses_the_worker_count_the_memory_allows},
     {"skips empty phases in verbose output", test_skips_empty_phases_in_verbose_output},
     {"leaves log empty on success", test_leaves_log_empty_on_success},
     {"run prints diagnostic once and fails", test_run_prints_diagnostic_once_and_fails},

@@ -301,9 +301,7 @@ Each decision below states what the code does and why, and some decisions also s
 - the main thread's scratch, `BUILD_SCRATCH_LEN` (3 GiB), and one `BUILD_LOG_LEN` share of job logs for each worker and one more
 - a perm and a scratch of the same sizes for each worker, as one `JobArenas` each
 
-The worker count is the only input that the reservation depends on: the `-w` count, or one worker for each online CPU, at most `BUILD_RUN_WORKER_PER_CPU_MAX` (four) for each online CPU. If the system refuses the block, the build halves its worker count, down to one, and then `arena_reserve_halving` halves the block and every arena with it. Each arena commits pages only when its allocations get to them, so a site that uses little of a region costs only address space.
-
-**Reasons and cost.** `build_run` makes this layout for sosig and fram as it does for `surge`, so the reasons and the cost are those of [sosig's decision](../sosig/ARCHITECTURE.md#memory-reserve-then-commit-on-demand).
+Under an address-space limit, `build_run` halves the workers and then the block, as [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#build-memory) describes.
 
 ### Out of memory exits the process
 

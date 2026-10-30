@@ -204,27 +204,9 @@ Each decision below states what the code does and why, and some decisions also s
 
 ### Memory: reserve, then commit on demand
 
-**Decision.**
+**Decision.** `build_run` reserves the build's memory once and halves it under an address-space limit, as [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#build-memory) describes. Every thread's perm is `BUILD_PERM_LEN` (4 GiB) and its scratch `BUILD_SCRATCH_LEN` (3 GiB), and the log is `BUILD_LOG_LEN` (256 MiB), sizes that come from the content, template and render limits and the expansion limit. A worker's arenas live longer than its jobs, so `arena_discard` gives back the pages of a page after it is written, where a `malloc` design would free it.
 
-1. When the build starts, it reserves its block with `PROT_NONE`, and it releases the block when it ends. The reservation costs no memory.
-2. An arena commits more pages only when an allocation does not fit in the committed part, so the fast path is still one bounds check. The slow path commits pages to one mebibyte past what the allocation needs, but not past the end of the region.
-3. Each arena has a fixed size, which comes from the limits that bound what it holds: the content, template and render limits, and the expansion limit. Every thread's perm is `BUILD_PERM_LEN` (4 GiB), and every thread's scratch is `BUILD_SCRATCH_LEN` (3 GiB). The log is `BUILD_LOG_LEN` (256 MiB). The main thread's scratch also holds one more `BUILD_LOG_LEN` share of job logs for each worker, and one for `job_run`. `cmd_build.c` defines each size with the bound that justifies it. The worker count is the only input that the reservation depends on.
-4. The build runs the number of workers that `-w` requests, or by default one worker for each online CPU. It never runs more than `BUILD_RUN_WORKER_PER_CPU_MAX` (four) workers for each online CPU, whatever number `-w` requests. It reserves arenas for that number of workers before it reads any input. `pool_run` starts no more threads than a phase has jobs, so `-w` is a maximum. The verbose status lines give the worker count that the build has arenas for.
-5. If the system refuses the block, the build halves its worker count, down to one worker. If the system still refuses, `arena_reserve_halving` halves the block, and every arena with it, up to `ARENA_RESERVE_HALVING_COUNT_MAX` (six) times. It then halves the first size that fits one more time, so that `malloc` in the vendored libraries and the thread stacks have room. If the system refuses even the smallest size, the build ends with the out-of-memory report.
-6. A worker's arenas live longer than its jobs. Where a `malloc` design would free a buffer that the worker no longer needs, `arena_discard` gives back the buffer's pages instead:
-   - a page, after it is written
-
-**Reasons.**
-
-- Each arena's size comes from the limits, not from an estimate of what the inputs need. An estimate needs a budget that the build reads from `RLIMIT_AS`, estimates for each region, minimum and maximum sizes, and sized refusals. An estimate helps only under `ulimit -v`, and it can be wrong in both directions: a few hundred workers leave no room for one large render, and a deep or render-heavy site grows past its estimate after the reservation succeeded.
-- A fixed reservation from the limits holds every input that the limits accept. A build without an address-space limit runs out of memory only when the system runs out of memory.
-- An arena commits its pages on demand, not all at once, because strict overcommit charges every committed page against the system's limit, and Linux ignores `MAP_NORESERVE` under strict overcommit.
-- On macOS, a reservation costs system time in proportion to its size: about 1 µs per GiB to reserve, and the same to release. With sizes from the limits, this cost is a fraction of a millisecond. A reservation as large as the address space allows would cost tens of milliseconds on every build.
-- One reservation at startup, for the capped worker count, puts the whole layout in one function. A site with fewer sources than workers reserves arenas that some workers never use, and this costs only address space.
-- A by-value copy cannot tell the original what it committed, so each job's copies commit their pages again, at a cost of about one system call per job. If the copies shared a committed end, they would skip the poisoning that `arena_commit` does under the address sanitizer. The arena would then hand out bytes that a dead copy left unpoisoned. Committing a worker's first step once, before its jobs, would save about 1% of system time, but it would add a new mechanism, so the code does not do it.
-- A page costs far more to render than to fault in. Without the discard, a large page would stay resident in every worker after it is written.
-
-**Cost.** Under a `ulimit -v` that is below the full reservation, the build runs with halved arenas, which hold less than the limits allow. A large input then ends in the out-of-memory report, not in a sized refusal. Under such a limit, only correctness counts: the build succeeds or ends with that report, and it never writes wrong bytes.
+**Reasons.** A page costs far more to render than to fault in. Without the discard, a large page would stay resident in every worker after it is written.
 
 ### Out of memory exits the process
 

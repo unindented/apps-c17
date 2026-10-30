@@ -52,24 +52,15 @@ enum { BUILD_RECIPE_ID_LEN = 16 };
 /** Bytes in a mebibyte, the unit of the sizes below. */
 #define BUILD_MIB ((ptrdiff_t)1024 * 1024)
 
-// Each thread has a perm and a scratch arena of the sizes below, and the build has one log, as in
-// sosig. A size costs address space only, because pages are committed as an arena fills.
 _Static_assert(PTRDIFF_MAX > 0xffffffff, "the arenas below need a 64-bit address space");
 
 /** Bytes of the build's log, and of each worker's share of the job logs. */
 #define BUILD_LOG_LEN (256 * BUILD_MIB)
 
-/**
- * Bytes of each thread's perm, which holds the main thread's config, paths and manifest, or what a
- * worker's scans keep, beside one render's buffer of up to twice `TEMPLATE_RENDER_OUTPUT_LEN_MAX`.
- */
+/** Bytes of each thread's perm, which holds what its scans keep beside one render's buffer. */
 #define BUILD_PERM_LEN (16 * (ptrdiff_t)TEMPLATE_RENDER_OUTPUT_LEN_MAX)
 
-/**
- * Bytes of each thread's scratch, which holds one job's temporaries. The largest is a raw copy's
- * comparison: its blob, up to `SURGE_RAW_LEN_MAX_LIMIT`, beside the file in the output of the same
- * size and the 64 KiB that its read adds, with the blob's slack and the job's paths.
- */
+/** Bytes of each thread's scratch, whose largest use is a raw copy's blob beside its output. */
 #define BUILD_SCRATCH_LEN (3 * 1024 * BUILD_MIB)
 _Static_assert(2 * SURGE_RAW_LEN_MAX_LIMIT + BUILD_MIB <= BUILD_SCRATCH_LEN,
                "the scratch must hold a raw copy's comparison");
