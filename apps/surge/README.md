@@ -817,7 +817,6 @@ The workflow presets run the same configure, build, and test steps as CI:
 | `cmake --workflow --preset ci-debug` | Build in `Debug`, run linting, and run all ASan and UBSan tests. |
 | `cmake --workflow --preset ci-tsan` | Build with TSan and run all TSan tests. |
 | `cmake --workflow --preset ci-release` | Build in `RelWithDebInfo`. |
-| `cmake --workflow --preset ci-grammars` | Build in `RelWithDebInfo` with only the TypeScript grammar. CI runs this workflow only on Linux. |
 | `cmake --workflow --preset ci-multi` | Build and test in `Debug` and `RelWithDebInfo` with the `Ninja Multi-Config` generator. CI runs this workflow a second time with `CC=gcc-14` to check GCC. |
 
 CI installs mise 2026.11.0 for the `surge` job on Linux and macOS, so the golden test runs the mise test there. The GCC job runs the golden test without it.
@@ -829,7 +828,6 @@ podman build --tag apps-c17-linux-ci --file ../../Containerfile ../..
 podman run --rm --workdir /src/apps/surge apps-c17-linux-ci ci-debug
 podman run --rm --workdir /src/apps/surge apps-c17-linux-ci ci-tsan
 podman run --rm --workdir /src/apps/surge apps-c17-linux-ci ci-release
-podman run --rm --workdir /src/apps/surge apps-c17-linux-ci ci-grammars
 podman run --rm --workdir /src/apps/surge apps-c17-linux-ci ci-multi
 podman run --rm --workdir /src/apps/surge -e CC=gcc-14 apps-c17-linux-ci ci-multi
 ```

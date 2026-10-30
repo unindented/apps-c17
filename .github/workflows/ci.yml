@@ -126,7 +126,6 @@ jobs:
     uses: ./.github/workflows/checks.yml
     with:
       working-directory: apps/sosig
-      grammars: true
 
   fram:
     name: fram
@@ -154,7 +153,6 @@ jobs:
     uses: ./.github/workflows/checks.yml
     with:
       working-directory: apps/surge
-      grammars: true
       mise: true
 
   libs:

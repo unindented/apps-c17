@@ -53,7 +53,6 @@ jobs:
       linux_packages: ${{ steps.app.outputs.linux_packages }}
       macos_packages: ${{ steps.app.outputs.macos_packages }}
       tsan: ${{ steps.app.outputs.tsan }}
-      grammars: ${{ steps.app.outputs.grammars }}
       mise: ${{ steps.app.outputs.mise }}
       matrix: ${{ steps.targets.outputs.matrix }}
       target_count: ${{ steps.targets.outputs.count }}
@@ -168,14 +167,9 @@ jobs:
           linux_packages=""
           macos_packages=""
           tsan=true
-          grammars=false
           mise=false
           case "$APP" in
-            sosig) grammars=true ;;
-            surge)
-              grammars=true
-              mise=true
-              ;;
+            surge) mise=true ;;
             fram)
               linux_packages="ffmpeg nasm"
               macos_packages="ffmpeg"
@@ -186,7 +180,6 @@ jobs:
             echo "linux_packages=$linux_packages"
             echo "macos_packages=$macos_packages"
             echo "tsan=$tsan"
-            echo "grammars=$grammars"
             echo "mise=$mise"
           } >> "$GITHUB_OUTPUT"
 
@@ -200,7 +193,6 @@ jobs:
       linux-packages: ${{ needs.resolve.outputs.linux_packages }}
       macos-packages: ${{ needs.resolve.outputs.macos_packages }}
       tsan: ${{ needs.resolve.outputs.tsan == 'true' }}
-      grammars: ${{ needs.resolve.outputs.grammars == 'true' }}
       mise: ${{ needs.resolve.outputs.mise == 'true' }}
       cwrap: ${{ !inputs.without_cwrap }}
 

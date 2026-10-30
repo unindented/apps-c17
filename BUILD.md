@@ -50,7 +50,7 @@ The top-level `CMakeLists.txt` of an app sets the project policy, includes the C
 | `cmake/<app>_lint.cmake` | Lists the first-party sources that the `format` and `lint` targets check |
 | `cmake/<app>_run_golden.cmake` | Runs a golden test |
 | `CMakeGraphVizOptions.cmake` | Sets the filters and the layout of the target graph |
-| `CMakePresets.json` | Includes [cmake/release-presets.json](cmake/release-presets.json), and adds the presets of the app's own names |
+| `CMakePresets.json` | Includes [cmake/release-presets.json](cmake/release-presets.json) |
 
 ## Targets of an app
 
@@ -231,7 +231,6 @@ The source archive, `<app>-<version>-source.tar.gz`, holds the whole repository 
 
 - [apps/sosig/CMakeLists.txt](apps/sosig/CMakeLists.txt) also finds the thread library.
 - [apps/sosig/vendor.cmake](apps/sosig/vendor.cmake) also includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake), as [Grammars](#grammars) describes.
-- [apps/sosig/CMakePresets.json](apps/sosig/CMakePresets.json) adds the `grammars` presets, which build `sosig` with only the TypeScript grammar, and their workflow preset `ci-grammars`.
 - `sosig` links the libraries `cli`, `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `markup`, `output` and `templates`, and for the unit tests `testing` and the in-memory host `os_memory`.
 - `sosig_app` links `vendor_tomlc17`, `cli`, `core`, `formats`, `markup`, `os`, `output`, `runtime` and `templates` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 - `src/CMakeLists.txt` links `vendor_tomlc17`, the one vendored dependency that the code of `sosig` uses directly. The libraries link the other vendored dependencies that they use, such as copt, which `cli` links, and mustache4c, which `templates` links.
@@ -340,7 +339,6 @@ Both scripts find their input files with globs. These globs run in the test and 
 
 - [apps/surge/CMakeLists.txt](apps/surge/CMakeLists.txt) also finds the thread library.
 - [apps/surge/vendor.cmake](apps/surge/vendor.cmake) defines the targets of copt, tomlc17, mustache4c and acutest, includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake), as [Grammars](#grammars) describes, and adds libgit2, as [surge vendored dependencies](#surge-vendored-dependencies) describes.
-- [apps/surge/CMakePresets.json](apps/surge/CMakePresets.json) adds the `grammars` presets, which build `surge` with only the TypeScript grammar, and their workflow preset `ci-grammars`.
 - `surge` links the libraries `cli`, `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `markup`, `output` and `templates`, and for the unit tests `testing` and the in-memory host `os_memory`.
 - `surge_app` links `vendor_tomlc17`, `cli`, `core`, `formats`, `markup`, `os`, `output`, `runtime` and `templates` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
 - `src/vcs/` links `vendor_libgit2`, because only its own code uses it. `src/CMakeLists.txt` links `vendor_tomlc17`, and the libraries link the other vendored dependencies that they use, such as copt, which `cli` links, and mustache4c, which `templates` links.
