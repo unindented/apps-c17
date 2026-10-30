@@ -1132,14 +1132,9 @@ static int write_output_cache(const struct BuildState* state, struct Log* log) {
 static int prune_stale_outputs(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "removing stale outputs");
   oom_set_job((struct Str){0}, NULL);
-  struct Str* root_dirs = arena_new(&state->perm, state->root_count, struct Str);
-  for (ptrdiff_t i = 0; i < state->root_count; i++) {
-    root_dirs[i] = state->roots[i].dir_path;
-  }
   ptrdiff_t removed_count = 0;
-  const int rc =
-      output_pruner_prune(&state->writer, state->site_config.output_dir, root_dirs,
-                          state->root_count, state->os, state->scratch, &removed_count, log);
+  const int rc = output_pruner_prune(&state->writer, state->site_config.output_dir, state->os,
+                                     state->scratch, &removed_count, log);
   verbose_printf(&state->verbose, "removed stale outputs: %td", removed_count);
   return rc;
 }

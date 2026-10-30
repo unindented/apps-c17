@@ -73,14 +73,13 @@ static void test_keeps_output_named_in_another_case(void) {
   const struct Str output_path = path_join(output_dir, S("logo.png"), &arena);
   TEST_CHECK(access(str_cstr(output_path, &arena), F_OK) == 0);
 
-  const struct Str root_dirs[] = {path_join(str_from_cstr(root_dir), S("content"), &arena)};
   struct Manifest manifest = {0};
   TEST_CHECK(manifest_add(&manifest, output_path, S("static/logo.png"), &arena, NULL) == 0);
 
   struct OutputWriter writer = {.manifest = &manifest, .os = os_posix()};
   ptrdiff_t removed_count = -1;
-  TEST_CHECK(output_pruner_prune(&writer, output_dir, root_dirs, 1, os_posix(), test_arena(),
-                                 &removed_count, &log) == 0);
+  TEST_CHECK(output_pruner_prune(&writer, output_dir, os_posix(), test_arena(), &removed_count,
+                                 &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(removed_count == 0);
   TEST_CHECK(access(str_cstr(written_path, &arena), F_OK) == 0);

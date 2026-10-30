@@ -238,9 +238,9 @@ static void test_read_rejects_unreadable_file(void) {
 }
 
 // `os_write` creates a new file with `0666` reduced by the process umask, from every source, so a
-// restrictive umask is not discarded and a copy does not take its source's mode. Overwriting an
-// existing file keeps that file's mode, because the write goes through the file.
-static void test_write_applies_umask_and_keeps_existing_mode(void) {
+// restrictive umask is not discarded and a copy does not take its source's mode. A write over an
+// existing file replaces it, so the new file takes the same mode and not the old file's.
+static void test_write_applies_umask_to_every_file(void) {
   struct Log log = test_log();
   char root_dir[] = "/tmp/apps-fs-mode.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
@@ -274,29 +274,30 @@ static void test_write_applies_umask_and_keeps_existing_mode(void) {
   const mode_t expected = (mode_t)(0666 & ~077);
   struct stat st;
   TEST_CHECK(stat(created.data, &st) == 0 && (st.st_mode & 07777) == expected);
-  TEST_CHECK(stat(existing.data, &st) == 0 && (st.st_mode & 07777) == 0640);
+  TEST_CHECK(stat(existing.data, &st) == 0 && (st.st_mode & 07777) == expected);
   TEST_CHECK(stat(copied.data, &st) == 0 && (st.st_mode & 07777) == expected);
   remove_fixture_tree(root_dir);
 }
 
-// `os_write` finishes a write that signals interrupt instead of failing with `EINTR`. A FIFO whose
-// reader starts late stands in for a slow file, because a write to a local regular file is not
-// interrupted. The handler is installed without `SA_RESTART`, so each signal does interrupt the
-// blocked `write`. Two ways this could hang are closed: a write blocked on a reader that is gone
-// (the handler stops it, see `count_interrupt`), and a reader blocked in its `open` because the
-// write failed before it opened the FIFO (the reader is then stopped, not awaited).
-static void test_write_retries_interrupted_write(void) {
-  struct Log log = test_log();
+// `os_print` finishes a write that signals interrupt instead of failing with `EINTR`, through the
+// retry that `os_write` shares. Standard error goes to a FIFO whose reader starts late, which
+// stands in for a slow file, because a write to a local regular file is not interrupted. The
+// handler is installed without `SA_RESTART`, so each signal does interrupt the blocked `write`. A
+// write blocked on a reader that is gone cannot hang the test, because the handler stops it (see
+// `count_interrupt`).
+static void test_print_retries_interrupted_write(void) {
   char root_dir[] = "/tmp/apps-fs-write-eintr.XXXXXX";
   if (init_fixture_dir(root_dir) != 0) {
     return;
   }
 
   struct Arena arena = test_arena();
-  struct Str fifo = fixture_path(root_dir, "fifo.html", &arena);
+  struct Str fifo = fixture_path(root_dir, "fifo", &arena);
   // Larger than any pipe buffer, so the write blocks until the reader drains it.
   static char data[1024 * 1024];
   int hold_fd = -1;
+  int write_fd = -1;
+  int stderr_fd = -1;
   pid_t reader = -1;
   struct sigaction action = {.sa_handler = count_interrupt};
   struct sigaction alarm_action_before;
@@ -310,9 +311,14 @@ static void test_write_retries_interrupted_write(void) {
   if (!TEST_CHECK(mkfifo(fifo.data, 0600) == 0)) {
     goto cleanup;
   }
-  // A read end held open lets the write's `open` return at once, so only its `write` blocks.
+  // A read end held open lets the write end open at once, so only the `write` blocks.
   hold_fd = open(fifo.data, O_RDONLY | O_NONBLOCK);
   if (!TEST_CHECK(hold_fd >= 0)) {
+    goto cleanup;
+  }
+  write_fd = open(fifo.data, O_WRONLY);
+  stderr_fd = dup(STDERR_FILENO);
+  if (!TEST_CHECK(write_fd >= 0 && stderr_fd >= 0)) {
     goto cleanup;
   }
 
@@ -325,6 +331,7 @@ static void test_write_retries_interrupted_write(void) {
     goto cleanup;
   }
   if (reader == 0) {
+    (void)close(write_fd);
     _exit(drain_fifo(fifo.data, data, sizeof(data)) == 0 ? 0 : 1);
   }
 
@@ -346,8 +353,10 @@ static void test_write_retries_interrupted_write(void) {
     (void)sigaction(SIGPIPE, &pipe_action_before, NULL);
     goto cleanup;
   }
-  rc = os_write(os_posix(), fifo, (struct OsSource){.bytes = (struct Str){data, sizeof(data)}},
-                S("op"), &log);
+  if (dup2(write_fd, STDERR_FILENO) == STDERR_FILENO) {
+    rc = os_print(os_posix(), 2, (struct Str){data, sizeof(data)});
+    (void)dup2(stderr_fd, STDERR_FILENO);
+  }
   // Stop the timer before restoring the previous action, so no signal reaches the default one.
   (void)setitimer(ITIMER_REAL, &stopped, NULL);
   (void)sigaction(SIGALRM, &alarm_action_before, NULL);
@@ -356,24 +365,26 @@ static void test_write_retries_interrupted_write(void) {
   hold_fd = interrupt_hold_fd;
   interrupt_reader_pid = 0;
   interrupt_hold_fd = -1;
-  // A write that failed may have failed before it opened the FIFO, and then the reader still waits
-  // in its `open` for a writer. Only a reader that got the whole write is awaited.
-  if (rc == 0) {
-    TEST_CHECK(waitpid(reader, &status, 0) == reader);
-    reader = -1;
-  }
+  // The reader's end of file comes once no write end is open.
+  (void)close(write_fd);
+  write_fd = -1;
+  TEST_CHECK(waitpid(reader, &status, 0) == reader);
+  reader = -1;
 
   TEST_CHECK(rc == 0);
-  TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(interrupt_count > 0);
-  TEST_CHECK(rc == 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+  TEST_CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 
 cleanup:
-  // A reader that never saw a writer would block in its `open` forever, so it is stopped rather
-  // than awaited.
   if (reader > 0) {
     (void)kill(reader, SIGKILL);
     (void)waitpid(reader, NULL, 0);
+  }
+  if (write_fd >= 0) {
+    (void)close(write_fd);
+  }
+  if (stderr_fd >= 0) {
+    (void)close(stderr_fd);
   }
   if (hold_fd >= 0) {
     (void)close(hold_fd);
@@ -454,12 +465,10 @@ static void test_write_reports_destination_when_write_fails(void) {
   remove_fixture_tree(root_dir);
 }
 
-// A write to an existing file in a directory that may not be written succeeds, because it goes
-// through the file, as a rebuilt output in a read-only directory does. A new file there fails,
-// naming the destination.
-static void test_write_goes_through_existing_file_in_read_only_dir(void) {
-  struct Log log = test_log();
-  // Root bypasses the permission bits, so the new file would be created.
+// A write in a directory that may not be written fails naming the destination, for an existing file
+// as for a new one, because the write replaces the file, and leaves the existing file as it was.
+static void test_write_rejects_read_only_dir(void) {
+  // Root bypasses the permission bits, so the files would be replaced and created.
   if (geteuid() == 0) {
     return;
   }
@@ -473,11 +482,13 @@ static void test_write_goes_through_existing_file_in_read_only_dir(void) {
   struct Str sealed_dir = fixture_path(root_dir, "sealed", &arena);
   struct Str existing = fixture_path(root_dir, "sealed/a-jpg-s.jpg", &arena);
   struct Str created = fixture_path(root_dir, "sealed/a-jpg-m.jpg", &arena);
+  struct Log log = test_log();
   TEST_CHECK(os_write(os_posix(), existing, (struct OsSource){.bytes = S("old")}, S("op"), &log) ==
              0);
   TEST_CHECK(chmod(sealed_dir.data, 0500) == 0);
+  struct Log existing_log = test_log();
   const int existing_rc =
-      os_write(os_posix(), existing, (struct OsSource){.bytes = S("new")}, S("op"), &log);
+      os_write(os_posix(), existing, (struct OsSource){.bytes = S("new")}, S("op"), &existing_log);
   struct Log created_log = test_log();
   const int created_rc =
       os_write(os_posix(), created, (struct OsSource){.bytes = S("new")}, S("op"), &created_log);
@@ -485,12 +496,13 @@ static void test_write_goes_through_existing_file_in_read_only_dir(void) {
   // not write.
   (void)chmod(sealed_dir.data, 0700);
 
-  TEST_CHECK(existing_rc == 0);
   TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(existing_rc == -1);
+  TEST_CHECK(test_log_is(&existing_log, "op: %s ('%.*s')\n", strerror(EACCES), STR_FMT(existing)));
   struct Str data = {0};
   TEST_CHECK(os_read(os_posix(), existing, TEST_FILE_LEN_MAX, OS_READ_BYTES, &arena, &data, S("op"),
                      &log) == 0);
-  TEST_CHECK(str_eq(data, S("new")));
+  TEST_CHECK(str_eq(data, S("old")));
   TEST_CHECK(created_rc == -1);
   TEST_CHECK(test_log_is(&created_log, "op: %s ('%.*s')\n", strerror(EACCES), STR_FMT(created)));
   remove_fixture_tree(root_dir);
@@ -747,13 +759,11 @@ static void test_list_skips_fifo(void) {
 TEST_LIST = {
     {"read rejects fifo", test_read_rejects_fifo},
     {"read rejects unreadable file", test_read_rejects_unreadable_file},
-    {"write applies umask and keeps existing mode",
-     test_write_applies_umask_and_keeps_existing_mode},
-    {"write retries interrupted write", test_write_retries_interrupted_write},
+    {"write applies umask to every file", test_write_applies_umask_to_every_file},
+    {"print retries interrupted write", test_print_retries_interrupted_write},
     {"write rejects fifo source", test_write_rejects_fifo_source},
     {"write reports destination when write fails", test_write_reports_destination_when_write_fails},
-    {"write goes through existing file in read only dir",
-     test_write_goes_through_existing_file_in_read_only_dir},
+    {"write rejects read only dir", test_write_rejects_read_only_dir},
     {"replace applies umask and keeps existing mode",
      test_replace_applies_umask_and_keeps_existing_mode},
     {"replace follows symbolic link", test_replace_follows_symbolic_link},

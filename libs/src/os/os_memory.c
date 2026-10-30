@@ -383,7 +383,7 @@ static int os_write_locked(struct Os* os,
  * @brief Looks up the file an `os_write_locked` call writes, as the POSIX `os_write_open` opens it.
  *        A step of `os_write_locked`.
  *
- * The write goes through a symlink at the path, as `open` does.
+ * A symlink at the path is the file the write replaces, as the POSIX `lstat` and `unlink` find it.
  *
  * @param os           Host to search. Must not be `NULL`.
  * @param file_path    Destination path, which an injected `OS_MEMORY_OP_WRITE` failure matches.
@@ -432,8 +432,8 @@ static int os_write_locked_data(struct Os* os,
  * @brief Stores a file's new contents at the destination a lookup ended at. A step of
  *        `os_write_locked`.
  *
- * A write to an existing file changes that file's node. Otherwise a new file node takes a new entry
- * where the lookup ended.
+ * The file is always a new node, so a hard link to a file that was at the path keeps its contents.
+ * It takes the entry of a file or symlink that was there, or a new entry where the lookup ended.
  *
  * @param os       Host to change. Must not be `NULL`.
  * @param lookup   Where the destination's lookup ended. Must not be `NULL`.
@@ -1259,7 +1259,7 @@ static int os_write_locked(struct Os* os,
   struct Str data = {0};
   ptrdiff_t zero_len = 0;
   const int rc = os_write_locked_data(os, file_path, source, source_node, &data, &zero_len, report);
-  // As with `O_TRUNC`, a write that fails after the open leaves the file empty.
+  // As in the POSIX implementation, a write that fails after the open leaves an empty file.
   os_write_locked_store(os, &lookup, is_found, data, zero_len);
   return rc;
 }
@@ -1275,7 +1275,7 @@ static int os_write_locked_open(struct Os* os,
     return report_errno(report, file_path, fault);
   }
   struct OsMemoryLookup lookup;
-  const bool is_found = tree_lookup(os, file_path, true, arena, &lookup) == 0;
+  const bool is_found = tree_lookup(os, file_path, false, arena, &lookup) == 0;
   if (!is_found && (errno != ENOENT || lookup.dir < 0)) {
     return report_errno(report, file_path, errno);
   }
@@ -1321,19 +1321,14 @@ static void os_write_locked_store(struct Os* os,
                                   bool is_found,
                                   struct Str data,
                                   ptrdiff_t zero_len) {
-  if (is_found) {
-    // The write goes through the existing node, so every hard link to it sees the new contents.
-    struct OsMemoryNode* file = &os->nodes[lookup->node];
-    file->data = data;
-    file->zero_len = zero_len;
-    file->mtime = ++os->clock;
-    return;
-  }
-  // A missing file is created where the lookup ended, which for a dangling symlink is its target,
-  // as `open` with `O_CREAT` does.
   const ptrdiff_t node = node_new(os, OS_MEMORY_NODE_FILE, data, lookup->dir);
   os->nodes[node].zero_len = zero_len;
-  entry_add(os, lookup->dir, lookup->name, node);
+  struct OsMemoryEntry* entry = is_found ? entry_find(os, lookup->dir, lookup->name) : NULL;
+  if (entry != NULL) {
+    entry->node = node;
+  } else {
+    entry_add(os, lookup->dir, lookup->name, node);
+  }
 }
 
 static int os_replace_locked(struct Os* os,

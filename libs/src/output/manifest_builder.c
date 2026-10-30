@@ -108,38 +108,10 @@ static bool is_held_by_output_dir(struct Str dir_path,
  *
  * @param builder     Prepared builder. Must not be `NULL`.
  * @param output_path Output path, joined onto `output_dir`.
- * @param dir_out     Receives the existing directory through which the path reaches the root, the
- *                    path itself when it is the root's. Must not be `NULL`.
  * @return The index of the root, or `-1` when no root holds the path.
  */
 static ptrdiff_t find_root_holding_output_path(const struct ManifestBuilder* builder,
-                                               struct Str output_path,
-                                               struct Str* dir_out) __attribute__((nonnull(1, 3)));
-
-/**
- * @brief Reports whether an output inside a root shares the cause of one reported already: it
- *        reaches the root through the same directory, or one below it, and its source is the same
- *        as the reported one's, or below it, as a page's directory is below its parent's.
- *
- * @param builder      Builder holding the reports. Must not be `NULL`.
- * @param dir_path     Existing directory through which the output reaches the root.
- * @param source_label What produces the output.
- * @return `true` when a report covers the output.
- */
-static bool is_reported(const struct ManifestBuilder* builder,
-                        struct Str dir_path,
-                        struct Str source_label) __attribute__((nonnull(1)));
-
-/**
- * @brief Records that an output inside a root was reported.
- *
- * @param builder      Builder that keeps the report. Must not be `NULL`.
- * @param dir_path     Existing directory through which the output reaches the root.
- * @param source_label What produced the output.
- */
-static void add_report(struct ManifestBuilder* builder,
-                       struct Str dir_path,
-                       struct Str source_label) __attribute__((nonnull(1)));
+                                               struct Str output_path) __attribute__((nonnull(1)));
 
 /**
  * @brief Reads the identity of `file_path`, following symlinks.
@@ -323,16 +295,8 @@ static int add_output(struct ManifestBuilder* builder,
   const struct Str output_path = path_join(builder->output_dir, relative_path, &scratch);
   // The root check runs first, because it is the broader rule: it rejects an output below an input
   // root whether or not a file already sits there.
-  struct Str root_dir = {0};
-  const ptrdiff_t root_index = find_root_holding_output_path(builder, output_path, &root_dir);
+  const ptrdiff_t root_index = find_root_holding_output_path(builder, output_path);
   if (root_index >= 0) {
-    // An output that reaches the root through a reported directory, from a reported source or one
-    // below it, lands there for the same reason, so it fails without a line of its own. Any other
-    // output is reported, because it may land there for a reason of its own.
-    if (is_reported(builder, root_dir, source_label)) {
-      return -1;
-    }
-    add_report(builder, root_dir, source_label);
     return log_error(log, "output path would write inside %.*s for '%.*s': '%.*s'",
                      STR_FMT(builder->roots[root_index].label), STR_FMT(source_label),
                      STR_FMT(output_path));
@@ -452,8 +416,7 @@ static bool is_held_by_output_dir(struct Str dir_path,
 }
 
 static ptrdiff_t find_root_holding_output_path(const struct ManifestBuilder* builder,
-                                               struct Str output_path,
-                                               struct Str* dir_out) {
+                                               struct Str output_path) {
   // Each directory below `output_dir` is a prefix of the path that ends before a `/`, and the last
   // pass checks the path itself.
   for (ptrdiff_t i = builder->output_dir.len + 1;; i++) {
@@ -468,44 +431,9 @@ static ptrdiff_t find_root_holding_output_path(const struct ManifestBuilder* bui
     }
     const ptrdiff_t root_index = find_root(builder->roots, builder->root_count, &identity);
     if (root_index >= 0 || is_end) {
-      *dir_out = str_head(output_path, is_end ? output_path.len : i);
       return root_index;
     }
   }
-}
-
-static bool is_reported(const struct ManifestBuilder* builder,
-                        struct Str dir_path,
-                        struct Str source_label) {
-  for (ptrdiff_t i = 0; i < builder->report_count; i++) {
-    const struct ManifestRootReport* report = &builder->reports[i];
-    struct Str relative;
-    if ((str_eq(dir_path, report->dir_path) ||
-         path_is_below(dir_path, report->dir_path, &relative)) &&
-        (str_eq(source_label, report->source_label) ||
-         path_is_below(source_label, report->source_label, &relative))) {
-      return true;
-    }
-  }
-  return false;
-}
-
-static void add_report(struct ManifestBuilder* builder,
-                       struct Str dir_path,
-                       struct Str source_label) {
-  if (builder->report_count == builder->report_cap) {
-    const ptrdiff_t cap = builder->report_cap > 0 ? 2 * builder->report_cap : 8;
-    struct ManifestRootReport* reports = arena_new(builder->perm, cap, struct ManifestRootReport);
-    for (ptrdiff_t i = 0; i < builder->report_count; i++) {
-      reports[i] = builder->reports[i];
-    }
-    builder->reports = reports;
-    builder->report_cap = cap;
-  }
-  builder->reports[builder->report_count++] = (struct ManifestRootReport){
-      .dir_path = str_clone(dir_path, builder->perm),
-      .source_label = str_clone(source_label, builder->perm),
-  };
 }
 
 static int identify(struct Str file_path, struct Os* os, struct OsIdentity* identity_out) {

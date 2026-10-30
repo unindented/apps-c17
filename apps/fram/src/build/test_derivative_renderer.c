@@ -806,9 +806,9 @@ static void test_accepts_empty_media_set(void) {
   TEST_CHECK(test_log_is_empty(&log));
 }
 
-// A derivative whose path is a symlink is written through it, as every output is: the file it names
-// receives the JPEG.
-static void test_derivative_write_follows_symlink(void) {
+// A derivative whose path is a symlink replaces the symlink, as every output does, and the file the
+// symlink names keeps its contents.
+static void test_derivative_write_replaces_symlink(void) {
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
   struct MediaItem item;
@@ -824,7 +824,7 @@ static void test_derivative_write_follows_symlink(void) {
   }
   os_memory_write_bytes(os, item.source_path, jpeg);
   // There is no cache, and an empty target differs from the made bytes, so the run writes the
-  // derivative behind the link.
+  // derivative.
   os_memory_write(os, "elsewhere/l.webp", "");
   os_memory_mkdir(os, "public");
   os_memory_symlink(os, "../elsewhere/l.webp", "public/l.webp");
@@ -833,8 +833,9 @@ static void test_derivative_write_follows_symlink(void) {
   TEST_CHECK(test_log_is_empty(&log));
   ptrdiff_t width = 0;
   ptrdiff_t height = 0;
-  TEST_CHECK(probe_file(S("elsewhere/l.webp"), os, arena, &width, &height) == 0);
+  TEST_CHECK(probe_file(S("public/l.webp"), os, arena, &width, &height) == 0);
   TEST_CHECK(width == 8 && height == 4);
+  TEST_CHECK(os_memory_is_file(os, "elsewhere/l.webp", ""));
 }
 
 // A derivative whose write fails is reported. The next build makes it again once the cause is gone,
@@ -1057,7 +1058,7 @@ TEST_LIST = {
     {"writes derivatives sharing parents concurrently",
      test_writes_derivatives_sharing_parents_concurrently},
     {"accepts empty media set", test_accepts_empty_media_set},
-    {"derivative write follows symlink", test_derivative_write_follows_symlink},
+    {"derivative write replaces symlink", test_derivative_write_replaces_symlink},
     {"failed derivative write is regenerated", test_failed_derivative_write_is_regenerated},
     {"reports read failure with long source path", test_reports_read_failure_with_long_source_path},
     {"reports unreadable source", test_reports_unreadable_source},

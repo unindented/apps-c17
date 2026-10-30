@@ -942,23 +942,36 @@ static void test_write_creates_parents_and_round_trips(void) {
   contract_end(&c);
 }
 
-// A second write replaces the contents, including bytes past the new end. It goes through the file
-// already there, so a hard link to it and a symlink to it see the new contents.
-static void test_write_overwrites_in_place(void) {
+// A second write replaces the contents, including bytes past the new end.
+static void test_write_replaces_regular_file(void) {
   char root[] = "/tmp/apps-os-overwrite.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
   }
   contract_write(&c, "out.html", S("old contents"));
-  contract_link(&c, "out.html", "twin.html");
-  contract_symlink(&c, "out.html", "link.html");
   contract_write(&c, "out.html", S("new"));
   TEST_CHECK(contract_is_file(&c, "out.html", S("new")));
-  TEST_CHECK(contract_is_file(&c, "twin.html", S("new")));
-  contract_write(&c, "link.html", S("newer"));
-  TEST_CHECK(contract_is_file(&c, "out.html", S("newer")));
-  TEST_CHECK(contract_is_file(&c, "twin.html", S("newer")));
+  ptrdiff_t entry_count = 0;
+  TEST_CHECK(contract_entry_count(&c, &entry_count) == 0 && entry_count == 1);
+  contract_end(&c);
+}
+
+// A write over a file with a second hard link gives the path a file of its own, and leaves the
+// other link's contents untouched.
+static void test_write_leaves_other_hard_link(void) {
+  char root[] = "/tmp/apps-os-write-hard-link.XXXXXX";
+  struct Contract c;
+  if (contract_begin(root, &c) != 0) {
+    return;
+  }
+  contract_write(&c, "source.jpg", S("photo"));
+  contract_link(&c, "source.jpg", "out.jpg");
+  contract_write(&c, "out.jpg", S("derivative"));
+  TEST_CHECK(contract_is_file(&c, "out.jpg", S("derivative")));
+  TEST_CHECK(contract_is_file(&c, "source.jpg", S("photo")));
+  TEST_CHECK(
+      !is_identity_equal(contract_identity(&c, "out.jpg"), contract_identity(&c, "source.jpg")));
   contract_end(&c);
 }
 
@@ -988,31 +1001,41 @@ static void test_write_copies_file_source(void) {
   contract_end(&c);
 }
 
-// A write through a symlink writes the file it names, from every source, and leaves the symlink a
-// symlink.
-static void test_write_follows_symlink_for_every_source(void) {
+// A write through a symlink at the path replaces the symlink with a file of its own, from every
+// source, and leaves the file the symlink names untouched. A dangling symlink is replaced too, and
+// its target is not created.
+static void test_write_replaces_symlink_for_every_source(void) {
   char root[] = "/tmp/apps-os-write-symlink.XXXXXX";
   struct Contract c;
   if (contract_begin(root, &c) != 0) {
     return;
   }
-  contract_write(&c, "out.jpg", S("old"));
+  contract_write(&c, "target.jpg", S("old"));
   contract_write(&c, "source.jpg", S("copied"));
-  contract_symlink(&c, "out.jpg", "link.jpg");
-  const struct Str link = contract_path(&c, "link.jpg");
+  const struct OsSource sources[] = {
+      {.kind = OS_SOURCE_FILE, .file_path = contract_path(&c, "source.jpg")},
+      {.bytes = S("copied")},
+  };
   struct Log log = test_log();
-  TEST_CHECK(os_write(c.os, link,
-                      (struct OsSource){.kind = OS_SOURCE_FILE,
-                                        .file_path = contract_path(&c, "source.jpg")},
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(sources) / sizeof(sources[0])); i++) {
+    const char* link_name = i == 0 ? "file-link.jpg" : "bytes-link.jpg";
+    contract_symlink(&c, "target.jpg", link_name);
+    TEST_CHECK(os_write(c.os, contract_path(&c, link_name), sources[i], S("op"), &log) == 0);
+    TEST_CHECK(contract_is_file(&c, link_name, S("copied")));
+    TEST_CHECK(
+        !is_identity_equal(contract_identity(&c, link_name), contract_identity(&c, "target.jpg")));
+    TEST_MSG("source %td", i);
+  }
+  TEST_CHECK(contract_is_file(&c, "target.jpg", S("old")));
+  contract_symlink(&c, "missing.jpg", "dangling.jpg");
+  TEST_CHECK(os_write(c.os, contract_path(&c, "dangling.jpg"), (struct OsSource){.bytes = S("x")},
                       S("op"), &log) == 0);
-  TEST_CHECK(contract_is_file(&c, "out.jpg", S("copied")));
-  TEST_CHECK(os_write(c.os, link, (struct OsSource){.bytes = S("bytes")}, S("op"), &log) == 0);
-  TEST_CHECK(contract_is_file(&c, "out.jpg", S("bytes")));
+  TEST_CHECK(contract_is_file(&c, "dangling.jpg", S("x")));
   TEST_CHECK(test_log_is_empty(&log));
-  TEST_CHECK(
-      is_identity_equal(contract_identity(&c, "link.jpg"), contract_identity(&c, "out.jpg")));
+  struct OsStat st;
+  TEST_CHECK(os_stat(c.os, contract_path(&c, "missing.jpg"), &st) == -1);
   ptrdiff_t entry_count = 0;
-  TEST_CHECK(contract_entry_count(&c, &entry_count) == 0 && entry_count == 3);
+  TEST_CHECK(contract_entry_count(&c, &entry_count) == 0 && entry_count == 5);
   contract_end(&c);
 }
 
@@ -1748,9 +1771,10 @@ TEST_LIST = {
     {"read stdin reports read error", test_read_stdin_reports_read_error},
     {"read stdin reports error after data", test_read_stdin_reports_error_after_data},
     {"write creates parents and round trips", test_write_creates_parents_and_round_trips},
-    {"write overwrites in place", test_write_overwrites_in_place},
+    {"write replaces regular file", test_write_replaces_regular_file},
+    {"write leaves other hard link", test_write_leaves_other_hard_link},
     {"write copies file source", test_write_copies_file_source},
-    {"write follows symlink for every source", test_write_follows_symlink_for_every_source},
+    {"write replaces symlink for every source", test_write_replaces_symlink_for_every_source},
     {"write accepts name at name max", test_write_accepts_name_at_name_max},
     {"write rejects file parent and dir target", test_write_rejects_file_parent_and_dir_target},
     {"write and mkdirs reject path with nul", test_write_and_mkdirs_reject_path_with_nul},

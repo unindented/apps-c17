@@ -261,15 +261,17 @@ struct OsSource {
 /**
  * @brief Writes the bytes of `source` to `file_path`, creating parent directories as needed.
  *
- * It overwrites any existing file in place. That write is deliberately neither atomic nor
- * `fsync`ed, so a reader can observe a partial file while a write is running and an interrupted
- * build can leave one behind. That is acceptable because an `output_dir` is reproducible: deleting
- * it and building again recovers a truncated file in one command, and recovers stale outputs and a
- * half-finished phase at the same time, which a temp-write-plus-rename protocol would not. A newly
- * created file gets mode `0666` reduced by the process umask. An existing destination keeps its own
- * mode, because the write goes through the file already there, and so does every other name of it:
- * a symlink is followed, and a hard link sees the new bytes. The destination's directory needs no
- * write permission when the file already exists.
+ * It removes a file, symlink or hard link already at `file_path` without following it, and creates
+ * a new file there, so a link in the last component of an output path cannot carry the write to
+ * another file, such as a source. A symlinked directory among the earlier components is still
+ * followed, so a write below it lands where it points. The new file gets mode `0666` reduced by the
+ * process umask, and an existing file's mode is not kept. Because the old file is removed,
+ * rewriting a file fails in a directory that is not writable. The write is deliberately neither
+ * atomic nor `fsync`ed, so a reader can observe a partial file while a write is running and an
+ * interrupted build can leave one behind. That is acceptable because an `output_dir` is
+ * reproducible: deleting it and building again recovers a truncated file in one command, and
+ * recovers stale outputs and a half-finished phase at the same time, which a temp-write-plus-rename
+ * protocol would not.
  *
  * This, `os_replace`, `os_mkdirs`, `os_remove` and `os_remove_dir` are the only operations that
  * change the host, and should stay the only ones. `os_write` writes the outputs that a build can
@@ -285,8 +287,8 @@ struct OsSource {
  *                  directory component that could not be created, or a source file that could not
  *                  be read.
  * @param log       Log that receives the failure. Must not be `NULL`.
- * @return `0` on success, or `-1` on a directory, open, read, write or close failure, or a source
- *         file that is missing or not regular.
+ * @return `0` on success, or `-1` on a directory, remove, open, read, write or close failure, or a
+ *         source file that is missing or not regular.
  */
 int os_write(struct Os* os,
              struct Str file_path,

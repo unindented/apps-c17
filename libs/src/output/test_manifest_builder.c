@@ -131,34 +131,25 @@ static void test_add_rejects_paths_into_inputs(void) {
                          "'public/up/tool.toml'\n"));
 }
 
-// An output inside a root is reported once per cause: an output through the same directory from the
-// same source, or from a source below it, fails without a line of its own. Another source through
-// that directory, the same source through another directory, and a source reported again after
-// another one are each reported.
-static void test_add_reports_a_root_once_per_source(void) {
+// Each output inside a root reports a line of its own, also one that reaches the root through the
+// same directory from the same source as another.
+static void test_add_reports_every_output_inside_a_root(void) {
   struct Os* os = make_site();
   os_memory_symlink(os, "../templates", "public/link");
-  os_memory_symlink(os, "../templates", "public/other");
   struct Arena perm = test_arena();
   struct Manifest manifest = {0};
   struct ManifestBuilder builder;
   init_builder(&builder, &manifest, os, &perm);
   struct Log log = test_log();
-  static const char* const outputs[][2] = {
-      {"link/a.html", "photos"}, {"link/b.html", "photos/sub"}, {"link/c.css", "static/c.css"},
-      {"link/d.html", "photos"}, {"other/e.html", "photos"},
-  };
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(outputs) / sizeof(outputs[0])); i++) {
-    TEST_CHECK(manifest_builder_add(&builder, str_from_cstr(outputs[i][0]),
-                                    str_from_cstr(outputs[i][1]), test_arena(), &log) == -1);
-  }
+  TEST_CHECK(manifest_builder_add(&builder, S("link/a.html"), S("photos"), test_arena(), &log) ==
+             -1);
+  TEST_CHECK(manifest_builder_add(&builder, S("link/b.html"), S("photos"), test_arena(), &log) ==
+             -1);
   TEST_CHECK(test_log_is(&log,
                          "output path would write inside 'templates_dir' for 'photos': "
                          "'public/link/a.html'\n"
-                         "output path would write inside 'templates_dir' for 'static/c.css': "
-                         "'public/link/c.css'\n"
                          "output path would write inside 'templates_dir' for 'photos': "
-                         "'public/other/e.html'\n"));
+                         "'public/link/b.html'\n"));
 }
 
 // An output is recorded with the attributes it declares, and one added without declares none.
@@ -318,7 +309,7 @@ TEST_LIST = {
      test_check_output_dir_rejects_a_dir_holding_the_config},
     {"add rejects duplicates", test_add_rejects_duplicates},
     {"add rejects paths into inputs", test_add_rejects_paths_into_inputs},
-    {"add reports a root once per source", test_add_reports_a_root_once_per_source},
+    {"add reports every output inside a root", test_add_reports_every_output_inside_a_root},
     {"add output records its attributes", test_add_output_records_its_attributes},
     {"add copies records each source and its stat",
      test_add_copies_records_each_source_and_its_stat},

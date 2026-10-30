@@ -30,15 +30,6 @@ struct ManifestRoot {
   bool is_present;
 };
 
-/** One output that `manifest_builder_add` reported inside an input root. */
-struct ManifestRootReport {
-  /** Existing directory below `output_dir` through which the output reached the root. */
-  struct Str dir_path;
-
-  /** What produced the output. */
-  struct Str source_label;
-};
-
 /**
  * What every output path is checked against before the manifest records it: the input roots, and
  * the identities of the input files outside them, which a link could still place an output on.
@@ -67,18 +58,6 @@ struct ManifestBuilder {
 
   /** Arena that owns the manifest's entries. */
   struct Arena* perm;
-
-  /**
-   * Outputs reported inside a root so far, so a later output of the same cause fails without a line
-   * of its own. Grows in `perm`.
-   */
-  struct ManifestRootReport* reports;
-
-  /** Number of entries in `reports`. */
-  ptrdiff_t report_count;
-
-  /** Number of entries `reports` has room for. */
-  ptrdiff_t report_cap;
 };
 
 /**
@@ -134,10 +113,6 @@ void manifest_builder_init(struct ManifestBuilder* builder,
 /**
  * @brief Records the output `relative_path` below `output_dir`, unless it exceeds an output-path
  *        limit, lands at or below an input root, names an input file, or is claimed already.
- *
- * An output inside a root that shares the cause of one reported already, reaching the root through
- * the same directory, or one below it, from the same source, or one below it, is refused without a
- * line of its own, so one symlink into a root is reported once and not once per output.
  *
  * @param builder       Prepared builder. Must not be `NULL`.
  * @param relative_path Output path relative to `output_dir`.

@@ -14,37 +14,20 @@
 #include "output/output_writer.h"
 #include "testing/test_support.h"
 
-/** Number of input roots in a `PrunerRoots`. */
-enum { PRUNER_ROOT_COUNT = 3 };
-
-/** The directories a prune of the fixture works on. */
-struct PrunerRoots {
-  /** Directory the prune empties of stale entries. */
-  struct Str output_dir;
-
-  /** Input roots the prune never enters. */
-  struct Str root_dirs[PRUNER_ROOT_COUNT];
-};
+/** Directory every prune of the fixture empties of stale entries. */
+#define OUTPUT_DIR S("public")
 
 /**
- * @brief Creates a host and roots whose `output_dir` is `public`, holding the outputs
- *        `public/index.html` and `public/notes/index.html`, recorded in `manifest`.
+ * @brief Creates a host whose `output_dir` is `public`, holding the outputs `public/index.html` and
+ *        `public/notes/index.html`, recorded in `manifest`.
  *
- * The input roots are `content`, `templates` and `static`, each holding one file, all outside
- * `public`.
+ * The inputs `content`, `templates` and `static` each hold one file, all outside `public`.
  *
- * @param roots    Roots to initialize. Must not be `NULL`.
  * @param manifest Empty manifest that receives the two outputs. Must not be `NULL`.
  * @param arena    Arena that owns the manifest's entries. Must not be `NULL`.
  * @return The host.
  */
-static struct Os* init_pruner_fixture(struct PrunerRoots* roots,
-                                      struct Manifest* manifest,
-                                      struct Arena* arena) {
-  *roots = (struct PrunerRoots){
-      .output_dir = STR_INIT("public"),
-      .root_dirs = {STR_INIT("content"), STR_INIT("templates"), STR_INIT("static")},
-  };
+static struct Os* init_pruner_fixture(struct Manifest* manifest, struct Arena* arena) {
   struct Os* os = os_memory();
   os_memory_write(os, "content/notes/hello.md", "source");
   os_memory_write(os, "templates/content.html", "template");
@@ -63,22 +46,20 @@ static struct Os* init_pruner_fixture(struct PrunerRoots* roots,
  *        the number removed.
  *
  * @param manifest      Outputs of the build. Must not be `NULL`.
- * @param roots         Directories of the build. Must not be `NULL`.
  * @param os            Host the outputs are on. Must not be `NULL`.
  * @param expected_rc   Result the prune must return.
  * @param removed_count Number of entries the prune must report removed.
  * @param log           Log that receives the failures. Must not be `NULL`.
  */
 static void check_prune(struct Manifest* manifest,
-                        const struct PrunerRoots* roots,
                         struct Os* os,
                         int expected_rc,
                         ptrdiff_t removed_count,
                         struct Log* log) {
   struct OutputWriter writer = {.manifest = manifest, .os = os};
   ptrdiff_t removed_count_out = -1;
-  TEST_CHECK(output_pruner_prune(&writer, roots->output_dir, roots->root_dirs, PRUNER_ROOT_COUNT,
-                                 os, test_arena(), &removed_count_out, log) == expected_rc);
+  TEST_CHECK(output_pruner_prune(&writer, OUTPUT_DIR, os, test_arena(), &removed_count_out, log) ==
+             expected_rc);
   TEST_CHECK(removed_count_out == removed_count);
   TEST_MSG("removed: %td", removed_count_out);
 }
@@ -102,10 +83,9 @@ static bool is_recorded(const struct PathList* paths, const char* path) {
 // Every entry the build did not write is removed, a stale directory tree with everything in it, and
 // every output and the directories they are in stay. A second prune finds nothing to remove.
 static void test_removes_stale_entries_and_keeps_outputs(void) {
-  struct PrunerRoots roots;
   struct Manifest manifest = {0};
   struct Arena arena = test_arena();
-  struct Os* os = init_pruner_fixture(&roots, &manifest, &arena);
+  struct Os* os = init_pruner_fixture(&manifest, &arena);
   os_memory_write(os, "public/old.html", "old");
   os_memory_write(os, "public/notes/old.html", "old");
   os_memory_write(os, "public/old-section/deeper/notes/a.html", "old");
@@ -115,7 +95,7 @@ static void test_removes_stale_entries_and_keeps_outputs(void) {
   struct Log log = test_log();
   // The two old pages, the hidden file, the empty directory, and the old section tree's page and
   // three directories.
-  check_prune(&manifest, &roots, os, 0, 8, &log);
+  check_prune(&manifest, os, 0, 8, &log);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_file(os, "public/index.html", "root"));
   TEST_CHECK(os_memory_is_file(os, "public/notes/index.html", "notes"));
@@ -124,20 +104,19 @@ static void test_removes_stale_entries_and_keeps_outputs(void) {
   TEST_CHECK(!os_memory_has_path(os, "public/empty"));
   TEST_CHECK(os_memory_has_path(os, "public"));
 
-  check_prune(&manifest, &roots, os, 0, 0, &log);
+  check_prune(&manifest, os, 0, 0, &log);
   TEST_CHECK(test_log_is_empty(&log));
 }
 
 // A build with no outputs empties `output_dir` but keeps the directory itself.
 static void test_empties_output_dir_without_outputs(void) {
-  struct PrunerRoots roots;
   struct Manifest manifest = {0};
   struct Arena arena = test_arena();
-  struct Os* os = init_pruner_fixture(&roots, &manifest, &arena);
+  struct Os* os = init_pruner_fixture(&manifest, &arena);
   struct Manifest empty_manifest = {0};
 
   struct Log log = test_log();
-  check_prune(&empty_manifest, &roots, os, 0, 3, &log);
+  check_prune(&empty_manifest, os, 0, 3, &log);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_files(os, "public").count == 0);
   TEST_CHECK(os_memory_has_path(os, "public"));
@@ -146,7 +125,6 @@ static void test_empties_output_dir_without_outputs(void) {
 // An `output_dir` that does not exist, as a dry run of a first build leaves it, has nothing stale
 // in it, so the prune removes nothing and reports nothing.
 static void test_accepts_missing_output_dir(void) {
-  const struct PrunerRoots roots = {.output_dir = STR_INIT("public")};
   struct Os* os = os_memory();
   struct Manifest manifest = {0};
   struct Arena arena = test_arena();
@@ -154,7 +132,7 @@ static void test_accepts_missing_output_dir(void) {
              0);
 
   struct Log log = test_log();
-  check_prune(&manifest, &roots, os, 0, 0, &log);
+  check_prune(&manifest, os, 0, 0, &log);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(!os_memory_has_path(os, "public"));
 }
@@ -162,10 +140,9 @@ static void test_accepts_missing_output_dir(void) {
 // A dry run's writer records every entry the prune would remove, a stale directory with what is in
 // it, counts each one as removed, and leaves all of them in place.
 static void test_dry_run_records_stale_entries_and_keeps_them(void) {
-  struct PrunerRoots roots;
   struct Manifest manifest = {0};
   struct Arena arena = test_arena();
-  struct Os* os = init_pruner_fixture(&roots, &manifest, &arena);
+  struct Os* os = init_pruner_fixture(&manifest, &arena);
   os_memory_write(os, "public/old.html", "old");
   os_memory_write(os, "public/old-section/page.html", "old");
   struct OutputWriter writer = {
@@ -173,8 +150,7 @@ static void test_dry_run_records_stale_entries_and_keeps_them(void) {
 
   struct Log log = test_log();
   ptrdiff_t removed_count = -1;
-  TEST_CHECK(output_pruner_prune(&writer, roots.output_dir, roots.root_dirs, PRUNER_ROOT_COUNT, os,
-                                 test_arena(), &removed_count, &log) == 0);
+  TEST_CHECK(output_pruner_prune(&writer, OUTPUT_DIR, os, test_arena(), &removed_count, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(removed_count == 3);
   TEST_CHECK(writer.removed_paths.count == 3);
@@ -189,10 +165,9 @@ static void test_dry_run_records_stale_entries_and_keeps_them(void) {
 // stays. A symlink an output is written through is kept, and so is the output behind it. Removing a
 // hard link to a source leaves the source in place.
 static void test_removes_links_without_touching_their_targets(void) {
-  struct PrunerRoots roots;
   struct Manifest manifest = {0};
   struct Arena arena = test_arena();
-  struct Os* os = init_pruner_fixture(&roots, &manifest, &arena);
+  struct Os* os = init_pruner_fixture(&manifest, &arena);
   os_memory_write(os, "elsewhere/keep.txt", "keep");
   os_memory_write(os, "linked/page.html", "linked");
   os_memory_symlink(os, "../elsewhere", "public/dir-link");
@@ -203,7 +178,7 @@ static void test_removes_links_without_touching_their_targets(void) {
       manifest_add(&manifest, S("public/out/page.html"), S("content/page.md"), &arena, NULL) == 0);
 
   struct Log log = test_log();
-  check_prune(&manifest, &roots, os, 0, 3, &log);
+  check_prune(&manifest, os, 0, 3, &log);
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(!os_memory_has_path(os, "public/dir-link"));
   TEST_CHECK(!os_memory_has_path(os, "public/file-link"));
@@ -213,36 +188,19 @@ static void test_removes_links_without_touching_their_targets(void) {
   TEST_CHECK(os_memory_is_file(os, "public/out/page.html", "linked"));
 }
 
-// A directory inside `output_dir` that is an input root is neither entered nor removed, so the
-// inputs in it stay although no output claims them.
-static void test_keeps_input_root_inside_output_dir(void) {
-  struct PrunerRoots roots;
-  struct Manifest manifest = {0};
-  struct Arena arena = test_arena();
-  struct Os* os = init_pruner_fixture(&roots, &manifest, &arena);
-  os_memory_write(os, "public/assets/a.css", "static");
-  roots.root_dirs[2] = S("public/assets");
-
-  struct Log log = test_log();
-  check_prune(&manifest, &roots, os, 0, 0, &log);
-  TEST_CHECK(test_log_is_empty(&log));
-  TEST_CHECK(os_memory_is_file(os, "public/assets/a.css", "static"));
-}
-
 // A removal that fails is reported once, the directory it leaves non-empty is neither removed nor
 // reported, and every other stale entry is still removed.
 static void test_reports_failed_removal_once(void) {
-  struct PrunerRoots roots;
   struct Manifest manifest = {0};
   struct Arena arena = test_arena();
-  struct Os* os = init_pruner_fixture(&roots, &manifest, &arena);
+  struct Os* os = init_pruner_fixture(&manifest, &arena);
   os_memory_write(os, "public/stale/a.html", "old");
   os_memory_write(os, "public/stale/b.html", "old");
   os_memory_write(os, "public/old.html", "old");
   os_memory_fail(os, OS_MEMORY_OP_REMOVE, "public/stale/a.html", EACCES);
 
   struct Log log = test_log();
-  check_prune(&manifest, &roots, os, -1, 2, &log);
+  check_prune(&manifest, os, -1, 2, &log);
   TEST_CHECK(test_log_is(&log, "failed to remove stale output: %s ('public/stale/a.html')\n",
                          strerror(EACCES)));
   TEST_CHECK(os_memory_has_path(os, "public/stale/a.html"));
@@ -253,16 +211,15 @@ static void test_reports_failed_removal_once(void) {
 // A directory that cannot be listed is reported once and left in place with everything in it, and
 // the rest of the tree is still pruned.
 static void test_reports_unlistable_dir_once(void) {
-  struct PrunerRoots roots;
   struct Manifest manifest = {0};
   struct Arena arena = test_arena();
-  struct Os* os = init_pruner_fixture(&roots, &manifest, &arena);
+  struct Os* os = init_pruner_fixture(&manifest, &arena);
   os_memory_write(os, "public/sealed/a.html", "old");
   os_memory_write(os, "public/old.html", "old");
   os_memory_fail(os, OS_MEMORY_OP_LIST, "public/sealed", EACCES);
 
   struct Log log = test_log();
-  check_prune(&manifest, &roots, os, -1, 1, &log);
+  check_prune(&manifest, os, -1, 1, &log);
   TEST_CHECK(test_log_is(
       &log, "failed to list stale outputs: cannot open directory: %s ('public/sealed')\n",
       strerror(EACCES)));
@@ -273,16 +230,15 @@ static void test_reports_unlistable_dir_once(void) {
 // An entry that cannot be inspected is reported once and left in place, with the directory that
 // holds it, and the rest of the tree is still pruned.
 static void test_reports_uninspectable_entry_once(void) {
-  struct PrunerRoots roots;
   struct Manifest manifest = {0};
   struct Arena arena = test_arena();
-  struct Os* os = init_pruner_fixture(&roots, &manifest, &arena);
+  struct Os* os = init_pruner_fixture(&manifest, &arena);
   os_memory_write(os, "public/odd/b.html", "old");
   os_memory_write(os, "public/old.html", "old");
   os_memory_fail(os, OS_MEMORY_OP_STAT, "public/odd/b.html", EACCES);
 
   struct Log log = test_log();
-  check_prune(&manifest, &roots, os, -1, 1, &log);
+  check_prune(&manifest, os, -1, 1, &log);
   TEST_CHECK(test_log_is(
       &log, "failed to list stale outputs: cannot inspect entry: %s ('public/odd/b.html')\n",
       strerror(EACCES)));
@@ -298,7 +254,6 @@ TEST_LIST = {
      test_dry_run_records_stale_entries_and_keeps_them},
     {"removes links without touching their targets",
      test_removes_links_without_touching_their_targets},
-    {"keeps input root inside output dir", test_keeps_input_root_inside_output_dir},
     {"reports failed removal once", test_reports_failed_removal_once},
     {"reports unlistable dir once", test_reports_unlistable_dir_once},
     {"reports uninspectable entry once", test_reports_uninspectable_entry_once},

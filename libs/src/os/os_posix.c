@@ -140,13 +140,14 @@ static int os_read_stdin_report_errno(const struct FsReport* report, int error_n
     __attribute__((nonnull(1)));
 
 /**
- * @brief Opens the destination of an `os_write` call, creating or truncating it. A step of
- *        `os_write`.
+ * @brief Creates the destination of an `os_write` call, removing a file already at its path. A step
+ *        of `os_write`.
  *
  * @param target Target whose `file_path` is set. Receives the open descriptor and the terminated
  *               path. Must not be `NULL`.
  * @param report Where a failure is reported. Must not be `NULL`.
- * @return `0` on success, or `-1` when the file cannot be opened or created.
+ * @return `0` on success, or `-1` when the path is a directory, or the file there cannot be removed
+ *         or the new one created.
  */
 static int os_write_open(struct FsWriteTarget* target, const struct FsReport* report)
     __attribute__((nonnull(1, 2)));
@@ -785,10 +786,22 @@ static int os_write_open(struct FsWriteTarget* target, const struct FsReport* re
   if (copy_cstr(target->file_path, target->path) != 0) {
     return report_errno(report, target->file_path, errno);
   }
+  // A file already at the path is removed, not followed, so a symlink or a hard link there cannot
+  // carry the write to another file, such as a source. A directory fails as `open` would fail it.
+  struct stat st;
+  if (lstat(target->path, &st) == 0) {
+    if (S_ISDIR(st.st_mode)) {
+      return report_errno(report, target->file_path, EISDIR);
+    }
+    if (unlink(target->path) != 0 && errno != ENOENT) {
+      return report_errno(report, target->file_path, errno);
+    }
+  } else if (errno != ENOENT) {
+    return report_errno(report, target->file_path, errno);
+  }
   // Mode `0666` is a ceiling the process umask trims, which is how every file this module creates
-  // gets its permissions. An existing destination keeps its own mode, because `O_TRUNC` writes
-  // through the file that is already there.
-  target->fd = open(target->path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+  // gets its permissions.
+  target->fd = open(target->path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
   return target->fd >= 0 ? 0 : report_errno(report, target->file_path, errno);
 }
 

@@ -1,6 +1,5 @@
 #include "output/output_pruner.h"
 
-#include <assert.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -26,12 +25,6 @@ struct Prune {
 
   /** Number of identities in `kept_items`. */
   ptrdiff_t kept_count;
-
-  /** Identities of the input roots that exist. */
-  struct OsIdentity* root_items;
-
-  /** Number of identities in `root_items`. */
-  ptrdiff_t root_count;
 
   /** Host the output tree is read from. */
   struct Os* os;
@@ -76,19 +69,6 @@ static void claim_kept_outputs_identity(struct Prune* prune, struct Str path)
     __attribute__((nonnull(1)));
 
 /**
- * @brief Records the identity of each input root that exists.
- *
- * @param prune      Prune that receives the identities. Must not be `NULL`.
- * @param root_dirs  Input roots, `root_count` of them.
- * @param root_count Number of entries in `root_dirs`.
- * @param scratch    Arena that owns the identities. Must not be `NULL`.
- */
-static void claim_input_roots(struct Prune* prune,
-                              const struct Str* root_dirs,
-                              ptrdiff_t root_count,
-                              struct Arena* scratch) __attribute__((nonnull(1, 4)));
-
-/**
  * @brief Removes the stale entries below one directory.
  *
  * @param prune    Prune in progress. Must not be `NULL`.
@@ -123,25 +103,12 @@ static bool prune_dir_entry(struct Prune* prune,
  */
 static bool is_kept(const struct Prune* prune, struct Str path) __attribute__((nonnull(1)));
 
-/**
- * @brief Reports whether `identity` names an input root.
- *
- * @param prune    Prune whose roots are searched. Must not be `NULL`.
- * @param identity Identity to look for. Must not be `NULL`.
- * @return `true` when `identity` is an input root, otherwise `false`.
- */
-static bool is_input_root(const struct Prune* prune, const struct OsIdentity* identity)
-    __attribute__((nonnull(1, 2)));
-
 int output_pruner_prune(struct OutputWriter* writer,
                         struct Str output_dir,
-                        const struct Str* root_dirs,
-                        ptrdiff_t root_count,
                         struct Os* os,
                         struct Arena scratch,
                         ptrdiff_t* removed_count_out,
                         struct Log* log) {
-  assert(root_count >= 0);
   // A dry run withholds the creation of `output_dir`, so a first build's dry run reaches here
   // without one, and nothing is stale.
   struct OsStat st;
@@ -151,7 +118,6 @@ int output_pruner_prune(struct OutputWriter* writer,
   }
   struct Prune prune = {.os = os, .writer = writer, .log = log};
   claim_kept_outputs(&prune, writer->manifest, output_dir, &scratch);
-  claim_input_roots(&prune, root_dirs, root_count, &scratch);
   (void)prune_dir(&prune, output_dir, scratch);
   *removed_count_out = prune.removed_count;
   return prune.is_failed ? -1 : 0;
@@ -206,19 +172,6 @@ static void claim_kept_outputs_identity(struct Prune* prune, struct Str path) {
   }
 }
 
-static void claim_input_roots(struct Prune* prune,
-                              const struct Str* root_dirs,
-                              ptrdiff_t root_count,
-                              struct Arena* scratch) {
-  prune->root_items = arena_new(scratch, root_count, struct OsIdentity);
-  for (ptrdiff_t i = 0; i < root_count; i++) {
-    struct OsStat st;
-    if (os_stat(prune->os, root_dirs[i], &st) == 0) {
-      prune->root_items[prune->root_count++] = st.identity;
-    }
-  }
-}
-
 static bool prune_dir(struct Prune* prune, struct Str dir_path, struct Arena scratch) {
   struct OsEntry* entries = NULL;
   ptrdiff_t entry_count = 0;
@@ -266,10 +219,6 @@ static bool prune_dir_entry(struct Prune* prune,
       prune->removed_count++;
       return true;
     case OS_ENTRY_DIR: {
-      struct OsStat st;
-      if (os_stat(prune->os, entry_path, &st) == 0 && is_input_root(prune, &st.identity)) {
-        return false;
-      }
       if (is_kept(prune, entry_path)) {
         (void)prune_dir(prune, entry_path, scratch);
         return false;
@@ -296,13 +245,4 @@ static bool is_kept(const struct Prune* prune, struct Str path) {
   return prune->kept_count > 0 && os_stat(prune->os, path, &st) == 0 &&
          bsearch(&st.identity, prune->kept_items, (size_t)prune->kept_count,
                  sizeof(*prune->kept_items), os_identity_compare) != NULL;
-}
-
-static bool is_input_root(const struct Prune* prune, const struct OsIdentity* identity) {
-  for (ptrdiff_t i = 0; i < prune->root_count; i++) {
-    if (os_identity_compare(&prune->root_items[i], identity) == 0) {
-      return true;
-    }
-  }
-  return false;
 }

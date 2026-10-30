@@ -74,7 +74,7 @@ These words have one meaning everywhere in this document:
 10. **Site pages** (`write_site_pages`): The build renders `index.html` and `404.html`, or keeps them.
 11. **Static files** (`copy_static_files`): The build copies each static file into `output_dir`, at its path below `static_dir`, or keeps a copy whose source has the size and time that the output cache recorded.
 12. **Write the output cache** (`write_output_cache`): After the other outputs, and also when one of their phases failed, the build writes a row for each output that it wrote or kept and that declares attributes, and a fact for each clone pack. Until then the previous output cache stays, so an interrupted build leaves it, and that cache keeps no output that the build cut short or rewrote.
-13. **Remove stale outputs** (`prune_stale_outputs` -> `output_pruner_prune`): The build removes every directory entry below `output_dir` that is not an output and is not a directory that an output is below. The prune never follows a symlink and never enters an input root.
+13. **Remove stale outputs** (`prune_stale_outputs` -> `output_pruner_prune`): The build removes every directory entry below `output_dir` that is not an output and is not a directory that an output is below. The prune never follows a symlink.
 14. **Report the dry run** (`output_writer_report`): Only in a dry run, the build prints a `write` or `keep` line for each output in manifest order, and then a `remove` line for each path that the prune would remove, sorted.
 
 Output is byte for byte the same for any `-w`. After the first write, a failed phase is the last one that writes outputs, except in the pages phase and the release phase, which report every output that fails. The output cache is still written, and the prune does not run.
@@ -191,7 +191,7 @@ The build is refused, with a message that names both sides, for:
 
 A tree entry has its own policy, because a vetted repository can hold the Linux kernel's `xt_CONNMARK.h` and `xt_connmark.h`, and a crafted object can hold any name. `filetree_load` gives an entry a row without a link, no pages and no raw copy, and one warning that names every path involved, for: a name that a page cannot use, names of one directory that collide after ASCII case folding, with no winner picked, and a name whose pages would pass an output-path limit. Only linked entries reach the manifest, so the manifest's path limit applies to the outputs that are not listing rows, such as a branch's root tree page. A release outside every project, a version that does not parse, a repeated version and a release without `SHA256SUMS` are warnings of the release scan.
 
-The prune is `output_pruner_prune`, with the input roots as the directories that it never enters. It compares device and inode values, never follows a symlink, and runs only when every write succeeded.
+The prune is `output_pruner_prune`. It compares device and inode values, never follows a symlink, and runs only when every write succeeded.
 
 ## Clone export
 

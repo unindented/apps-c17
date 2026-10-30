@@ -931,12 +931,8 @@ static int prune_stale_outputs(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "removing stale outputs");
   oom_set_job((struct Str){0}, NULL);
   ptrdiff_t removed_count = 0;
-  const struct SiteConfig* site_config = &state->site_config;
-  const struct Str root_dirs[] = {site_config->content_dir, site_config->templates_dir,
-                                  site_config->static_dir};
-  const int rc = output_pruner_prune(&state->writer, site_config->output_dir, root_dirs,
-                                     (ptrdiff_t)(sizeof(root_dirs) / sizeof(root_dirs[0])),
-                                     state->os, state->scratch, &removed_count, log);
+  const int rc = output_pruner_prune(&state->writer, state->site_config.output_dir, state->os,
+                                     state->scratch, &removed_count, log);
   verbose_printf(&state->verbose, "removed stale outputs: %td", removed_count);
   return rc;
 }

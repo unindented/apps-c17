@@ -711,11 +711,9 @@ static void test_rejects_output_in_static_dir(void) {
   check_rejects_output_in_root(&site_config, "gallery/static/b.html", "static_dir", os);
 }
 
-// An output inside an input root is reported once for the album that leads there: a sub-album or a
-// media item of that album lands there for the same reason and fails without a line of its own.
-// Every other source is reported, in whichever root it lands, because its output may land there for
-// a reason of its own, like the static file here.
-static void test_reports_input_root_once_per_album(void) {
+// Each output inside an input root reports a line of its own, a sub-album's as well as its parent
+// album's, in whichever root it lands.
+static void test_reports_every_output_inside_an_input_root(void) {
   struct SiteConfig site_config;
   struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/photos/x.jpg", "source");
@@ -740,11 +738,15 @@ static void test_reports_input_root_once_per_album(void) {
   TEST_CHECK(test_log_is(&log,
                          "output path would write inside 'media_dir' for 'gallery/photos': "
                          "'gallery/out/link/index.html'\n"
+                         "output path would write inside 'media_dir' for 'gallery/photos/a': "
+                         "'gallery/out/link/a/index.html'\n"
                          "output path would write inside 'templates_dir' for 'gallery/photos/b': "
                          "'gallery/out/tlink/b/index.html'\n"
+                         "output path would write inside 'templates_dir' for "
+                         "'gallery/photos/b/sub': 'gallery/out/tlink/b/sub/index.html'\n"
                          "output path would write inside 'media_dir' for "
                          "'gallery/static/link/y.css': 'gallery/out/link/y.css'\n"));
-  TEST_CHECK(log.errors == 3);
+  TEST_CHECK(log.errors == 5);
 }
 
 // A configured template whose output path exceeds the whole-path limit is rejected with a message
@@ -819,7 +821,7 @@ TEST_LIST = {
     {"rejects output in input dir", test_rejects_output_in_media_dir},
     {"rejects output in templates dir", test_rejects_output_in_templates_dir},
     {"rejects output in static dir", test_rejects_output_in_static_dir},
-    {"reports input root once per album", test_reports_input_root_once_per_album},
+    {"reports every output inside an input root", test_reports_every_output_inside_an_input_root},
     {"rejects oversize template path", test_rejects_oversize_template_path},
     {"rejects oversize template segment", test_rejects_oversize_template_segment},
     {NULL, NULL},

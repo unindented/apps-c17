@@ -39,9 +39,9 @@ typedef int (*BuildCacheFileRowFn)(struct Str line,
  * @brief Parses the text of an output cache whose first line must be `header`, handing each row to
  *        `parse_row`.
  *
- * A build writes its cache in place, so an interrupted write leaves the file empty or cut short: an
- * empty file is reported as such, and every row must end in a newline. A failed parse leaves `perm`
- * as it found it.
+ * A build writes its cache without a rename, so an interrupted write leaves the file empty or cut
+ * short: an empty file is reported as such, and every row must end in a newline. A failed parse
+ * leaves `perm` as it found it.
  *
  * The reason a cache cannot be used is
  * `output cache is empty, as a build that did not finish leaves it`, the app's `header_mismatch`,
