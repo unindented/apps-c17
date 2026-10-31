@@ -58,7 +58,6 @@ include(apps_build_profiles)
 
 if(PROJECT_IS_TOP_LEVEL)
   include(apps_quality)
-  include(fram_lint)
 endif()
 if(APPS_BUILD_TESTING)
   include(apps_testing)
@@ -78,5 +77,7 @@ if(APPS_BUILD_TESTING)
 endif()
 
 if(PROJECT_IS_TOP_LEVEL)
+  # The `format` and `lint` targets check the sources of every target above.
+  apps_add_lint_targets(CONFIGURED_SOURCES "${PROJECT_SOURCE_DIR}/src/domain/fram_version.c.in")
   include(apps_packaging)
 endif()

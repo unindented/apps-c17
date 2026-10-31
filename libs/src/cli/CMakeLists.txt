@@ -7,17 +7,6 @@ target_sources(cli PRIVATE cli.c cli_dispatch.c cli.h cli_dispatch.h)
 libs_add_include_root(cli cli)
 target_link_libraries(cli PUBLIC core os runtime PRIVATE apps_build_project vendor_copt Threads::Threads)
 
-set_property(
-  GLOBAL APPEND
-  PROPERTY apps_libs_lint_sources
-           "${CMAKE_CURRENT_SOURCE_DIR}/cli.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/cli.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/cli_dispatch.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/cli_dispatch.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_cli.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_cli_dispatch.c"
-)
-
 if(NOT PROJECT_IS_TOP_LEVEL)
   return()
 endif()

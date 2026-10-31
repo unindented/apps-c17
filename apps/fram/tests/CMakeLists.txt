@@ -2,7 +2,10 @@
 
 # fram's own test helpers, which every unit test links next to the `testing` library: the fixture
 # JPEG encoder and the WebP output decoder, which call their codecs themselves.
-add_library(fram_test_support OBJECT test_jpeg_fixture.c test_webp_output.c)
+add_library(
+  fram_test_support OBJECT test_jpeg_fixture.c test_jpeg_fixture.h test_webp_output.c
+                           test_webp_output.h
+)
 target_include_directories(fram_test_support PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>")
 target_link_libraries(
   fram_test_support PRIVATE apps_build_tests vendor_acutest fram_app vendor_libjpeg_turbo

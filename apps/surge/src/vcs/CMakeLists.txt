@@ -28,6 +28,7 @@ if(APPS_BUILD_TESTING)
     )
     foreach(module IN ITEMS changeset filetree pack_export refset repository revision)
       apps_add_unit_test(${module})
+      target_sources(surge_unit_${module} PRIVATE test_vcs_support.h)
       target_link_libraries(surge_unit_${module} PRIVATE vendor_libgit2)
       set_tests_properties(
         "surge.${module}"

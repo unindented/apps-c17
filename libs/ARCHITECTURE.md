@@ -37,7 +37,7 @@ A library include names the library and the module, for example `#include "core/
 
 ### Build profiles and analysis
 
-Each library target links the `apps_build_project` profile of the project that builds it, and the test-only targets link `apps_build_tests`. An app's sanitizer build therefore instruments the library code, and `core`'s arena poisoning runs in the app's ASan build. `SYSTEM` on `add_subdirectory` keeps the app's clang-tidy to the app's own code. The app's cppcheck reads the headers of the libraries that the app lists in `APPS_LIBRARIES`, so that it can expand their macros, and it also checks the inline functions of these headers. Only the top-level `libs/` project runs clang-tidy and cppcheck on the library code, and only it has the `lint` and `format` targets for the library sources. Each library appends its sources to the lint list.
+Each library target links the `apps_build_project` profile of the project that builds it, and the test-only targets link `apps_build_tests`. An app's sanitizer build therefore instruments the library code, and `core`'s arena poisoning runs in the app's ASan build. `SYSTEM` on `add_subdirectory` keeps the app's clang-tidy to the app's own code. The app's cppcheck reads the headers of the libraries that the app lists in `APPS_LIBRARIES`, so that it can expand their macros, and it also checks the inline functions of these headers. Only the top-level `libs/` project runs clang-tidy and cppcheck on the library code, and only it has the `lint` and `format` targets for the library sources. The lint targets check the sources of every library and test target.
 
 ### Tests
 

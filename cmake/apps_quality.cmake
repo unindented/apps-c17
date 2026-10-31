@@ -1,5 +1,5 @@
 # This file configures formatting and static analysis for first-party sources. Each project calls
-# `apps_add_lint_targets` with the list of its own sources, and enables analysis per target with
+# `apps_add_lint_targets` once its targets are defined, and enables analysis per target with
 # `apps_enable_project_analysis` and `apps_enable_test_analysis`.
 
 include_guard(GLOBAL)
@@ -67,14 +67,74 @@ function(apps_enable_test_analysis target)
   endif()
 endfunction()
 
-# Creates the `format` and `lint` targets. `SOURCES` lists the project's own C sources and headers.
-# `CONFIGURED_SOURCES` lists `.c.in` templates, which clang-format reads as the `.c` files they
-# configure.
+# Sets `sources_out` to the project's own C sources and headers: each `.c` or `.h` file in the
+# `SOURCES`, the `INTERFACE_SOURCES` or a header set of a target that the project's directories
+# define, below `PROJECT_SOURCE_DIR` and outside `PROJECT_BINARY_DIR`, so a vendored or a generated
+# file stays out. The targets give the list, so a new or renamed file needs no edit here, and a
+# target that the configuration leaves out, such as a test without `APPS_BUILD_TESTING`, leaves its
+# files out. A `$<TARGET_OBJECTS:...>` entry names object files, so it is skipped. Any other entry
+# that starts with a generator expression has no path until generation, so a target below
+# `PROJECT_SOURCE_DIR` warns that lint skips it.
+function(apps_collect_lint_sources sources_out)
+  set(sources "")
+  set(dirs "${PROJECT_SOURCE_DIR}")
+  while(dirs)
+    list(POP_FRONT dirs dir)
+    get_property(subdirs DIRECTORY "${dir}" PROPERTY SUBDIRECTORIES)
+    list(APPEND dirs ${subdirs})
+    get_property(targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(target IN LISTS targets)
+      get_target_property(target_dir ${target} SOURCE_DIR)
+      cmake_path(IS_PREFIX PROJECT_SOURCE_DIR "${target_dir}" NORMALIZE is_first_party_target)
+      set(files "")
+      foreach(sources_property IN ITEMS SOURCES INTERFACE_SOURCES)
+        get_target_property(property_files ${target} ${sources_property})
+        if(property_files)
+          list(APPEND files ${property_files})
+        endif()
+      endforeach()
+      foreach(sets_property IN ITEMS HEADER_SETS INTERFACE_HEADER_SETS)
+        get_target_property(header_sets ${target} ${sets_property})
+        foreach(header_set IN LISTS header_sets)
+          get_target_property(headers ${target} HEADER_SET_${header_set})
+          list(APPEND files ${headers})
+        endforeach()
+      endforeach()
+      foreach(file IN LISTS files)
+        if(file MATCHES "^\\$<")
+          if(is_first_party_target AND NOT file MATCHES "^\\$<TARGET_OBJECTS:")
+            message(WARNING "lint skips a source of target '${target}' that starts with a "
+                            "generator expression: '${file}'"
+            )
+          endif()
+          continue()
+        endif()
+        if(NOT file MATCHES "\\.[ch]$")
+          continue()
+        endif()
+        cmake_path(ABSOLUTE_PATH file BASE_DIRECTORY "${target_dir}" NORMALIZE OUTPUT_VARIABLE path)
+        cmake_path(IS_PREFIX PROJECT_SOURCE_DIR "${path}" NORMALIZE is_first_party)
+        cmake_path(IS_PREFIX PROJECT_BINARY_DIR "${path}" NORMALIZE is_generated)
+        if(is_first_party AND NOT is_generated)
+          list(APPEND sources "${path}")
+        endif()
+      endforeach()
+    endforeach()
+  endwhile()
+  list(REMOVE_DUPLICATES sources)
+  list(SORT sources)
+  set(${sources_out} "${sources}" PARENT_SCOPE)
+endfunction()
+
+# Creates the `format` and `lint` targets over the sources that `apps_collect_lint_sources` finds,
+# so the project calls it after it defines its last target. `CONFIGURED_SOURCES` lists `.c.in`
+# templates, which clang-format reads as the `.c` files they configure.
 #
 # The format and lint targets run clang-format and then cwrap, which refills comment prose to 100
 # columns, the limit that clang-format only caps. A tool that is not installed is skipped.
 function(apps_add_lint_targets)
-  cmake_parse_arguments(PARSE_ARGV 0 arg "" "" "SOURCES;CONFIGURED_SOURCES")
+  cmake_parse_arguments(PARSE_ARGV 0 arg "" "" "CONFIGURED_SOURCES")
+  apps_collect_lint_sources(arg_SOURCES)
 
   set(clang_format_fix "")
   set(clang_format_check "")

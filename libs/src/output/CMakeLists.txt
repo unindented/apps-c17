@@ -22,33 +22,6 @@ target_sources(
 libs_add_include_root(output output)
 target_link_libraries(output PUBLIC core os PRIVATE apps_build_project)
 
-set_property(
-  GLOBAL APPEND
-  PROPERTY apps_libs_lint_sources
-           "${CMAKE_CURRENT_SOURCE_DIR}/build_cache_file.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/build_cache_file.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/manifest.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/manifest.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/manifest_builder.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/manifest_builder.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/output_cache.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/output_cache.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/output_path.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/output_path.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/output_pruner.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/output_pruner.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/output_writer.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/output_writer.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_build_cache_file.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_manifest.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_manifest_builder.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_output_cache.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_output_path.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_output_pruner.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_output_pruner_case.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_output_writer.c"
-)
-
 if(NOT PROJECT_IS_TOP_LEVEL)
   return()
 endif()

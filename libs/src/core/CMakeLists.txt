@@ -34,50 +34,6 @@ target_sources(
 libs_add_include_root(core core)
 target_link_libraries(core PRIVATE apps_build_project)
 
-set_property(
-  GLOBAL APPEND
-  PROPERTY apps_libs_lint_sources
-           "${CMAKE_CURRENT_SOURCE_DIR}/arena.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/arena.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/asan.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/ascii.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/buf.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/buf.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/error.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/error.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/exit_code.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/log.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/log.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/parse.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/parse.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/path.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/path.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/path_list.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/path_list.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/str.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/str.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_arena.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_ascii.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_buf.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_error.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_format_compile.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_log.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_oom.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_parse.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_path.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_path_list.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_str.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_text.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_url.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_utf8.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/text.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/text.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/url.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/url.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/utf8.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/utf8.h"
-)
-
 if(NOT PROJECT_IS_TOP_LEVEL)
   return()
 endif()
@@ -92,6 +48,7 @@ endif()
 # they link no `testing`.
 foreach(module IN ITEMS arena buf log str)
   libs_add_unit_test(core ${module})
+  target_sources(core_unit_${module} PRIVATE test_oom.h)
 endforeach()
 foreach(module IN ITEMS ascii error parse path path_list text url utf8)
   libs_add_unit_test(core ${module} LIBRARIES testing)
@@ -129,3 +86,5 @@ foreach(compile_case IN LISTS core_format_compile_cases)
   )
   set_tests_properties("core.format_compile.${name}" PROPERTIES LABELS "core;unit")
 endforeach()
+# No target compiles the source of the cases, so this one names it for the lint targets.
+add_custom_target(core_format_compile SOURCES test_format_compile.c)

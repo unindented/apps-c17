@@ -14,7 +14,7 @@
   - Each `tests/fixtures/refuse-*` site is one that the build must refuse, with the exact `stderr` in `tests/expected/refuse-*/stderr.txt`.
   - [clone_test.py](tests/clone_test.py) and [mise_test.py](tests/mise_test.py) clone and install from the served output.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
-- [cmake/](cmake/): The lint list, the golden test driver, and the scripts that make and check the fixture repositories. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses.
+- [cmake/](cmake/): The golden test driver and the scripts that make and check the fixture repositories. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses.
 - [libs/](../../libs/): The libraries that `surge` links: `cli`, `core`, `os`, `runtime`, `formats`, `markup`, `output` and `templates`, and for the unit tests `testing` and `os_memory`. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
 - [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `mustache4c`, `acutest` and libgit2. It includes [libs/src/markup/vendor.cmake](../../libs/src/markup/vendor.cmake), which builds `md4c`, `org4c`, and `tree-sitter` with its grammars, for the `markup` library.
 

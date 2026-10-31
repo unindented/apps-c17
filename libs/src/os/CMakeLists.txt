@@ -21,21 +21,6 @@ target_link_libraries(
   os_memory PUBLIC os PRIVATE apps_build_tests vendor_acutest testing Threads::Threads
 )
 
-set_property(
-  GLOBAL APPEND
-  PROPERTY apps_libs_lint_sources
-           "${CMAKE_CURRENT_SOURCE_DIR}/oom.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/oom.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/os.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/os_memory.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/os_memory.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/os_posix.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/os_posix.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_oom.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_os.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_os_posix.c"
-)
-
 if(NOT PROJECT_IS_TOP_LEVEL)
   return()
 endif()

@@ -21,30 +21,6 @@ target_sources(
 libs_add_include_root(runtime runtime)
 target_link_libraries(runtime PUBLIC core os PRIVATE apps_build_project Threads::Threads)
 
-set_property(
-  GLOBAL APPEND
-  PROPERTY apps_libs_lint_sources
-           "${CMAKE_CURRENT_SOURCE_DIR}/build_run.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/build_run.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/job.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/job.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/pool.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/pool.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/read_root.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/read_root.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_build_run.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_job.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_pool.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_read_root.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_verbose.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_walk.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_walk_posix.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/verbose.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/verbose.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/walk.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/walk.h"
-)
-
 if(NOT PROJECT_IS_TOP_LEVEL)
   return()
 endif()

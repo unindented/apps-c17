@@ -8,7 +8,7 @@
 - [src/domain/](src/domain/): Comment lexing, grouping, filling, Doxygen alignment, source rewriting, and the version.
 - [tests/](tests/): The golden and idempotence test suites, and the seeded random tests. Each C file under [tests/fixtures/](tests/fixtures/) has a matching file of expected output under [tests/expected/](tests/expected/). The idempotence test also rewraps these files, every first-party source file, and the sources of the libraries that `cwrap` links, at several widths.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
-- [cmake/](cmake/): The lint list and the golden and idempotence test drivers. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
+- [cmake/](cmake/): The golden and idempotence test drivers. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
 - [libs/](../../libs/): The libraries that `cwrap` links: `core` and `os`, with the POSIX host `os_posix`, and for the unit tests `testing` and the in-memory host `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
 - [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt` and `acutest`.
 

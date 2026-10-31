@@ -25,24 +25,6 @@ target_link_libraries(
           vendor_tree_sitter
 )
 
-set_property(
-  GLOBAL APPEND
-  PROPERTY apps_libs_lint_sources
-           "${CMAKE_CURRENT_SOURCE_DIR}/body_html.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/body_html.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/highlight.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/highlight.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/markdown.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/markdown.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/org.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/org.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_body_html.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_highlight.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_markdown.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_org.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/tree_sitter_wctype.h"
-)
-
 if(NOT PROJECT_IS_TOP_LEVEL)
   return()
 endif()

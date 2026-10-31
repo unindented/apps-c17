@@ -120,7 +120,6 @@ function(libs_add_include_root target library)
   target_include_directories(${target} PUBLIC "$<BUILD_INTERFACE:${root}>")
 endfunction()
 
-# Each library appends its own sources to `apps_libs_lint_sources`.
 add_subdirectory(src/core)
 add_subdirectory(src/testing)
 add_subdirectory(src/os)
@@ -147,6 +146,6 @@ if(TARGET formats AND TARGET vendor_mustache)
 endif()
 
 if(PROJECT_IS_TOP_LEVEL)
-  get_property(libs_lint_sources GLOBAL PROPERTY apps_libs_lint_sources)
-  apps_add_lint_targets(SOURCES ${libs_lint_sources})
+  # The `format` and `lint` targets check the sources of every library and test above.
+  apps_add_lint_targets()
 endif()

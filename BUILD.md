@@ -47,7 +47,6 @@ The top-level `CMakeLists.txt` of an app sets the project policy, includes the C
 | `src/*/CMakeLists.txt` | Add the sources, the header file sets and the unit tests of their directory |
 | `tests/CMakeLists.txt` | Adds the golden tests and the app's own test helpers |
 | `vendor.cmake` | Defines a target for each vendored dependency that the app uses, from the sources in the root [vendor/](vendor/) directory |
-| `cmake/<app>_lint.cmake` | Lists the first-party sources that the `format` and `lint` targets check |
 | `cmake/<app>_run_golden.cmake` | Runs a golden test |
 | `CMakeGraphVizOptions.cmake` | Sets the filters and the layout of the target graph |
 | `CMakePresets.json` | Includes [cmake/release-presets.json](cmake/release-presets.json) |
@@ -111,7 +110,7 @@ To bump a project, change its `release`, or its `commit` when it has no release,
 - The libraries use the vendored targets of the app. The project adds `cli` only when the target `vendor_copt` exists. It adds `formats` only when the target `vendor_tomlc17` exists, so cwrap, which vendors no tomlc17, builds without it. It adds `markup` only when `formats` and the targets of `libs/src/markup/vendor.cmake` exist, so fram and cwrap build without it. It adds `templates` only when `formats` and the target `vendor_mustache` exist, so cwrap builds without it.
 - An app never builds the tests of the libraries.
 
-Configured on its own, from `libs/`, the project defines the vendored targets that the libraries need in [libs/vendor.cmake](libs/vendor.cmake), and builds every library, its analysis, its lint and its tests. `libs_add_unit_test(<lib> <module>)` registers the test `<lib>.<module>`, which links the library, `apps_build_tests`, acutest and the libraries in `LIBRARIES`. With `OS posix` or `OS memory`, the test also links `os_posix` or `os_memory`, and with `OS memory` it compiles with `APPS_TEST_OS_MEMORY` set to 1. Each library test has the labels `<lib>` and `unit`, and the same timeouts as the tests of an app. Each library appends its sources to the global property `apps_libs_lint_sources`, and the project creates its `format` and `lint` targets from that list.
+Configured on its own, from `libs/`, the project defines the vendored targets that the libraries need in [libs/vendor.cmake](libs/vendor.cmake), and builds every library, its analysis, its lint and its tests. `libs_add_unit_test(<lib> <module>)` registers the test `<lib>.<module>`, which links the library, `apps_build_tests`, acutest and the libraries in `LIBRARIES`. With `OS posix` or `OS memory`, the test also links `os_posix` or `os_memory`, and with `OS memory` it compiles with `APPS_TEST_OS_MEMORY` set to 1. Each library test has the labels `<lib>` and `unit`, and the same timeouts as the tests of an app.
 
 ### Grammars
 
@@ -173,7 +172,7 @@ Test targets run `cppcheck` but not `clang-tidy`, because their intentional fail
 
 The `format` and `lint` targets run `clang-format` and then `cwrap`, which refills comment prose to 100 columns, the `.clang-format` column limit. Either tool is skipped when it is not installed. CI and the Linux image install a pinned `cwrap` release. It is the installed `cwrap`, not the one that `apps/cwrap` builds, so a change to how it rewraps reaches the sources only through a new release and the pin in CI and the Linux image.
 
-Both targets run both tools on the first-party files in an explicit list: the `SOURCES` of `apps_add_lint_targets` in an app's `cmake/<app>_lint.cmake`, or the `apps_libs_lint_sources` that each library appends to. In an app, they also run both tools on the version template, which `clang-format` reads as the `.c` file that it configures because of `--assume-filename`. When you add a source file or a test file, add it to this list and to its target. A glob at configure time would not find a new file until CMake configures the project again.
+Both targets run both tools on the `.c` and `.h` files that the project's targets list in their `SOURCES`, `INTERFACE_SOURCES` and header sets, which `apps_add_lint_targets` gathers once the last target is defined, so a new file needs only its target. The list follows the configuration, so the test files are linted only when `APPS_BUILD_TESTING` is on. A file that no target compiles, such as a test helper header or `libs/src/core/test_format_compile.c`, is added to a target's sources for this. A source that starts with a generator expression gets a CMake warning, because lint cannot see its path. In an app, both tools also check the version template, which `clang-format` reads as the `.c` file that it configures because of `--assume-filename`.
 
 ## Tests
 

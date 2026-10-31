@@ -123,7 +123,9 @@ function(markup_add_tree_sitter_grammar name)
   )
 
   set(target "vendor_tree_sitter_${name}")
-  add_library(${target} STATIC ${arg_SOURCES} "${query_source}")
+  add_library(
+    ${target} STATIC ${arg_SOURCES} "${query_source}" "${markup_dir}/tree_sitter_wctype.h"
+  )
   list(GET arg_SOURCES 0 parser)
   get_filename_component(source_dir "${parser}" DIRECTORY)
   target_include_directories(${target} PRIVATE "${source_dir}")

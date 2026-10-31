@@ -11,14 +11,6 @@ target_sources(testing PRIVATE test_support.c test_support.h)
 libs_add_include_root(testing testing)
 target_link_libraries(testing PUBLIC core PRIVATE apps_build_tests vendor_acutest)
 
-set_property(
-  GLOBAL APPEND
-  PROPERTY apps_libs_lint_sources
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_support.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_support.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_test_support.c"
-)
-
 if(NOT PROJECT_IS_TOP_LEVEL)
   return()
 endif()

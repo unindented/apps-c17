@@ -6,14 +6,6 @@ target_sources(templates PRIVATE template_set.c template_set.h)
 libs_add_include_root(templates templates)
 target_link_libraries(templates PUBLIC core os PRIVATE apps_build_project formats vendor_mustache)
 
-set_property(
-  GLOBAL APPEND
-  PROPERTY apps_libs_lint_sources
-           "${CMAKE_CURRENT_SOURCE_DIR}/template_set.c"
-           "${CMAKE_CURRENT_SOURCE_DIR}/template_set.h"
-           "${CMAKE_CURRENT_SOURCE_DIR}/test_template_set.c"
-)
-
 if(NOT PROJECT_IS_TOP_LEVEL)
   return()
 endif()
