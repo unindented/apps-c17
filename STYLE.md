@@ -154,10 +154,8 @@ This guide takes its ideas and conventions from these sources:
 ### Reporting
 
 - Check every I/O, parsing, and formatting error. Allocation does not fail (see [Memory and resources](#memory-and-resources)).
-- Signal failure the same way in the whole codebase, with the return convention in [Function signatures](#function-signatures): an action returns `-1`, and a predicate returns `false`. Where an external library uses a different convention, keep the translation in a single boundary function.
-- Record each error in the caller's `struct Log` with `log_error`. For a failure at a location inside a file, use `log_error_in`. Both functions return `-1`, so an action can `return log_error(log, ...)`. Only a command boundary prints the log.
-- After an error, continue wherever the next check still has something to check, so that one run reports every mistake. Check `log->errors` before any step that cannot be undone, such as the first write.
-- Never store a rejected value. Keep its default instead, so that a later check does not report the same mistake again.
+- Record each error in the caller's `struct Log` with `log_error`, or with `log_error_in` for a failure at a location inside a file. Both return `-1`. Only a command boundary prints the log.
+- Report every independent error once. After an error, continue wherever the next check still has something to check, and keep a rejected value's default, so that one run reports every mistake and a later check does not report the same one again. Check `log->errors` before any step that cannot be undone, such as the first write.
 
 ### Format strings
 
@@ -169,16 +167,9 @@ This guide takes its ideas and conventions from these sources:
 
 ### Wording
 
-- Keep diagnostics lowercase and without trailing periods. A proper noun keeps its capital letter in every position, including at the start, as in sosig's `Org keyword 'draft' must be 'true' or 'false'` or fram's `JPEG exceeds max scan count (...)` (see the naming rule in [Comments](#comments)).
-- Relay a message that comes from the operating system or a vendored library exactly as that source spells it, so that the text that a user reports can be found in the source that produced it.
+- Keep diagnostics lowercase, except for a proper noun, as in fram's `JPEG exceeds max scan count (...)`, and without trailing periods.
 - Quote literal names and user-visible values with single quotes, including paths, template names, config keys, option names, and environment variables.
-- Lead with the failed operation, then the relevant key, then the cause, such as `config key 'feed_count' must be an integer` or `option '--width' must be a positive integer`. An input path, an output path, a template name, or a raw argument goes last instead, after the cause. Name the subject in words and put the value at the end, as in `failed to read config: No such file or directory ('sosig.toml')`. A filesystem action receives the operation that starts the message and writes the rest of the message itself, because only the action knows which path failed.
-- Distinguish a missing required key from a key with the wrong type. Use `missing required ... key` when the key is missing, and `... key 'name' must be ...` when its value is invalid.
-- Give a trailing value one of three shapes. Choose the shape from the role of the value, and do not mix the shapes:
-  - Use `: '<value>'` for the value that broke the rule, so that the message reads as a judgment of that value (`output path segment for '<source>' exceeds max filename length (255 bytes) at 260 bytes: '<segment>'`).
-  - Use `('<path>')` for the path that an operation targeted, when the cause came from a different source, such as `errno` or a callee (`failed to read template: No such file or directory ('templates/x.html')`).
-  - Use `(in '<file>')`, through `log_error_in`, for the file that contains the location of a failure (`tag name is invalid at line 1, column 1 (in 'partials/card.html')`).
-- Where a value has a different role, name that role in words, and do not add a bare parenthesis. For example, use `(while rendering '<entry>')` when the failure is not in the file that the message names, `(for '<source>')` for the source that an output belongs to, and `(from '<input>')` when the input is a stream and not a path. A value that reads as part of the sentence stays in the sentence (`config key 'title' must be a string`, `output path for 'content/a.md' exceeds max output path length (1024 bytes) at 1030 bytes: '<path>'`). The three trailing shapes apply only to a value that comes after the cause.
+- Lead with the failed operation, then the cause, and put a path or a raw value last, as in `failed to read config: No such file or directory ('sosig.toml')`. A filesystem action receives the `operation` that starts its message and writes the rest itself.
 
 ### System errors
 
@@ -222,7 +213,6 @@ This guide takes its ideas and conventions from these sources:
 - Assert the exact expected value whenever the output is deterministic. Use a substring check only where an exact match would be brittle and not strict: long prose such as help text, output from a vendored library that the golden test suite already covers, or a string that contains a temporary directory.
 - When a substring check is the right tool, make the needle the complete claim. A needle that is one word of a diagnostic, such as `title`, passes for every message that contains that word, including the message for a different failure.
 - Assert the diagnostic of every failure, not only the non-zero return. A bare `!= 0` cannot tell the failure under test from an unrelated failure. It also continues to pass when a later change moves the failure to another phase.
-- Keep the distinctions that [Errors and diagnostics](#errors-and-diagnostics) requires visible to the tests: a missing key and a key with the wrong type must fail different assertions, not the same loose assertion.
 - Derive an expected limit from its named constant, and do not repeat the literal. Spell out a literal only when the constant is file-local, and note that changing it must update the test.
 - Where correct behavior must not depend on an unspecified detail, such as how `qsort` orders elements that compare equal, assert the same result for more than one input order.
 - Do not restate golden test coverage in a unit test. Note which golden test provides the end-to-end assertion instead.
@@ -243,15 +233,6 @@ This guide takes its ideas and conventions from these sources:
 - A test that is added to one of those suites runs on the host that its suite links.
 - When a memory-host test relies on a property of a host, such as a message, a symlink rule, or what a trailing `/` means, make sure that a contract test in `os/test_os.c` checks that property. That file runs against both hosts, so the in-memory host cannot accept what POSIX rejects. Injected failures are the exception, because the in-memory host makes them on request.
 - Use `test_is_oom` to check that running out of memory exits. `test_is_oom` runs the code in a child process. Never assert an allocation failure as an error return.
-
-### Fixtures and pointers
-
-- Outside a fixture's lifetime, guard a pointer from a standard-library allocation (`fopen`, `tmpfile`, `calloc`) with `TEST_ASSERT` followed by an explicit `if (ptr == NULL) return;`. An arena allocation never returns `NULL` and needs no such guard.
-  - The assert states the precondition, and static analysis can follow the `if`. `TEST_ASSERT` hides its abort behind a call whose return value `cppcheck` cannot analyze. Without the `if`, `cppcheck` reports `nullPointerOutOfResources` at the next use of the pointer, and a cross-translation-unit variant in the function that receives the pointer.
-  - The `if` body is unreachable and does not unwind. An aborted test leaves its descriptors and allocations to process exit.
-- Never use `TEST_ASSERT` while a test's fixture exists, not even to guard a standard-library pointer, because its abort skips the cleanup and leaves the fixture under `/tmp`. Use one of these methods instead:
-  - Guard each step with `if (!TEST_CHECK(...)) { goto cleanup; }`, and remove the fixture at a single `cleanup` label.
-  - Collect the results, remove the fixture, and then check the results.
 
 ## App-specific rules
 
