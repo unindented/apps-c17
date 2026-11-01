@@ -245,10 +245,55 @@ static void test_failed_build_records_what_it_wrote(void) {
   remove_site(str_cstr(site, &arena));
 }
 
+// A page template that does not compile stops the build when the templates load, so a static entry
+// that collides with a repo, which the manifest would refuse, is never reached, and nothing is
+// written.
+static void test_stops_at_a_template_that_does_not_load(void) {
+  struct Arena arena = test_arena();
+  const struct Str site = make_site(NULL, &arena);
+  struct Log write_log = test_log();
+  TEST_ASSERT(os_write(os_posix(), path_join(site, S("templates/tree.html"), &arena),
+                       (struct OsSource){.bytes = S("{{#entries}}")}, S("failed to write"),
+                       &write_log) == 0);
+  TEST_ASSERT(os_write(os_posix(), path_join(site, S("static/showcase"), &arena),
+                       (struct OsSource){.bytes = S("x")}, S("failed to write"), &write_log) == 0);
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == -1);
+  TEST_CHECK(test_log_is(
+      &log, "section-opening tag has no closer at line 1, column 1 (in 'tree.html')\n"));
+  bool is_found = true;
+  (void)stat_below(site, "public", &is_found);
+  TEST_CHECK(!is_found);
+  remove_site(str_cstr(site, &arena));
+}
+
+// A root that fails its check stops the build before the overlap check, so a `static_dir` that is a
+// file is the one error even with an `output_dir` inside `templates_dir`.
+static void test_stops_at_a_bad_root_before_the_overlap_check(void) {
+  struct Arena arena = test_arena();
+  const struct Str site = make_site("output_dir = \"templates/public\"\n", &arena);
+  const struct Str static_path = path_join(site, S("static"), &arena);
+  struct Log write_log = test_log();
+  TEST_ASSERT(os_write(os_posix(), static_path, (struct OsSource){.bytes = S("x")},
+                       S("failed to write"), &write_log) == 0);
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == -1);
+  TEST_CHECK(test_log_is(
+      &log, "failed to resolve config directory 'static_dir': not a directory ('%.*s')\n",
+      STR_FMT(static_path)));
+  bool is_found = true;
+  (void)stat_below(site, "templates/public", &is_found);
+  TEST_CHECK(!is_found);
+  remove_site(str_cstr(site, &arena));
+}
+
 TEST_LIST = {
     {"builds the site and its output cache", test_builds_the_site_and_its_output_cache},
     {"dry run creates nothing", test_dry_run_creates_nothing},
     {"reports an output dir that is a file", test_reports_an_output_dir_that_is_a_file},
     {"failed build records what it wrote", test_failed_build_records_what_it_wrote},
+    {"stops at a template that does not load", test_stops_at_a_template_that_does_not_load},
+    {"stops at a bad root before the overlap check",
+     test_stops_at_a_bad_root_before_the_overlap_check},
     {NULL, NULL},
 };

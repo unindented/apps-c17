@@ -38,12 +38,9 @@ endif()
 set(surge_fixture_sites
     site
     refuse-branch-case
-    refuse-config-overlap
     refuse-project-path
     refuse-ref-prefix
     refuse-releases
-    refuse-repo-overlap
-    refuse-root-overlap
     refuse-static
     refuse-templates-dir
 )

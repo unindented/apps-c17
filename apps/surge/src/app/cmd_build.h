@@ -36,10 +36,10 @@ enum ExitCode cmd_build_run(const struct BuildOptions* options, struct Os* os)
 /**
  * @brief Runs the build pipeline, collecting every error and warning into a log.
  *
- * Until the first write, the build keeps going after an error wherever the next phase still has
- * something to check, and it stops before writing anything if any error was recorded. A dry run
- * runs the same phases, changes nothing under `output_dir`, and prints what it would have written,
- * kept, and removed. Output is byte-identical for any worker count.
+ * The first phase that fails stops the build, after it reports every error of its own, so a build
+ * that fails before its writes leaves `output_dir` as it was. A dry run runs the same phases,
+ * changes nothing under `output_dir`, and prints what it would have written, kept, and removed.
+ * Output is byte-identical for any worker count.
  *
  * @param options       Build knobs, whose worker count is positive. Must not be `NULL`.
  * @param worker_arenas One perm and one scratch per worker. Must not be `NULL`.

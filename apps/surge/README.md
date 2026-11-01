@@ -52,7 +52,7 @@ It also has these options:
 - `surge --help` (or `-h`): Print the list of commands.
 - `surge <command> --help`: Print the help for one command.
 
-A command exits with status 0 when it succeeds, 1 when it fails, and 2 when it rejects the command line. A build that succeeds can still print warnings to `stderr`, after any errors, and exits with status 0.
+A command exits with status 0 when it succeeds, 1 when it fails, and 2 when it rejects the command line. A build that succeeds can still print warnings to `stderr`, after any errors, and exits with status 0. A build stops at the first phase that fails, after it reports every error of that phase.
 
 ### Site layout
 

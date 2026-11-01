@@ -98,9 +98,6 @@ struct RepoScan {
  * @param perm        Arena that owns the paths. Must not be `NULL`.
  * @param scans       One slot per repo of `site_config`, zeroed, whose `model` receives `config`,
  *                    `git_dir` and `work_dir`. Must not be `NULL` unless `site_config` has no repo.
- *                    A repo whose name or path the config rejected is skipped, since the load
- *                    reported it, so the overlap check still runs against every other repo.
- *
  * @param log         Log that receives every repo that cannot be opened. Must not be `NULL`.
  * @return `0` when every repo the config named opened, or `-1` otherwise.
  */

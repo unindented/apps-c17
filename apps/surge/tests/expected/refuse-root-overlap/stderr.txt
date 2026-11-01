@@ -1,2 +1,0 @@
-loading config
-failed to resolve config directory 'static_dir': not a directory ('static')

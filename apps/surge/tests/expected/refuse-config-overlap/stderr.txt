@@ -1,2 +1,0 @@
-loading config
-config key 'title' must be a string

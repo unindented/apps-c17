@@ -236,11 +236,6 @@ int repo_scan_locate(const struct SiteConfig* site_config,
   for (ptrdiff_t i = 0; i < site_config->repo_count; i++) {
     const struct SurgeRepo* repo = &site_config->repos[i];
     scans[i].model.config = repo;
-    // A repo whose name or path the config rejected has been reported, and the build stops on that
-    // error after the overlap check, which checks the output against the repos that did open.
-    if (repo->name.len == 0 || repo->path.len == 0) {
-      continue;
-    }
     struct Repository repository = {0};
     if (repository_open(&repository, repo->path, repo->name, perm, log) != 0) {
       rc = -1;

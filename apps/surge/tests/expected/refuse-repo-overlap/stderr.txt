@@ -1,2 +1,0 @@
-loading config
-config key 'repo[0].name' must be a string

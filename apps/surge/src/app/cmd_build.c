@@ -257,8 +257,9 @@ static bool has_release_projects(const struct SiteConfig* site_config) __attribu
  *        cache, the scan, the manifest, and then the writes, the output cache, the prune and a dry
  *        run's report.
  *
- * Once `output_dir` is prepared, the output cache is written even when a write fails, as it records
- * only the outputs this build wrote or kept.
+ * The first phase that fails stops the build, after it reports every error of its own. Once
+ * `output_dir` is prepared, the output cache is written even when a write fails, as it records only
+ * the outputs this build wrote or kept.
  *
  * @param state Build state whose inputs are loaded. Must not be `NULL`.
  * @param log   Log that receives every error. Must not be `NULL`.
@@ -686,9 +687,11 @@ static bool has_release_projects(const struct SiteConfig* site_config) {
 }
 
 static int run_build_phases(struct BuildState* state, struct Log* log) {
-  // A template that fails to load still lets the scan and the manifest run, so one run reports
-  // their errors too, and the check of the log before the first write stops the build.
-  (void)load_templates(state, log);
+  // Each phase before the first write stops the build when it fails, after it has reported every
+  // error of its own.
+  if (load_templates(state, log) != 0) {
+    return -1;
+  }
   state->recipe_id = load_recipe_id(state);
   // The output cache loads before the scan, because the scan decides whether a clone export's pack
   // is current, and it writes a new pack before the manifest, which needs the pack's name.
@@ -696,8 +699,7 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
   if (scan_repos(state, log) != 0) {
     return -1;
   }
-  (void)populate_output_manifest(state, log);
-  if (log->errors > 0) {
+  if (populate_output_manifest(state, log) != 0) {
     return -1;
   }
   // Nothing before this point writes below `output_dir`.
