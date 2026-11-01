@@ -286,7 +286,7 @@ If the log has an error after that pass, the run writes no file. The default mod
 
 ### Seeded random tests in the normal suite
 
-**Decision.** `tests/test_random.c` checks two properties on generated files. A second rewrap changes nothing, and the bytes outside comments do not change, except for the line breaks that a refill moves between the lines of one `//` comment block. The test gets the files from the generator in the `testing` library, a 64-bit linear congruential step, with a fixed seed (`TEST_RNG_SEED_DEFAULT`), so the test checks the same cases every time. A failed check names the case.
+**Decision.** `tests/test_random.c` checks two properties on generated files. A second rewrap changes nothing, and the bytes outside comments do not change, except for the line breaks that a refill moves between the lines of one `//` comment block. The test gets the files from the generator in the `testing` library, a 64-bit linear congruential step, with a fixed seed (`TEST_RNG_SEED`), so the test checks the same cases every time. A failed check names the case.
 
 **Reasons.**
 

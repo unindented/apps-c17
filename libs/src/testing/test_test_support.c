@@ -78,86 +78,13 @@ static void test_unexpected_oom_exits_with_failure_status(void) {
   TEST_CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 1);
 }
 
-// `test_rng` starts from `TEST_RNG_SEED_DEFAULT` when `APPS_TEST_SEED` is unset or empty, and from
-// the decimal seed it names otherwise, so a seed a failing check printed replays the failure.
-static void test_rng_starts_from_the_named_seed(void) {
-  TEST_ASSERT(unsetenv("APPS_TEST_SEED") == 0);
-  TEST_CHECK(test_rng().state == TEST_RNG_SEED_DEFAULT);
-  TEST_ASSERT(setenv("APPS_TEST_SEED", "18446744073709551615", 1) == 0);
-  TEST_CHECK(test_rng().state == UINT64_MAX);
-  TEST_ASSERT(setenv("APPS_TEST_SEED", "", 1) == 0);
-  TEST_CHECK(test_rng().state == TEST_RNG_SEED_DEFAULT);
-  TEST_CHECK(unsetenv("APPS_TEST_SEED") == 0);
-}
-
-// A `APPS_TEST_SEED` that `test_rng_seed_parse` rejects ends the process with status `1`, the one
-// acutest counts as a failed test, after one line naming the variable and the value. The child sets
-// the variable, so the rest of the suite never sees it.
-static void test_rng_exits_on_a_malformed_seed(void) {
-  struct StreamCapture capture;
-  TEST_ASSERT(capture_begin(stderr, &capture) == 0);
-  (void)fflush(stdout);
-  const pid_t pid = fork();
-  if (pid == 0) {
-    if (setenv("APPS_TEST_SEED", "abc", 1) == 0) {
-      (void)test_rng();
-    }
-    _Exit(0);
-  }
-  int status = 0;
-  const bool is_waited = pid >= 0 && waitpid(pid, &status, 0) == pid;
-  char text[128];
-  const int capture_rc = capture_end(&capture, text, sizeof(text));
-
-  TEST_CHECK(is_waited);
-  TEST_CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 1);
-  // `capture_end` writes `text` only when it succeeds.
-  if (TEST_CHECK(capture_rc == 0)) {
-    TEST_CHECK(strcmp(text,
-                      "environment variable 'APPS_TEST_SEED' must be an unsigned 64-bit decimal "
-                      "integer: 'abc'\n") == 0);
-  }
-}
-
-// `test_rng_seed_parse` reads a whole unsigned decimal `uint64_t`, and gives the default for an
-// unset or empty value.
-static void test_rng_seed_parse_reads_a_decimal_seed(void) {
-  uint64_t seed = 1;
-  TEST_CHECK(test_rng_seed_parse((struct Str){0}, &seed) == 0 && seed == TEST_RNG_SEED_DEFAULT);
-  TEST_CHECK(test_rng_seed_parse(S(""), &seed) == 0 && seed == TEST_RNG_SEED_DEFAULT);
-  TEST_CHECK(test_rng_seed_parse(S("0"), &seed) == 0 && seed == 0);
-  TEST_CHECK(test_rng_seed_parse(S("0042"), &seed) == 0 && seed == 42);
-  TEST_CHECK(test_rng_seed_parse(S("18446744073709551615"), &seed) == 0 && seed == UINT64_MAX);
-}
-
-// `test_rng_seed_parse` rejects a sign, a prefix, whitespace, trailing text and a value past
-// `UINT64_MAX`, and leaves the seed untouched.
-static void test_rng_seed_parse_rejects_a_malformed_seed(void) {
-  static const struct Str malformed[] = {
-      STR_INIT("-1"),
-      STR_INIT("+1"),
-      STR_INIT("0x1f"),
-      STR_INIT(" 1"),
-      STR_INIT("1 "),
-      STR_INIT("12abc"),
-      STR_INIT("abc"),
-      STR_INIT("18446744073709551616"),
-      STR_INIT("99999999999999999999"),
-  };
-  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(malformed) / sizeof(malformed[0])); i++) {
-    uint64_t seed = 1;
-    TEST_CHECK_(test_rng_seed_parse(malformed[i], &seed) == -1 && seed == 1, "'%.*s' is rejected",
-                STR_FMT(malformed[i]));
-  }
-}
-
 // Two generators from one seed draw the same values, and the step is the pinned one: from state
 // `0`, the second value is the high half of its multiplier.
 static void test_rng_repeats_its_sequence(void) {
   struct TestRng zero = {0};
   TEST_CHECK(test_rng_next(&zero) == 0);
   TEST_CHECK(test_rng_next(&zero) == UINT32_C(0x3243f6a8));
-  struct TestRng first = {TEST_RNG_SEED_DEFAULT};
+  struct TestRng first = {TEST_RNG_SEED};
   struct TestRng second = first;
   for (ptrdiff_t i = 0; i < 64; i++) {
     TEST_CHECK(test_rng_next(&first) == test_rng_next(&second));
@@ -167,7 +94,7 @@ static void test_rng_repeats_its_sequence(void) {
 // `test_rng_below` stays below its bound and, over many draws, reaches every value below it.
 static void test_rng_below_covers_its_range(void) {
   enum { BOUND = 7, DRAW_COUNT = 1000 };
-  struct TestRng rng = {TEST_RNG_SEED_DEFAULT};
+  struct TestRng rng = {TEST_RNG_SEED};
   bool is_drawn[BOUND] = {false};
   for (ptrdiff_t i = 0; i < DRAW_COUNT; i++) {
     const ptrdiff_t value = test_rng_below(&rng, BOUND);
@@ -322,10 +249,6 @@ static void test_unwritable_capture_fails_writes_and_discards_them(void) {
 TEST_LIST = {
     {"detects only an out of memory exit", test_detects_only_an_out_of_memory_exit},
     {"unexpected oom exits with failure status", test_unexpected_oom_exits_with_failure_status},
-    {"rng starts from the named seed", test_rng_starts_from_the_named_seed},
-    {"rng exits on a malformed seed", test_rng_exits_on_a_malformed_seed},
-    {"rng seed parse reads a decimal seed", test_rng_seed_parse_reads_a_decimal_seed},
-    {"rng seed parse rejects a malformed seed", test_rng_seed_parse_rejects_a_malformed_seed},
     {"rng repeats its sequence", test_rng_repeats_its_sequence},
     {"rng below covers its range", test_rng_below_covers_its_range},
     {"printable escapes unprintable bytes", test_printable_escapes_unprintable_bytes},

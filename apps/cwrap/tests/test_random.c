@@ -1,7 +1,7 @@
 // Seeded random tests over `cwrap`'s rewrap. Each property runs a fixed number of cases generated
-// from `TEST_RNG_SEED_DEFAULT`, so the pass is deterministic, needs no fuzzing engine, and runs
-// everywhere the suite does, under the sanitizers of whichever preset builds it. A failing check
-// names the case. It reaches only the input shapes its generator lists.
+// from `TEST_RNG_SEED`, so the pass is deterministic, needs no fuzzing engine, and runs everywhere
+// the suite does, under the sanitizers of whichever preset builds it. A failing check names the
+// case. It reaches only the input shapes its generator lists.
 
 #include <acutest.h>
 #include <stdbool.h>
@@ -465,7 +465,7 @@ static struct Str rewrap(struct Str source,
 // A random file at a random width rewraps to a fixed point: a second pass at the same width changes
 // nothing.
 static void test_rewrap_is_idempotent(void) {
-  struct TestRng rng = {TEST_RNG_SEED_DEFAULT};
+  struct TestRng rng = {TEST_RNG_SEED};
   const struct Arena block = test_arena();
   const struct Arena scratch_block = test_arena();
   for (ptrdiff_t i = 0; i < RANDOM_CASE_COUNT; i++) {
@@ -564,7 +564,7 @@ static struct Str code_bytes(struct Str source, struct Str line_end, struct Aren
 // Rewrapping a random file leaves every byte outside its comments as it was, apart from the line
 // breaks a refill moves between the lines of one `//` run.
 static void test_rewrap_keeps_code_bytes(void) {
-  struct TestRng rng = {TEST_RNG_SEED_DEFAULT};
+  struct TestRng rng = {TEST_RNG_SEED};
   const struct Arena block = test_arena();
   const struct Arena scratch_block = test_arena();
   for (ptrdiff_t i = 0; i < RANDOM_CASE_COUNT; i++) {

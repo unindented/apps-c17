@@ -156,45 +156,6 @@ bool test_is_oom(void (*fn)(void* userdata), void* userdata) {
   return WIFEXITED(status) && WEXITSTATUS(status) == TEST_OOM_EXIT_STATUS;
 }
 
-struct TestRng test_rng(void) {
-  const char* seed = getenv("APPS_TEST_SEED");
-  struct Str seed_text = {0};
-  if (seed != NULL) {
-    seed_text = str_from_cstr(seed);
-  }
-  struct TestRng rng;
-  if (test_rng_seed_parse(seed_text, &rng.state) != 0) {
-    // acutest counts only status `1` as a failed test, as for an unexpected `os_oom`.
-    (void)fprintf(stderr,
-                  "environment variable 'APPS_TEST_SEED' must be an unsigned 64-bit decimal "
-                  "integer: '%s'\n",
-                  seed);
-    _Exit(1);
-  }
-  return rng;
-}
-
-int test_rng_seed_parse(struct Str text, uint64_t* seed_out) {
-  if (text.len == 0) {
-    *seed_out = TEST_RNG_SEED_DEFAULT;
-    return 0;
-  }
-  uint64_t seed = 0;
-  for (ptrdiff_t i = 0; i < text.len; i++) {
-    const char c = text.data[i];
-    if (c < '0' || c > '9') {
-      return -1;
-    }
-    const uint64_t digit = (uint64_t)(c - '0');
-    if (seed > (UINT64_MAX - digit) / 10) {
-      return -1;
-    }
-    seed = seed * 10 + digit;
-  }
-  *seed_out = seed;
-  return 0;
-}
-
 uint32_t test_rng_next(struct TestRng* rng) {
   rng->state = rng->state * UINT64_C(0x3243f6a8885a308d) + 1;
   return (uint32_t)(rng->state >> 32);

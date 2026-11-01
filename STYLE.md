@@ -216,7 +216,7 @@ This guide takes its ideas and conventions from these sources:
 - Derive an expected limit from its named constant, and do not repeat the literal. Spell out a literal only when the constant is file-local, and note that changing it must update the test.
 - Where correct behavior must not depend on an unspecified detail, such as how `qsort` orders elements that compare equal, assert the same result for more than one input order.
 - Do not restate golden test coverage in a unit test. Note which golden test provides the end-to-end assertion instead.
-- Draw random inputs from the seeded generator in `testing/test_support.h` (`struct TestRng`), so that a random test runs in the normal suite and reaches the same inputs on every run. `test_rng` takes its seed from `APPS_TEST_SEED`, and from the fixed `TEST_RNG_SEED_DEFAULT` when `APPS_TEST_SEED` is not set. A failing check names its seed in its message, so that a run with `APPS_TEST_SEED` set to that seed replays the case. A malformed seed makes the test fail, and does not replay a different case.
+- Draw random inputs from the seeded generator in `testing/test_support.h` (`struct TestRng`), started from `TEST_RNG_SEED`, so that a random test runs in the normal suite and reaches the same inputs on every run. A failing check names the case that the generator made.
 
 ### Order and comments
 
@@ -263,7 +263,6 @@ This guide takes its ideas and conventions from these sources:
 - **System errors.** cwrap runs on one thread, so it translates an `errno` with `strerror`.
 - **Argument count.** The argument count that comes from `argc` becomes a `ptrdiff_t` one time, where the code counts the paths.
 - **Out of memory.** `os_oom` prints the current contents of the command's log, then `cwrap: out of memory` with the input that the run was in (`oom_report`), and exits. Each input names itself with `oom_set_job` before it is read.
-- **Random tests.** cwrap's random tests start their generator from `TEST_RNG_SEED_DEFAULT` directly, and a failed check names the case that the generator made.
 - The suites that are not yet converted to the in-memory host are `cli` and `cli_dispatch`.
 
 ### surge

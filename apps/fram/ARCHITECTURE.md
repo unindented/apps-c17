@@ -360,12 +360,12 @@ log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_
 
 ### Seeded random tests in the normal suite
 
-**Decision.** `tests/test_random.c` checks the parsers of untrusted file headers, the EXIF reader and the JPEG probe, on generated inputs. A well-formed EXIF segment reads back the orientation that the test built it with, and a mutated EXIF segment or JPEG header reads without a crash or a read past the input. The test draws its inputs from the generator in the `testing` library, a 64-bit linear congruential step. The seed comes from `APPS_TEST_SEED`. When `APPS_TEST_SEED` is not set, the seed is fixed (`TEST_RNG_SEED_DEFAULT`), so the test checks the same cases every time. A failing check prints its seed, and a run with `APPS_TEST_SEED` set to that seed replays the case. A malformed seed makes the test fail, and does not run a different seed.
+**Decision.** `tests/test_random.c` checks the parsers of untrusted file headers, the EXIF reader and the JPEG probe, on generated inputs. A well-formed EXIF segment reads back the orientation that the test built it with, and a mutated EXIF segment or JPEG header reads without a crash or a read past the input. The test draws its inputs from the generator in the `testing` library, a 64-bit linear congruential step, with a fixed seed (`TEST_RNG_SEED`), so the test checks the same cases every time. A failing check names the case.
 
 **Reasons.**
 
 - The pass runs in every test preset, under the sanitizers of that preset, with no fuzzing engine.
-- A fixed default makes the suite deterministic, and a printed seed makes a failure from a different seed reproducible.
+- A fixed seed makes the suite deterministic, so every failure reproduces.
 
 **Limit.** The pass reaches only the input shapes that its generators list. An EXIF fuzzing harness would search past these shapes, but the tree does not have one yet.
 

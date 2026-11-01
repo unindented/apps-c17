@@ -111,44 +111,21 @@ bool test_log_is_empty(const struct Log* log) __attribute__((nonnull(1)));
 bool test_is_oom(void (*fn)(void* userdata), void* userdata);
 
 /**
- * Seed `test_rng` starts from unless the `APPS_TEST_SEED` environment variable names another, so a
- * failure a different seed found can be replayed.
+ * Seed every seeded test starts its generator from, so a random test reaches the same inputs on
+ * every run.
  */
-#define TEST_RNG_SEED_DEFAULT UINT64_C(20261005)
+#define TEST_RNG_SEED UINT64_C(20261005)
 
 /**
  * A small deterministic random generator for seeded tests that run in the normal suite: a 64-bit
  * linear congruential step whose multiplier is the first hexadecimal digits of pi. It is no
  * statistical tool, only a cheap way to reach inputs nobody wrote down, the same ones on every run.
+ * A test starts one as `{TEST_RNG_SEED}`.
  */
 struct TestRng {
   /** Current state. Every value is valid. */
   uint64_t state;
 };
-
-/**
- * @brief Returns a generator seeded from `APPS_TEST_SEED`, or `TEST_RNG_SEED_DEFAULT`.
- *
- * A test names the seed in the message of a failing check, so the failure can be replayed. A value
- * `test_rng_seed_parse` rejects prints one line naming the variable and the value to standard error
- * and exits with status `1`, which fails the test, so a mistyped seed never replays another one.
- *
- * @return The seeded generator.
- */
-struct TestRng test_rng(void);
-
-/**
- * @brief Parses the value of `APPS_TEST_SEED`.
- *
- * Only a whole unsigned decimal number that fits in `uint64_t` is a seed: no sign, prefix,
- * whitespace or trailing text.
- *
- * @param text     Value of the variable, empty when it is unset.
- * @param seed_out Receives the seed on success: `TEST_RNG_SEED_DEFAULT` when `text` is empty. Must
- *                 not be `NULL`.
- * @return `0` on success, or `-1` when `text` is not a seed.
- */
-int test_rng_seed_parse(struct Str text, uint64_t* seed_out) __attribute__((nonnull(2)));
 
 /**
  * @brief Advances the generator and returns 32 random bits.

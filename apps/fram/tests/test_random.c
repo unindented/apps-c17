@@ -1,11 +1,9 @@
 // Seeded random tests over the parsers of untrusted files: EXIF and JPEG headers. Each property
-// runs a fixed number of generated cases from `test_rng`, so the pass is deterministic, needs no
-// fuzzing engine, and runs everywhere the suite does, under the sanitizers of whichever preset
-// builds it. A failing check names the seed and the case, and setting `APPS_TEST_SEED` to that seed
-// replays the failure. It reaches only the input shapes its generators list.
+// runs a fixed number of generated cases from `TEST_RNG_SEED`, so the pass is deterministic, needs
+// no fuzzing engine, and runs everywhere the suite does, under the sanitizers of whichever preset
+// builds it. A failing check names the case. It reaches only the input shapes its generators list.
 
 #include <acutest.h>
-#include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -212,8 +210,7 @@ static struct Str build_exif_jpeg(struct TestRng* rng,
 // bytes, other segments and a non-EXIF APP1 segment, with other tags around the orientation entry
 // and random bytes or nothing after the segment, reads back the orientation it was built with.
 static void test_exif_reads_random_well_formed_segments(void) {
-  struct TestRng rng = test_rng();
-  const uint64_t seed = rng.state;
+  struct TestRng rng = {TEST_RNG_SEED};
   const struct Arena block = test_arena();
   for (ptrdiff_t i = 0; i < RANDOM_CASE_COUNT; i++) {
     struct Arena arena = block;
@@ -227,8 +224,7 @@ static void test_exif_reads_random_well_formed_segments(void) {
         str_clone(build_exif_jpeg(&rng, orientation, &arena, &exif_end), &arena);
     const enum ImageOrientation actual = exif_read_orientation(jpeg);
     if (!TEST_CHECK_(actual == orientation, "well-formed segment %td reads its orientation", i)) {
-      TEST_MSG("seed %" PRIu64 ", expected %d, actual %d, %td bytes", seed, (int)orientation,
-               (int)actual, jpeg.len);
+      TEST_MSG("expected %d, actual %d, %td bytes", (int)orientation, (int)actual, jpeg.len);
       break;
     }
   }
@@ -340,8 +336,7 @@ static void test_exif_survives_mutated_segments(void) {
   static const unsigned char boundary_bytes[] = {0x00, 0x01, 0x03, 0x08, 0x12,
                                                  0xD9, 0xDA, 0xE1, 0xFF};
   const ptrdiff_t boundary_count = (ptrdiff_t)(sizeof(boundary_bytes) / sizeof(boundary_bytes[0]));
-  struct TestRng rng = test_rng();
-  const uint64_t seed = rng.state;
+  struct TestRng rng = {TEST_RNG_SEED};
   const struct Arena block = test_arena();
   for (ptrdiff_t i = 0; i < RANDOM_CASE_COUNT; i++) {
     struct Arena arena = block;
@@ -365,8 +360,8 @@ static void test_exif_survives_mutated_segments(void) {
                        actual <= IMAGE_ORIENTATION_LEFT_BOTTOM &&
                        (!is_intact || actual == orientation);
     if (!TEST_CHECK_(is_ok, "mutated segment %td reads a valid orientation", i)) {
-      TEST_MSG("seed %" PRIu64 ", built with %d, actual %d, intact %d, %td bytes", seed,
-               (int)orientation, (int)actual, is_intact, jpeg.len);
+      TEST_MSG("built with %d, actual %d, intact %d, %td bytes", (int)orientation, (int)actual,
+               is_intact, jpeg.len);
       break;
     }
   }
@@ -462,15 +457,13 @@ static void test_image_probe_survives_mutated_headers(void) {
                                                  0xC4, 0xD9, 0xDA, 0xDB, 0xFF};
   const ptrdiff_t boundary_count = (ptrdiff_t)(sizeof(boundary_bytes) / sizeof(boundary_bytes[0]));
   enum { BASE_COUNT = 4 };
-  struct TestRng rng = test_rng();
-  const uint64_t seed = rng.state;
+  struct TestRng rng = {TEST_RNG_SEED};
   struct Arena base_arena = test_arena();
   const struct Arena log_block = test_arena();
   struct BaseJpeg bases[BASE_COUNT];
   for (ptrdiff_t b = 0; b < BASE_COUNT; b++) {
     if (!TEST_CHECK_(build_base_jpeg(&rng, &base_arena, &bases[b]) == 0,
                      "base JPEG %td encodes with a frame header", b)) {
-      TEST_MSG("seed %" PRIu64, seed);
       return;
     }
   }
@@ -503,8 +496,8 @@ static void test_image_probe_survives_mutated_headers(void) {
       is_ok = is_ok && rc == 0 && width == bases[b].width && height == bases[b].height;
     }
     if (!TEST_CHECK_(is_ok, "mutated header %td probes consistently", i)) {
-      TEST_MSG("seed %" PRIu64 ", base %td (%td x %td), %td mutations, %td bytes, got %td x %td",
-               seed, b, bases[b].width, bases[b].height, mutation_count, jpeg.len, width, height);
+      TEST_MSG("base %td (%td x %td), %td mutations, %td bytes, got %td x %td", b, bases[b].width,
+               bases[b].height, mutation_count, jpeg.len, width, height);
       const struct Str log_text = buf_str(&log.buf);
       TEST_MSG("log: '%.*s'", STR_FMT(log_text));
       break;
