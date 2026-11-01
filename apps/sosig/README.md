@@ -126,7 +126,7 @@ This table lists every key that the config file can contain. `sosig` rejects any
 
 `sosig` resolves each directory in the config, the defaults included, against the directory of the config file, so `-c sub/sosig.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from each directory value, and rejects a value that is then empty, `/` included. A directory can be an absolute path, or a relative path that contains `..`. `sosig config` prints every directory resolved.
 
-The load reports every bad key in one run. A rejected optional key keeps its default, so a later check does not report it again, and any config error makes the build fail before it writes anything. A build with a config error still searches `content_dir` and converts the content files, so one run reports the errors of the config and of the content. A rejected `content_dir`, `output_dir`, `templates_dir`, `static_dir`, `permalink`, `aggregate_templates` or `feed_templates` stops the build before it searches `content_dir`, because its default names a directory or an output that you did not choose.
+The load stops at the first bad key, and a config error stops the build before it searches `content_dir`.
 
 A template name in the configuration, or in the `template` field of an entry, must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.`, and `/`. It cannot contain an empty segment, or the segment `.` or `..`. The name of an aggregate or feed template is both its source path below `templates_dir` and its output path below `output_dir`. So a name that contains `/` creates the same subdirectories in `output_dir`. If `aggregate_templates` or `feed_templates` is an empty array, the build renders no templates of that kind.
 
@@ -141,8 +141,6 @@ Before a build searches the content directory, `sosig` rejects `output_dir` in t
 
 - `output_dir` is at or below `content_dir`, `templates_dir`, or `static_dir`. `sosig` also makes this check when `output_dir` does not exist yet.
 - `output_dir` exists and contains one of those directories or the config file, for example with `output_dir = "."`.
-
-`sosig` makes this check even when one of those directories is missing or is not a directory, so one run reports both errors.
 
 Every search of an input directory skips `output_dir`, so a symlink that leads into `output_dir` cannot make the build read generated files as inputs.
 

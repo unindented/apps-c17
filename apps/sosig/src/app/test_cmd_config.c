@@ -169,23 +169,19 @@ static void test_reports_missing_required_key(void) {
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
 }
 
-// A `sosig.toml` that parses but holds several invalid keys fails, reports every one of them in the
-// order the load checks them, and prints no configuration.
-static void test_reports_every_invalid_key(void) {
+// A `sosig.toml` that parses but holds several invalid keys fails, reports only the first that the
+// load checks, and prints no configuration.
+static void test_reports_first_invalid_key(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "sosig.toml",
                   "title = 1\n"
                   "description = \"Example notes\"\n"
                   "author = \"Author Name\"\n"
                   "base_url = \"https://example.com\"\n"
-                  "colour = \"blue\"\n"
                   "feed_count = \"ten\"\n");
 
   TEST_CHECK(run_config(S("sosig.toml"), os) == EXIT_CODE_FAILURE);
-  TEST_CHECK(os_memory_is_printed(os, 2,
-                                  "unknown config key 'colour'\n"
-                                  "config key 'title' must be a string\n"
-                                  "config key 'feed_count' must be an integer\n"));
+  TEST_CHECK(os_memory_is_printed(os, 2, "config key 'title' must be a string\n"));
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
 }
 
@@ -212,7 +208,7 @@ TEST_LIST = {
      test_prints_directories_resolved_against_config_dir},
     {"reports missing config", test_reports_missing_config},
     {"reports missing required key", test_reports_missing_required_key},
-    {"reports every invalid key", test_reports_every_invalid_key},
+    {"reports first invalid key", test_reports_first_invalid_key},
     {"fails on unwritable stdout", test_fails_on_unwritable_stdout},
     {NULL, NULL},
 };

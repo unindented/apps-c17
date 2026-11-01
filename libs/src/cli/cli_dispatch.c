@@ -28,8 +28,7 @@ static enum ExitCode cli_dispatch_command(const struct CliSpec* spec,
  * @brief Runs the `config` command: loads the config at `config_path` and prints it resolved, in a
  *        reservation of its own. A step of `cli_dispatch_command`.
  *
- * A load that read the file still reports every bad key, and none of them may be printed as the
- * resolved config, so any error fails the command and prints the load's log instead.
+ * A failed load fails the command, which prints the load's log instead of a config.
  *
  * @param spec        What the app tells the command line about itself. Must not be `NULL`.
  * @param config_path Config file to load.

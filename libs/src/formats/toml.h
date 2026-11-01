@@ -266,8 +266,7 @@ int toml_copy_base_url(toml_datum_t table,
  * @param config_dir  Directory a relative value resolves against, or empty for the working one.
  * @param arena       Arena that owns the copied value. Must not be `NULL`.
  * @param value_out   Receives the resolved directory when the key is present and valid, and keeps
- *                    its value otherwise, so a rejected key leaves later phases a directory. Must
- *                    not be `NULL`.
+ *                    its value otherwise. Must not be `NULL`.
  * @param log         Log that receives every error. Must not be `NULL`.
  * @return `0` when the key is accepted or an optional key is absent, or `-1` when a required key is
  *         missing, or the value is not a string, holds a `NUL` byte, or is empty once trimmed.

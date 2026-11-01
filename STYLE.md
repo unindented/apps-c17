@@ -155,7 +155,7 @@ This guide takes its ideas and conventions from these sources:
 
 - Check every I/O, parsing, and formatting error. Allocation does not fail (see [Memory and resources](#memory-and-resources)).
 - Record each error in the caller's `struct Log` with `log_error`, or with `log_error_in` for a failure at a location inside a file. Both return `-1`. Only a command boundary prints the log.
-- Report every independent error once. After an error, continue wherever the next check still has something to check, and keep a rejected value's default, so that one run reports every mistake and a later check does not report the same one again. Check `log->errors` before any step that cannot be undone, such as the first write.
+- Report every independent error once. A config load stops at its first error, and a build stops when its config fails. After any other error, continue wherever the next check still has something to check, so that one run reports every mistake, such as every content file that does not parse. Check `log->errors` before any step that cannot be undone, such as the first write.
 
 ### Format strings
 

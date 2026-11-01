@@ -86,23 +86,25 @@ enum PermalinkVerdict {
  * @brief Copies recognized configuration keys into site config storage.
  *
  * Rejects a key outside `config_keys`, then applies required and optional string keys,
- * template-name arrays, and `feed_count`. It copies every value into `perm` rather than borrowing
- * from `table`. `site_config_load` calls `toml_free` as soon as this returns, which releases the
- * pool every `toml_datum_t` string points into, while the config outlives the parse.
+ * template-name arrays, and `feed_count`, and stops at the first key that fails. It copies every
+ * value into `perm` rather than borrowing from `table`. `site_config_load` calls `toml_free` as
+ * soon as this returns, which releases the pool every `toml_datum_t` string points into, while the
+ * config outlives the parse.
  *
  * @param site_config Config that receives the values. Must not be `NULL`.
  * @param table       Parsed TOML top-level table.
  * @param config_dir  Directory a relative directory resolves against, or empty for the working one.
  * @param perm        Arena that owns the copied values. Must not be `NULL`.
  * @param scratch     Arena for validation temporaries.
- * @param log         Log that receives every error. Must not be `NULL`.
+ * @param log         Log that receives the first error. Must not be `NULL`.
+ * @return `0` when every key is valid, or `-1` at the first key that is not.
  */
-static void site_config_load_fields(struct SiteConfig* site_config,
-                                    toml_datum_t table,
-                                    struct Str config_dir,
-                                    struct Arena* perm,
-                                    struct Arena scratch,
-                                    struct Log* log) __attribute__((nonnull(1, 4, 6)));
+static int site_config_load_fields(struct SiteConfig* site_config,
+                                   toml_datum_t table,
+                                   struct Str config_dir,
+                                   struct Arena* perm,
+                                   struct Arena scratch,
+                                   struct Log* log) __attribute__((nonnull(1, 4, 6)));
 
 /**
  * @brief Validates the `permalink` key, translating each verdict into its diagnostic.
@@ -179,12 +181,12 @@ int site_config_load(struct SiteConfig* site_config,
   }
 
   // A relative path in the file names a place next to the file, so the build can run from any
-  // directory. A key that fails validation is in `log` already, and the load still succeeded in the
-  // sense this result reports: the file was read and parsed.
+  // directory.
   const struct Str config_dir = path_file_dir(config_path);
-  site_config_load_fields(site_config, parsed.toptab, config_dir, perm, scratch, log);
+  const int rc =
+      site_config_load_fields(site_config, parsed.toptab, config_dir, perm, scratch, log);
   toml_free(parsed);
-  return 0;
+  return rc;
 }
 
 int site_config_print(const struct SiteConfig* site_config, struct Os* os, struct Arena scratch) {
@@ -210,62 +212,45 @@ int site_config_print(const struct SiteConfig* site_config, struct Os* os, struc
   return os_print(os, 1, buf_str(&text));
 }
 
-static void site_config_load_fields(struct SiteConfig* site_config,
-                                    toml_datum_t table,
-                                    struct Str config_dir,
-                                    struct Arena* perm,
-                                    struct Arena scratch,
-                                    struct Log* log) {
-  // Every key is checked even after one fails, so a config with several mistakes reports all of
-  // them in one run. A rejected value is never stored: the key keeps its default, so a build that
-  // goes on to check its content does so against a usable config rather than reporting the same
-  // mistake again once per content file.
-  (void)toml_require_known_keys(table, config_keys, sizeof(config_keys) / sizeof(config_keys[0]),
-                                S("config"), S(""), (struct Str){0}, log);
-
-  // Each key is read and validated at its row of the README's key table, which `sosig config` also
-  // follows, so the errors of one load come in that order.
-  (void)toml_copy_string(table, S(""), "title", true, perm, &site_config->title, log);
-  (void)toml_copy_string(table, S(""), "description", true, perm, &site_config->description, log);
-  (void)toml_copy_string(table, S(""), "author", true, perm, &site_config->author, log);
-  (void)toml_copy_base_url(table, S(""), "base_url", true, perm, &site_config->base_url, log);
-  if (toml_copy_string(table, S(""), "permalink", false, perm, &site_config->permalink, log) != 0 ||
+static int site_config_load_fields(struct SiteConfig* site_config,
+                                   toml_datum_t table,
+                                   struct Str config_dir,
+                                   struct Arena* perm,
+                                   struct Arena scratch,
+                                   struct Log* log) {
+  if (toml_require_known_keys(table, config_keys, sizeof(config_keys) / sizeof(config_keys[0]),
+                              S("config"), S(""), (struct Str){0}, log) != 0 ||
+      toml_copy_string(table, S(""), "title", true, perm, &site_config->title, log) != 0 ||
+      toml_copy_string(table, S(""), "description", true, perm, &site_config->description, log) !=
+          0 ||
+      toml_copy_string(table, S(""), "author", true, perm, &site_config->author, log) != 0 ||
+      toml_copy_base_url(table, S(""), "base_url", true, perm, &site_config->base_url, log) != 0 ||
+      toml_copy_string(table, S(""), "permalink", false, perm, &site_config->permalink, log) != 0 ||
       require_valid_permalink(site_config->permalink, scratch, log) != 0) {
-    site_config->permalink = PERMALINK_DEFAULT;
-    site_config->is_output_key_rejected = true;
+    return -1;
   }
   // A default directory resolves against the config's directory too, so that `-c sub/sosig.toml`
-  // without `output_dir` writes `sub/public`. A key that is absent or rejected keeps it.
+  // without `output_dir` writes `sub/public`. A key that is absent keeps it.
   site_config->content_dir = path_resolve(config_dir, site_config->content_dir, perm);
   site_config->output_dir = path_resolve(config_dir, site_config->output_dir, perm);
   site_config->templates_dir = path_resolve(config_dir, site_config->templates_dir, perm);
   site_config->static_dir = path_resolve(config_dir, site_config->static_dir, perm);
-  site_config->is_content_dir_rejected =
-      toml_copy_dir(table, S(""), "content_dir", false, config_dir, perm, &site_config->content_dir,
-                    log) != 0;
-  site_config->is_output_dir_rejected = toml_copy_dir(table, S(""), "output_dir", false, config_dir,
-                                                      perm, &site_config->output_dir, log) != 0;
-  site_config->is_templates_dir_rejected =
+  if (toml_copy_dir(table, S(""), "content_dir", false, config_dir, perm, &site_config->content_dir,
+                    log) != 0 ||
+      toml_copy_dir(table, S(""), "output_dir", false, config_dir, perm, &site_config->output_dir,
+                    log) != 0 ||
       toml_copy_dir(table, S(""), "templates_dir", false, config_dir, perm,
-                    &site_config->templates_dir, log) != 0;
-  site_config->is_static_dir_rejected = toml_copy_dir(table, S(""), "static_dir", false, config_dir,
-                                                      perm, &site_config->static_dir, log) != 0;
-  if (toml_copy_string(table, S(""), "content_template", false, perm,
-                       &site_config->content_template, log) == 0 &&
-      !path_is_safe_relative(site_config->content_template)) {
-    (void)log_error(log,
-                    "config key 'content_template' must be a safe relative template name: '%.*s'",
-                    STR_FMT(site_config->content_template));
-    site_config->content_template = CONTENT_TEMPLATE_DEFAULT;
+                    &site_config->templates_dir, log) != 0 ||
+      toml_copy_dir(table, S(""), "static_dir", false, config_dir, perm, &site_config->static_dir,
+                    log) != 0 ||
+      toml_copy_string(table, S(""), "content_template", false, perm,
+                       &site_config->content_template, log) != 0) {
+    return -1;
   }
-  if (toml_copy_strings(table, S(""), "aggregate_templates", true, perm,
-                        &site_config->aggregate_templates, &site_config->aggregate_template_count,
-                        log) != 0) {
-    site_config->is_output_key_rejected = true;
-  }
-  if (toml_copy_strings(table, S(""), "feed_templates", true, perm, &site_config->feed_templates,
-                        &site_config->feed_template_count, log) != 0) {
-    site_config->is_output_key_rejected = true;
+  if (!path_is_safe_relative(site_config->content_template)) {
+    return log_error(log,
+                     "config key 'content_template' must be a safe relative template name: '%.*s'",
+                     STR_FMT(site_config->content_template));
   }
   const struct TomlSizeKey feed_count = {
       .key = "feed_count",
@@ -275,10 +260,17 @@ static void site_config_load_fields(struct SiteConfig* site_config,
       .value_max = PTRDIFF_MAX,
       .limit_name = "feed count",
   };
-  (void)toml_copy_size(table, S(""), &feed_count, log);
-  (void)toml_copy_strings(table, S(""), "frontmatter_ignored_keys", false, perm,
-                          &site_config->frontmatter_ignored_keys,
-                          &site_config->frontmatter_ignored_key_count, log);
+  if (toml_copy_strings(table, S(""), "aggregate_templates", true, perm,
+                        &site_config->aggregate_templates, &site_config->aggregate_template_count,
+                        log) != 0 ||
+      toml_copy_strings(table, S(""), "feed_templates", true, perm, &site_config->feed_templates,
+                        &site_config->feed_template_count, log) != 0 ||
+      toml_copy_size(table, S(""), &feed_count, log) != 0) {
+    return -1;
+  }
+  return toml_copy_strings(table, S(""), "frontmatter_ignored_keys", false, perm,
+                           &site_config->frontmatter_ignored_keys,
+                           &site_config->frontmatter_ignored_key_count, log);
 }
 
 static int require_valid_permalink(struct Str pattern, struct Arena scratch, struct Log* log) {

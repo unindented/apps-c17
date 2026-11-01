@@ -1423,24 +1423,21 @@ static void test_reports_an_unlistable_templates_subdirectory(void) {
   TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
-// A root that fails its check still lets the overlap check run, so one run reports a missing
-// `media_dir` together with an `output_dir` inside `templates_dir`, and the user fixes both at
-// once.
-static void test_reports_a_bad_root_with_an_overlapping_output_dir(void) {
+// A root that fails its check stops the build before the overlap check, so a missing `media_dir` is
+// reported alone, even beside an `output_dir` inside `templates_dir`.
+static void test_stops_at_a_bad_root_before_the_overlap_check(void) {
   struct Os* os = os_memory();
   write_gallery_fixture(os, "output_dir = \"templates/site\"\n");
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == -1);
-  TEST_CHECK(test_log_is(&log,
-                         "failed to resolve config directory 'media_dir': %s ('photos')\n"
-                         "output directory would write inside 'templates_dir': 'templates/site'\n",
+  TEST_CHECK(test_log_is(&log, "failed to resolve config directory 'media_dir': %s ('photos')\n",
                          strerror(ENOENT)));
   TEST_CHECK(!os_memory_has_path(os, "templates/site"));
 }
 
-// A directory key the config load rejects is reported once. Its default names a directory the user
-// never chose, so the build does not go on to report that default missing as well.
-static void test_reports_a_rejected_directory_key_once(void) {
+// A directory key the config load rejects stops the build with that one error, before any root is
+// checked.
+static void test_stops_at_a_rejected_directory_key(void) {
   static const char* const cases[][4] = {
       {"media_dir = 5\n", "photos/album/one.jpg", "templates/album.html",
        "config key 'media_dir' must be a string"},
@@ -1469,9 +1466,9 @@ static void test_reports_a_rejected_directory_key_once(void) {
   TEST_CASE_(NULL);
 }
 
-// A rejected `static_dir` is reported once too, even when its default names something that would
-// fail on its own: here a regular file, which the static walk would report as not a directory.
-static void test_reports_a_rejected_static_dir_once(void) {
+// A rejected `static_dir` stops the build too, so its default, here a regular file, is never
+// checked.
+static void test_stops_at_a_rejected_static_dir(void) {
   struct Os* os = os_memory();
   struct Log log = test_log();
   write_gallery_fixture(os, "static_dir = \"\"\n");
@@ -1760,15 +1757,14 @@ static void test_reports_one_line_per_failing_media_item(void) {
 }
 
 // Several independent mistakes in one gallery are all reported by one build, and the build writes
-// nothing: an unknown config key, two sources that cannot be probed, two sources whose names slug
-// alike, and a static file that claims the root album's page. Each kind comes from a different
-// phase, so the order is the phase order, and within a phase it is the sorted walk order. The probe
-// failures do not stop the build before the manifest, because no output path depends on a probed
-// dimension.
+// nothing: two sources that cannot be probed, two sources whose names slug alike, and a static file
+// that claims the root album's page. Each kind comes from a different phase, so the order is the
+// phase order, and within a phase it is the sorted walk order. The probe failures do not stop the
+// build before the manifest, because no output path depends on a probed dimension.
 static void test_reports_every_independent_error(void) {
   struct Os* os = os_memory();
   struct Log log = test_log();
-  write_gallery_fixture(os, "colour = \"blue\"\n");
+  write_gallery_fixture(os, NULL);
   os_memory_write(os, "photos/album/bad-a.jpg", "not a JPEG\n");
   os_memory_write(os, "photos/album/bad-b.jpg", "not a JPEG\n");
   write_jpeg(os, "photos/album/caf\xC3\xA9.jpg");
@@ -1777,7 +1773,6 @@ static void test_reports_every_independent_error(void) {
 
   TEST_CHECK(execute_build(os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "unknown config key 'colour'\n"
                          "failed to probe media: failed to probe JPEG: Not a JPEG file: starts "
                          "with 0x6e 0x6f ('photos/album/bad-a.jpg')\n"
                          "failed to probe media: failed to probe JPEG: Not a JPEG file: starts "
@@ -1787,7 +1782,7 @@ static void test_reports_every_independent_error(void) {
                          "'public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/cafc3a9-jpg-s.webp'\n"
                          "duplicate output path for 'photos' and 'static/index.html': "
                          "'public/index.html'\n"));
-  TEST_CHECK(log.errors == 5);
+  TEST_CHECK(log.errors == 4);
   TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
@@ -1913,10 +1908,10 @@ TEST_LIST = {
     {"reports absent templates dir", test_reports_absent_templates_dir},
     {"reports an unlistable templates subdirectory",
      test_reports_an_unlistable_templates_subdirectory},
-    {"reports a bad root with an overlapping output dir",
-     test_reports_a_bad_root_with_an_overlapping_output_dir},
-    {"reports a rejected directory key once", test_reports_a_rejected_directory_key_once},
-    {"reports a rejected static dir once", test_reports_a_rejected_static_dir_once},
+    {"stops at a bad root before the overlap check",
+     test_stops_at_a_bad_root_before_the_overlap_check},
+    {"stops at a rejected directory key", test_stops_at_a_rejected_directory_key},
+    {"stops at a rejected static dir", test_stops_at_a_rejected_static_dir},
     {"reports templates dir that is a file", test_reports_templates_dir_that_is_a_file},
     {"reports unusable output dir", test_reports_unusable_output_dir},
     {"reports dangling output dir symlink", test_reports_dangling_output_dir_symlink},

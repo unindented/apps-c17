@@ -145,9 +145,9 @@ static void test_reports_missing_required_key(void) {
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
 }
 
-// A `fram.toml` that parses but holds several invalid keys fails, reports every one of them in the
-// order the load checks them, and prints no configuration.
-static void test_reports_every_invalid_key(void) {
+// A `fram.toml` that parses but holds several invalid keys fails, reports only the first one the
+// load checks, and prints no configuration.
+static void test_reports_first_invalid_key(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "fram.toml",
                   "base_url = \"https://example.com\"\n"
@@ -157,10 +157,7 @@ static void test_reports_every_invalid_key(void) {
                   "colour = \"blue\"\n"
                   "video_frame_seconds = \"ten\"\n");
   TEST_CHECK(run_config(S("fram.toml"), os) == EXIT_CODE_FAILURE);
-  TEST_CHECK(os_memory_is_printed(os, 2,
-                                  "unknown config key 'colour'\n"
-                                  "config key 'title' must be a string\n"
-                                  "config key 'video_frame_seconds' must be an integer\n"));
+  TEST_CHECK(os_memory_is_printed(os, 2, "unknown config key 'colour'\n"));
   TEST_CHECK(os_memory_is_printed(os, 1, ""));
 }
 
@@ -184,7 +181,7 @@ TEST_LIST = {
     {"reports missing config named by path", test_reports_missing_config_named_by_path},
     {"reports missing config", test_reports_missing_config},
     {"reports missing required key", test_reports_missing_required_key},
-    {"reports every invalid key", test_reports_every_invalid_key},
+    {"reports first invalid key", test_reports_first_invalid_key},
     {"fails on unwritable stdout", test_fails_on_unwritable_stdout},
     {NULL, NULL},
 };

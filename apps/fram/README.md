@@ -120,7 +120,7 @@ This table lists every key that the config file can contain. `fram` rejects any 
 
 `fram` resolves each directory in the config, the defaults included, against the directory of the config file, so `-c sub/fram.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from each directory value, and rejects a value that is then empty, `/` included. A directory can be an absolute path, or a relative path that contains `..`. `fram config` prints every directory resolved, and leaves out an optional string that is empty.
 
-The load reports every bad key in one run. A rejected optional key keeps its default, so a later check does not report it again, and any config error makes the build fail before it writes anything. A build with a config error still searches `media_dir` and probes the media files, so one run reports the errors of the config and of the media. A rejected `media_dir`, `output_dir`, `templates_dir` or `static_dir` stops the build before it searches `media_dir`, because its default names a directory that you did not choose.
+The load stops at the first bad key and reports it, and the build then stops before it reads anything else.
 
 A template name in the configuration must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.`, and `/`. It cannot contain an empty segment, or the segment `.` or `..`. The name of an aggregate template is both its source path below `templates_dir` and its output path below `output_dir`. So a name that contains `/` creates the same subdirectories in `output_dir`. If `aggregate_templates` is an empty array, the build renders no aggregate templates.
 
@@ -135,8 +135,6 @@ Before a build searches the media directory, `fram` rejects `output_dir` in thes
 
 - `output_dir` is at or below `media_dir`, `templates_dir`, or `static_dir`. `fram` also makes this check when `output_dir` does not exist yet.
 - `output_dir` exists and contains one of those directories or the config file, for example with `output_dir = "."`.
-
-`fram` makes this check even when one of those directories is missing or is not a directory, so one run reports both errors.
 
 Every search of an input directory skips `output_dir`, so a symlink that leads into `output_dir` cannot make the build read generated files as inputs.
 

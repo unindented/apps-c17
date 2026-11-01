@@ -121,21 +121,6 @@ struct SiteConfig {
 
   /** Preferred video-frame timestamp in seconds. Defaults to `1`. */
   ptrdiff_t video_frame_seconds;
-
-  /**
-   * Whether the load rejected `media_dir`, which then holds its default rather than a directory the
-   * user chose.
-   */
-  bool is_media_dir_rejected;
-
-  /** Whether the load rejected `output_dir`, which then holds its default. */
-  bool is_output_dir_rejected;
-
-  /** Whether the load rejected `templates_dir`, which then holds its default. */
-  bool is_templates_dir_rejected;
-
-  /** Whether the load rejected `static_dir`, which then holds its default. */
-  bool is_static_dir_rejected;
 };
 
 /**
@@ -161,13 +146,9 @@ void site_config_init(struct SiteConfig* site_config) __attribute__((nonnull(1))
  * @param perm        Arena that owns the loaded values for as long as the config is used. Must not
  *                    be `NULL`.
  * @param scratch     Arena for the file bytes, which tomlc17 copies.
- * @param log         Log that receives every error. Must not be `NULL`.
- * @return `0` when the file was read and parsed, or `-1` when it could not be. A key that fails
- *         validation is logged and keeps its default, and the load goes on to check every other
- *         key, so `0` does not mean the config is valid: a caller checks `log->errors` before it
- *         relies on the values, and checks no directory whose key was rejected. That lets a build
- *         report a bad key and the errors in its media in one run, while a file that is missing or
- *         not TOML stops it, because there is nothing to check the media against.
+ * @param log         Log that receives the error. Must not be `NULL`.
+ * @return `0` when the config is valid, or `-1` at the first error: a file that cannot be read or
+ *         parsed, or a key that fails validation.
  */
 int site_config_load(struct SiteConfig* site_config,
                      struct Str config_path,

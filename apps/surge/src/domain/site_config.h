@@ -164,15 +164,6 @@ struct SiteConfig {
 
   /** Number of entries in `repos`. */
   ptrdiff_t repo_count;
-
-  /** Whether the load rejected `output_dir`, which then holds its default. */
-  bool is_output_dir_rejected;
-
-  /** Whether the load rejected `templates_dir`, which then holds its default. */
-  bool is_templates_dir_rejected;
-
-  /** Whether the load rejected `static_dir`, which then holds its default. */
-  bool is_static_dir_rejected;
 };
 
 /**
@@ -187,8 +178,7 @@ void site_config_init(struct SiteConfig* site_config) __attribute__((nonnull(1))
  *
  * Reads and parses the file, rejects a key outside the schema at every level, validates the
  * required keys, the names, the limits and the paths, and copies the values into `perm` over the
- * defaults from `site_config_init`. A rejected value is never stored: an optional key keeps its
- * default, and a required one stays empty.
+ * defaults from `site_config_init`. It stops at the first error.
  *
  * @param site_config Initialized config that receives the loaded values. Must not be `NULL`.
  * @param config_path Path of the TOML file. Relative paths in the file resolve against its
@@ -196,10 +186,9 @@ void site_config_init(struct SiteConfig* site_config) __attribute__((nonnull(1))
  * @param os          Host the file is read from. Must not be `NULL`.
  * @param perm        Arena that owns the loaded values. Must not be `NULL`.
  * @param scratch     Arena for the file bytes and validation temporaries.
- * @param log         Log that receives every error. Must not be `NULL`.
- * @return `0` when the file was read and parsed, or `-1` when it could not be. A value that fails
- *         validation is logged and the load goes on, so a caller checks `log->errors` before it
- *         relies on the values.
+ * @param log         Log that receives the error. Must not be `NULL`.
+ * @return `0` on success, or `-1` when the file cannot be read or parsed or a value fails
+ *         validation.
  */
 int site_config_load(struct SiteConfig* site_config,
                      struct Str config_path,
@@ -216,7 +205,7 @@ int site_config_load(struct SiteConfig* site_config,
  * `""`, which shows none. The text is formatted whole in `scratch` and printed in one `os_print`
  * call.
  *
- * @param site_config Config to print, as after a load with no errors. Must not be `NULL`.
+ * @param site_config Config to print, as after a successful load. Must not be `NULL`.
  * @param os          Host to print on. Must not be `NULL`.
  * @param scratch     Arena the text is formatted in.
  * @return `0` on success, or `-1` when the write fails.

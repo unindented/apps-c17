@@ -25,8 +25,7 @@ static void test_require_accepts_directories_and_missing_optional_roots(void) {
 }
 
 // Every root that is missing, not a directory, or cannot be inspected is reported in one run, with
-// its key, its cause and its path, an optional one included unless it is missing, and a root whose
-// key was rejected is not checked.
+// its key, its cause and its path, an optional one included unless it is missing.
 static void test_require_reports_every_unusable_root(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "templates", "a file");
@@ -37,11 +36,10 @@ static void test_require_reports_every_unusable_root(void) {
       {.dir_path = S("content"), .key = S("content_dir")},
       {.dir_path = S("templates"), .key = S("templates_dir")},
       {.dir_path = S("locked/static"), .key = S("static_dir"), .is_optional = true},
-      {.dir_path = S("gone"), .key = S("media_dir"), .is_rejected = true},
       {.dir_path = S("releases"), .key = S("releases_dir"), .is_optional = true},
   };
   struct Log log = test_log();
-  TEST_CHECK(read_root_require(roots, 5, os, &log) == -1);
+  TEST_CHECK(read_root_require(roots, 4, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "failed to resolve config directory 'content_dir': %s ('content')\n"
                          "failed to resolve config directory 'templates_dir': not a directory "

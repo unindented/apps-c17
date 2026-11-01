@@ -200,17 +200,13 @@ static void build_state_init(struct BuildState* state,
  * The `output_dir` check runs before either walk, and both walks leave `output_dir` out, so a file
  * an earlier build generated is never read back as a source or copied as an asset or a static file.
  *
- * A config that was read and parsed but holds a bad key has logged it and kept that key's default,
- * so the checks after it still run against it. A rejected directory, permalink or template list key
- * is the exception: its default is a directory or an output the user never chose, so nothing checks
- * or walks it, and the load stops once it has checked the other read roots.
+ * The load stops at the first step that fails: the config, a read root, or the `output_dir` check.
  *
  * @param state Build state that receives the configuration, content entry source paths, asset
  *              paths, and static file paths. Must not be `NULL`.
  * @param log   Log that receives every error. Must not be `NULL`.
- * @return `0` when there are sources to check, or `-1` on a configuration that cannot be read, a
- *         rejected directory, permalink or template list key, a directory, output directory, or
- *         listing failure.
+ * @return `0` when there are sources to check, or `-1` on a configuration that cannot be read or is
+ *         invalid, a directory, output directory, or listing failure.
  */
 static int load_build_inputs(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
@@ -257,8 +253,7 @@ static int load_build_inputs_static(struct BuildState* state, struct Log* log)
  * @brief Requires every configured read root to be a usable directory.
  *
  * `read_root_require` checks each root under its config key, which each diagnostic names, so the
- * user knows what to edit. An optional root that is not there is usable, and a root whose key the
- * config load rejected is not checked, because the load has reported it. Every other root that
+ * user knows what to edit. An optional root that is not there is usable. Every other root that
  * cannot be resolved is reported with its cause.
  *
  * @param state Build state supplying the configured read roots. Must not be `NULL`.
@@ -502,9 +497,8 @@ int cmd_build_execute(const struct BuildOptions* options,
   build_state_init(&state, options, worker_arenas, os, perm, scratch);
 
   // Until the first write, a phase that fails still lets the next one run whenever that one has
-  // something to check, so one run reports a bad config key, every source that does not parse, and
-  // every output collision together. Only a failure that leaves nothing to check stops early: a
-  // config that cannot be read and a root that cannot be walked.
+  // something to check, so one run reports every source that does not parse and every output
+  // collision together. A config that fails, or a root that cannot be used or walked, stops early.
   int rc = -1;
   if (load_build_inputs(&state, log) == 0) {
     rc = run_build_phases(&state, log);
@@ -561,20 +555,9 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
                        state->scratch, log) != 0) {
     return -1;
   }
-  // A rejected directory, permalink or template list key holds a default the user never chose, so
-  // the build stops before the checks and the walks that would report that default as a second
-  // error, such as a collision with an output the user's own config does not name.
-  const struct SiteConfig* site_config = &state->site_config;
-  const int roots_rc = load_build_inputs_require_read_roots(state, log);
-  if (site_config->is_content_dir_rejected || site_config->is_output_dir_rejected ||
-      site_config->is_templates_dir_rejected || site_config->is_static_dir_rejected ||
-      site_config->is_output_key_rejected) {
-    return -1;
-  }
-  // A directory that failed its check still lets the overlap check run, so one run reports both.
-  if (output_manifest_check_output_dir(&state->site_config, state->config_path, state->os,
-                                       state->scratch, log) != 0 ||
-      roots_rc != 0) {
+  if (load_build_inputs_require_read_roots(state, log) != 0 ||
+      output_manifest_check_output_dir(&state->site_config, state->config_path, state->os,
+                                       state->scratch, log) != 0) {
     return -1;
   }
 
@@ -648,16 +631,9 @@ static int load_build_inputs_static(struct BuildState* state, struct Log* log) {
 static int load_build_inputs_require_read_roots(const struct BuildState* state, struct Log* log) {
   const struct SiteConfig* site_config = &state->site_config;
   const struct ReadRoot roots[] = {
-      {.dir_path = site_config->content_dir,
-       .key = S("content_dir"),
-       .is_rejected = site_config->is_content_dir_rejected},
-      {.dir_path = site_config->templates_dir,
-       .key = S("templates_dir"),
-       .is_rejected = site_config->is_templates_dir_rejected},
-      {.dir_path = site_config->static_dir,
-       .key = S("static_dir"),
-       .is_optional = true,
-       .is_rejected = site_config->is_static_dir_rejected},
+      {.dir_path = site_config->content_dir, .key = S("content_dir")},
+      {.dir_path = site_config->templates_dir, .key = S("templates_dir")},
+      {.dir_path = site_config->static_dir, .key = S("static_dir"), .is_optional = true},
   };
   return read_root_require(roots, (ptrdiff_t)(sizeof(roots) / sizeof(roots[0])), state->os, log);
 }

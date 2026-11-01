@@ -47,7 +47,7 @@ static void test_prints_resolved_config(void) {
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
 }
 
-// A config with a bad key prints every error to `stderr` and no config.
+// A config with a bad key prints the error to `stderr` and no config.
 static void test_reports_bad_keys(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "surge.toml", CONFIG_TEXT "colour = 1\n");

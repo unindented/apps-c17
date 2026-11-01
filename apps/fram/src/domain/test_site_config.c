@@ -42,18 +42,14 @@ enum { EXPECTED_SIZE = 8192 };
  * @param config_path Terminated path of the config to load. Must not be `NULL`.
  * @param os          Host that holds the config. Must not be `NULL`.
  * @param log         Log that receives every error the load records. Must not be `NULL`.
- * @return `0` when the config was loaded with no error, or `-1` when it could not be read or
- *         parsed, or any key was rejected. `site_config_load` itself returns `0` in the last case,
- *         which `test_load_returns_zero_with_key_errors` pins.
+ * @return The result of `site_config_load`.
  */
 static int load_site_config(struct SiteConfig* site_config,
                             const char* config_path,
                             struct Os* os,
                             struct Log* log) {
   struct Arena perm = test_arena();
-  const int rc =
-      site_config_load(site_config, str_from_cstr(config_path), os, &perm, test_arena(), log);
-  return rc != 0 || log->errors > 0 ? -1 : 0;
+  return site_config_load(site_config, str_from_cstr(config_path), os, &perm, test_arena(), log);
 }
 
 /**
@@ -474,10 +470,8 @@ static void test_load_rejects_malformed_toml(void) {
 }
 
 /**
- * A config that parses but holds seven independent mistakes, one each for the unknown-key check, a
- * string key's type, `base_url`, a directory, `album_template`, a derivative, and
- * `video_frame_seconds`. The directory comes before `base_url` in the file, and after it in the key
- * table, which the errors follow.
+ * A config that parses but holds a mistake for the unknown-key check, a string key's type,
+ * `base_url`, a directory, `album_template`, a derivative, and `video_frame_seconds`.
  */
 static const char TOML_KEYS_INVALID[] =
     "title = 1\n"
@@ -490,82 +484,17 @@ static const char TOML_KEYS_INVALID[] =
     "derivatives = { s = { width = 0, height = 120, quality = 70 } }\n"
     "video_frame_seconds = -1\n";
 
-// Every invalid key in one config is reported in one load, not only the first, in the order of the
-// README's key table rather than of the file.
-static void test_load_reports_every_invalid_key(void) {
-  struct SiteConfig site_config;
-  site_config_init(&site_config);
-  struct Log log = test_log();
-  TEST_CHECK(load_text(&site_config, TOML_KEYS_INVALID, &log) == -1);
-  TEST_CHECK(test_log_is(&log,
-                         "unknown config key 'colour'\n"
-                         "config key 'title' must be a string\n"
-                         "config key 'base_url' must be an absolute 'http://' or 'https://' URL "
-                         "with a host: 'ftp://example.com'\n"
-                         "config key 'media_dir' must not be empty\n"
-                         "config key 'album_template' must be a safe relative template name: "
-                         "'../album.html'\n"
-                         "config key 'derivatives.s.width' must be at least 1: 0\n"
-                         "config key 'video_frame_seconds' must be at least 0: -1\n"));
-  TEST_CHECK(log.errors == 7);
-}
-
-// A key of the wrong type is reported at its row of the key table too, so a mistyped
-// `album_template` comes after the directories, where its name is checked.
-static void test_load_reports_mistyped_keys_in_table_order(void) {
-  struct SiteConfig site_config;
-  site_config_init(&site_config);
-  struct Log log = test_log();
-  TEST_CHECK(load_text(&site_config,
-                       "album_template = 2\n"
-                       "media_dir = 3\n"
-                       "base_url = 4\n"
-                       "title = \"Example Gallery\"\n"
-                       "description = \"Example Description\"\n"
-                       "author = \"Example Author\"\n",
-                       &log) == -1);
-  TEST_CHECK(test_log_is(&log,
-                         "config key 'base_url' must be a string\n"
-                         "config key 'media_dir' must be a string\n"
-                         "config key 'album_template' must be a string\n"));
-  TEST_CHECK(site_config.is_media_dir_rejected);
-}
-
-// A config that was read and parsed loads successfully even when keys are rejected: the errors are
-// in the log, and the result only says whether there was a file to check.
-static void test_load_returns_zero_with_key_errors(void) {
+// The load stops at its first error, so a config with several mistakes reports only the first one
+// it checks, and fails.
+static void test_load_stops_at_first_error(void) {
   struct Os* os = os_memory();
   os_memory_write(os, CONFIG_PATH, TOML_KEYS_INVALID);
   struct SiteConfig site_config;
   site_config_init(&site_config);
   struct Log log = test_log();
   struct Arena perm = test_arena();
-  TEST_CHECK(site_config_load(&site_config, S(CONFIG_PATH), os, &perm, test_arena(), &log) == 0);
-  TEST_CHECK(log.errors == 7);
-}
-
-// A rejected value is never stored. Each rejected key keeps the default `site_config_init` gave it,
-// so later checks run against a usable config, while the valid keys around them still load. A
-// derivative table with one bad entry keeps the default derivatives whole. A rejected directory key
-// is marked as such.
-static void test_load_keeps_defaults_for_rejected_keys(void) {
-  struct SiteConfig site_config;
-  site_config_init(&site_config);
-  struct Log log = test_log();
-  TEST_CHECK(load_text(&site_config, TOML_KEYS_INVALID, &log) == -1);
-  TEST_CHECK(is_resolved(site_config.media_dir, "media"));
-  TEST_CHECK(site_config.is_media_dir_rejected);
-  TEST_CHECK(!site_config.is_output_dir_rejected);
-  TEST_CHECK(!site_config.is_templates_dir_rejected);
-  TEST_CHECK(!site_config.is_static_dir_rejected);
-  TEST_CHECK(str_eq(site_config.album_template, S("album.html")));
-  TEST_CHECK(site_config.base_url.len == 0);
-  TEST_CHECK(site_config.derivative_count == 3);
-  TEST_CHECK(site_config.derivatives[0].width_px == 120);
-  TEST_CHECK(site_config.video_frame_seconds == 1);
-  TEST_CHECK(site_config.title.len == 0);
-  TEST_CHECK(str_eq(site_config.description, S("Example Description")));
-  TEST_CHECK(str_eq(site_config.author, S("Example Author")));
+  TEST_CHECK(site_config_load(&site_config, S(CONFIG_PATH), os, &perm, test_arena(), &log) == -1);
+  TEST_CHECK(test_log_is(&log, "unknown config key 'colour'\n"));
 }
 
 // Omitting a required key is reported as missing rather than as a type error.
@@ -584,8 +513,7 @@ static void test_load_rejects_missing_required_key(void) {
       "missing required config key 'author'");
 }
 
-// A required key of the wrong TOML type is reported as a type error, not a missing key, and its
-// value is not stored, so the key stays empty.
+// A required key of the wrong TOML type is reported as a type error, not a missing key.
 static void test_load_rejects_wrong_key_type(void) {
   static const char* const cases[][2] = {
       {"title = 123\ndescription = \"Example Description\"\nauthor = \"Example Author\"\n",
@@ -602,9 +530,6 @@ static void test_load_rejects_wrong_key_type(void) {
     struct Log log = test_log();
     TEST_CHECK(load_text(&site_config, cases[i][0], &log) == -1);
     TEST_CHECK(test_log_is_one(&log, cases[i][1]));
-    const struct Str fields[] = {site_config.title, site_config.description, site_config.author};
-    TEST_CHECK(fields[i].len == 0);
-    TEST_MSG("case %td", i);
   }
 }
 
@@ -731,8 +656,8 @@ static void test_load_rejects_empty_directory_keys(void) {
   }
 }
 
-// `base_url` needs an HTTP(S) scheme and a host, and a rejected one becomes empty. `core/url`'s
-// tests cover the other URLs without a host.
+// `base_url` needs an HTTP(S) scheme and a host. `core/url`'s tests cover the other URLs without a
+// host.
 static void test_load_rejects_base_url_without_host(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"
@@ -748,11 +673,10 @@ static void test_load_rejects_base_url_without_host(void) {
       &log,
       "config key 'base_url' must be an absolute 'http://' or 'https://' URL with a "
       "host: 'https:///path'"));
-  TEST_CHECK(site_config.base_url.len == 0);
 }
 
 // A `base_url` with a query, a fragment, a space or a control byte would break every link below it,
-// so it is rejected, and the config keeps no `base_url`. `core/url`'s tests cover each byte.
+// so it is rejected. `core/url`'s tests cover each byte.
 static void test_load_rejects_base_url_with_path_breaking_byte(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"
@@ -767,7 +691,6 @@ static void test_load_rejects_base_url_with_path_breaking_byte(void) {
   TEST_CHECK(test_log_is_one(&log,
                              "config key 'base_url' must not hold '?', '#', a space or a control "
                              "character: 'https://example.com/x?y=1'"));
-  TEST_CHECK(site_config.base_url.len == 0);
 }
 
 // An unsafe `album_template` is rejected at load, in the singular wording that names the key,
@@ -804,7 +727,7 @@ static void test_load_rejects_invalid_template_arrays(void) {
 
 // Every element of a template array is checked even after one fails, so each unsafe name is
 // reported in element order. A wrong type or a `NUL` byte is reported once however many elements
-// have it, since its message names no element. The rejected key keeps its default.
+// have it, since its message names no element.
 static void test_load_reports_every_invalid_template_name(void) {
   const char toml[] =
       "title = \"Example Gallery\"\n"
@@ -815,8 +738,6 @@ static void test_load_reports_every_invalid_template_name(void) {
 
   struct SiteConfig site_config;
   site_config_init(&site_config);
-  const struct Str* const aggregate_templates_default = site_config.aggregate_templates;
-  const ptrdiff_t aggregate_template_count_default = site_config.aggregate_template_count;
   struct Log log = test_log();
   TEST_CHECK(load_text(&site_config, toml, &log) == -1);
   TEST_CHECK(test_log_is(&log,
@@ -827,8 +748,6 @@ static void test_load_reports_every_invalid_template_name(void) {
                          "config key 'aggregate_templates' must contain only safe relative "
                          "template names: '/b.xml'\n"));
   TEST_CHECK(log.errors == 4);
-  TEST_CHECK(site_config.aggregate_templates == aggregate_templates_default);
-  TEST_CHECK(site_config.aggregate_template_count == aggregate_template_count_default);
 }
 
 // Dimension, quality, and video-frame upper bounds are exact and named in diagnostics.
@@ -886,23 +805,6 @@ static void test_load_rejects_invalid_derivative_tables(void) {
                      "config key 'derivatives.s.crop' must be a boolean");
 }
 
-// A derivative with a wrong name still has its keys checked, so one run reports the name and every
-// mistake in the entry, and a gallery keeps its default derivatives.
-static void test_load_checks_the_keys_of_a_wrongly_named_derivative(void) {
-  struct SiteConfig site_config;
-  site_config_init(&site_config);
-  struct Log log = test_log();
-  TEST_CHECK(load_text(&site_config,
-                       "title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\n"
-                       "derivatives = { thumb = { width = 1, height = 1 } }\n",
-                       &log) == -1);
-  TEST_CHECK(test_log_is(&log,
-                         "config key 'derivatives' name must be one of 'xs', 's', 'm', 'l', 'xl' "
-                         "or 'xxl': 'thumb'\n"
-                         "missing required config key 'derivatives.thumb.quality'\n"));
-  TEST_CHECK(site_config.derivative_count == 3);
-}
-
 // The `sort` table must be a table, holds only its two keys, and each key takes exactly the
 // lowercase string `asc` or `desc`. A case variant, a longer word, and an empty string are each
 // rejected and named. A value holding a `NUL` byte is rejected without being named, since printing
@@ -919,31 +821,6 @@ static void test_load_rejects_invalid_sort_tables(void) {
                      "config key 'sort.media' must be 'asc' or 'desc': ''");
   check_load_rejects("sort = { albums = \"a\\u0000sc\" }\n",
                      "config key 'sort.albums' must not contain a NUL byte");
-}
-
-// Every invalid key in a `sort` table is reported in one load: the unknown key first, then each
-// order in schema order. A rejected order is never stored, so a field the caller had already set
-// keeps that value rather than falling back to `asc`.
-static void test_load_reports_every_invalid_sort_key(void) {
-  const char toml[] =
-      "title = \"Example Gallery\"\n"
-      "description = \"Example Description\"\n"
-      "author = \"Example Author\"\n"
-      "sort = { albums = \"up\", order = \"asc\", media = 1 }\n";
-
-  struct SiteConfig site_config;
-  site_config_init(&site_config);
-  site_config.album_sort_order = GALLERY_SORT_DESC;
-  site_config.media_sort_order = GALLERY_SORT_DESC;
-  struct Log log = test_log();
-  TEST_CHECK(load_text(&site_config, toml, &log) == -1);
-  TEST_CHECK(test_log_is(&log,
-                         "unknown config key 'sort.order'\n"
-                         "config key 'sort.albums' must be 'asc' or 'desc': 'up'\n"
-                         "config key 'sort.media' must be a string\n"));
-  TEST_CHECK(log.errors == 3);
-  TEST_CHECK(site_config.album_sort_order == GALLERY_SORT_DESC);
-  TEST_CHECK(site_config.media_sort_order == GALLERY_SORT_DESC);
 }
 
 // Printing emits every key, with the defaults `site_config_init` supplies for the optional ones.
@@ -1164,10 +1041,7 @@ TEST_LIST = {
     {"load rejects oversize file", test_load_rejects_oversize_file},
     {"load rejects nul in file", test_load_rejects_nul_in_file},
     {"load rejects malformed toml", test_load_rejects_malformed_toml},
-    {"load reports every invalid key", test_load_reports_every_invalid_key},
-    {"load reports mistyped keys in table order", test_load_reports_mistyped_keys_in_table_order},
-    {"load returns zero with key errors", test_load_returns_zero_with_key_errors},
-    {"load keeps defaults for rejected keys", test_load_keeps_defaults_for_rejected_keys},
+    {"load stops at first error", test_load_stops_at_first_error},
     {"load rejects missing required key", test_load_rejects_missing_required_key},
     {"load rejects wrong key type", test_load_rejects_wrong_key_type},
     {"load rejects unknown keys", test_load_rejects_unknown_keys},
@@ -1185,10 +1059,7 @@ TEST_LIST = {
     {"load rejects integer upper bounds", test_load_rejects_integer_upper_bounds},
     {"load rejects dimension product overflow", test_load_rejects_dimension_product_overflow},
     {"load rejects invalid derivative tables", test_load_rejects_invalid_derivative_tables},
-    {"load checks the keys of a wrongly named derivative",
-     test_load_checks_the_keys_of_a_wrongly_named_derivative},
     {"load rejects invalid sort tables", test_load_rejects_invalid_sort_tables},
-    {"load reports every invalid sort key", test_load_reports_every_invalid_sort_key},
     {"print defaults", test_print_defaults},
     {"print escapes strings", test_print_escapes_strings},
     {"print load round trips", test_print_load_round_trips},

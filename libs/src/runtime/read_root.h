@@ -21,20 +21,16 @@ struct ReadRoot {
 
   /** Whether a build may legitimately not have this directory. */
   bool is_optional;
-
-  /** Whether the config load rejected `key`, so `dir_path` is its default and is not checked. */
-  bool is_rejected;
 };
 
 /**
  * @brief Checks that each directory of `roots` exists and is a directory, and reports each one that
  *        does not.
  *
- * A root whose key the config load rejected is skipped, because it holds its default and the load
- * has reported it. An optional root that does not exist is no error. Every other root is checked,
- * so one run reports every unusable root:
- * `failed to resolve config directory '<key>': <cause> ('<path>')`, where the cause is the system's
- * for a root that cannot be inspected, and `not a directory` for one that is something else.
+ * An optional root that does not exist is no error. Every other root is checked, so one run reports
+ * every unusable root: `failed to resolve config directory '<key>': <cause> ('<path>')`, where the
+ * cause is the system's for a root that cannot be inspected, and `not a directory` for one that is
+ * something else.
  *
  * @param roots      Roots to check. Must not be `NULL` unless `root_count` is `0`.
  * @param root_count Number of entries in `roots`.

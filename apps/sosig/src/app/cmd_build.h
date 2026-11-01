@@ -38,10 +38,11 @@ enum ExitCode cmd_build_run(const struct BuildOptions* options, struct Os* os)
  *
  * Performs no error printing itself so callers can inspect the log directly. `cmd_build_run` is the
  * boundary that prints it. Until the first write, the build keeps going after an error wherever the
- * next phase still has something to check, so one run reports every bad config key, every source
- * that does not parse, and every output collision, in that order, sources in walk order. It stops
- * before writing anything if any error was recorded. A dry run runs the same phases, changes
- * nothing under `output_dir`, and prints to `stdout` what it would have written, kept, and removed.
+ * next phase still has something to check, so one run reports every source that does not parse and
+ * every output collision, in that order, sources in walk order. A config that fails stops it at
+ * once. It stops before writing anything if any error was recorded. A dry run runs the same phases,
+ * changes nothing under `output_dir`, and prints to `stdout` what it would have written, kept, and
+ * removed.
  *
  * The main thread's data that outlives a phase, from the configuration and the source paths to the
  * manifest, goes in `perm`, and its temporaries and a parallel phase's job logs in `scratch`. Each

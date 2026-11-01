@@ -38,10 +38,10 @@ enum ExitCode cmd_build_run(const struct BuildOptions* options, struct Os* os)
  *
  * Performs no error printing itself so callers can inspect the log directly. `cmd_build_run` is the
  * boundary that prints it. Until the first write, the build keeps going after an error wherever the
- * next phase still has something to check, so one run reports every bad config key and every
- * path-limit failure in the album skeleton, or, once the skeleton is planned, every bad config key,
- * every source that cannot be probed, and every output collision, in that order, sources in walk
- * order. A skeleton error stops the build before the probe, because the later phases read the
+ * next phase still has something to check, so one run reports every path-limit failure in the album
+ * skeleton, or, once the skeleton is planned, every source that cannot be probed and every output
+ * collision, in that order, sources in walk order. An invalid config stops the build at its first
+ * error, and a skeleton error stops the build before the probe, because the later phases read the
  * skeleton. It stops before writing anything if any error was recorded. A dry run runs the same
  * phases, changes nothing under `output_dir`, and prints to `stdout` what it would have written,
  * kept, and removed.

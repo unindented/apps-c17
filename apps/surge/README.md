@@ -174,7 +174,7 @@ A repository or project name can contain only ASCII letters, digits, `.`, `_` an
 
 `surge` resolves each directory in the config, the defaults included, against the directory of the config file, so `-c sub/surge.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from each directory value, and rejects a value that is then empty, `/` included. A directory can be an absolute path, or a relative path that contains `..`. `surge config` prints every directory resolved, and leaves out an optional string that is empty, except a repository's `description` set to `""`, which shows no description.
 
-The load reports every bad key in one run. A rejected optional key keeps its default, so a later check does not report it again, but any config error makes the build fail before it scans a repository, after it checks `output_dir` against the inputs, so one run reports both. A rejected `output_dir`, `templates_dir` or `static_dir` stops the build before it opens a repository, because its default names a directory that you did not choose.
+The load stops at its first error, and a config error stops the build before it opens a repository.
 
 ### Output layout
 
@@ -222,7 +222,7 @@ Every link on a page is relative, so the site works below any path prefix. A lin
 
 When a build writes an output, it replaces any file that is already at that path. After a successful build, the build removes every file and directory below `output_dir` that it did not write, so `output_dir` contains only the outputs of the current inputs. If a symlink does not lead to a current output, the build removes the symlink itself. It does not change the file or directory that the symlink points to. A failed build removes nothing. If a write fails after the build starts writing, some outputs can be new while other outputs stay unchanged. To recover, delete `output_dir` and build again.
 
-Before a build scans a repository, `surge` rejects an `output_dir` that is at or below one of the build's inputs, or that holds one of them or the config file: `templates_dir`, `static_dir`, and the git directory, the work tree and `releases_dir` of each repository. The git directory of a linked worktree is its main repository's. For example, it rejects `output_dir = "/srv/git"` when a repository is `/srv/git/foo.git`. These checks compare the directories themselves, not the text of their paths, so they also find a symlink or a different spelling of the same directory. `surge` makes this check even when `templates_dir`, `static_dir` or a `releases_dir` is missing or is not a directory, so one run reports both errors.
+Before a build scans a repository, `surge` rejects an `output_dir` that is at or below one of the build's inputs, or that holds one of them or the config file: `templates_dir`, `static_dir`, and the git directory, the work tree and `releases_dir` of each repository. The git directory of a linked worktree is its main repository's. For example, it rejects `output_dir = "/srv/git"` when a repository is `/srv/git/foo.git`. These checks compare the directories themselves, not the text of their paths, so they also find a symlink or a different spelling of the same directory.
 
 Every search of `templates_dir` and `static_dir` skips `output_dir`, so a symlink that leads into `output_dir` cannot make the build read generated files as inputs.
 

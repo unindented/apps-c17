@@ -1,7 +1,6 @@
 #ifndef SOSIG_SITE_CONFIG_H
 #define SOSIG_SITE_CONFIG_H
 
-#include <stdbool.h>
 #include <stddef.h>
 
 #include "core/arena.h"
@@ -91,27 +90,6 @@ struct SiteConfig {
 
   /** Number of keys in `frontmatter_ignored_keys`. */
   ptrdiff_t frontmatter_ignored_key_count;
-
-  /**
-   * Whether the load rejected `content_dir`, which then holds its default rather than a directory
-   * the user chose.
-   */
-  bool is_content_dir_rejected;
-
-  /** Whether the load rejected `output_dir`, which then holds its default. */
-  bool is_output_dir_rejected;
-
-  /** Whether the load rejected `templates_dir`, which then holds its default. */
-  bool is_templates_dir_rejected;
-
-  /** Whether the load rejected `static_dir`, which then holds its default. */
-  bool is_static_dir_rejected;
-
-  /**
-   * Whether the load rejected `permalink`, `aggregate_templates` or `feed_templates`, which then
-   * hold defaults that name outputs the user never asked for.
-   */
-  bool is_output_key_rejected;
 };
 
 /**
@@ -128,7 +106,8 @@ void site_config_init(struct SiteConfig* site_config) __attribute__((nonnull(1))
  *
  * Reads and parses the file, rejects a key outside the schema, validates required keys and template
  * names, and copies values into `perm` over the defaults from `site_config_init`. Each directory,
- * the defaults included, resolves against the directory of `config_path`.
+ * the defaults included, resolves against the directory of `config_path`. The load stops at its
+ * first error.
  *
  * @param site_config Initialized config that receives the loaded values. Must not be `NULL`.
  * @param config_path Path to the TOML configuration file. Relative paths in the file resolve
@@ -137,13 +116,9 @@ void site_config_init(struct SiteConfig* site_config) __attribute__((nonnull(1))
  * @param perm        Arena that owns the loaded values for as long as the config is used. Must not
  *                    be `NULL`.
  * @param scratch     Arena for the file bytes and validation temporaries.
- * @param log         Log that receives every error. Must not be `NULL`.
- * @return `0` when the file was read and parsed, or `-1` when it could not be. A key that fails
- *         validation is logged and keeps its default, and the load goes on to check every other
- *         key, so `0` does not mean the config is valid: a caller checks `log->errors` before it
- *         relies on the values, and checks no directory whose key was rejected. That lets a build
- *         report a bad key and the errors in its content in one run, while a file that is missing
- *         or not TOML stops it, because there is nothing to check the content against.
+ * @param log         Log that receives the error. Must not be `NULL`.
+ * @return `0` when the config is valid, or `-1` when the file cannot be read or parsed or a key is
+ *         invalid.
  */
 int site_config_load(struct SiteConfig* site_config,
                      struct Str config_path,

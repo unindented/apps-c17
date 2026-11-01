@@ -39,18 +39,14 @@ enum { EXPECTED_SIZE = 8192 };
  * @param config_path Terminated path of the config to load. Must not be `NULL`.
  * @param os          Host holding the config. Must not be `NULL`.
  * @param log         Log that receives every error the load records. Must not be `NULL`.
- * @return `0` when the config was loaded with no error, or `-1` when it could not be read or
- *         parsed, or any key was rejected. `site_config_load` itself returns `0` in the last case,
- *         which `test_load_returns_zero_with_key_errors` pins.
+ * @return The result of `site_config_load`.
  */
 static int load_site_config(struct SiteConfig* site_config,
                             const char* config_path,
                             struct Os* os,
                             struct Log* log) {
   struct Arena perm = test_arena();
-  const int rc =
-      site_config_load(site_config, str_from_cstr(config_path), os, &perm, test_arena(), log);
-  return rc != 0 || log->errors > 0 ? -1 : 0;
+  return site_config_load(site_config, str_from_cstr(config_path), os, &perm, test_arena(), log);
 }
 
 /**
@@ -422,99 +418,21 @@ static void test_load_rejects_malformed_toml(void) {
   TEST_CHECK(str_endswith(message, suffix));
 }
 
-/**
- * A config that parses but holds seven independent mistakes, one each for the unknown-key check, a
- * string key's type, `base_url`, a directory, the permalink, `content_template`, and `feed_count`.
- * The directory comes before the permalink, which the key table lists first.
- */
-static const char TOML_KEYS_INVALID[] =
-    "title = 1\n"
-    "description = \"Example notes\"\n"
-    "author = \"Example Author\"\n"
-    "base_url = \"ftp://example.com\"\n"
-    "colour = \"blue\"\n"
-    "content_dir = \"/\"\n"
-    "permalink = \"/fixed.html\"\n"
-    "content_template = \"../content.html\"\n"
-    "feed_count = -1\n";
-
-// Every invalid key in one config is reported in one load, not only the first, in the order of the
-// README's key table rather than of the file.
-static void test_load_reports_every_invalid_key(void) {
+// The load stops at its first error. The unknown key is checked first, so the other mistakes of
+// this config go unreported.
+static void test_load_stops_at_first_invalid_key(void) {
+  const char toml[] =
+      "title = 1\n"
+      "description = \"Example notes\"\n"
+      "author = \"Example Author\"\n"
+      "base_url = \"ftp://example.com\"\n"
+      "colour = \"blue\"\n"
+      "content_dir = \"/\"\n";
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
-  TEST_CHECK(load_text(&config, TOML_KEYS_INVALID, &log) == -1);
-  TEST_CHECK(test_log_is(&log,
-                         "unknown config key 'colour'\n"
-                         "config key 'title' must be a string\n"
-                         "config key 'base_url' must be an absolute 'http://' or 'https://' URL "
-                         "with a host: 'ftp://example.com'\n"
-                         "config key 'permalink' must expand to a distinct path per content entry; "
-                         "include the '{slug}' token: '/fixed.html'\n"
-                         "config key 'content_dir' must not be empty\n"
-                         "config key 'content_template' must be a safe relative template name: "
-                         "'../content.html'\n"
-                         "config key 'feed_count' must be at least 0: -1\n"));
-  TEST_CHECK(log.errors == 7);
-}
-
-// A key of the wrong type is reported at its row of the key table too, and a mistyped `permalink`
-// is a rejected output key, as an invalid one is, because its default names outputs the user did
-// not choose.
-static void test_load_reports_mistyped_keys_in_table_order(void) {
-  struct SiteConfig config;
-  site_config_init(&config);
-  struct Log log = test_log();
-  TEST_CHECK(load_text(&config,
-                       "content_template = 2\n"
-                       "content_dir = 3\n"
-                       "permalink = 1\n"
-                       "title = \"Example Site\"\n"
-                       "description = \"Example notes\"\n"
-                       "author = \"Example Author\"\n"
-                       "base_url = \"https://example.com\"\n",
-                       &log) == -1);
-  TEST_CHECK(test_log_is(&log,
-                         "config key 'permalink' must be a string\n"
-                         "config key 'content_dir' must be a string\n"
-                         "config key 'content_template' must be a string\n"));
-  TEST_CHECK(config.is_output_key_rejected);
-}
-
-// A config that was read and parsed loads successfully even when keys are rejected: the errors are
-// in the log, and the result only says whether there was a file to check.
-static void test_load_returns_zero_with_key_errors(void) {
-  struct SiteConfig config;
-  site_config_init(&config);
-  struct Log log = test_log();
-  struct Os* os = os_memory();
-  os_memory_write(os, CONFIG_PATH, TOML_KEYS_INVALID);
-  struct Arena perm = test_arena();
-  TEST_CHECK(site_config_load(&config, S(CONFIG_PATH), os, &perm, test_arena(), &log) == 0);
-  TEST_CHECK(log.errors == 7);
-}
-
-// A rejected value is never stored. Each rejected key keeps the default `site_config_init` gave it,
-// so later checks run against a usable config, while the valid keys around them still load. A
-// rejected directory key keeps its default resolved against the config's directory, and is marked
-// as rejected.
-static void test_load_keeps_defaults_for_rejected_keys(void) {
-  struct SiteConfig config;
-  site_config_init(&config);
-  struct Log log = test_log();
-  TEST_CHECK(load_text(&config, TOML_KEYS_INVALID, &log) == -1);
-  TEST_CHECK(is_config_dir(config.content_dir, "content"));
-  TEST_CHECK(config.is_content_dir_rejected);
-  TEST_CHECK(!config.is_output_dir_rejected);
-  TEST_CHECK(!config.is_templates_dir_rejected);
-  TEST_CHECK(!config.is_static_dir_rejected);
-  TEST_CHECK(str_eq(config.permalink, S("/{section}/{slug}.html")));
-  TEST_CHECK(config.feed_count == 25);
-  TEST_CHECK(config.title.len == 0);
-  TEST_CHECK(str_eq(config.description, S("Example notes")));
-  TEST_CHECK(str_eq(config.author, S("Example Author")));
-  TEST_CHECK(config.base_url.len == 0);
+  TEST_CHECK(load_text(&config, toml, &log) == -1);
+  TEST_CHECK(test_log_is(&log, "unknown config key 'colour'\n"));
 }
 
 /**
@@ -570,8 +488,7 @@ static void test_load_rejects_missing_required_key(void) {
   }
 }
 
-// Any one required key of the wrong TOML type is reported as a type error, not a missing key, and
-// its value is not stored, so the key stays empty.
+// Any one required key of the wrong TOML type is reported as a type error, not a missing key.
 static void test_load_rejects_wrong_key_type(void) {
   for (ptrdiff_t i = 0; i < REQUIRED_KEY_COUNT; i++) {
     char line[64];
@@ -586,11 +503,6 @@ static void test_load_rejects_wrong_key_type(void) {
     (void)snprintf(expected, sizeof(expected), "config key '%s' must be a string",
                    REQUIRED_KEY_LINES[i][0]);
     TEST_CHECK(test_log_is_one(&log, expected));
-    // In the order of `REQUIRED_KEY_LINES`.
-    const struct Str fields[] = {config.title, config.description, config.author, config.base_url};
-    _Static_assert(sizeof(fields) / sizeof(fields[0]) == REQUIRED_KEY_COUNT,
-                   "one field for each required key");
-    TEST_CHECK(fields[i].len == 0);
     TEST_MSG("key '%s'", REQUIRED_KEY_LINES[i][0]);
   }
 }
@@ -709,8 +621,8 @@ static void test_load_rejects_empty_directory_keys(void) {
   }
 }
 
-// `base_url` needs an HTTP(S) scheme and a host, and a rejected one becomes empty. `core/url`'s
-// tests cover the other URLs without a host.
+// `base_url` needs an HTTP(S) scheme and a host. `core/url`'s tests cover the other URLs without a
+// host.
 static void test_load_rejects_base_url_without_host(void) {
   const char toml[] =
       "title = \"Example Site\"\n"
@@ -725,7 +637,6 @@ static void test_load_rejects_base_url_without_host(void) {
       &log,
       "config key 'base_url' must be an absolute 'http://' or 'https://' URL with a "
       "host: 'https:///path'"));
-  TEST_CHECK(config.base_url.len == 0);
 }
 
 // `base_url` is required, so a present but empty `base_url` is rejected as a URL without a host,
@@ -746,7 +657,7 @@ static void test_load_rejects_empty_base_url(void) {
 }
 
 // A `base_url` with a query, a fragment, a space or a control byte would break every link below it,
-// so it is rejected, and the config keeps no `base_url`. `core/url`'s tests cover each byte.
+// so it is rejected. `core/url`'s tests cover each byte.
 static void test_load_rejects_base_url_with_path_breaking_byte(void) {
   const char toml[] =
       "title = \"Example Site\"\n"
@@ -760,7 +671,6 @@ static void test_load_rejects_base_url_with_path_breaking_byte(void) {
   TEST_CHECK(test_log_is_one(&log,
                              "config key 'base_url' must not hold '?', '#', a space or a control "
                              "character: 'https://example.com/x?y=1'"));
-  TEST_CHECK(config.base_url.len == 0);
 }
 
 // An unsafe `content_template` is rejected at load, in the singular wording that names the key,
@@ -807,7 +717,7 @@ static void test_load_rejects_invalid_frontmatter_ignored_keys(void) {
 
 // Every element of a template array is checked even after one fails, so each unsafe name is
 // reported in element order. A wrong type or a `NUL` byte is reported once however many elements
-// have it, since its message names no element. The rejected key keeps its default.
+// have it, since its message names no element.
 static void test_load_reports_every_invalid_template_name(void) {
   const char toml[] =
       "title = \"Example Site\"\n"
@@ -818,8 +728,6 @@ static void test_load_reports_every_invalid_template_name(void) {
       "\"c\\u0000d\"]\n";
   struct SiteConfig config;
   site_config_init(&config);
-  const struct Str* const feed_templates_default = config.feed_templates;
-  const ptrdiff_t feed_template_count_default = config.feed_template_count;
   struct Log log = test_log();
   TEST_CHECK(load_text(&config, toml, &log) == -1);
   TEST_CHECK(test_log_is(&log,
@@ -830,8 +738,6 @@ static void test_load_reports_every_invalid_template_name(void) {
                          "config key 'feed_templates' must contain only safe relative template "
                          "names: '/b.xml'\n"));
   TEST_CHECK(log.errors == 4);
-  TEST_CHECK(config.feed_templates == feed_templates_default);
-  TEST_CHECK(config.feed_template_count == feed_template_count_default);
 }
 
 // A permalink that could escape the output directory, or that uses bytes the expanded path cannot
@@ -1120,10 +1026,7 @@ TEST_LIST = {
     {"load rejects oversize file", test_load_rejects_oversize_file},
     {"load rejects nul in file", test_load_rejects_nul_in_file},
     {"load rejects malformed toml", test_load_rejects_malformed_toml},
-    {"load reports every invalid key", test_load_reports_every_invalid_key},
-    {"load reports mistyped keys in table order", test_load_reports_mistyped_keys_in_table_order},
-    {"load returns zero with key errors", test_load_returns_zero_with_key_errors},
-    {"load keeps defaults for rejected keys", test_load_keeps_defaults_for_rejected_keys},
+    {"load stops at first invalid key", test_load_stops_at_first_invalid_key},
     {"load rejects missing required key", test_load_rejects_missing_required_key},
     {"load rejects wrong key type", test_load_rejects_wrong_key_type},
     {"load rejects unknown keys", test_load_rejects_unknown_keys},

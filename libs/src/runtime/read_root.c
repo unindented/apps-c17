@@ -27,9 +27,6 @@ int read_root_require(const struct ReadRoot* roots,
     // and nothing after this point would report either, because no caller walks an unusable root.
     // The cause carries no verb of its own, so the operation names what was being resolved, as in
     // `failed to resolve config directory 'templates_dir': Permission denied ('templates')`.
-    if (root->is_rejected) {
-      continue;
-    }
     struct OsStat st;
     if (os_stat(os, root->dir_path, &st) != 0) {
       if (root->is_optional && errno == ENOENT) {

@@ -87,31 +87,31 @@ enum {
  * the derivative tables, and `video_frame_seconds`. It copies every value into `perm` rather than
  * borrowing from `table`. `site_config_load` calls `toml_free` as soon as this returns, which
  * releases the pool every `toml_datum_t` string points into, while the config outlives the parse.
- * The `sort` table is applied just before `video_frame_seconds`.
+ * The `sort` table is applied just before `video_frame_seconds`. It stops at the first error.
  *
  * @param site_config Config that receives the values. Must not be `NULL`.
  * @param table       Parsed TOML top-level table.
  * @param config_dir  Directory the relative paths resolve against, or empty for the working one.
  * @param perm        Arena that owns the copied values. Must not be `NULL`.
- * @param log         Log that receives every error. Must not be `NULL`.
+ * @param log         Log that receives the error. Must not be `NULL`.
+ * @return `0` when every key is valid, or `-1` at the first error.
  */
-static void site_config_load_fields(struct SiteConfig* site_config,
-                                    toml_datum_t table,
-                                    struct Str config_dir,
-                                    struct Arena* perm,
-                                    struct Log* log) __attribute__((nonnull(1, 4, 5)));
+static int site_config_load_fields(struct SiteConfig* site_config,
+                                   toml_datum_t table,
+                                   struct Str config_dir,
+                                   struct Arena* perm,
+                                   struct Log* log) __attribute__((nonnull(1, 4, 5)));
 
 /**
  * @brief Copies and validates the optional named-derivative table.
  *
  * When the key is absent, this leaves `derivatives` untouched and keeps the defaults from
- * `site_config_init`. It checks every derivative even after one fails, and publishes them only when
- * every one is valid, so a rejected table also keeps the defaults.
+ * `site_config_init`. It stops at the first invalid derivative.
  *
  * @param site_config Config that receives the derivatives. Must not be `NULL`.
  * @param table       Parsed TOML top-level table.
  * @param perm        Arena that owns the copied derivatives. Must not be `NULL`.
- * @param log         Log that receives every error. Must not be `NULL`.
+ * @param log         Log that receives the error. Must not be `NULL`.
  * @return `0` on success or when the key is absent, or `-1` on a wrong type or an invalid name or
  *         value.
  */
@@ -121,16 +121,13 @@ static int copy_derivatives(struct SiteConfig* site_config,
                             struct Log* log) __attribute__((nonnull(1, 3, 4)));
 
 /**
- * @brief Copies and validates one `derivatives.<name>` entry.
- *
- * It checks every key of the entry even after one fails, so one run reports each mistake in it.
+ * @brief Copies and validates one `derivatives.<name>` entry, stopping at its first error.
  *
  * @param name           Entry name, the key in the `derivatives` table.
  * @param entry_table    Entry value, which must be a table.
  * @param perm           Arena that owns the copied name. Must not be `NULL`.
- * @param derivative_out Receives the name, dimensions, quality and crop flag, which the caller
- *                       stores only when every derivative was accepted. Must not be `NULL`.
- * @param log            Log that receives every error. Must not be `NULL`.
+ * @param derivative_out Receives the name, dimensions, quality and crop flag. Must not be `NULL`.
+ * @param log            Log that receives the error. Must not be `NULL`.
  * @return `0` on success, or `-1` on an invalid name, a wrong type, an unknown key, or an invalid
  *         value.
  */
@@ -152,12 +149,11 @@ static bool is_derivative_name(struct Str name);
  * @brief Copies and validates the optional `sort` table.
  *
  * When the key is absent, this leaves both orders untouched and keeps the defaults from
- * `site_config_init`. An empty table also keeps them. It checks both keys even after one fails, and
- * a rejected key keeps its default.
+ * `site_config_init`. An empty table also keeps them. It stops at the first error.
  *
  * @param site_config Config that receives the orders. Must not be `NULL`.
  * @param table       Parsed TOML top-level table.
- * @param log         Log that receives every error. Must not be `NULL`.
+ * @param log         Log that receives the error. Must not be `NULL`.
  * @return `0` on success or when the key is absent, or `-1` on a wrong type, an unknown key, or an
  *         invalid order.
  */
@@ -181,11 +177,11 @@ static int copy_sort_order(toml_datum_t sort_table,
                            struct Log* log) __attribute__((nonnull(2, 3, 4)));
 
 /**
- * @brief Rejects every derivative whose bounding box exceeds `IMAGE_PIXEL_COUNT_MAX`.
+ * @brief Rejects the first derivative whose bounding box exceeds `IMAGE_PIXEL_COUNT_MAX`.
  *
  * @param derivatives      Array of `derivative_count` derivatives to validate. Must not be `NULL`.
  * @param derivative_count Number of derivatives in `derivatives`.
- * @param log              Log that receives every error. Must not be `NULL`.
+ * @param log              Log that receives the error. Must not be `NULL`.
  * @return `0` when every derivative fits, or `-1` when any does not.
  */
 static int require_derivative_bounds(const struct GalleryDerivative* derivatives,
@@ -237,11 +233,9 @@ int site_config_load(struct SiteConfig* site_config,
   // A relative path in the file names a place next to the file, so the build can run from any
   // directory.
   const struct Str config_dir = path_file_dir(config_path);
-  // A key that fails validation is in `log` already, and the load still succeeded in the sense this
-  // result reports: the file was read and parsed.
-  site_config_load_fields(site_config, parsed.toptab, config_dir, perm, log);
+  const int rc = site_config_load_fields(site_config, parsed.toptab, config_dir, perm, log);
   toml_free(parsed);
-  return 0;
+  return rc;
 }
 
 int site_config_print(const struct SiteConfig* site_config, struct Os* os, struct Arena scratch) {
@@ -291,52 +285,50 @@ struct Str site_config_derivative_recipe(const struct SiteConfig* site_config,
   return buf_str(&recipe);
 }
 
-static void site_config_load_fields(struct SiteConfig* site_config,
-                                    toml_datum_t table,
-                                    struct Str config_dir,
-                                    struct Arena* perm,
-                                    struct Log* log) {
-  // Every key is checked even after one fails, so a config with several mistakes reports all of
-  // them in one run. A rejected value is never stored: the key keeps its default, so a build that
-  // goes on to check its media does so against a usable config rather than reporting the same
-  // mistake again once per media file.
-  (void)toml_require_known_keys(table, config_keys, sizeof(config_keys) / sizeof(config_keys[0]),
-                                S("config"), S(""), (struct Str){0}, log);
-
-  // Each key is read and validated at its row of the README's key table, which `fram config` also
-  // follows, so the errors of one load come in that order.
-  (void)toml_copy_string(table, S(""), "title", true, perm, &site_config->title, log);
-  (void)toml_copy_string(table, S(""), "description", true, perm, &site_config->description, log);
-  (void)toml_copy_string(table, S(""), "author", true, perm, &site_config->author, log);
-  (void)toml_copy_base_url(table, S(""), "base_url", false, perm, &site_config->base_url, log);
+static int site_config_load_fields(struct SiteConfig* site_config,
+                                   toml_datum_t table,
+                                   struct Str config_dir,
+                                   struct Arena* perm,
+                                   struct Log* log) {
+  if (toml_require_known_keys(table, config_keys, sizeof(config_keys) / sizeof(config_keys[0]),
+                              S("config"), S(""), (struct Str){0}, log) != 0 ||
+      toml_copy_string(table, S(""), "title", true, perm, &site_config->title, log) != 0 ||
+      toml_copy_string(table, S(""), "description", true, perm, &site_config->description, log) !=
+          0 ||
+      toml_copy_string(table, S(""), "author", true, perm, &site_config->author, log) != 0 ||
+      toml_copy_base_url(table, S(""), "base_url", false, perm, &site_config->base_url, log) != 0) {
+    return -1;
+  }
   // A default directory resolves against the config's directory too, so that `-c sub/fram.toml`
-  // without `output_dir` writes `sub/public`. A key that is absent or rejected keeps it.
+  // without `output_dir` writes `sub/public`. A key that is absent keeps it.
   site_config->media_dir = path_resolve(config_dir, site_config->media_dir, perm);
   site_config->output_dir = path_resolve(config_dir, site_config->output_dir, perm);
   site_config->templates_dir = path_resolve(config_dir, site_config->templates_dir, perm);
   site_config->static_dir = path_resolve(config_dir, site_config->static_dir, perm);
-  site_config->is_media_dir_rejected = toml_copy_dir(table, S(""), "media_dir", false, config_dir,
-                                                     perm, &site_config->media_dir, log) != 0;
-  site_config->is_output_dir_rejected = toml_copy_dir(table, S(""), "output_dir", false, config_dir,
-                                                      perm, &site_config->output_dir, log) != 0;
-  site_config->is_templates_dir_rejected =
+  if (toml_copy_dir(table, S(""), "media_dir", false, config_dir, perm, &site_config->media_dir,
+                    log) != 0 ||
+      toml_copy_dir(table, S(""), "output_dir", false, config_dir, perm, &site_config->output_dir,
+                    log) != 0 ||
       toml_copy_dir(table, S(""), "templates_dir", false, config_dir, perm,
-                    &site_config->templates_dir, log) != 0;
-  site_config->is_static_dir_rejected = toml_copy_dir(table, S(""), "static_dir", false, config_dir,
-                                                      perm, &site_config->static_dir, log) != 0;
-  if (toml_copy_string(table, S(""), "album_template", false, perm, &site_config->album_template,
-                       log) == 0 &&
-      !path_is_safe_relative(site_config->album_template)) {
-    (void)log_error(log,
-                    "config key 'album_template' must be a safe relative template name: '%.*s'",
-                    STR_FMT(site_config->album_template));
-    site_config->album_template = ALBUM_TEMPLATE_DEFAULT;
+                    &site_config->templates_dir, log) != 0 ||
+      toml_copy_dir(table, S(""), "static_dir", false, config_dir, perm, &site_config->static_dir,
+                    log) != 0 ||
+      toml_copy_string(table, S(""), "album_template", false, perm, &site_config->album_template,
+                       log) != 0) {
+    return -1;
   }
-  (void)toml_copy_strings(table, S(""), "aggregate_templates", true, perm,
-                          &site_config->aggregate_templates, &site_config->aggregate_template_count,
-                          log);
-  (void)copy_derivatives(site_config, table, perm, log);
-  (void)copy_sort(site_config, table, log);
+  if (!path_is_safe_relative(site_config->album_template)) {
+    return log_error(log,
+                     "config key 'album_template' must be a safe relative template name: '%.*s'",
+                     STR_FMT(site_config->album_template));
+  }
+  if (toml_copy_strings(table, S(""), "aggregate_templates", true, perm,
+                        &site_config->aggregate_templates, &site_config->aggregate_template_count,
+                        log) != 0 ||
+      copy_derivatives(site_config, table, perm, log) != 0 ||
+      copy_sort(site_config, table, log) != 0) {
+    return -1;
+  }
 
   const struct TomlSizeKey video_frame_seconds = {
       .key = "video_frame_seconds",
@@ -344,7 +336,7 @@ static void site_config_load_fields(struct SiteConfig* site_config,
       .value_max = VIDEO_FRAME_SECONDS_MAX,
       .limit_name = "video frame seconds",
   };
-  (void)toml_copy_size(table, S(""), &video_frame_seconds, log);
+  return toml_copy_size(table, S(""), &video_frame_seconds, log);
 }
 
 static int copy_derivatives(struct SiteConfig* site_config,
@@ -366,22 +358,18 @@ static int copy_derivatives(struct SiteConfig* site_config,
   const ptrdiff_t derivative_count = value.u.tab.size;
   struct GalleryDerivative* derivatives =
       arena_new(perm, derivative_count, struct GalleryDerivative);
-  int rc = 0;
   for (ptrdiff_t i = 0; i < derivative_count; i++) {
     const struct Str name = {value.u.tab.key[i], value.u.tab.len[i]};
     if (copy_derivatives_entry(name, value.u.tab.value[i], perm, &derivatives[i], log) != 0) {
-      rc = -1;
+      return -1;
     }
   }
-  // The bounds check reads both dimensions, so it runs only once every one of them was accepted.
-  if (rc == 0 && require_derivative_bounds(derivatives, derivative_count, log) != 0) {
-    rc = -1;
+  if (require_derivative_bounds(derivatives, derivative_count, log) != 0) {
+    return -1;
   }
-  if (rc == 0) {
-    site_config->derivatives = derivatives;
-    site_config->derivative_count = derivative_count;
-  }
-  return rc;
+  site_config->derivatives = derivatives;
+  site_config->derivative_count = derivative_count;
+  return 0;
 }
 
 static int copy_derivatives_entry(struct Str name,
@@ -394,13 +382,11 @@ static int copy_derivatives_entry(struct Str name,
   if (!text_is_nul_free(name)) {
     return log_error(log, "config key 'derivatives' name must not contain a NUL byte");
   }
-  int rc = 0;
-  // A wrong name still lets the entry's keys be checked, so one run reports every mistake in it.
   if (!is_derivative_name(name)) {
-    rc = log_error(log,
-                   "config key 'derivatives' name must be one of 'xs', 's', 'm', 'l', 'xl' or "
-                   "'xxl': '%.*s'",
-                   STR_FMT(name));
+    return log_error(log,
+                     "config key 'derivatives' name must be one of 'xs', 's', 'm', 'l', 'xl' or "
+                     "'xxl': '%.*s'",
+                     STR_FMT(name));
   }
   derivative_out->name = str_clone(name, perm);
 
@@ -416,7 +402,7 @@ static int copy_derivatives_entry(struct Str name,
   if (toml_require_known_keys(entry_table, derivative_keys,
                               sizeof(derivative_keys) / sizeof(derivative_keys[0]), S("config"),
                               key_prefix, (struct Str){0}, log) != 0) {
-    rc = -1;
+    return -1;
   }
   const struct TomlSizeKey integers[] = {
       {
@@ -446,15 +432,12 @@ static int copy_derivatives_entry(struct Str name,
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(integers) / sizeof(integers[0])); i++) {
     if (toml_copy_size(entry_table, key_prefix, &integers[i], log) != 0) {
-      rc = -1;
+      return -1;
     }
   }
 
   derivative_out->is_crop = false;
-  if (toml_copy_bool(entry_table, key_prefix, "crop", &derivative_out->is_crop, log) != 0) {
-    rc = -1;
-  }
-  return rc;
+  return toml_copy_bool(entry_table, key_prefix, "crop", &derivative_out->is_crop, log);
 }
 
 static bool is_derivative_name(struct Str name) {
@@ -475,18 +458,12 @@ static int copy_sort(struct SiteConfig* site_config, toml_datum_t table, struct 
   if (value.type != TOML_TABLE) {
     return log_error(log, "config key 'sort' must be a table");
   }
-  int rc = 0;
   if (toml_require_known_keys(value, sort_keys, sizeof(sort_keys) / sizeof(sort_keys[0]),
-                              S("config"), S("sort."), (struct Str){0}, log) != 0) {
-    rc = -1;
+                              S("config"), S("sort."), (struct Str){0}, log) != 0 ||
+      copy_sort_order(value, "albums", &site_config->album_sort_order, log) != 0) {
+    return -1;
   }
-  if (copy_sort_order(value, "albums", &site_config->album_sort_order, log) != 0) {
-    rc = -1;
-  }
-  if (copy_sort_order(value, "media", &site_config->media_sort_order, log) != 0) {
-    rc = -1;
-  }
-  return rc;
+  return copy_sort_order(value, "media", &site_config->media_sort_order, log);
 }
 
 static int copy_sort_order(toml_datum_t sort_table,
@@ -520,18 +497,18 @@ static int copy_sort_order(toml_datum_t sort_table,
 static int require_derivative_bounds(const struct GalleryDerivative* derivatives,
                                      ptrdiff_t derivative_count,
                                      struct Log* log) {
-  int rc = 0;
   for (ptrdiff_t i = 0; i < derivative_count; i++) {
     const struct GalleryDerivative* derivative = &derivatives[i];
     if (derivative->height_px > IMAGE_PIXEL_COUNT_MAX / derivative->width_px) {
-      rc = log_error(log,
-                     "config key 'derivatives.%.*s' dimensions exceed max pixel count (%d pixels) "
-                     "at %td x %td",
-                     STR_FMT(derivative->name), IMAGE_PIXEL_COUNT_MAX, derivative->width_px,
-                     derivative->height_px);
+      return log_error(
+          log,
+          "config key 'derivatives.%.*s' dimensions exceed max pixel count (%d pixels) "
+          "at %td x %td",
+          STR_FMT(derivative->name), IMAGE_PIXEL_COUNT_MAX, derivative->width_px,
+          derivative->height_px);
     }
   }
-  return rc;
+  return 0;
 }
 
 static void site_config_print_sort(struct Buf* buffer, const struct SiteConfig* site_config) {

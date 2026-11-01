@@ -148,30 +148,33 @@ static const struct Str PROJECT_NAMES_RESERVED[] = {
 };
 
 /**
- * @brief Copies the top-level keys and the `[limits]` table into `site_config`.
+ * @brief Copies the top-level keys and the `[limits]` table into `site_config`, stopping at the
+ *        first error.
  *
  * @param site_config Config that receives the values. Must not be `NULL`.
  * @param table       Parsed top-level table.
  * @param config_dir  Directory the relative paths resolve against, or empty for the working one.
  * @param perm        Arena that owns the copied values. Must not be `NULL`.
- * @param log         Log that receives every error. Must not be `NULL`.
+ * @param log         Log that receives the error. Must not be `NULL`.
+ * @return `0` on success, or `-1` after logging the first error.
  */
-static void site_config_load_fields(struct SiteConfig* site_config,
-                                    toml_datum_t table,
-                                    struct Str config_dir,
-                                    struct Arena* perm,
-                                    struct Log* log) __attribute__((nonnull(1, 4, 5)));
+static int site_config_load_fields(struct SiteConfig* site_config,
+                                   toml_datum_t table,
+                                   struct Str config_dir,
+                                   struct Arena* perm,
+                                   struct Log* log) __attribute__((nonnull(1, 4, 5)));
 
 /**
- * @brief Copies the `[limits]` table into `limits`.
+ * @brief Copies the `[limits]` table into `limits`, stopping at the first error.
  *
  * @param limits Limits that receive the values, holding their defaults. Must not be `NULL`.
  * @param table  Parsed top-level table.
- * @param log    Log that receives every error. Must not be `NULL`.
+ * @param log    Log that receives the error. Must not be `NULL`.
+ * @return `0` on success or when the table is absent, or `-1` after logging the first error.
  */
-static void site_config_load_fields_limits(struct SurgeLimits* limits,
-                                           toml_datum_t table,
-                                           struct Log* log) __attribute__((nonnull(1, 3)));
+static int site_config_load_fields_limits(struct SurgeLimits* limits,
+                                          toml_datum_t table,
+                                          struct Log* log) __attribute__((nonnull(1, 3)));
 
 /**
  * @brief Copies every `[[repo]]` table into `site_config`, and checks the names across repos.
@@ -181,14 +184,15 @@ static void site_config_load_fields_limits(struct SurgeLimits* limits,
  * @param config_dir  Directory the relative paths resolve against, or empty for the working one.
  * @param perm        Arena that owns the copied values. Must not be `NULL`.
  * @param scratch     Arena for the key prefixes of the diagnostics.
- * @param log         Log that receives every error. Must not be `NULL`.
+ * @param log         Log that receives the error. Must not be `NULL`.
+ * @return `0` on success, or `-1` after logging the first error.
  */
-static void site_config_load_repos(struct SiteConfig* site_config,
-                                   toml_datum_t table,
-                                   struct Str config_dir,
-                                   struct Arena* perm,
-                                   struct Arena scratch,
-                                   struct Log* log) __attribute__((nonnull(1, 4, 6)));
+static int site_config_load_repos(struct SiteConfig* site_config,
+                                  toml_datum_t table,
+                                  struct Str config_dir,
+                                  struct Arena* perm,
+                                  struct Arena scratch,
+                                  struct Log* log) __attribute__((nonnull(1, 4, 6)));
 
 /**
  * @brief Copies one `[[repo]]` table and its projects into `repo`.
@@ -198,14 +202,15 @@ static void site_config_load_repos(struct SiteConfig* site_config,
  * @param config_dir Directory the relative paths resolve against, or empty for the working one.
  * @param perm       Arena that owns the copied values. Must not be `NULL`.
  * @param scratch    Arena for the key prefixes of the diagnostics.
- * @param log        Log that receives every error. Must not be `NULL`.
+ * @param log        Log that receives the error. Must not be `NULL`.
+ * @return `0` on success, or `-1` after logging the first error.
  */
-static void site_config_load_repos_one(struct SurgeRepo* repo,
-                                       const struct SiteConfigTable* table,
-                                       struct Str config_dir,
-                                       struct Arena* perm,
-                                       struct Arena scratch,
-                                       struct Log* log) __attribute__((nonnull(1, 2, 4, 6)));
+static int site_config_load_repos_one(struct SurgeRepo* repo,
+                                      const struct SiteConfigTable* table,
+                                      struct Str config_dir,
+                                      struct Arena* perm,
+                                      struct Arena scratch,
+                                      struct Log* log) __attribute__((nonnull(1, 2, 4, 6)));
 
 /**
  * @brief Copies every `[[repo.project]]` table of one repo into `repo`, and checks their names and
@@ -215,13 +220,14 @@ static void site_config_load_repos_one(struct SurgeRepo* repo,
  * @param table   Parsed repo table and its key prefix. Must not be `NULL`.
  * @param perm    Arena that owns the copied values. Must not be `NULL`.
  * @param scratch Arena for the key prefixes of the diagnostics.
- * @param log     Log that receives every error. Must not be `NULL`.
+ * @param log     Log that receives the error. Must not be `NULL`.
+ * @return `0` on success, or `-1` after logging the first error.
  */
-static void site_config_load_repos_one_projects(struct SurgeRepo* repo,
-                                                const struct SiteConfigTable* table,
-                                                struct Arena* perm,
-                                                struct Arena scratch,
-                                                struct Log* log)
+static int site_config_load_repos_one_projects(struct SurgeRepo* repo,
+                                               const struct SiteConfigTable* table,
+                                               struct Arena* perm,
+                                               struct Arena scratch,
+                                               struct Log* log)
     __attribute__((nonnull(1, 2, 3, 5)));
 
 /**
@@ -230,12 +236,13 @@ static void site_config_load_repos_one_projects(struct SurgeRepo* repo,
  * @param project Project that receives the values, zeroed. Must not be `NULL`.
  * @param table   Parsed project table and its key prefix. Must not be `NULL`.
  * @param perm    Arena that owns the copied values. Must not be `NULL`.
- * @param log     Log that receives every error. Must not be `NULL`.
+ * @param log     Log that receives the error. Must not be `NULL`.
+ * @return `0` on success, or `-1` after logging the first error.
  */
-static void site_config_load_repos_one_projects_one(struct SurgeProject* project,
-                                                    const struct SiteConfigTable* table,
-                                                    struct Arena* perm,
-                                                    struct Log* log)
+static int site_config_load_repos_one_projects_one(struct SurgeProject* project,
+                                                   const struct SiteConfigTable* table,
+                                                   struct Arena* perm,
+                                                   struct Log* log)
     __attribute__((nonnull(1, 2, 3, 4)));
 
 /**
@@ -248,9 +255,9 @@ static void site_config_load_repos_one_projects_one(struct SurgeProject* project
  *                        `NULL`.
  * @param tables_out      Receives one entry per table, each with its prefix, such as `repo[0].`.
  *                        Must not be `NULL`.
- * @param table_count_out Receives the number of tables, `0` when the key is absent or rejected.
- *                        Must not be `NULL`.
- * @param log             Log that receives every error. Must not be `NULL`.
+ * @param table_count_out Receives the number of tables, `0` when the key is absent. Must not be
+ *                        `NULL`.
+ * @param log             Log that receives the error. Must not be `NULL`.
  * @return `0` on success or when an optional key is absent, or `-1` on a missing required key, a
  *         value that is not an array of tables, or an empty array for a required key.
  */
@@ -270,9 +277,8 @@ static int copy_tables(const struct SiteConfigTable* table,
  *                       `NULL`.
  * @param reserved_count Number of entries in `reserved_names`.
  * @param arena          Arena that owns the copied name. Must not be `NULL`.
- * @param name_out       Receives the name when it is valid, and keeps its value otherwise. Must not
- *                       be `NULL`.
- * @param log            Log that receives every error. Must not be `NULL`.
+ * @param name_out       Receives the name when it is valid. Must not be `NULL`.
+ * @param log            Log that receives the error. Must not be `NULL`.
  * @return `0` when the name was copied, or `-1` when it is missing, empty, too long, not a valid
  *         name, or reserved.
  */
@@ -336,10 +342,14 @@ int site_config_load(struct SiteConfig* site_config,
   // A relative path in the file names a place next to the file, so the build can run from any
   // directory.
   const struct Str config_dir = path_file_dir(config_path);
-  site_config_load_fields(site_config, parsed.toptab, config_dir, perm, log);
-  site_config_load_repos(site_config, parsed.toptab, config_dir, perm, scratch, log);
+  // The parse's strings must outlive both steps, so the second runs only after the first and the
+  // parse is released after either fails.
+  int rc = site_config_load_fields(site_config, parsed.toptab, config_dir, perm, log);
+  if (rc == 0) {
+    rc = site_config_load_repos(site_config, parsed.toptab, config_dir, perm, scratch, log);
+  }
   toml_free(parsed);
-  return 0;
+  return rc;
 }
 
 int site_config_print(const struct SiteConfig* site_config, struct Os* os, struct Arena scratch) {
@@ -397,29 +407,33 @@ int site_config_print(const struct SiteConfig* site_config, struct Os* os, struc
   return os_print(os, 1, buf_str(&text));
 }
 
-static void site_config_load_fields(struct SiteConfig* site_config,
-                                    toml_datum_t table,
-                                    struct Str config_dir,
-                                    struct Arena* perm,
-                                    struct Log* log) {
-  (void)toml_require_known_keys(table, config_keys, sizeof(config_keys) / sizeof(config_keys[0]),
-                                S("config"), S(""), (struct Str){0}, log);
-  (void)toml_copy_string(table, S(""), "title", true, perm, &site_config->title, log);
-  (void)toml_copy_string(table, S(""), "description", true, perm, &site_config->description, log);
-  (void)toml_copy_string(table, S(""), "author", true, perm, &site_config->author, log);
-  (void)toml_copy_base_url(table, S(""), "base_url", true, perm, &site_config->base_url, log);
+static int site_config_load_fields(struct SiteConfig* site_config,
+                                   toml_datum_t table,
+                                   struct Str config_dir,
+                                   struct Arena* perm,
+                                   struct Log* log) {
+  if (toml_require_known_keys(table, config_keys, sizeof(config_keys) / sizeof(config_keys[0]),
+                              S("config"), S(""), (struct Str){0}, log) != 0 ||
+      toml_copy_string(table, S(""), "title", true, perm, &site_config->title, log) != 0 ||
+      toml_copy_string(table, S(""), "description", true, perm, &site_config->description, log) !=
+          0 ||
+      toml_copy_string(table, S(""), "author", true, perm, &site_config->author, log) != 0 ||
+      toml_copy_base_url(table, S(""), "base_url", true, perm, &site_config->base_url, log) != 0) {
+    return -1;
+  }
   // A default directory resolves against the config's directory too, so that `-c sub/surge.toml`
-  // without `output_dir` writes `sub/public`. A key that is absent or rejected keeps it.
+  // without `output_dir` writes `sub/public`. A key that is absent keeps it.
   site_config->output_dir = path_resolve(config_dir, site_config->output_dir, perm);
   site_config->templates_dir = path_resolve(config_dir, site_config->templates_dir, perm);
   site_config->static_dir = path_resolve(config_dir, site_config->static_dir, perm);
-  site_config->is_output_dir_rejected = toml_copy_dir(table, S(""), "output_dir", false, config_dir,
-                                                      perm, &site_config->output_dir, log) != 0;
-  site_config->is_templates_dir_rejected =
+  if (toml_copy_dir(table, S(""), "output_dir", false, config_dir, perm, &site_config->output_dir,
+                    log) != 0 ||
       toml_copy_dir(table, S(""), "templates_dir", false, config_dir, perm,
-                    &site_config->templates_dir, log) != 0;
-  site_config->is_static_dir_rejected = toml_copy_dir(table, S(""), "static_dir", false, config_dir,
-                                                      perm, &site_config->static_dir, log) != 0;
+                    &site_config->templates_dir, log) != 0 ||
+      toml_copy_dir(table, S(""), "static_dir", false, config_dir, perm, &site_config->static_dir,
+                    log) != 0) {
+    return -1;
+  }
 
   const struct TomlSizeKey counts[] = {
       {
@@ -437,26 +451,31 @@ static void site_config_load_fields(struct SiteConfig* site_config,
       },
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(counts) / sizeof(counts[0])); i++) {
-    (void)toml_copy_size(table, S(""), &counts[i], log);
+    if (toml_copy_size(table, S(""), &counts[i], log) != 0) {
+      return -1;
+    }
   }
-  (void)toml_copy_bool(table, S(""), "headers_file", &site_config->has_headers_file, log);
-  site_config_load_fields_limits(&site_config->limits, table, log);
+  if (toml_copy_bool(table, S(""), "headers_file", &site_config->has_headers_file, log) != 0) {
+    return -1;
+  }
+  return site_config_load_fields_limits(&site_config->limits, table, log);
 }
 
-static void site_config_load_fields_limits(struct SurgeLimits* limits,
-                                           toml_datum_t table,
-                                           struct Log* log) {
+static int site_config_load_fields_limits(struct SurgeLimits* limits,
+                                          toml_datum_t table,
+                                          struct Log* log) {
   const toml_datum_t value = toml_get(table, "limits");
   if (value.type == TOML_UNKNOWN) {
-    return;
+    return 0;
   }
   if (value.type != TOML_TABLE) {
-    (void)log_error(log, "config key 'limits' must be a table");
-    return;
+    return log_error(log, "config key 'limits' must be a table");
   }
   const struct Str key_prefix = S("limits.");
-  (void)toml_require_known_keys(value, limits_keys, sizeof(limits_keys) / sizeof(limits_keys[0]),
-                                S("config"), key_prefix, (struct Str){0}, log);
+  if (toml_require_known_keys(value, limits_keys, sizeof(limits_keys) / sizeof(limits_keys[0]),
+                              S("config"), key_prefix, (struct Str){0}, log) != 0) {
+    return -1;
+  }
   const struct TomlSizeKey keys[] = {
       {
           .key = "blob_len_max",
@@ -507,117 +526,122 @@ static void site_config_load_fields_limits(struct SurgeLimits* limits,
       },
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(keys) / sizeof(keys[0])); i++) {
-    (void)toml_copy_size(value, key_prefix, &keys[i], log);
+    if (toml_copy_size(value, key_prefix, &keys[i], log) != 0) {
+      return -1;
+    }
   }
+  return 0;
 }
 
-static void site_config_load_repos(struct SiteConfig* site_config,
-                                   toml_datum_t table,
-                                   struct Str config_dir,
-                                   struct Arena* perm,
-                                   struct Arena scratch,
-                                   struct Log* log) {
+static int site_config_load_repos(struct SiteConfig* site_config,
+                                  toml_datum_t table,
+                                  struct Str config_dir,
+                                  struct Arena* perm,
+                                  struct Arena scratch,
+                                  struct Log* log) {
   struct SiteConfigTable* tables = NULL;
   ptrdiff_t table_count = 0;
   const struct SiteConfigTable site = {.datum = table};
   if (copy_tables(&site, "repo", true, &scratch, &tables, &table_count, log) != 0) {
-    return;
+    return -1;
   }
   struct SurgeRepo* repos = arena_new(perm, table_count, struct SurgeRepo);
   for (ptrdiff_t i = 0; i < table_count; i++) {
-    site_config_load_repos_one(&repos[i], &tables[i], config_dir, perm, scratch, log);
+    if (site_config_load_repos_one(&repos[i], &tables[i], config_dir, perm, scratch, log) != 0) {
+      return -1;
+    }
   }
   // Two repos whose names differ only in case would share one directory on a case-insensitive host,
   // so both names are refused, and the message names both.
   for (ptrdiff_t i = 0; i < table_count; i++) {
     for (ptrdiff_t j = 0; j < i; j++) {
-      if (repos[i].name.len > 0 && str_eq_folded(repos[i].name, repos[j].name)) {
-        (void)log_error(log,
-                        "config keys '%.*sname' and '%.*sname' name repos that collide after case "
-                        "folding: '%.*s' and '%.*s'",
-                        STR_FMT(tables[j].key_prefix), STR_FMT(tables[i].key_prefix),
-                        STR_FMT(repos[j].name), STR_FMT(repos[i].name));
-        // A later repo is reported once, against the first that it collides with.
-        break;
+      if (str_eq_folded(repos[i].name, repos[j].name)) {
+        return log_error(log,
+                         "config keys '%.*sname' and '%.*sname' name repos that collide after case "
+                         "folding: '%.*s' and '%.*s'",
+                         STR_FMT(tables[j].key_prefix), STR_FMT(tables[i].key_prefix),
+                         STR_FMT(repos[j].name), STR_FMT(repos[i].name));
       }
     }
   }
   site_config->repos = repos;
   site_config->repo_count = table_count;
+  return 0;
 }
 
-static void site_config_load_repos_one(struct SurgeRepo* repo,
-                                       const struct SiteConfigTable* table,
-                                       struct Str config_dir,
-                                       struct Arena* perm,
-                                       struct Arena scratch,
-                                       struct Log* log) {
-  (void)toml_require_known_keys(table->datum, repo_keys, sizeof(repo_keys) / sizeof(repo_keys[0]),
-                                S("config"), table->key_prefix, (struct Str){0}, log);
-  (void)copy_name(table, REPO_NAMES_RESERVED,
-                  sizeof(REPO_NAMES_RESERVED) / sizeof(REPO_NAMES_RESERVED[0]), perm, &repo->name,
-                  log);
-  (void)toml_copy_dir(table->datum, table->key_prefix, "path", true, config_dir, perm, &repo->path,
-                      log);
-  // A description set to an empty string shows none, so the scan must tell it from an absent key.
-  const int description_rc = toml_copy_string(table->datum, table->key_prefix, "description", false,
-                                              perm, &repo->description, log);
-  repo->has_description =
-      description_rc == 0 && toml_get(table->datum, "description").type == TOML_STRING;
-  struct Str default_branch = {0};
-  if (toml_copy_string(table->datum, table->key_prefix, "default_branch", false, perm,
-                       &default_branch, log) == 0) {
-    if (default_branch.data != NULL && default_branch.len == 0) {
-      (void)log_error(log, "config key '%.*sdefault_branch' must not be empty",
-                      STR_FMT(table->key_prefix));
-    } else {
-      repo->default_branch = default_branch;
-    }
+static int site_config_load_repos_one(struct SurgeRepo* repo,
+                                      const struct SiteConfigTable* table,
+                                      struct Str config_dir,
+                                      struct Arena* perm,
+                                      struct Arena scratch,
+                                      struct Log* log) {
+  if (toml_require_known_keys(table->datum, repo_keys, sizeof(repo_keys) / sizeof(repo_keys[0]),
+                              S("config"), table->key_prefix, (struct Str){0}, log) != 0 ||
+      copy_name(table, REPO_NAMES_RESERVED,
+                sizeof(REPO_NAMES_RESERVED) / sizeof(REPO_NAMES_RESERVED[0]), perm, &repo->name,
+                log) != 0 ||
+      toml_copy_dir(table->datum, table->key_prefix, "path", true, config_dir, perm, &repo->path,
+                    log) != 0 ||
+      toml_copy_string(table->datum, table->key_prefix, "description", false, perm,
+                       &repo->description, log) != 0) {
+    return -1;
   }
-  (void)toml_copy_dir(table->datum, table->key_prefix, "releases_dir", false, config_dir, perm,
-                      &repo->releases_dir, log);
-  (void)toml_copy_bool(table->datum, table->key_prefix, "mise", &repo->is_mise, log);
-  site_config_load_repos_one_projects(repo, table, perm, scratch, log);
+  // A description set to an empty string shows none, so the scan must tell it from an absent key.
+  repo->has_description = toml_get(table->datum, "description").type == TOML_STRING;
+  if (toml_copy_string(table->datum, table->key_prefix, "default_branch", false, perm,
+                       &repo->default_branch, log) != 0) {
+    return -1;
+  }
+  if (repo->default_branch.data != NULL && repo->default_branch.len == 0) {
+    return log_error(log, "config key '%.*sdefault_branch' must not be empty",
+                     STR_FMT(table->key_prefix));
+  }
+  if (toml_copy_dir(table->datum, table->key_prefix, "releases_dir", false, config_dir, perm,
+                    &repo->releases_dir, log) != 0 ||
+      toml_copy_bool(table->datum, table->key_prefix, "mise", &repo->is_mise, log) != 0 ||
+      site_config_load_repos_one_projects(repo, table, perm, scratch, log) != 0) {
+    return -1;
+  }
   if (repo->is_mise && repo->releases_dir.len == 0) {
-    (void)log_error(log, "config key '%.*smise' needs '%.*sreleases_dir'",
-                    STR_FMT(table->key_prefix), STR_FMT(table->key_prefix));
+    return log_error(log, "config key '%.*smise' needs '%.*sreleases_dir'",
+                     STR_FMT(table->key_prefix), STR_FMT(table->key_prefix));
   }
   // A project with a `tag_prefix` takes the repo's releases, and has a `mise` of its own.
   for (ptrdiff_t i = 0; repo->is_mise && i < repo->project_count; i++) {
     if (repo->projects[i].tag_prefix.len > 0) {
-      (void)log_error(log,
-                      "config key '%.*smise' must not be set in a repo whose projects have a "
-                      "'tag_prefix': set the projects' 'mise' instead",
-                      STR_FMT(table->key_prefix));
-      break;
+      return log_error(log,
+                       "config key '%.*smise' must not be set in a repo whose projects have a "
+                       "'tag_prefix': set the projects' 'mise' instead",
+                       STR_FMT(table->key_prefix));
     }
   }
+  return 0;
 }
 
-static void site_config_load_repos_one_projects(struct SurgeRepo* repo,
-                                                const struct SiteConfigTable* table,
-                                                struct Arena* perm,
-                                                struct Arena scratch,
-                                                struct Log* log) {
+static int site_config_load_repos_one_projects(struct SurgeRepo* repo,
+                                               const struct SiteConfigTable* table,
+                                               struct Arena* perm,
+                                               struct Arena scratch,
+                                               struct Log* log) {
   struct SiteConfigTable* tables = NULL;
   ptrdiff_t table_count = 0;
   if (copy_tables(table, "project", false, &scratch, &tables, &table_count, log) != 0) {
-    return;
+    return -1;
   }
   struct SurgeProject* projects = arena_new(perm, table_count, struct SurgeProject);
   for (ptrdiff_t i = 0; i < table_count; i++) {
-    site_config_load_repos_one_projects_one(&projects[i], &tables[i], perm, log);
+    if (site_config_load_repos_one_projects_one(&projects[i], &tables[i], perm, log) != 0) {
+      return -1;
+    }
   }
   for (ptrdiff_t i = 0; i < table_count; i++) {
-    // A later project is reported once, against the first that it collides with.
     for (ptrdiff_t j = 0; j < i; j++) {
-      if (projects[i].name.len > 0 && str_eq_folded(projects[i].name, projects[j].name)) {
-        (void)log_error(log,
-                        "config keys '%.*sname' and '%.*sname' name projects that collide after "
-                        "case folding: '%.*s' and '%.*s'",
-                        STR_FMT(tables[j].key_prefix), STR_FMT(tables[i].key_prefix),
-                        STR_FMT(projects[j].name), STR_FMT(projects[i].name));
-        break;
+      if (str_eq_folded(projects[i].name, projects[j].name)) {
+        return log_error(log,
+                         "config keys '%.*sname' and '%.*sname' name projects that collide after "
+                         "case folding: '%.*s' and '%.*s'",
+                         STR_FMT(tables[j].key_prefix), STR_FMT(tables[i].key_prefix),
+                         STR_FMT(projects[j].name), STR_FMT(projects[i].name));
       }
     }
     // A tag that starts with both prefixes would belong to two projects. Overlap is not transitive,
@@ -627,59 +651,62 @@ static void site_config_load_repos_one_projects(struct SurgeRepo* repo,
       const struct Str prefix_b = projects[i].tag_prefix;
       if (prefix_a.len > 0 && prefix_b.len > 0 &&
           (str_startswith(prefix_a, prefix_b) || str_startswith(prefix_b, prefix_a))) {
-        (void)log_error(log,
-                        "config keys '%.*stag_prefix' and '%.*stag_prefix' overlap: '%.*s' and "
-                        "'%.*s'",
-                        STR_FMT(tables[j].key_prefix), STR_FMT(tables[i].key_prefix),
-                        STR_FMT(prefix_a), STR_FMT(prefix_b));
+        return log_error(log,
+                         "config keys '%.*stag_prefix' and '%.*stag_prefix' overlap: '%.*s' and "
+                         "'%.*s'",
+                         STR_FMT(tables[j].key_prefix), STR_FMT(tables[i].key_prefix),
+                         STR_FMT(prefix_a), STR_FMT(prefix_b));
       }
     }
   }
   repo->projects = projects;
   repo->project_count = table_count;
+  return 0;
 }
 
-static void site_config_load_repos_one_projects_one(struct SurgeProject* project,
-                                                    const struct SiteConfigTable* table,
-                                                    struct Arena* perm,
-                                                    struct Log* log) {
-  (void)toml_require_known_keys(table->datum, project_keys,
-                                sizeof(project_keys) / sizeof(project_keys[0]), S("config"),
-                                table->key_prefix, (struct Str){0}, log);
-  (void)copy_name(table, PROJECT_NAMES_RESERVED,
-                  sizeof(PROJECT_NAMES_RESERVED) / sizeof(PROJECT_NAMES_RESERVED[0]), perm,
-                  &project->name, log);
+static int site_config_load_repos_one_projects_one(struct SurgeProject* project,
+                                                   const struct SiteConfigTable* table,
+                                                   struct Arena* perm,
+                                                   struct Log* log) {
   struct Str path = {0};
-  if (toml_copy_string(table->datum, table->key_prefix, "path", true, perm, &path, log) == 0) {
-    const struct Str trimmed = path_trim_trailing_slashes(path);
-    if (path.len == 0) {
-      (void)log_error(log, "config key '%.*spath' must not be empty", STR_FMT(table->key_prefix));
-    } else if (!is_repo_relative_path(trimmed)) {
-      (void)log_error(log,
-                      "config key '%.*spath' must be a relative path in the repo without an "
-                      "empty, '.' or '..' segment: '%.*s'",
-                      STR_FMT(table->key_prefix), STR_FMT(path));
-    } else {
-      project->path = trimmed;
-    }
+  if (toml_require_known_keys(table->datum, project_keys,
+                              sizeof(project_keys) / sizeof(project_keys[0]), S("config"),
+                              table->key_prefix, (struct Str){0}, log) != 0 ||
+      copy_name(table, PROJECT_NAMES_RESERVED,
+                sizeof(PROJECT_NAMES_RESERVED) / sizeof(PROJECT_NAMES_RESERVED[0]), perm,
+                &project->name, log) != 0 ||
+      toml_copy_string(table->datum, table->key_prefix, "path", true, perm, &path, log) != 0) {
+    return -1;
   }
-  (void)toml_copy_string(table->datum, table->key_prefix, "description", false, perm,
-                         &project->description, log);
-  struct Str tag_prefix = {0};
-  if (toml_copy_string(table->datum, table->key_prefix, "tag_prefix", false, perm, &tag_prefix,
-                       log) == 0) {
-    if (tag_prefix.data != NULL && tag_prefix.len == 0) {
-      (void)log_error(log, "config key '%.*stag_prefix' must not be empty",
-                      STR_FMT(table->key_prefix));
-    } else {
-      project->tag_prefix = tag_prefix;
-    }
+  const struct Str trimmed = path_trim_trailing_slashes(path);
+  if (path.len == 0) {
+    return log_error(log, "config key '%.*spath' must not be empty", STR_FMT(table->key_prefix));
   }
-  (void)toml_copy_bool(table->datum, table->key_prefix, "mise", &project->is_mise, log);
-  if (project->is_mise && tag_prefix.data == NULL) {
-    (void)log_error(log, "config key '%.*smise' needs '%.*stag_prefix'", STR_FMT(table->key_prefix),
-                    STR_FMT(table->key_prefix));
+  if (!is_repo_relative_path(trimmed)) {
+    return log_error(log,
+                     "config key '%.*spath' must be a relative path in the repo without an empty, "
+                     "'.' or '..' segment: '%.*s'",
+                     STR_FMT(table->key_prefix), STR_FMT(path));
   }
+  project->path = trimmed;
+  if (toml_copy_string(table->datum, table->key_prefix, "description", false, perm,
+                       &project->description, log) != 0 ||
+      toml_copy_string(table->datum, table->key_prefix, "tag_prefix", false, perm,
+                       &project->tag_prefix, log) != 0) {
+    return -1;
+  }
+  if (project->tag_prefix.data != NULL && project->tag_prefix.len == 0) {
+    return log_error(log, "config key '%.*stag_prefix' must not be empty",
+                     STR_FMT(table->key_prefix));
+  }
+  if (toml_copy_bool(table->datum, table->key_prefix, "mise", &project->is_mise, log) != 0) {
+    return -1;
+  }
+  if (project->is_mise && project->tag_prefix.data == NULL) {
+    return log_error(log, "config key '%.*smise' needs '%.*stag_prefix'",
+                     STR_FMT(table->key_prefix), STR_FMT(table->key_prefix));
+  }
+  return 0;
 }
 
 static int copy_tables(const struct SiteConfigTable* table,

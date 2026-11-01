@@ -191,11 +191,13 @@ static void build_state_init(struct BuildState* state,
                              struct Arena scratch) __attribute__((nonnull(1, 2, 3, 4)));
 
 /**
- * @brief Loads the configuration, sets libgit2 up, opens every repo, rejects an `output_dir` that
- *        overlaps an input, and lists the templates and the static files.
+ * @brief Loads the configuration, checks the read roots, sets libgit2 up, opens every repo, rejects
+ *        an `output_dir` that overlaps an input, and lists the templates and the static files.
+ *
+ * Each step stops the load when it fails.
  *
  * @param state Build state that receives the inputs. Must not be `NULL`.
- * @param log   Log that receives every error. Must not be `NULL`.
+ * @param log   Log that receives the errors of the step that failed. Must not be `NULL`.
  * @return `0` when the build has inputs to go on with, or `-1` otherwise.
  */
 static int load_build_inputs(struct BuildState* state, struct Log* log)
@@ -203,7 +205,7 @@ static int load_build_inputs(struct BuildState* state, struct Log* log)
 
 /**
  * @brief Requires `templates_dir` to be a directory, and `static_dir` and each repo's
- *        `releases_dir` to be one when it exists, and checks no directory whose key was rejected.
+ *        `releases_dir` to be one when it exists.
  *
  * @param state Build state holding the configuration. Must not be `NULL`.
  * @param log   Log that receives every error. Must not be `NULL`.
@@ -581,28 +583,16 @@ static int load_build_inputs(struct BuildState* state, struct Log* log) {
   }
   const struct SiteConfig* site_config = &state->site_config;
   state->writer.output_dir = site_config->output_dir;
-  const bool has_config_errors = log->errors > 0;
-  const int roots_rc = load_build_inputs_require_read_roots(state, log);
-  // A rejected directory holds a default the user never chose, so nothing checks or walks it.
-  if (site_config->is_output_dir_rejected || site_config->is_templates_dir_rejected ||
-      site_config->is_static_dir_rejected) {
+  if (load_build_inputs_require_read_roots(state, log) != 0 || repository_setup(log) != 0) {
     return -1;
   }
-  if (repository_setup(log) != 0) {
-    return -1;
-  }
-  // A directory that failed its check, and any other config error, still let the repos open and the
-  // overlap check run, so one run reports them together, and stop the build before the walks. Only
-  // a repo that does not open stops the build first: without its directories there is nothing to
-  // check the output against.
   state->scans = arena_new(&state->perm, site_config->repo_count, struct RepoScan);
   if (repo_scan_locate(site_config, &state->perm, state->scans, log) != 0) {
     return -1;
   }
   state->roots = load_build_inputs_roots(state, &state->root_count);
   if (manifest_builder_check_output_dir(site_config->output_dir, state->roots, state->root_count,
-                                        state->config_path, state->os, state->scratch, log) != 0 ||
-      roots_rc != 0 || has_config_errors) {
+                                        state->config_path, state->os, state->scratch, log) != 0) {
     return -1;
   }
   verbose_printf(&state->verbose, "discovering templates and static files");
@@ -620,13 +610,10 @@ static int load_build_inputs_require_read_roots(const struct BuildState* state, 
   struct Arena scratch = state->scratch;
   struct ReadRoot* roots = arena_new(&scratch, 2 + site_config->repo_count, struct ReadRoot);
   ptrdiff_t root_count = 0;
-  roots[root_count++] = (struct ReadRoot){.dir_path = site_config->templates_dir,
-                                          .key = S("templates_dir"),
-                                          .is_rejected = site_config->is_templates_dir_rejected};
-  roots[root_count++] = (struct ReadRoot){.dir_path = site_config->static_dir,
-                                          .key = S("static_dir"),
-                                          .is_optional = true,
-                                          .is_rejected = site_config->is_static_dir_rejected};
+  roots[root_count++] =
+      (struct ReadRoot){.dir_path = site_config->templates_dir, .key = S("templates_dir")};
+  roots[root_count++] = (struct ReadRoot){
+      .dir_path = site_config->static_dir, .key = S("static_dir"), .is_optional = true};
   // A repo's `releases_dir` is filled by CI, so it may not exist before the first release.
   for (ptrdiff_t i = 0; i < site_config->repo_count; i++) {
     const struct Str releases_dir = site_config->repos[i].releases_dir;

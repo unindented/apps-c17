@@ -41,16 +41,16 @@ static int load_text(const char* text, struct SiteConfig* config_out, struct Log
 }
 
 /**
- * @brief Reports whether loading `text` reads the file and logs exactly `expected`.
+ * @brief Reports whether loading `text` fails and logs exactly `expected`.
  *
  * @param text     Terminated config text. Must not be `NULL`.
  * @param expected Terminated text the log must hold. Must not be `NULL`.
- * @return `true` when the load read the file and the log holds `expected`.
+ * @return `true` when the load failed and the log holds `expected`.
  */
 static bool is_logged_as(const char* text, const char* expected) {
   struct SiteConfig site_config;
   struct Log log = test_log();
-  return load_text(text, &site_config, &log) == 0 && test_log_is(&log, "%s", expected);
+  return load_text(text, &site_config, &log) == -1 && test_log_is(&log, "%s", expected);
 }
 
 // A config with only the required keys gets every default, and its `base_url` loses its trailing
@@ -207,21 +207,31 @@ static void test_load_accepts_project_paths_of_any_bytes(void) {
   TEST_CHECK(str_eq(site_config.repos[0].projects[3].path, S("..a/b..")));
 }
 
-// Every missing required key is reported in one load, each named by its table.
+// A missing required key stops the load, named by its table.
 static void test_load_reports_missing_required_keys(void) {
   TEST_CHECK(
-      is_logged_as("[[repo]]\n"
-                   "description = \"x\"\n"
-                   "[[repo.project]]\n"
-                   "tag_prefix = \"v\"\n",
-                   "missing required config key 'title'\n"
-                   "missing required config key 'description'\n"
-                   "missing required config key 'author'\n"
-                   "missing required config key 'base_url'\n"
-                   "missing required config key 'repo[0].name'\n"
-                   "missing required config key 'repo[0].path'\n"
-                   "missing required config key 'repo[0].project[0].name'\n"
-                   "missing required config key 'repo[0].project[0].path'\n"));
+      is_logged_as("description = \"d\"\n" REPO_TABLE, "missing required config key 'title'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\npath = \"a\"\n",
+                          "missing required config key 'repo[0].name'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"a\"\n",
+                          "missing required config key 'repo[0].path'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"a\"\npath = \"a\"\n"
+                                    "[[repo.project]]\npath = \"p\"\n",
+                          "missing required config key 'repo[0].project[0].name'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"a\"\npath = \"a\"\n"
+                                    "[[repo.project]]\nname = \"p\"\n",
+                          "missing required config key 'repo[0].project[0].path'\n"));
+}
+
+// The load stops at its first error, so a later mistake in the same file is not reported.
+static void test_load_stops_at_first_error(void) {
+  TEST_CHECK(
+      is_logged_as("title = 1\n"
+                   "description = \"d\"\n"
+                   "author = [\"a\"]\n"
+                   "base_url = \"https://x\"\n"
+                   "repo = 4\n",
+                   "config key 'title' must be a string\n"));
 }
 
 // A config without a repo, or with an empty list of them, has nothing to render.
@@ -230,174 +240,116 @@ static void test_load_requires_a_repo(void) {
   TEST_CHECK(is_logged_as(SITE_KEYS "repo = []\n", "config key 'repo' must not be empty\n"));
 }
 
-// A key of the wrong type is reported apart from a missing one, and keeps its default, or stays
-// empty when it is required.
+// A key of the wrong type is reported apart from a missing one.
 static void test_load_reports_wrong_types(void) {
-  struct SiteConfig site_config;
-  struct Log log = test_log();
-  TEST_CHECK(load_text("title = 1\n"
-                       "description = \"d\"\n"
-                       "author = [\"a\"]\n"
-                       "base_url = \"https://x\"\n"
-                       "output_dir = 2\n"
-                       "log_page_size = \"x\"\n"
-                       "headers_file = \"yes\"\n"
-                       "limits = 3\n"
-                       "repo = 4\n",
-                       &site_config, &log) == 0);
-  TEST_CHECK(test_log_is(&log,
-                         "config key 'title' must be a string\n"
-                         "config key 'author' must be a string\n"
-                         "config key 'output_dir' must be a string\n"
-                         "config key 'log_page_size' must be an integer\n"
-                         "config key 'headers_file' must be a boolean\n"
-                         "config key 'limits' must be a table\n"
-                         "config key 'repo' must be an array of tables\n"));
-  TEST_CHECK(site_config.author.len == 0);
-  TEST_CHECK(str_eq(site_config.output_dir, S("public")));
-  TEST_CHECK(site_config.is_output_dir_rejected);
-  TEST_CHECK(site_config.log_page_size == 100);
-  TEST_CHECK(!site_config.has_headers_file);
+  TEST_CHECK(
+      is_logged_as("title = \"t\"\n"
+                   "description = \"d\"\n"
+                   "author = [\"a\"]\n"
+                   "base_url = \"https://x\"\n" REPO_TABLE,
+                   "config key 'author' must be a string\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "output_dir = 2\n" REPO_TABLE,
+                          "config key 'output_dir' must be a string\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "log_page_size = \"x\"\n" REPO_TABLE,
+                          "config key 'log_page_size' must be an integer\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "headers_file = \"yes\"\n" REPO_TABLE,
+                          "config key 'headers_file' must be a boolean\n"));
+  TEST_CHECK(
+      is_logged_as(SITE_KEYS "limits = 3\n" REPO_TABLE, "config key 'limits' must be a table\n"));
+  TEST_CHECK(
+      is_logged_as(SITE_KEYS "repo = 4\n", "config key 'repo' must be an array of tables\n"));
 }
 
 // A key outside the schema is reported at every level, with its full dotted name.
 static void test_load_rejects_unknown_keys(void) {
-  TEST_CHECK(is_logged_as(SITE_KEYS "colour = 1\n"
-                                    "[limits]\n"
-                                    "tree_len_max = 1\n"
-                                    "[[repo]]\n"
-                                    "name = \"one\"\n"
-                                    "path = \"one\"\n"
-                                    "branches = []\n"
-                                    "[[repo.project]]\n"
-                                    "name = \"p\"\n"
-                                    "path = \"p\"\n"
-                                    "release = true\n",
-                          "unknown config key 'colour'\n"
-                          "unknown config key 'limits.tree_len_max'\n"
-                          "unknown config key 'repo[0].branches'\n"
+  TEST_CHECK(is_logged_as(SITE_KEYS "colour = 1\n" REPO_TABLE, "unknown config key 'colour'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[limits]\ntree_len_max = 1\n" REPO_TABLE,
+                          "unknown config key 'limits.tree_len_max'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS REPO_TABLE "branches = []\n",
+                          "unknown config key 'repo[0].branches'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS REPO_TABLE "[[repo.project]]\n"
+                                               "name = \"p\"\n"
+                                               "path = \"p\"\n"
+                                               "release = true\n",
                           "unknown config key 'repo[0].project[0].release'\n"));
 }
 
-// `base_url` needs an HTTP(S) scheme and a host, and a rejected one becomes empty. `core/url`'s
-// tests cover the other URLs without a host.
+// `base_url` needs an HTTP(S) scheme and a host. `core/url`'s tests cover the other URLs without a
+// host.
 static void test_load_rejects_base_url_without_host(void) {
-  struct SiteConfig site_config;
-  struct Log log = test_log();
-  TEST_CHECK(load_text("title = \"t\"\n"
-                       "description = \"d\"\n"
-                       "author = \"a\"\n"
-                       "base_url = \"https:///path\"\n" REPO_TABLE,
-                       &site_config, &log) == 0);
-  TEST_CHECK(test_log_is(&log,
-                         "config key 'base_url' must be an absolute 'http://' or 'https://' URL "
-                         "with a host: 'https:///path'\n"));
-  TEST_CHECK(site_config.base_url.len == 0);
+  TEST_CHECK(
+      is_logged_as("title = \"t\"\n"
+                   "description = \"d\"\n"
+                   "author = \"a\"\n"
+                   "base_url = \"https:///path\"\n" REPO_TABLE,
+                   "config key 'base_url' must be an absolute 'http://' or 'https://' URL "
+                   "with a host: 'https:///path'\n"));
 }
 
 // A `base_url` with a query, a fragment, a space or a control byte would break every link below it,
-// so it is rejected, and the config keeps no `base_url`. `core/url`'s tests cover each byte.
+// so it is rejected. `core/url`'s tests cover each byte.
 static void test_load_rejects_base_url_with_path_breaking_byte(void) {
-  struct SiteConfig site_config;
-  struct Log log = test_log();
-  TEST_CHECK(load_text("title = \"t\"\n"
-                       "description = \"d\"\n"
-                       "author = \"a\"\n"
-                       "base_url = \"https://example.org/x?y=1\"\n" REPO_TABLE,
-                       &site_config, &log) == 0);
-  TEST_CHECK(test_log_is(&log,
-                         "config key 'base_url' must not hold '?', '#', a space or a control "
-                         "character: 'https://example.org/x?y=1'\n"));
-  TEST_CHECK(site_config.base_url.len == 0);
+  TEST_CHECK(
+      is_logged_as("title = \"t\"\n"
+                   "description = \"d\"\n"
+                   "author = \"a\"\n"
+                   "base_url = \"https://example.org/x?y=1\"\n" REPO_TABLE,
+                   "config key 'base_url' must not hold '?', '#', a space or a control "
+                   "character: 'https://example.org/x?y=1'\n"));
 }
 
-// A count below its minimum or above its maximum is rejected with its bound, and keeps its default.
-// `BLOB_LEN_MAX_LIMIT` and `LOG_PAGE_SIZE_MAX` are file-local to `site_config.c`, so they are
-// spelled out here with `SURGE_RAW_LEN_MAX_LIMIT`, and changing any of them must update this test.
+// A count below its minimum or above its maximum is rejected with its bound. `BLOB_LEN_MAX_LIMIT`
+// and `LOG_PAGE_SIZE_MAX` are file-local to `site_config.c`, so they are spelled out here with
+// `SURGE_RAW_LEN_MAX_LIMIT`, and changing any of them must update this test.
 static void test_load_bounds_integers(void) {
-  struct SiteConfig site_config;
-  struct Log log = test_log();
-  TEST_CHECK(load_text(SITE_KEYS "log_page_size = 0\n"
-                                 "feed_count = -1\n"
-                                 "[limits]\n"
-                                 "blob_len_max = 4194305\n"
-                                 "raw_len_max = 1073741825\n"
-                                 "image_len_max = 4194305\n" REPO_TABLE,
-                       &site_config, &log) == 0);
-  TEST_CHECK(test_log_is(&log,
-                         "config key 'log_page_size' must be at least 1: 0\n"
-                         "config key 'feed_count' must be at least 0: -1\n"
-                         "config key 'limits.blob_len_max' exceeds max blob length (4194304 "
-                         "bytes) at 4194305 bytes\n"
-                         "config key 'limits.raw_len_max' exceeds max raw length (1073741824 "
-                         "bytes) at 1073741825 bytes\n"
-                         "config key 'limits.image_len_max' exceeds max image length (4194304 "
-                         "bytes) at 4194305 bytes\n"));
-  TEST_CHECK(site_config.log_page_size == 100);
-  TEST_CHECK(site_config.feed_count == 25);
-  TEST_CHECK(site_config.limits.blob_len_max == 1024 * 1024);
-  TEST_CHECK(site_config.limits.raw_len_max == 100 * 1024 * 1024);
-  struct SiteConfig large;
-  struct Log large_log = test_log();
-  TEST_CHECK(load_text(SITE_KEYS "log_page_size = 10001\n" REPO_TABLE, &large, &large_log) == 0);
-  TEST_CHECK(test_log_is(
-      &large_log, "config key 'log_page_size' exceeds max log page size (10000) at 10001\n"));
-  TEST_CHECK(large.log_page_size == 100);
+  TEST_CHECK(is_logged_as(SITE_KEYS "log_page_size = 0\n" REPO_TABLE,
+                          "config key 'log_page_size' must be at least 1: 0\n"));
+  TEST_CHECK(
+      is_logged_as(SITE_KEYS "log_page_size = 10001\n" REPO_TABLE,
+                   "config key 'log_page_size' exceeds max log page size (10000) at 10001\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "feed_count = -1\n" REPO_TABLE,
+                          "config key 'feed_count' must be at least 0: -1\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[limits]\nblob_len_max = 4194305\n" REPO_TABLE,
+                          "config key 'limits.blob_len_max' exceeds max blob length (4194304 "
+                          "bytes) at 4194305 bytes\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[limits]\nraw_len_max = 1073741825\n" REPO_TABLE,
+                          "config key 'limits.raw_len_max' exceeds max raw length (1073741824 "
+                          "bytes) at 1073741825 bytes\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[limits]\nimage_len_max = 4194305\n" REPO_TABLE,
+                          "config key 'limits.image_len_max' exceeds max image length (4194304 "
+                          "bytes) at 4194305 bytes\n"));
 }
 
-// A directory that is empty, or trims to empty, `/` included, names no directory, and keeps its
-// default.
+// A directory that is empty, or trims to empty, `/` included, names no directory, and a repo's
+// directories follow the same rule.
 static void test_load_rejects_empty_dirs(void) {
-  struct SiteConfig site_config;
-  struct Log log = test_log();
-  TEST_CHECK(load_text(SITE_KEYS "templates_dir = \"\"\nstatic_dir = \"/\"\n" REPO_TABLE,
-                       &site_config, &log) == 0);
-  TEST_CHECK(test_log_is(&log,
-                         "config key 'templates_dir' must not be empty\n"
-                         "config key 'static_dir' must not be empty\n"));
-  TEST_CHECK(str_eq(site_config.templates_dir, S("templates")));
-  TEST_CHECK(site_config.is_templates_dir_rejected);
-  TEST_CHECK(str_eq(site_config.static_dir, S("static")));
-  TEST_CHECK(site_config.is_static_dir_rejected);
-  // A repo's directories follow the same rule.
-  struct Log repo_log = test_log();
-  TEST_CHECK(load_text(SITE_KEYS "[[repo]]\nname = \"a\"\npath = \"/\"\nreleases_dir = \"//\"\n",
-                       &site_config, &repo_log) == 0);
-  TEST_CHECK(test_log_is(&repo_log,
-                         "config key 'repo[0].path' must not be empty\n"
-                         "config key 'repo[0].releases_dir' must not be empty\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "templates_dir = \"\"\n" REPO_TABLE,
+                          "config key 'templates_dir' must not be empty\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "static_dir = \"/\"\n" REPO_TABLE,
+                          "config key 'static_dir' must not be empty\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"a\"\npath = \"/\"\n",
+                          "config key 'repo[0].path' must not be empty\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"a\"\npath = \"a\"\nreleases_dir = \"//\"\n",
+                          "config key 'repo[0].releases_dir' must not be empty\n"));
 }
 
-// An empty `default_branch` names no branch, so it is rejected rather than read as absent, and the
-// repo keeps no default branch.
+// An empty `default_branch` names no branch, so it is rejected rather than read as absent.
 static void test_load_rejects_empty_default_branch(void) {
-  struct SiteConfig site_config;
-  struct Log log = test_log();
-  TEST_CHECK(load_text(SITE_KEYS "[[repo]]\nname = \"a\"\npath = \"a\"\ndefault_branch = \"\"\n",
-                       &site_config, &log) == 0);
-  TEST_CHECK(test_log_is(&log, "config key 'repo[0].default_branch' must not be empty\n"));
-  TEST_ASSERT(site_config.repo_count == 1);
-  TEST_CHECK(site_config.repos[0].default_branch.data == NULL);
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"a\"\npath = \"a\"\ndefault_branch = \"\"\n",
+                          "config key 'repo[0].default_branch' must not be empty\n"));
 }
 
-// A name with a byte outside the allowed set, a leading `.` or a `.git` suffix is rejected, and the
-// repo keeps no name.
+// A name with a byte outside the allowed set, a leading `.` or a `.git` suffix is rejected.
 static void test_load_rejects_invalid_names(void) {
-  struct SiteConfig site_config;
-  struct Log log = test_log();
-  TEST_CHECK(load_text(SITE_KEYS "[[repo]]\nname = \"a b\"\npath = \"a\"\n"
-                                 "[[repo]]\nname = \".hidden\"\npath = \"b\"\n"
-                                 "[[repo]]\nname = \"c.GIT\"\npath = \"c\"\n",
-                       &site_config, &log) == 0);
-  TEST_CHECK(test_log_is(&log,
-                         "config key 'repo[0].name' must use only letters, digits, '.', '_' and "
-                         "'-', not start with '.' and not end in '.git': 'a b'\n"
-                         "config key 'repo[1].name' must use only letters, digits, '.', '_' and "
-                         "'-', not start with '.' and not end in '.git': '.hidden'\n"
-                         "config key 'repo[2].name' must use only letters, digits, '.', '_' and "
-                         "'-', not start with '.' and not end in '.git': 'c.GIT'\n"));
-  TEST_ASSERT(site_config.repo_count == 3);
-  TEST_CHECK(site_config.repos[0].name.len == 0);
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"a b\"\npath = \"a\"\n",
+                          "config key 'repo[0].name' must use only letters, digits, '.', '_' and "
+                          "'-', not start with '.' and not end in '.git': 'a b'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \".hidden\"\npath = \"b\"\n",
+                          "config key 'repo[0].name' must use only letters, digits, '.', '_' and "
+                          "'-', not start with '.' and not end in '.git': '.hidden'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"c.GIT\"\npath = \"c\"\n",
+                          "config key 'repo[0].name' must use only letters, digits, '.', '_' and "
+                          "'-', not start with '.' and not end in '.git': 'c.GIT'\n"));
 }
 
 // An empty name says so, as an empty path does.
@@ -426,117 +378,117 @@ static void test_load_rejects_long_names(void) {
 // A repo may not take a name the output root uses, in any case, and a project may not take a name
 // that `releases/` already holds.
 static void test_load_rejects_reserved_names(void) {
-  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"Index.HTML\"\npath = \"a\"\n"
-                                    "[[repo]]\nname = \"404.html\"\npath = \"b\"\n"
-                                    "[[repo]]\nname = \"_Headers\"\npath = \"f\"\n"
-                                    "[[repo]]\nname = \"_SURGE\"\npath = \"c\"\n"
-                                    "[[repo.project]]\nname = \"Download\"\npath = \"d\"\n"
-                                    "[[repo.project]]\nname = \"tag\"\npath = \"e\"\n"
-                                    "[[repo.project]]\nname = \"INDEX.html\"\npath = \"g\"\n",
-                          "config key 'repo[0].name' must not be 'index.html' in any case: "
-                          "'Index.HTML'\n"
-                          "config key 'repo[1].name' must not be '404.html' in any case: "
-                          "'404.html'\n"
-                          "config key 'repo[2].name' must not be '_headers' in any case: "
-                          "'_Headers'\n"
-                          "config key 'repo[3].name' must not be '_surge' in any case: "
-                          "'_SURGE'\n"
-                          "config key 'repo[3].project[0].name' must not be 'download' in any "
-                          "case: 'Download'\n"
-                          "config key 'repo[3].project[1].name' must not be 'tag' in any "
-                          "case: 'tag'\n"
-                          "config key 'repo[3].project[2].name' must not be 'index.html' in any "
-                          "case: 'INDEX.html'\n"));
-}
-
-// Each later repo of one name is reported once, against the first.
-static void test_load_reports_each_colliding_repo_once(void) {
-  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"a\"\npath = \"a\"\n"
-                                    "[[repo]]\nname = \"A\"\npath = \"b\"\n"
-                                    "[[repo]]\nname = \"a\"\npath = \"c\"\n",
-                          "config keys 'repo[0].name' and 'repo[1].name' name repos that collide "
-                          "after case folding: 'a' and 'A'\n"
-                          "config keys 'repo[0].name' and 'repo[2].name' name repos that collide "
-                          "after case folding: 'a' and 'a'\n"));
+  static const struct {
+    const char* name;
+    const char* reserved;
+  } repo_cases[] = {
+      {"Index.HTML", "index.html"},
+      {"404.html", "404.html"},
+      {"_Headers", "_headers"},
+      {"_SURGE", "_surge"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(repo_cases) / sizeof(repo_cases[0])); i++) {
+    struct Arena text_arena = test_arena();
+    struct Buf text = {.arena = &text_arena};
+    buf_printf(&text, SITE_KEYS "[[repo]]\nname = \"%s\"\npath = \"a\"\n", repo_cases[i].name);
+    struct Arena expected_arena = test_arena();
+    struct Buf expected = {.arena = &expected_arena};
+    buf_printf(&expected, "config key 'repo[0].name' must not be '%s' in any case: '%s'\n",
+               repo_cases[i].reserved, repo_cases[i].name);
+    TEST_CHECK(is_logged_as(buf_cstr(&text), buf_cstr(&expected)));
+    TEST_MSG("repo name '%s'", repo_cases[i].name);
+  }
+  static const struct {
+    const char* name;
+    const char* reserved;
+  } project_cases[] = {
+      {"Download", "download"},
+      {"tag", "tag"},
+      {"INDEX.html", "index.html"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(project_cases) / sizeof(project_cases[0])); i++) {
+    struct Arena text_arena = test_arena();
+    struct Buf text = {.arena = &text_arena};
+    buf_printf(&text, SITE_KEYS REPO_TABLE "[[repo.project]]\nname = \"%s\"\npath = \"d\"\n",
+               project_cases[i].name);
+    struct Arena expected_arena = test_arena();
+    struct Buf expected = {.arena = &expected_arena};
+    buf_printf(&expected,
+               "config key 'repo[0].project[0].name' must not be '%s' in any case: '%s'\n",
+               project_cases[i].reserved, project_cases[i].name);
+    TEST_CHECK(is_logged_as(buf_cstr(&text), buf_cstr(&expected)));
+    TEST_MSG("project name '%s'", project_cases[i].name);
+  }
 }
 
 // Two repos, or two projects of one repo, whose names differ only in case refuse the load, and the
-// message names both.
+// message names both. A later repo is reported against the first that it collides with.
 static void test_load_rejects_colliding_names(void) {
   TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"Code\"\npath = \"a\"\n"
                                     "[[repo.project]]\nname = \"lib\"\npath = \"x\"\n"
-                                    "[[repo.project]]\nname = \"LIB\"\npath = \"y\"\n"
-                                    "[[repo]]\nname = \"code\"\npath = \"b\"\n",
+                                    "[[repo.project]]\nname = \"LIB\"\npath = \"y\"\n",
                           "config keys 'repo[0].project[0].name' and 'repo[0].project[1].name' "
-                          "name projects that collide after case folding: 'lib' and 'LIB'\n"
-                          "config keys 'repo[0].name' and 'repo[1].name' name repos that "
+                          "name projects that collide after case folding: 'lib' and 'LIB'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"b\"\npath = \"b\"\n"
+                                    "[[repo]]\nname = \"Code\"\npath = \"a\"\n"
+                                    "[[repo]]\nname = \"code\"\npath = \"c\"\n",
+                          "config keys 'repo[1].name' and 'repo[2].name' name repos that "
                           "collide after case folding: 'Code' and 'code'\n"));
 }
 
-// Two tag prefixes overlap when one starts the other, so a tag would belong to both projects.
+// Two tag prefixes overlap when one starts the other, so a tag would belong to both projects, and
+// an empty prefix names no tag.
 static void test_load_rejects_overlapping_tag_prefixes(void) {
-  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"a\"\npath = \"a\"\n"
-                                    "[[repo.project]]\nname = \"p\"\npath = \"p\"\n"
-                                    "tag_prefix = \"sosig-\"\n"
-                                    "[[repo.project]]\nname = \"q\"\npath = \"q\"\n"
-                                    "tag_prefix = \"sosig-v\"\n"
-                                    "[[repo.project]]\nname = \"r\"\npath = \"r\"\n"
-                                    "tag_prefix = \"\"\n",
-                          "config key 'repo[0].project[2].tag_prefix' must not be empty\n"
+  TEST_CHECK(is_logged_as(SITE_KEYS REPO_TABLE "[[repo.project]]\nname = \"p\"\npath = \"p\"\n"
+                                               "tag_prefix = \"sosig-\"\n"
+                                               "[[repo.project]]\nname = \"q\"\npath = \"q\"\n"
+                                               "tag_prefix = \"sosig-v\"\n",
                           "config keys 'repo[0].project[0].tag_prefix' and "
                           "'repo[0].project[1].tag_prefix' overlap: 'sosig-' and 'sosig-v'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS REPO_TABLE "[[repo.project]]\nname = \"r\"\npath = \"r\"\n"
+                                               "tag_prefix = \"\"\n",
+                          "config key 'repo[0].project[0].tag_prefix' must not be empty\n"));
 }
 
 // A repo's `mise` needs releases of its own, and a project's needs a `tag_prefix`, and either must
 // be a boolean.
 static void test_load_rejects_mise_without_releases(void) {
-  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"a\"\npath = \"a\"\nmise = true\n"
-                                    "[[repo]]\nname = \"b\"\npath = \"b\"\nmise = true\n"
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"a\"\npath = \"a\"\nmise = true\n",
+                          "config key 'repo[0].mise' needs 'repo[0].releases_dir'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS REPO_TABLE "[[repo.project]]\nname = \"q\"\npath = \"q\"\n"
+                                               "mise = true\n",
+                          "config key 'repo[0].project[0].mise' needs "
+                          "'repo[0].project[0].tag_prefix'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS REPO_TABLE "[[repo.project]]\nname = \"s\"\npath = \"s\"\n"
+                                               "mise = 1\n",
+                          "config key 'repo[0].project[0].mise' must be a boolean\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[[repo]]\nname = \"b\"\npath = \"b\"\nmise = true\n"
                                     "releases_dir = \"r\"\n"
                                     "[[repo.project]]\nname = \"p\"\npath = \"p\"\n"
-                                    "tag_prefix = \"p-v\"\n"
-                                    "[[repo.project]]\nname = \"q\"\npath = \"q\"\nmise = true\n"
-                                    "[[repo.project]]\nname = \"s\"\npath = \"s\"\nmise = 1\n",
-                          "config key 'repo[0].mise' needs 'repo[0].releases_dir'\n"
-                          "config key 'repo[1].project[1].mise' needs "
-                          "'repo[1].project[1].tag_prefix'\n"
-                          "config key 'repo[1].project[2].mise' must be a boolean\n"
-                          "config key 'repo[1].mise' must not be set in a repo whose projects "
+                                    "tag_prefix = \"p-v\"\n",
+                          "config key 'repo[0].mise' must not be set in a repo whose projects "
                           "have a 'tag_prefix': set the projects' 'mise' instead\n"));
 }
 
-// A project's path must not be empty, start with `/`, or have an empty, `.` or `..` segment, and
-// the project keeps no path.
+// A project's path must not be empty, start with `/`, or have an empty, `.` or `..` segment.
 static void test_load_rejects_unsafe_project_paths(void) {
-  struct SiteConfig site_config;
-  struct Log log = test_log();
-  TEST_CHECK(load_text(SITE_KEYS "[[repo]]\nname = \"a\"\npath = \"a\"\n"
-                                 "[[repo.project]]\nname = \"p\"\npath = \"../p\"\n"
-                                 "[[repo.project]]\nname = \"q\"\npath = \"/q\"\n"
-                                 "[[repo.project]]\nname = \"r\"\npath = \"/\"\n"
-                                 "[[repo.project]]\nname = \"s\"\npath = \"a//b\"\n"
-                                 "[[repo.project]]\nname = \"t\"\npath = \"a/./b\"\n"
-                                 "[[repo.project]]\nname = \"u\"\npath = \"a/..\"\n"
-                                 "[[repo.project]]\nname = \"v\"\npath = \"\"\n",
-                       &site_config, &log) == 0);
-  TEST_CHECK(test_log_is(&log,
-                         "config key 'repo[0].project[0].path' must be a relative path in the "
-                         "repo without an empty, '.' or '..' segment: '../p'\n"
-                         "config key 'repo[0].project[1].path' must be a relative path in the "
-                         "repo without an empty, '.' or '..' segment: '/q'\n"
-                         "config key 'repo[0].project[2].path' must be a relative path in the "
-                         "repo without an empty, '.' or '..' segment: '/'\n"
-                         "config key 'repo[0].project[3].path' must be a relative path in the "
-                         "repo without an empty, '.' or '..' segment: 'a//b'\n"
-                         "config key 'repo[0].project[4].path' must be a relative path in the "
-                         "repo without an empty, '.' or '..' segment: 'a/./b'\n"
-                         "config key 'repo[0].project[5].path' must be a relative path in the "
-                         "repo without an empty, '.' or '..' segment: 'a/..'\n"
-                         "config key 'repo[0].project[6].path' must not be empty\n"));
-  TEST_ASSERT(site_config.repo_count == 1 && site_config.repos[0].project_count == 7);
-  for (ptrdiff_t i = 0; i < 7; i++) {
-    TEST_CHECK(site_config.repos[0].projects[i].path.len == 0);
+  static const char* const paths[] = {"../p", "/q", "/", "a//b", "a/./b", "a/.."};
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(paths) / sizeof(paths[0])); i++) {
+    struct Arena text_arena = test_arena();
+    struct Buf text = {.arena = &text_arena};
+    buf_printf(&text, SITE_KEYS REPO_TABLE "[[repo.project]]\nname = \"p\"\npath = \"%s\"\n",
+               paths[i]);
+    struct Arena expected_arena = test_arena();
+    struct Buf expected = {.arena = &expected_arena};
+    buf_printf(&expected,
+               "config key 'repo[0].project[0].path' must be a relative path in the repo without "
+               "an empty, '.' or '..' segment: '%s'\n",
+               paths[i]);
+    TEST_CHECK(is_logged_as(buf_cstr(&text), buf_cstr(&expected)));
+    TEST_MSG("path '%s'", paths[i]);
   }
+  TEST_CHECK(is_logged_as(SITE_KEYS REPO_TABLE "[[repo.project]]\nname = \"v\"\npath = \"\"\n",
+                          "config key 'repo[0].project[0].path' must not be empty\n"));
 }
 
 // A file that cannot be read reports the cause and the path.
@@ -669,6 +621,7 @@ TEST_LIST = {
     {"load accepts project names across repos", test_load_accepts_project_names_across_repos},
     {"load accepts project paths of any bytes", test_load_accepts_project_paths_of_any_bytes},
     {"load reports missing required keys", test_load_reports_missing_required_keys},
+    {"load stops at first error", test_load_stops_at_first_error},
     {"load requires a repo", test_load_requires_a_repo},
     {"load reports wrong types", test_load_reports_wrong_types},
     {"load rejects unknown keys", test_load_rejects_unknown_keys},
@@ -683,7 +636,6 @@ TEST_LIST = {
     {"load rejects long names", test_load_rejects_long_names},
     {"load rejects reserved names", test_load_rejects_reserved_names},
     {"load rejects colliding names", test_load_rejects_colliding_names},
-    {"load reports each colliding repo once", test_load_reports_each_colliding_repo_once},
     {"load rejects overlapping tag prefixes", test_load_rejects_overlapping_tag_prefixes},
     {"load rejects mise without releases", test_load_rejects_mise_without_releases},
     {"load rejects unsafe project paths", test_load_rejects_unsafe_project_paths},

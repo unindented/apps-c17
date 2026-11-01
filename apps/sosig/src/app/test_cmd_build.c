@@ -1357,24 +1357,20 @@ static void test_reports_an_unlistable_templates_subdirectory(void) {
   TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
-// A root that fails its check still lets the overlap check run, so one run reports a missing
-// `content_dir` together with an `output_dir` inside `templates_dir`, and the user fixes both at
-// once.
-static void test_reports_a_bad_root_with_an_overlapping_output_dir(void) {
+// A root that fails its check stops the build before the overlap check, so a missing `content_dir`
+// is the one error even with an `output_dir` inside `templates_dir`.
+static void test_stops_at_a_bad_root_before_the_overlap_check(void) {
   struct Os* os = site_fixture("output_dir = \"templates/site\"\n");
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == -1);
-  TEST_CHECK(test_log_is(&log,
-                         "failed to resolve config directory 'content_dir': %s ('content')\n"
-                         "output directory would write inside 'templates_dir': 'templates/site'\n",
+  TEST_CHECK(test_log_is(&log, "failed to resolve config directory 'content_dir': %s ('content')\n",
                          strerror(ENOENT)));
   TEST_CHECK(!os_memory_has_path(os, "templates/site"));
 }
 
-// A directory key the config load rejects is reported once. Its default names a directory the user
-// never chose, so the build does not go on to report that default missing as well. A `/` is
-// rejected as empty once its trailing `/` is trimmed, the same way.
-static void test_reports_a_rejected_directory_key_once(void) {
+// A directory key the config load rejects stops the build with that one error, before any directory
+// is checked. A `/` is rejected as empty once its trailing `/` is trimmed, the same way.
+static void test_stops_at_a_rejected_directory_key(void) {
   static const char* const cases[][4] = {
       {"content_dir = 5\n", "posts/hello.md", "templates/content.html",
        "config key 'content_dir' must be a string"},
@@ -1400,9 +1396,9 @@ static void test_reports_a_rejected_directory_key_once(void) {
   TEST_CASE_(NULL);
 }
 
-// A rejected `static_dir` is reported once too, even when its default names something that would
-// fail on its own: here a regular file, which the static walk would report as not a directory.
-static void test_reports_a_rejected_static_dir_once(void) {
+// A rejected `static_dir` is the one error too, even when its default names something that would
+// fail on its own: here a regular file, which the root check would report as not a directory.
+static void test_stops_at_a_rejected_static_dir(void) {
   struct Os* os = site_fixture("static_dir = \"\"\n");
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);
   os_memory_write(os, "static", "not a directory\n");
@@ -1702,9 +1698,8 @@ static void test_rejects_unsafe_permalink(void) {
 
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == -1);
-  // The rejected permalink keeps its default, so the entries that follow are checked against a
-  // valid one and add nothing. Exact, not by substring: a substring check would also pass for this
-  // message with something appended to it.
+  // The load stops at the permalink, so the entries are not checked. Exact, not by substring: a
+  // substring check would also pass for this message with something appended to it.
   TEST_CHECK(test_log_is(&log,
                          "config key 'permalink' must expand to a safe relative path using only "
                          "letters, digits, '_', '-', '.', '/' and the '{slug}'/'{section}' tokens, "
@@ -1712,11 +1707,10 @@ static void test_rejects_unsafe_permalink(void) {
   TEST_CHECK(log.errors == 1);
 }
 
-// A rejected permalink or template list keeps a default the user never chose, so the build stops
-// after the config load rather than reporting a collision with an output the default names. Without
-// the stop, `content/index.md` collides with the default `aggregate_templates[0]` in the first
-// case, and the default permalink's output in the second.
-static void test_stops_after_rejected_output_key(void) {
+// A config error stops the build after the config load, with that error alone and nothing written.
+// The load stops at its first error, so the second case reports the permalink and not the
+// `feed_templates` that the load checks later.
+static void test_stops_after_config_error(void) {
   static const struct {
     const char* config;
     const char* expected;
@@ -1726,8 +1720,7 @@ static void test_stops_after_rejected_output_key(void) {
       {"feed_templates = [\"../x\"]\npermalink = \"/{slug}.htm#l\"\n",
        "config key 'permalink' must expand to a safe relative path using only letters, digits, "
        "'_', '-', '.', '/' and the '{slug}'/'{section}' tokens, with no empty, '.' or '..' path "
-       "segment: '/{slug}.htm#l'\n"
-       "config key 'feed_templates' must contain only safe relative template names: '../x'\n"},
+       "segment: '/{slug}.htm#l'\n"},
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
     TEST_CASE(cases[i].config);
@@ -1868,10 +1861,9 @@ static void test_rejects_duplicate_output(void) {
 }
 
 // Several independent mistakes in one site are all reported by one build, and the build writes
-// nothing: an unknown config key, two sources whose frontmatter fails in different ways, two
-// sources that claim one output path, and a static file that claims a content page. Each kind comes
-// from a different phase, so the order is the phase order, and within a phase it is the sorted walk
-// order the slots follow.
+// nothing: two sources whose frontmatter fails in different ways, two sources that claim one output
+// path, and a static file that claims a content page. Each kind comes from a different phase, so
+// the order is the phase order, and within a phase it is the sorted walk order the slots follow.
 static void test_reports_every_independent_error(void) {
   const char same_slug[] =
       "+++\n"
@@ -1880,7 +1872,7 @@ static void test_reports_every_independent_error(void) {
       "slug = \"same\"\n"
       "+++\n"
       "Body\n";
-  struct Os* os = site_fixture("colour = \"blue\"\n");
+  struct Os* os = site_fixture(NULL);
   os_memory_write(os, "content/a.md", same_slug);
   os_memory_write(os, "content/b.md", same_slug);
   os_memory_write(os, "content/c.md", "+++\ntitle = \"C\"\n");
@@ -1892,14 +1884,13 @@ static void test_reports_every_independent_error(void) {
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "unknown config key 'colour'\n"
                          "missing closing '+++' frontmatter fence (in 'content/c.md')\n"
                          "frontmatter key 'draft' must be a boolean (in 'content/d.md')\n"
                          "duplicate output path for 'content/a.md' and 'content/b.md': "
                          "'public/same.html'\n"
                          "duplicate output path for 'content/a.md' and 'static/same.html': "
                          "'public/same.html'\n"));
-  TEST_CHECK(log.errors == 5);
+  TEST_CHECK(log.errors == 4);
   TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
@@ -1985,10 +1976,10 @@ TEST_LIST = {
     {"reports absent templates dir", test_reports_absent_templates_dir},
     {"reports an unlistable templates subdirectory",
      test_reports_an_unlistable_templates_subdirectory},
-    {"reports a bad root with an overlapping output dir",
-     test_reports_a_bad_root_with_an_overlapping_output_dir},
-    {"reports a rejected directory key once", test_reports_a_rejected_directory_key_once},
-    {"reports a rejected static dir once", test_reports_a_rejected_static_dir_once},
+    {"stops at a bad root before the overlap check",
+     test_stops_at_a_bad_root_before_the_overlap_check},
+    {"stops at a rejected directory key", test_stops_at_a_rejected_directory_key},
+    {"stops at a rejected static dir", test_stops_at_a_rejected_static_dir},
     {"reports templates dir that is a file", test_reports_templates_dir_that_is_a_file},
     {"reports unusable output dir", test_reports_unusable_output_dir},
     {"reports dangling output dir symlink", test_reports_dangling_output_dir_symlink},
@@ -2009,7 +2000,7 @@ TEST_LIST = {
     {"reports a missing entry template once", test_reports_a_missing_entry_template_once},
     {"reports unwritable output", test_reports_unwritable_output},
     {"rejects unsafe permalink", test_rejects_unsafe_permalink},
-    {"stops after rejected output key", test_stops_after_rejected_output_key},
+    {"stops after config error", test_stops_after_config_error},
     {"reports unparsable content", test_reports_unparsable_content},
     {"reports every broken link", test_reports_every_broken_link},
     {"reports only the parse error of a linked note",
