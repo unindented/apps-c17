@@ -16,15 +16,15 @@ struct Repository;
  *        it becomes a path.
  *
  * A gitlink's entry is a row without its object read. A name a page cannot use, `.`, `..`, `.git`
- * in any case and the spellings git's `verify_path` treats as `.git`, a name that holds `/`, `\`, a
- * control byte, or bytes that are not UTF-8, and a directory named `index.html` in any case, whose
- * tree page would sit below its parent's tree page file, gets a row without a link. So does every
- * name of a directory that collides with another after ASCII case folding, as the Linux kernel's
- * `xt_CONNMARK.h` and `xt_connmark.h` do, with no winner picked, and a name whose pages,
- * `<repo>/blob/<branch>/<path>/index.html` or `<repo>/tree/<branch>/<path>/index.html`, exceed an
- * output-path limit. Each such case is one warning in `log` naming every path involved. A directory
- * without a link is not entered. A symlink's target longer than 4096 bytes is cut there, before any
- * UTF-8 sequence that the cut would split, with a warning.
+ * in any case, a name that holds `/`, `\`, a control byte, or bytes that are not UTF-8, and a
+ * directory named `index.html` in any case, whose tree page would sit below its parent's tree page
+ * file, gets a row without a link. So does every name of a directory that collides with another
+ * after ASCII case folding, as the Linux kernel's `xt_CONNMARK.h` and `xt_connmark.h` do, with no
+ * winner picked, and a name whose pages, `<repo>/blob/<branch>/<path>/index.html` or
+ * `<repo>/tree/<branch>/<path>/index.html`, exceed an output-path limit. Each such case is one
+ * warning in `log` naming every path involved. A directory without a link is not entered. A
+ * symlink's target longer than 4096 bytes is cut there, before any UTF-8 sequence that the cut
+ * would split, with a warning.
  *
  * @param tree       Tree that receives the directories, zeroed. Must not be `NULL`.
  * @param repository Open repository. Must not be `NULL`.

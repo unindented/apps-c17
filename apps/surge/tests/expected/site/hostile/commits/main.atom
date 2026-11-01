@@ -8,9 +8,9 @@
 <generator>surge @PROJECT_VERSION@</generator>
 <author><name>Fixture author</name></author>
 <entry>
-<id>https://git.example.org/hostile/commit/336cc2efb3c450f9ef1a9da4b3e578093f3795b0/index.html</id>
+<id>https://git.example.org/hostile/commit/6d61f5cac1694bb8c8beb3179e620b7f10c9ac2d/index.html</id>
 <title>Add names that git refuses</title>
-<link href="https://git.example.org/hostile/commit/336cc2efb3c450f9ef1a9da4b3e578093f3795b0/index.html"/>
+<link href="https://git.example.org/hostile/commit/6d61f5cac1694bb8c8beb3179e620b7f10c9ac2d/index.html"/>
 <updated>2026-01-09T23:00:00Z</updated>
 <author><name>Ada Lovelace</name></author>
 <content type="text">Each of them is a blob next to the stream&#39;s entries.</content>

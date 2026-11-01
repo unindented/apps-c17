@@ -386,7 +386,7 @@ The diff of a commit is against its first parent, or against nothing for a root 
 
 A tree can hold names that a page cannot use. Each of these entries keeps its row in the listing, without a link, and gets no blob page, raw copy or tree page. `surge` does not enter such a directory. Each case is one warning that names every path involved:
 
-- `.`, `..`, `.git` in any letter case, and the spellings that git's `verify_path` treats as `.git`: trailing dots or spaces, HFS+'s ignorable code points, an NTFS stream after a `:`, and NTFS's short name `git~1`.
+- `.`, `..`, and `.git` in any letter case.
 - A name that holds `/`, `\`, a control byte, or bytes that are not UTF-8.
 - A directory named `index.html`, whose tree page would be inside its parent's.
 - Names in one directory that differ only in ASCII letter case, such as `xt_CONNMARK.h` and `xt_connmark.h`. `surge` picks no winner. Names that differ only in Unicode normalization or in non-ASCII case are not checked.

@@ -256,7 +256,7 @@ static void test_commit_summary_reads_the_signature(void) {
                           "-----BEGIN SSH SIGNATURE-----\n"
                           "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgc3VyZ2UgZml4dHVyZQ==\n"
                           "-----END SSH SIGNATURE-----"));
-  TEST_CHECK(revision_commit_summary(&repository, S("336cc2efb3c450f9ef1a9da4b3e578093f3795b0"),
+  TEST_CHECK(revision_commit_summary(&repository, S("6d61f5cac1694bb8c8beb3179e620b7f10c9ac2d"),
                                      &arena, &summary, &log) == 0);
   TEST_CHECK(summary.signature.len == 0);
   TEST_CHECK(test_log_is_empty(&log));

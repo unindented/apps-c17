@@ -113,20 +113,10 @@ static struct Str filetree_load_entry_cut_target(const struct FiletreeWalk* walk
  * @brief Reports whether a page can use `name` as a path segment.
  *
  * @param name Name of a tree entry.
- * @return `false` for `.`, `..`, a spelling of `.git`, a name with `/`, `\` or a control byte, and
- *         a name that is not UTF-8.
+ * @return `false` for `.`, `..`, `.git` in any case, a name with `/`, `\` or a control byte, and a
+ *         name that is not UTF-8.
  */
 static bool is_usable_name(struct Str name);
-
-/**
- * @brief Reports whether `name` is a spelling that git's `verify_path` treats as `.git`: `.git` in
- *        any case, with trailing dots or spaces, with HFS+'s ignorable code points in it, with an
- *        NTFS stream after a `:`, or NTFS's short name `git~1`.
- *
- * @param name Name of a tree entry, valid UTF-8.
- * @return `true` when a checkout would write it as the git directory on some filesystem.
- */
-static bool is_dotgit(struct Str name);
 
 /**
  * @brief Appends `path` to `buffer` with each control byte written `\xNN`, so a warning prints it
@@ -454,48 +444,7 @@ static bool is_usable_name(struct Str name) {
   }
   // A name that is not UTF-8 is a filename some filesystems refuse, so its pages would not be
   // written alike on every host.
-  return utf8_is_valid(name) && !is_dotgit(name);
-}
-
-static bool is_dotgit(struct Str name) {
-  // NTFS ends a name at `:`, which starts an alternate data stream, and drops trailing dots and
-  // spaces, so `.git::$INDEX_ALLOCATION` and `.git. ` are `.git` there.
-  ptrdiff_t len = 0;
-  while (len < name.len && name.data[len] != ':') {
-    len++;
-  }
-  while (len > 0 && (name.data[len - 1] == '.' || name.data[len - 1] == ' ')) {
-    len--;
-  }
-  // HFS+ ignores these code points when it compares names: U+200C to U+200F, U+202A to U+202E,
-  // U+206A to U+206F, and U+FEFF, each three bytes of UTF-8. The bytes left are folded, and more of
-  // them than `git~1` has cannot spell either name.
-  char folded[8];
-  ptrdiff_t folded_len = 0;
-  for (ptrdiff_t i = 0; i < len; i++) {
-    const unsigned char c = (unsigned char)name.data[i];
-    if (i + 2 < len) {
-      const unsigned char c1 = (unsigned char)name.data[i + 1];
-      const unsigned char c2 = (unsigned char)name.data[i + 2];
-      const bool is_ignorable = (c == 0xE2 && c1 == 0x80 && c2 >= 0x8C && c2 <= 0x8F) ||
-                                (c == 0xE2 && c1 == 0x80 && c2 >= 0xAA && c2 <= 0xAE) ||
-                                (c == 0xE2 && c1 == 0x81 && c2 >= 0xAA && c2 <= 0xAF) ||
-                                (c == 0xEF && c1 == 0xBB && c2 == 0xBF);
-      if (is_ignorable) {
-        i += 2;
-        continue;
-      }
-    }
-    if (folded_len == (ptrdiff_t)sizeof(folded)) {
-      return false;
-    }
-    folded[folded_len++] = (char)ascii_to_lower(c);
-  }
-  while (folded_len > 0 && (folded[folded_len - 1] == '.' || folded[folded_len - 1] == ' ')) {
-    folded_len--;
-  }
-  const struct Str spelling = {folded, folded_len};
-  return str_eq(spelling, S(".git")) || str_eq(spelling, S("git~1"));
+  return utf8_is_valid(name) && !str_eq_folded(name, S(".git"));
 }
 
 static void append_printable(struct Buf* buffer, struct Str path) {

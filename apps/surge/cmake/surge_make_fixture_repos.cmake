@@ -8,7 +8,7 @@
 #
 # - `showcase`: a working copy, checked out, with a nested tag (a tag of the tag `v0.2.0`) and a
 #   tag of a tree.
-# - `hostile`: tree entries named `..`, `.GIT`, `Git~1` and one with a control byte, which only
+# - `hostile`: tree entries named `..`, `.GIT` and one with a control byte, which only
 #   `git mktree` writes, in a commit on top of the stream's, and a signed commit on top of that,
 #   which the tag `signed` names.
 # - `empty`: a repository with no commit.
@@ -151,19 +151,13 @@ fixture_git("${hostile_git_dir}" rev-parse "refs/heads/main:ok.txt" OUTPUT hosti
 fixture_git("${hostile_git_dir}" rev-parse "refs/heads/main:include" OUTPUT include_tree_oid)
 string(ASCII 1 control_byte)
 string(ASCII 255 invalid_byte)
-# U+200C, which HFS+ ignores when it compares names.
-string(ASCII 226 128 140 hfs_ignorable)
 set(hostile_listing "${hostile_entries}\n")
 foreach(
   hostile_name IN
   ITEMS ".."
         ".GIT"
-        "Git~1"
         "ctl${control_byte}name"
         "back\\slash"
-        ".g${hfs_ignorable}it"
-        ".git. "
-        ".git::$INDEX_ALLOCATION"
         "bad${invalid_byte}utf8"
 )
   string(APPEND hostile_listing "100644 blob ${hostile_blob_oid}\t${hostile_name}\n")

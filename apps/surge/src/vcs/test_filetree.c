@@ -221,16 +221,8 @@ static void test_load_unlinks_unusable_names_with_warnings(void) {
     buf_append(&deep_path, repeat(letters[i], 250, &arena));
   }
   const struct Str deep = buf_str(&deep_path);
-  const char* unusable[] = {"..",
-                            ".GIT",
-                            ".git. ",
-                            ".git::$INDEX_ALLOCATION",
-                            ".g\xE2\x80\x8Cit",
-                            "Git~1",
-                            "back\\slash",
-                            "bad\\xFFutf8",
-                            "ctl\\x01name",
-                            "index.html"};
+  const char* unusable[] = {"..",           ".GIT",         "back\\slash",
+                            "bad\\xFFutf8", "ctl\\x01name", "index.html"};
   struct Buf expected = {.arena = &arena};
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(unusable) / sizeof(unusable[0])); i++) {
     buf_printf(&expected,
