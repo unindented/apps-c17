@@ -178,8 +178,7 @@ static void test_image_fit_clamps_to_one_pixel(void) {
   TEST_CHECK(height == 1);
 }
 
-// A baseline JPEG probes to its dimensions, with no coefficients to buffer, and decodes at full
-// size to its colors.
+// A baseline JPEG probes to its dimensions and decodes at full size to its colors.
 static void test_image_probe_and_decode_baseline(void) {
   static const unsigned char color[] = {20, 100, 220};
   struct Arena arena = test_arena();
@@ -192,7 +191,6 @@ static void test_image_probe_and_decode_baseline(void) {
   TEST_CHECK(image_probe(encoded, &header, S("failed to probe"), S("a.jpg"), &log) == 0);
   TEST_CHECK(header.width_px == 3);
   TEST_CHECK(header.height_px == 2);
-  TEST_CHECK(header.coefficient_len == 0);
 
   struct Image decoded = {0};
   TEST_ASSERT(image_decode(encoded, IMAGE_SCALE_FULL, &decoded, S("failed to decode"), S("a.jpg"),
@@ -300,12 +298,8 @@ static void test_image_decode_converts_cmyk_and_ycck(void) {
   }
 }
 
-// A progressive JPEG reports the coefficients a decode buffers for every block of every component:
-// a 64 x 48 image with 2 x 2 subsampled chroma has 8 x 6 luma blocks and 4 x 3 blocks for each
-// chroma component, 72 blocks of 128 bytes. At 65 x 49 the luma's 9 x 7 blocks are padded to whole
-// 2 x 2 sampling units, 10 x 8, beside 5 x 4 for each chroma component, 120 blocks. A progressive
-// decode at a reduced scale still decodes.
-static void test_image_probe_reports_multi_scan_coefficients(void) {
+// A progressive JPEG probes to its dimensions and decodes at a reduced scale.
+static void test_image_probe_and_decode_progressive(void) {
   static const unsigned char color[] = {200, 40, 90};
   struct Arena arena = test_arena();
   struct Str encoded = {0};
@@ -317,16 +311,6 @@ static void test_image_probe_reports_multi_scan_coefficients(void) {
   struct Log log = test_log();
   TEST_ASSERT(image_probe(encoded, &header, S("failed to probe"), S("a.jpg"), &log) == 0);
   TEST_CHECK(header.width_px == 64 && header.height_px == 48);
-  TEST_CHECK(header.coefficient_len == 72 * 128);
-
-  struct Str padded = {0};
-  if (!TEST_CHECK(test_jpeg_encode_solid(65, 49, color, TEST_JPEG_PROGRESSIVE, &arena, &padded) ==
-                  0)) {
-    return;
-  }
-  struct ImageHeader padded_header;
-  TEST_ASSERT(image_probe(padded, &padded_header, S("failed to probe"), S("a.jpg"), &log) == 0);
-  TEST_CHECK(padded_header.coefficient_len == 120 * 128);
 
   struct Image decoded = {0};
   TEST_ASSERT(image_decode(encoded, 2, &decoded, S("failed to decode"), S("a.jpg"), &log) == 0);
@@ -653,8 +637,7 @@ TEST_LIST = {
     {"image encode webp is deterministic in perm", test_image_encode_webp_is_deterministic_in_perm},
     {"image decode scales in the dct", test_image_decode_scales_in_the_dct},
     {"image decode converts cmyk and ycck", test_image_decode_converts_cmyk_and_ycck},
-    {"image probe reports multi scan coefficients",
-     test_image_probe_reports_multi_scan_coefficients},
+    {"image probe and decode progressive", test_image_probe_and_decode_progressive},
     {"image decode ignores bytes after last row", test_image_decode_ignores_bytes_after_last_row},
     {"image probe rejects oversized dimensions", test_image_probe_rejects_oversized_dimensions},
     {"image probe rejects oversized pixel count", test_image_probe_rejects_oversized_pixel_count},

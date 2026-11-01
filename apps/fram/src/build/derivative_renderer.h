@@ -25,8 +25,7 @@ struct VideoFrame;
  * its job extracts one only when a derivative is made. Every video frame is removed after its job,
  * including on failure, best effort: a frame whose unlink fails stays marked for the caller's final
  * cleanup. A job reads its source into a copy of its worker's scratch, holds each encoded
- * derivative in a copy of its worker's perm, and allocates its decoded pixels with `malloc`, under
- * a budget shared by every worker.
+ * derivative in a copy of its worker's perm, and allocates its decoded pixels with `malloc`.
  *
  * Every output goes through `output_writer_produce`, which keeps a derivative or an original copy
  * that `cache` vouches for and makes or copies any other. A source is decoded once for all of the

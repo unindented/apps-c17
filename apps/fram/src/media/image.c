@@ -237,18 +237,6 @@ int image_decode(struct Str data,
   return decoder_read(&decoder, data, &header, scale_eighths, image_out, &report);
 }
 
-ptrdiff_t image_decode_len(const struct ImageHeader* header,
-                           ptrdiff_t scale_eighths,
-                           enum ImageOrientation orientation) {
-  ptrdiff_t width = 0;
-  ptrdiff_t height = 0;
-  image_scale_size(header->width_px, header->height_px, scale_eighths, &width, &height);
-  const ptrdiff_t pixel_len = width * height * IMAGE_CHANNEL_COUNT;
-  const ptrdiff_t decode_len = header->coefficient_len + pixel_len;
-  const ptrdiff_t orient_len = orientation == IMAGE_ORIENTATION_TOP_LEFT ? 0 : 2 * pixel_len;
-  return decode_len > orient_len ? decode_len : orient_len;
-}
-
 void image_scale_size(ptrdiff_t width_px,
                       ptrdiff_t height_px,
                       ptrdiff_t scale_eighths,
@@ -568,23 +556,8 @@ static int decoder_read_header_check(struct JpegDecoder* decoder,
     decoder_fail(decoder, "lossless JPEG is unsupported");
   }
 
-  // A multi-scan decode keeps each component's blocks, padded to whole sampling units in each
-  // direction, as libjpeg-turbo's coefficient controller allocates them.
-  ptrdiff_t coefficient_len = 0;
-  if (jpeg_has_multiple_scans(decompress)) {
-    for (int i = 0; i < decompress->num_components; i++) {
-      const jpeg_component_info* component = &decompress->comp_info[i];
-      const ptrdiff_t h_samp = component->h_samp_factor;
-      const ptrdiff_t v_samp = component->v_samp_factor;
-      const ptrdiff_t width_blocks = ((ptrdiff_t)component->width_in_blocks + h_samp - 1) / h_samp;
-      const ptrdiff_t height_blocks =
-          ((ptrdiff_t)component->height_in_blocks + v_samp - 1) / v_samp;
-      coefficient_len += width_blocks * h_samp * height_blocks * v_samp * (ptrdiff_t)sizeof(JBLOCK);
-    }
-  }
   header_out->width_px = width;
   header_out->height_px = height;
-  header_out->coefficient_len = coefficient_len;
   return 0;
 }
 

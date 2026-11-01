@@ -35,13 +35,6 @@ enum { IMAGE_SCALE_FULL = 8 };
 enum { IMAGE_ENCODED_DIMENSION_MAX = 16383 };
 
 /**
- * Bytes, for each pixel of an encoded image, that resizing to it and encoding it hold: the resized
- * pixels' three and up to 32 for libwebp's encoder, which measured up to 9.4 for photographs at
- * quality 90 and 29 for noise at quality 100.
- */
-enum { IMAGE_ENCODE_LEN_PER_PX = IMAGE_CHANNEL_COUNT + 32 };
-
-/**
  * Bytes a worker's scratch keeps for one encoded WebP. The largest measured, a 10000 x 10000 image
  * of noise at quality 100, took 110 MB, and an encode past this could run the scratch out, which
  * ends the build in `os_oom`.
@@ -75,29 +68,21 @@ enum ImageOrientation {
   IMAGE_ORIENTATION_LEFT_BOTTOM = 8,
 };
 
-/** What a JPEG's header says about the image and the memory a decode of it holds. */
+/** What a JPEG's header says about the image. */
 struct ImageHeader {
   /** Width in pixels, from 1 through `IMAGE_DIMENSION_MAX`. */
   ptrdiff_t width_px;
 
   /** Height in pixels, from 1 through `IMAGE_DIMENSION_MAX`. */
   ptrdiff_t height_px;
-
-  /**
-   * Bytes of DCT coefficients a decode holds at any scale, beside its pixels. A progressive or
-   * other multi-scan JPEG keeps a coefficient for every block of the full-size image for the whole
-   * decode, two bytes for each of a component's samples. A single-scan JPEG decodes row by row and
-   * holds none, so this is `0`.
-   */
-  ptrdiff_t coefficient_len;
 };
 
 /**
  * One malloc-owned, 8-bit image in interleaved RGB order.
  *
- * Pixels stay on `malloc` rather than an arena. They are large, transient, allocated once per file
- * and bounded by the derivative phase's decode budget, and an arena would keep each worker's
- * largest decode committed for the rest of the build. A caller releases an image with `image_free`.
+ * Pixels stay on `malloc` rather than an arena. They are large, transient and allocated once per
+ * file, and an arena would keep each worker's largest decode committed for the rest of the build. A
+ * caller releases an image with `image_free`.
  */
 struct Image {
   /**
@@ -158,22 +143,6 @@ int image_decode(struct Str data,
                  struct Str operation,
                  struct Str file_path,
                  struct Log* log) __attribute__((nonnull(3, 6)));
-
-/**
- * @brief Returns the most bytes that decoding a JPEG and then orienting it hold at once.
- *
- * The decode holds its scaled pixels beside a multi-scan JPEG's coefficients, which it releases
- * before it returns. A rotated or mirrored orientation then holds two copies of the pixels while it
- * runs. The result is the larger of the two.
- *
- * @param header        Header `image_probe` read. Must not be `NULL`.
- * @param scale_eighths Decode scale, from 1 through `IMAGE_SCALE_FULL`.
- * @param orientation   Orientation `image_orient` is given afterwards.
- * @return Bytes the decode and orientation hold at their peak.
- */
-ptrdiff_t image_decode_len(const struct ImageHeader* header,
-                           ptrdiff_t scale_eighths,
-                           enum ImageOrientation orientation) __attribute__((nonnull(1)));
 
 /**
  * @brief Returns the dimensions `image_decode` produces at a scale.
