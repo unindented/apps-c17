@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "app/cmd_wrap.h"
@@ -25,6 +26,22 @@ enum { DEEP_INDENT_COLUMNS = 200 };
 
 /** One-letter words in the comment `test_wraps_deep_indent_at_width_one` wraps. */
 enum { DEEP_WORD_COUNT = 40000 };
+
+/** Bytes of each file `test_reuses_input_region_for_each_file` checks. */
+enum { REUSED_FILE_LEN = 4 * 1024 * 1024 };
+
+/** Files `test_reuses_input_region_for_each_file` checks, each given `REUSED_PASS_COUNT` times. */
+enum { REUSED_FILE_COUNT = 4 };
+
+/** Times `test_reuses_input_region_for_each_file` gives each of its files. */
+enum { REUSED_PASS_COUNT = 18 };
+
+/** Address-space limit `test_reuses_input_region_for_each_file` runs under. */
+#define REUSED_RESERVE_LEN_MAX ((ptrdiff_t)256 * 1024 * 1024)
+
+_Static_assert((ptrdiff_t)REUSED_FILE_LEN * REUSED_FILE_COUNT * REUSED_PASS_COUNT >
+                   REUSED_RESERVE_LEN_MAX,
+               "the inputs must total more than any one reservation under the limit holds");
 
 /** Source the wrap-command tests start from, which rewraps to one line at width 40. */
 static const char wrap_fixture_source[] = "// one\n// two\n";
@@ -177,6 +194,39 @@ static void test_wraps_large_file(void) {
 
   TEST_CHECK(cmd_wrap_run(&options, os) == EXIT_CODE_OK);
   TEST_CHECK(str_eq(os_memory_printed(os, 1), buf_str(&source)));
+  TEST_CHECK(os_memory_printed(os, 2).len == 0);
+}
+
+// A run rewraps each input from the start of the same input region, so it can check more input than
+// any one reservation holds. `REUSED_RESERVE_LEN_MAX` caps every reservation of the run, and the
+// files, each given many times, total more than the cap, so a run in which each input kept what the
+// input before it left would run out of memory. The files are code that is already wrapped, so
+// check mode reports nothing, and the run stays fast.
+static void test_reuses_input_region_for_each_file(void) {
+  static const char line[] = "int x;\n";
+  const ptrdiff_t line_len = (ptrdiff_t)sizeof(line) - 1;
+  struct Arena arena = test_arena();
+  struct Buf source = {.arena = &arena};
+  while (source.len + line_len <= REUSED_FILE_LEN) {
+    buf_append(&source, (struct Str){line, line_len});
+  }
+  static char* const names[REUSED_FILE_COUNT] = {"a.c", "b.c", "c.c", "d.c"};
+  struct Os* os = os_memory();
+  for (ptrdiff_t i = 0; i < REUSED_FILE_COUNT; i++) {
+    os_memory_write_bytes(os, str_from_cstr(names[i]), buf_str(&source));
+  }
+  char* paths[REUSED_FILE_COUNT * REUSED_PASS_COUNT];
+  for (ptrdiff_t i = 0; i < REUSED_FILE_COUNT * REUSED_PASS_COUNT; i++) {
+    paths[i] = names[i % REUSED_FILE_COUNT];
+  }
+  struct WrapOptions options = file_options(paths, REUSED_FILE_COUNT * REUSED_PASS_COUNT);
+  options.is_check = true;
+
+  arena_reserve_len_max = REUSED_RESERVE_LEN_MAX;
+  const enum ExitCode code = cmd_wrap_run(&options, os);
+  arena_reserve_len_max = PTRDIFF_MAX;
+  TEST_CHECK(code == EXIT_CODE_OK);
+  TEST_CHECK(os_memory_printed(os, 1).len == 0);
   TEST_CHECK(os_memory_printed(os, 2).len == 0);
 }
 
@@ -334,6 +384,7 @@ TEST_LIST = {
     {"in place accepts file given twice", test_in_place_accepts_file_given_twice},
     {"wraps deep indent at width one", test_wraps_deep_indent_at_width_one},
     {"wraps large file", test_wraps_large_file},
+    {"reuses input region for each file", test_reuses_input_region_for_each_file},
     {"reports missing file", test_reports_missing_file},
     {"reports one line per failing file", test_reports_one_line_per_failing_file},
     {"reports unwritable stdout", test_reports_unwritable_stdout},

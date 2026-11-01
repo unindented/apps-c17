@@ -125,10 +125,7 @@ With `--in-place`, the tool first reads every input file and reports each bad fi
 
 The tool rejects an input file larger than 64 MiB before it reads the file. The error message gives the limit and the file size. The tool rejects standard input larger than 64 MiB when it reads one byte past the limit. This error message gives the limit.
 
-The tool reserves its memory once, when it starts, in fixed sizes that come from these limits. Reserved memory that the tool does not use takes address space but no memory. An address-space limit (`ulimit -v`) can refuse the full reservation. When that happens, the tool makes its reservation smaller until it fits, so the tool has less room for its data. The log of the errors keeps its full size of 64 MiB in all cases. [ARCHITECTURE.md](ARCHITECTURE.md#memory-reserve-then-commit-on-demand) describes this process. These fixed sizes have two results:
-
-- The tool needs about 360 MB (`ulimit -v 350000`). With a lower limit, the tool stops at startup with `cwrap: out of memory`.
-- An input can need more memory than the tool reserved, for example a comment whose rewrapped output is larger than about 4 GiB. Then the tool prints the output and the errors up to that point, prints `cwrap: out of memory (in '<path>')`, and exits with status 1.
+The tool reserves its memory once, when it starts, in fixed sizes. Reserved memory that the tool does not use takes address space but no memory. Under an address-space limit (`ulimit -v`), the tool makes the reservation smaller until it fits, as [ARCHITECTURE.md](ARCHITECTURE.md#memory-reserve-then-commit-on-demand) describes. It needs about 360 MB (`ulimit -v 350000`), and with less it stops at startup with `cwrap: out of memory`. An input that needs more memory than the tool reserved, such as a deeply indented comment at a narrow width, ends the run: the tool prints the output and the errors up to that point, prints `cwrap: out of memory (in '<path>')`, and exits with status 1.
 
 ## Wrapping behavior
 

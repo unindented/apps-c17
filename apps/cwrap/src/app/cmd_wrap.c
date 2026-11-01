@@ -15,36 +15,18 @@
 /** Bytes in a mebibyte, the unit of the sizes below. */
 #define CMD_WRAP_MIB ((ptrdiff_t)1024 * 1024)
 
-// The run has a log, an input and a scratch arena of the sizes below. A size costs address space
-// only, because pages are committed as an arena fills, and an input that outgrows an arena ends in
-// `os_oom`.
+// The run has a log, an input and a scratch arena of the generous fixed sizes below. A size costs
+// address space only, because pages are committed as an arena fills, and an input that outgrows an
+// arena ends in `os_oom`.
 _Static_assert(PTRDIFF_MAX > 0xffffffff, "the arenas below need a 64-bit address space");
 
-/**
- * Bytes of the run's log, which holds one diagnostic per input, each quoting a path from the
- * command line. `ARG_MAX` bounds the inputs: Linux takes at most 6 MiB of arguments, counting each
- * argument's pointer, so about 600,000 inputs, whose diagnostics take under 40 MB even when every
- * path is one byte. Its count of lines grows with the inputs whatever their size, so it keeps this
- * size under an address-space limit.
- */
+/** Bytes of the run's log, which holds the diagnostics of every input. */
 #define CMD_WRAP_LOG_LEN (64 * CMD_WRAP_MIB)
 
-/**
- * Bytes of the input arena, which holds one source of at most `SOURCE_LEN_MAX` and its rewritten
- * output. The output grows linearly with the source for every shape but two, which grow with the
- * square of the source: a comment indented by about half its line, where a 140 KB file gives
- * 2.45 GB at `-w 20`, and a Doxygen `@param` with a long name, where a 60,033-byte file gives
- * 400 MB at `-w 1`. A buffer at most doubles past what it holds, so 8 GiB holds an output of up to
- * 4 GiB.
- */
+/** Bytes of the input arena, which holds one source and its rewritten output. */
 #define CMD_WRAP_INPUT_LEN (8 * 1024 * CMD_WRAP_MIB)
 
-/**
- * Bytes of the scratch, which holds one rewrite's temporaries: under 90 bytes for each source byte
- * in every linear shape measured, so under 6 GiB at the limit. The long `@param` name shape grows
- * with the square of the source here too, about 6,685 bytes for each byte of that 60,033-byte file,
- * so a larger such file can outgrow the scratch and end in `os_oom`.
- */
+/** Bytes of the scratch, which holds the temporaries of one rewrite. */
 #define CMD_WRAP_SCRATCH_LEN (8 * 1024 * CMD_WRAP_MIB)
 
 /**

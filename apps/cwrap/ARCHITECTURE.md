@@ -126,7 +126,7 @@ Each decision below states what the code does and why, and some decisions also s
 
 **Decision.** `cwrap` runs on one thread and processes one input at a time, in three arenas:
 
-- **The log.** It holds the errors of the run: at most one or two diagnostics for each input, and each diagnostic quotes a path from the command line. `ARG_MAX` limits the inputs to about 600,000 on Linux, so the log uses less than 40 MB of its 64 MiB, even when every path is one byte. Its size depends on the number of inputs, not on their size, so it keeps its full size under an address-space limit.
+- **The log.** It holds the errors of the run, at most one or two diagnostics for each input. Its size depends on the number of inputs, not on their size, so it keeps its full size under an address-space limit.
 - **The input arena.** It holds one source and its rewritten output.
 - **The scratch.** It holds the temporary data of one input. `rewrite_source` keeps the comment spans and the comment blocks there, and gives each comment block its own copy of the scratch by value.
 
@@ -147,11 +147,7 @@ Each decision below states what the code does and why, and some decisions also s
 
 1. When the run starts, it reserves its memory with `PROT_NONE`, and it releases the memory when it ends: the log (`CMD_WRAP_LOG_LEN`, 64 MiB) on its own, and one block for the input arena (`CMD_WRAP_INPUT_LEN`, 8 GiB) and the scratch (`CMD_WRAP_SCRATCH_LEN`, 8 GiB). The reservations cost no memory.
 2. An arena commits more pages only when an allocation does not fit in the committed part, so the fast path is still one bounds check. The slow path commits pages to one mebibyte past what the allocation needs, but not past the end of the region.
-3. The sizes are fixed. They come from the input limit and from the measured shapes, not from a prediction for the inputs:
-   - The output and the temporary data grow linearly with the source for every shape except two. The worst linear shape that was measured took less than 90 bytes of scratch for each source byte, which is less than 6 GiB at `SOURCE_LEN_MAX`.
-   - A comment indented by about half its line writes an output that grows with the square of the source: 2.45 GB for a 140 KB file at `-w 20`.
-   - A Doxygen `@param` with a long name at a narrow width grows both the output and the scratch. A 60,033-byte file at `-w 1` writes 400 MB, and takes about 6,685 bytes of scratch for each source byte.
-   - A buffer at most doubles past what it holds, so the input arena holds an output of up to 4 GiB.
+3. The sizes are fixed and generous, and do not come from a prediction for the inputs. A comment whose rewrapped output grows faster than its source, such as one indented by about half its line at a narrow width, can still outgrow them.
 4. If the system refuses the block, for example under a `ulimit -v` below the size of the block, `arena_reserve_halving` halves the block, and both arenas with it, up to six times. It then halves the first size that fits one more time, so that the rest of the process has room. If the system refuses even the smallest size, the run ends with the out-of-memory report. A run under a limit of a few GiB still handles ordinary inputs. An input that grows past the smaller arenas runs out of memory, with the report below.
 
 **Reasons.**
@@ -160,7 +156,7 @@ Each decision below states what the code does and why, and some decisions also s
 - On macOS, a reservation costs system time in proportion to its size: about 1 µs per GiB to reserve, and the same to release. The arena sizes come from their bounds, not from the largest size that the system allows, because 65 GiB would cost a very small run about 0.2 ms, 7% of its time.
 - An arena commits its pages on demand, not all at once, because strict overcommit charges every committed page against the system's limit, and Linux ignores `MAP_NORESERVE` under strict overcommit.
 
-**Cost.** Under a `ulimit -v` below the reserved total, the arenas are smaller, and an input that grows past them runs out of memory, where a `malloc` design could have fitted it. An output larger than 4 GiB runs out of memory even when no limit is set. The two shapes that grow with the square of the source, which `cmd_wrap.c` describes, get to that size, or to the size of the scratch, from a few hundred kilobytes of source at a narrow width.
+**Cost.** Under a `ulimit -v` below the reserved total, the arenas are smaller, and an input that grows past them runs out of memory, where a `malloc` design could have fitted it. A pathological input can run out of memory even when no limit is set.
 
 ### Out of memory exits the process
 

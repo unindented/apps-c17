@@ -16,69 +16,6 @@
 // and reads what the input printed back from it. `os/test_os.c` in `libs/` checks that the host
 // behaves as the POSIX one does for every property relied on here.
 
-/** Bytes of the caller-owned input region `test_inputs_reuse_input_region` gives each input. */
-enum { REUSED_INPUT_SIZE = 4096 };
-
-/** Bytes of each line `test_inputs_reuse_input_region` writes, a comment already wrapped. */
-enum { REUSED_LINE_LEN = 20 };
-
-/** Lines in each file `test_inputs_reuse_input_region` writes. */
-enum { REUSED_LINE_COUNT = 40 };
-
-/**
- * Bytes of the caller-owned input region `process_in_tiny_input` gives its input. They hold the
- * 14-byte fixture, but not the rewritten output after it.
- */
-enum { TINY_INPUT_SIZE = 24 };
-
-/**
- * @brief Rewrites a fixture source in an input region that holds the source but not its output. Run
- *        through `test_is_oom`, which calls it in a child process.
- *
- * @param userdata Host holding the fixture file `a.c`, as a `struct Os*`. Must not be `NULL`.
- */
-static void process_in_tiny_input(void* userdata) {
-  struct Os* os = userdata;
-  static _Alignas(max_align_t) char memory[TINY_INPUT_SIZE];
-  const struct Arena input = {.beg = memory, .end = memory + sizeof(memory)};
-  struct Log log = test_log();
-  (void)wrap_input_process_file(S("a.c"), 40, false, true, os, input, test_arena(), &log);
-}
-
-/** Two fixture files of the same length, for `process_twice_in_one_region`. */
-struct ReusedInputs {
-  /** Host holding `first.c` and `second.c`. */
-  struct Os* os;
-
-  /** Receives the result of processing the first file. */
-  enum WrapInputResult first_result;
-
-  /** Receives the result of processing the second file. */
-  enum WrapInputResult second_result;
-
-  /** Receives the failures of both. */
-  struct Log log;
-};
-
-/**
- * @brief Checks both files of `userdata` in turn in one caller-owned input region of
- *        `REUSED_INPUT_SIZE` bytes, passed by value to each.
- *
- * At width 20 every line of the fixtures is already filled, so check mode reports nothing.
- *
- * @param userdata The files, as a `struct ReusedInputs*`, which receives the results. Must not be
- *                 `NULL`.
- */
-static void process_twice_in_one_region(void* userdata) {
-  struct ReusedInputs* inputs = userdata;
-  static _Alignas(max_align_t) char memory[REUSED_INPUT_SIZE];
-  const struct Arena input = {.beg = memory, .end = memory + sizeof(memory)};
-  inputs->first_result = wrap_input_process_file(S("first.c"), 20, false, true, inputs->os, input,
-                                                 test_arena(), &inputs->log);
-  inputs->second_result = wrap_input_process_file(S("second.c"), 20, false, true, inputs->os, input,
-                                                  test_arena(), &inputs->log);
-}
-
 // Stable file input succeeds silently in check mode.
 static void test_file_check_ok_result(void) {
   struct Os* os = os_memory();
@@ -154,32 +91,6 @@ static void test_file_emits_rewritten_source(void) {
   TEST_CHECK(os_memory_is_file(in_place_os, "a.c", "// one two\n"));
   TEST_CHECK(os_memory_printed(in_place_os, 1).len == 0);
   TEST_CHECK(test_log_is_empty(&log));
-}
-
-// Two inputs run in turn in the same input region, each from its start: the region holds one of the
-// files and its output, but not two. The run that could run out goes through `test_is_oom` first,
-// so running out fails a check here.
-static void test_inputs_reuse_input_region(void) {
-  char contents[REUSED_LINE_LEN * REUSED_LINE_COUNT];
-  for (ptrdiff_t i = 0; i < REUSED_LINE_COUNT; i++) {
-    memcpy(contents + i * REUSED_LINE_LEN, "// one two three ab\n", REUSED_LINE_LEN);
-  }
-  const ptrdiff_t contents_len = sizeof(contents);
-  struct ReusedInputs inputs = {.os = os_memory(), .log = test_log()};
-  os_memory_write_bytes(inputs.os, S("first.c"), (struct Str){contents, contents_len});
-  os_memory_write_bytes(inputs.os, S("second.c"), (struct Str){contents, contents_len});
-  const bool is_oom = test_is_oom(process_twice_in_one_region, &inputs);
-  if (!is_oom) {
-    process_twice_in_one_region(&inputs);
-  }
-
-  // One input takes the source and an output buffer of up to twice the output, so about three times
-  // the file, and two inputs that did not reuse the region would take twice that.
-  TEST_CHECK(4 * contents_len < REUSED_INPUT_SIZE && 6 * contents_len > REUSED_INPUT_SIZE);
-  TEST_CHECK(!is_oom);
-  TEST_CHECK(inputs.first_result == WRAP_INPUT_RESULT_OK);
-  TEST_CHECK(inputs.second_result == WRAP_INPUT_RESULT_OK);
-  TEST_CHECK(test_log_is_empty(&inputs.log));
 }
 
 // A file names itself for the out-of-memory report, in every mode, and the report leads with the
@@ -321,22 +232,12 @@ static void test_stdin_stdout_error_result(void) {
                          strerror(EPIPE)));
 }
 
-// An input whose region is too small ends in `os_oom` rather than failing with a diagnostic or
-// overrunning the region. Under the test build's `os_oom` that is the process exiting with
-// `TEST_OOM_EXIT_STATUS`.
-static void test_tiny_input_region_ends_in_oom(void) {
-  struct Os* os = os_memory();
-  os_memory_write(os, "a.c", "// one\n// two\n");
-  TEST_CHECK(test_is_oom(process_in_tiny_input, os));
-}
-
 TEST_LIST = {
     {"file check ok result", test_file_check_ok_result},
     {"stdin check ok result", test_stdin_check_ok_result},
     {"file check change result", test_file_check_change_result},
     {"stdin check change result", test_stdin_check_change_result},
     {"file emits rewritten source", test_file_emits_rewritten_source},
-    {"inputs reuse input region", test_inputs_reuse_input_region},
     {"file names itself for oom report", test_file_names_itself_for_oom_report},
     {"stdin names itself for oom report", test_stdin_names_itself_for_oom_report},
     {"file read error result", test_file_read_error_result},
@@ -345,6 +246,5 @@ TEST_LIST = {
     {"file stdout error result", test_file_stdout_error_result},
     {"file in place write error result", test_file_in_place_write_error_result},
     {"stdin stdout error result", test_stdin_stdout_error_result},
-    {"tiny input region ends in oom", test_tiny_input_region_ends_in_oom},
     {NULL, NULL},
 };

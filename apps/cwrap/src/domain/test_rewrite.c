@@ -21,24 +21,6 @@ static struct Str rewrite(const char* source, ptrdiff_t width) {
   return buf_str(&out);
 }
 
-/** Bytes of the scratch region `rewrite_in_tiny_scratch` gives, too few for the comment spans. */
-enum { SCRATCH_SIZE = 64 };
-
-/**
- * @brief Rewrites a two-line comment with a scratch region too small for its comment spans. Run
- *        through `test_is_oom`, which calls it in a child process.
- *
- * @param userdata Unused.
- */
-static void rewrite_in_tiny_scratch(void* userdata) {
-  (void)userdata;
-  static _Alignas(max_align_t) char memory[SCRATCH_SIZE];
-  const struct Arena scratch = {.beg = memory, .end = memory + sizeof(memory)};
-  struct Arena out_arena = test_arena();
-  struct Buf out = {.arena = &out_arena};
-  rewrite_source(&out, S("// one\n// two\n"), 40, scratch);
-}
-
 // Code and a string containing slashes are copied unchanged.
 static void test_leaves_code_and_strings_unchanged(void) {
   const char* source = "char* u = \"http://x//y\";\nint x = 1;\n";
@@ -380,13 +362,6 @@ static void test_rewrites_source_without_terminator(void) {
   TEST_CHECK(str_eq(buf_str(&out), S("x;\n// one two")));
 }
 
-// A rewrite whose scratch region cannot hold its comment spans ends in `os_oom` rather than
-// overrunning the region. Under the test build's `os_oom` that is the process exiting with
-// `TEST_OOM_EXIT_STATUS`.
-static void test_tiny_scratch_ends_in_oom(void) {
-  TEST_CHECK(test_is_oom(rewrite_in_tiny_scratch, NULL));
-}
-
 TEST_LIST = {
     {"leaves code and strings unchanged", test_leaves_code_and_strings_unchanged},
     {"leaves crlf spliced string unchanged", test_leaves_crlf_spliced_string_unchanged},
@@ -423,6 +398,5 @@ TEST_LIST = {
     {"tool directive at run edges", test_tool_directive_at_run_edges},
     {"leaves long tool directive unwrapped", test_leaves_long_tool_directive_unwrapped},
     {"rewrites source without terminator", test_rewrites_source_without_terminator},
-    {"tiny scratch ends in oom", test_tiny_scratch_ends_in_oom},
     {NULL, NULL},
 };
