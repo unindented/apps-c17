@@ -52,7 +52,7 @@ It also has these options:
 - `surge --help` (or `-h`): Print the list of commands.
 - `surge <command> --help`: Print the help for one command.
 
-A command exits with status 0 when it succeeds, 1 when it fails, and 2 when it rejects the command line. A build that succeeds can still print warnings to `stderr`, after any errors, and exits with status 0. A build stops at the first phase that fails, after it reports every error of that phase.
+A command exits with status 0 when it succeeds, 1 when it fails, and 2 when it rejects the command line. A build that succeeds can still print warnings to `stderr`, after any errors, and exits with status 0. A build stops at the first phase that fails. Loading the inputs stops at its first failing step, and each later phase before the first write reports every error of its own.
 
 ### Site layout
 
@@ -91,7 +91,7 @@ Each part of the site has one purpose:
 - `surge.toml` is the config file, as [Configuration](#configuration) describes. It names the repositories.
 - `templates/` holds the Mustache templates and their partials, as [Templates](#templates) describes. The repository and the release archives contain no default templates, so each site supplies its own.
 - `static/` holds the files that `surge` copies into `output_dir` without changes, at the same relative path. For example, `static/style.css` becomes `output_dir/style.css`. It is optional.
-- `releases/` holds the release assets that CI puts there for each repository, as [Releases](#releases) describes. Each repository names its own directory with `releases_dir`, which is optional.
+- `releases/` holds the release assets that you or your own pipeline put there for each repository, as [Releases](#releases) describes. Each repository names its own directory with `releases_dir`, which is optional.
 
 `surge` reads the repositories themselves wherever their `path` points. It never changes a repository and never uses the network.
 
@@ -398,13 +398,13 @@ A tree can hold names that a page cannot use. Each of these entries keeps its ro
 
 ### Release directories
 
-CI fills the `releases_dir` of a repository with one directory for each release, named after its tag, and `surge` publishes what it finds there. A release is a tag that has a directory `<releases_dir>/<tag>/`. A tag without such a directory, or with a file of that name, is only a tag.
+The `releases_dir` of a repository holds one directory for each release, named after its tag, which you or a release job of your own fill, and `surge` publishes what it finds there. A release is a tag that has a directory `<releases_dir>/<tag>/`. A tag without such a directory, or with a file of that name, is only a tag.
 
 - The notes of a release are the message of its annotated tag, rendered as Markdown. Their links pass through as they are written. A signed tag's signature is not part of the notes: as git does, `surge` cuts the message at the last line that opens a PGP, X.509 or SSH signature, such as `-----BEGIN PGP SIGNATURE-----`, and the release map holds the signature apart. `surge` does not check it, nor a commit's signature, which a commit summary holds as its `gpgsig` header gives it.
 - The assets of a release are the regular files in its directory, in byte order of name. A subdirectory is not an asset. The build copies each asset to `<r>/releases/download/<tag>/<asset>` from the file itself, with no size limit.
 - The date of a release is the date of its annotated tag, or the committer date of the commit of a lightweight tag. A tag of a tag uses the outer tag.
 
-`releases_dir` does not have to exist, because CI may create it with the first release. If it exists, it must be a directory.
+`releases_dir` does not have to exist, because nothing may have created it before the first release. If it exists, it must be a directory.
 
 A release project groups releases by tag prefix. The release projects of a repository are its projects that have a `tag_prefix`, in config order. A repository with a `releases_dir` and no project with a `tag_prefix` has one release project of its own, named after the repository, whose tags may start with `v`. The version of a release is its tag without the project's prefix, or for the repository's own project without a leading `v`. For example, the tag `sosig-v0.1.0` of the project with `tag_prefix = "sosig-v"` is the version `0.1.0`.
 
@@ -441,7 +441,7 @@ The example expects archives that follow the naming of this repository's [releas
 
 ### Checksums
 
-When a release directory has a `SHA256SUMS` file, the build copies it with the other assets, and the mise example sets `checksum_url` to it. `surge` computes no checksums: CI writes this file, as `release.yml` does. A release without `SHA256SUMS` still publishes, with a warning when its project has `mise`, and when it is the release that the example takes its archives from, the example has no `checksum_url`.
+When a release directory has a `SHA256SUMS` file, the build copies it with the other assets, and the mise example sets `checksum_url` to it. `surge` computes no checksums: you or your own pipeline write this file with the assets, as `release.yml` does for this repository's archives. A release without `SHA256SUMS` still publishes, with a warning when its project has `mise`, and when it is the release that the example takes its archives from, the example has no `checksum_url`.
 
 mise checks the checksums only through its lock file. A plain `mise install` never reads `checksum_url`. `mise lock` records the digest of each platform's archive in `mise.lock`, and later installs refuse a download that does not match. The fixture templates say this next to the example.
 

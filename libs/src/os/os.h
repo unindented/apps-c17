@@ -13,7 +13,7 @@ struct Log;
 // Every operation an app performs on the host goes through the functions below, and no other code
 // makes a system call on a path, except an app's code that runs other programs, as the last
 // paragraph below says. Each is declared once here and defined by exactly one implementation per
-// executable, chosen when it is linked, as `_ssg` does with `main_posix.cpp` and `main_test.cpp`:
+// executable, chosen when it is linked:
 //
 // - `os/os_posix.c` is the POSIX implementation, the object library `os_posix`, which an app's
 //   executable and every unit test registered without `OS memory` link (`cmake/apps_testing.cmake`

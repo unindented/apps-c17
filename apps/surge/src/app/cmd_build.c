@@ -615,7 +615,8 @@ static int load_build_inputs_require_read_roots(const struct BuildState* state, 
       (struct ReadRoot){.dir_path = site_config->templates_dir, .key = S("templates_dir")};
   roots[root_count++] = (struct ReadRoot){
       .dir_path = site_config->static_dir, .key = S("static_dir"), .is_optional = true};
-  // A repo's `releases_dir` is filled by CI, so it may not exist before the first release.
+  // A repo's `releases_dir` holds release assets that something outside surge puts there, so it may
+  // not exist before the first release.
   for (ptrdiff_t i = 0; i < site_config->repo_count; i++) {
     const struct Str releases_dir = site_config->repos[i].releases_dir;
     if (releases_dir.len == 0) {

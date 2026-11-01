@@ -71,7 +71,7 @@ struct SurgeRepo {
   /** Optional default branch, or empty to use the branch that `HEAD` names. */
   struct Str default_branch;
 
-  /** Optional directory of release assets that CI fills, or empty when the repo has none. */
+  /** Optional directory of release assets, one per tag, or empty when the repo has none. */
   struct Str releases_dir;
 
   /**
