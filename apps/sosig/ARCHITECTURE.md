@@ -1,318 +1,112 @@
 # Architecture
 
-`sosig` is a small C17 static site generator. It reads a TOML config, Markdown and Org content, and Mustache templates, and it writes the generated files to a directory that the site owns. This document describes the code: the directories and their dependency rules, the build pipeline, the job of each module, the conventions that every module follows, and the design decisions behind them. [README.md](README.md) covers usage and template behavior, [BUILD.md](../../BUILD.md) covers the CMake build, and [STYLE.md](../../STYLE.md) covers the code style.
+`sosig` reads a TOML config, Markdown and Org content, and Mustache templates, and writes the generated files to a directory that the site owns. This document describes the directories, the build pipeline, the modules and the design decisions of `sosig`. [README.md](README.md) covers usage, [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) covers the shared libraries, [BUILD.md](../../BUILD.md) covers the CMake build, and [STYLE.md](../../STYLE.md) covers the code style.
 
 ## Layout
 
-- [src/app/](src/app/): The process entry point `main`, the `cli_spec` that describes the app to the `cli` library, and the commands.
-- [src/build/](src/build/): Build orchestration, the parallel phases, templates, and manifest population.
-- [src/domain/](src/domain/): Site configuration, content metadata, frontmatter, permalinks, and the tool name and version.
-- [tests/](tests/): The golden test suite. Each fixture site under [tests/fixtures/](tests/fixtures/) has a matching directory of expected output under [tests/expected/](tests/expected/):
-  - [site_file_permalink](tests/fixtures/site_file_permalink/) covers Markdown, Org, links between denote notes, and templates with the default permalink.
-  - [site_index_permalink](tests/fixtures/site_index_permalink/) covers a permalink that publishes a directory index for each entry.
-  - [site_nested_sections](tests/fixtures/site_nested_sections/) covers nested and lopsided sections, source names with spaces, punctuation and non-ASCII characters, partials that include partials, aggregate and feed outputs in subdirectories next to content outputs, and `path_to_root` at each depth.
-- [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
-- [cmake/](cmake/): The golden test driver. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
-- [libs/](../../libs/): The libraries that `sosig` links: `cli`, `core`, `os`, `runtime`, `formats`, `markup`, `output` and `templates`, and for the unit tests `testing` and `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
-- [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt`, `tomlc17`, `mustache4c` and `acutest`. It includes [libs/src/markup/vendor.cmake](../../libs/src/markup/vendor.cmake), which builds `md4c`, `org4c`, and `tree-sitter` with its grammars, for the `markup` library.
+- [src/app/](src/app/): The process entry point `main`, the `cli_spec` that describes `sosig` to the `cli` library, and the commands.
+- [src/build/](src/build/): The build phases that are specific to `sosig`: entries, pages, aggregates and feeds, the output plan, and the template data.
+- [src/domain/](src/domain/): The site config, the content entry, frontmatter, permalinks, and the tool name and version.
+- [tests/](tests/): The golden tests. Each fixture site in [tests/fixtures/](tests/fixtures/) has a directory of expected output in [tests/expected/](tests/expected/):
+  - [site_file_permalink](tests/fixtures/site_file_permalink/): Markdown, Org, links between denote notes, and templates, with the default permalink.
+  - [site_index_permalink](tests/fixtures/site_index_permalink/): A permalink that publishes a directory index for each entry.
+  - [site_nested_sections](tests/fixtures/site_nested_sections/): Nested sections, source names with spaces, punctuation and non-ASCII characters, nested partials, aggregates and feeds in subdirectories, and `path_to_root` at each depth.
+- [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and its CMake configurations.
+- [cmake/](cmake/): The golden test driver. The root [cmake/](../../cmake/) directory holds the build profiles, quality tools, packaging and cross toolchains of every app.
+- [vendor.cmake](vendor.cmake): The build of the vendored `copt`, `tomlc17`, `mustache4c` and `acutest`, from the root [vendor/](../../vendor/) directory. It includes [libs/src/markup/vendor.cmake](../../libs/src/markup/vendor.cmake), which builds `md4c`, `org4c`, and tree-sitter with its grammars.
+- [libs/](../../libs/): The shared libraries that `sosig` links: `cli`, `core`, `os`, `runtime`, `formats`, `markup`, `output` and `templates`, and for the unit tests `testing` and `os_memory`. They hold every part that does not depend on what `sosig` does.
 
 ### Dependency rules
-
-First-party dependencies point inward:
 
 - `app` can depend on every other directory.
 - `build` can depend on `domain`.
 - `domain` depends on no other first-party directory.
-- Every directory can depend on the libraries in `libs/`, and no library depends on `sosig`.
+- Every directory can depend on the libraries in `libs/`. No library depends on `sosig`.
 
-A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root or at the include root of a library that the app links, for example `#include "build/template_context.h"` or `#include "core/ascii.h"`, so every include names the directory or the library that it depends on.
-
-## Terms
-
-These words have one meaning everywhere in this document:
-
-- **Arena.** A `struct Arena` from `core`. It has two pointers, `beg` and `end`, into one region. When the region is reserved and the arena commits pages on demand, it has a third pointer, `limit`. An arena never frees an individual allocation.
-- **Perm.** A thread's arena for data that lives longer than the function that makes it. A function takes it by pointer, as `struct Arena* perm`.
-- **Scratch.** A thread's arena for temporary data. A function takes it by value, as `struct Arena scratch`, so its allocations are free again when the function returns.
-- **Log.** A `struct Log`: a growable buffer with one line for each error, and an error count. A command prints its log once. A log grows in an arena of its own, or in an arena that all users of the log get by pointer, so no callee gets the log's arena by value.
-- **Block.** The one reservation that a command makes when it starts. The command splits the block into its arenas, and releases the block when it ends.
-- **Code block.** A piece of code in a Markdown or Org body, which `body_html` writes and can highlight. The word "block" alone always means the reservation above.
-- **Region.** A range of address space that one arena uses. Two arenas never use the same region at the same time.
-- **Reserve.** To get address space from the system without memory behind it.
-- **Commit.** To make reserved pages usable. The system charges committed pages against its memory limit.
-- **Build.** One run of `sosig build`. [BUILD.md](../../BUILD.md) documents the CMake build of `sosig` itself.
-- **Entry.** One content source that a build parses, as a `ContentEntry`. A record in the manifest is a manifest entry, and a file, directory or symlink in a directory listing is a directory entry.
-- **Keep.** To leave an existing output in place: a page whose rendered bytes equal the file, or a copy whose source the output cache records unchanged. The output writer marks a kept output in the manifest, as it marks a written output.
-
-## Entry point and commands
-
-[main.c](src/app/main.c) defines `main`. `main` only calls `cli_dispatch` with the POSIX host, so the unit tests can link the code that maps an action to an exit code. These are the other modules in `src/app`:
-
-- [cli_spec](src/app/cli_spec.h): `cli_spec_init` tells the [cli](../../libs/src/cli/cli.h) library what sosig is: its description and noun, its default config file, its version text, and its `build` and `config` commands. `main` hands it to `cli_dispatch`, which parses the command line, runs the command or prints the version, the help or the diagnostic, and reserves the memory of the text it prints.
-- [cmd_build](src/app/cmd_build.h): `cmd_build_run` generates the site, as [Build pipeline](#build-pipeline) describes.
-- [cmd_config](src/app/cmd_config.h): `cmd_config_print` loads the config that `-c` names, `sosig.toml` by default, and prints the resolved config, in the memory that `cli_dispatch` reserves for the `config` command.
-- [exit_code](../../libs/src/core/exit_code.h), in the `core` library: Every command returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
-
-## Build pipeline
-
-A build runs in two layers:
-
-- `cmd_build_run` is the outer boundary. It gives `build_run` from the `runtime` library its arena sizes. `build_run` resolves the worker count, and reserves the build's memory once, as one block of address space. It splits the block into arenas: the build's log, and a perm and a scratch for the main thread and for each worker. `build_run` calls `cmd_build_execute`, prints the build's errors and then its warnings to `stderr` in one `os_print` call each, and releases the block.
-- `cmd_build_execute` owns the `BuildState`. It runs the thirteen phases below in sequence, with the arenas that it gets, and it prints the verbose status lines. It runs the first phase itself, and `run_build_phases` runs the other twelve. Whatever the outcome, it then releases what mustache4c allocated for the templates.
-
-The phases call these modules in `src/build`:
-
-- `entry_renderer` parses entries and converts their Markdown or Org.
-- `output_manifest` plans the output paths.
-- `page_renderer` renders and writes the content pages.
-- `site_writer` writes the aggregate and feed outputs.
-
-The prune is `output_pruner` from the `output` library, which removes what the build did not write. Every change under `output_dir` goes through `output_writer`, which does not make the changes in a dry run.
-
-### Phases
-
-The phase order follows the data dependencies. A link in a body to another content file needs the URL of that file, and no URL exists until the build parses every entry. A content template can iterate through `content_entries`, which does not exist until the build parses and sorts every entry. So one parallel phase parses the entries, the collect phase sorts them, and a second parallel phase converts the bodies. A third parallel phase renders the pages only after that.
-
-1. **Load inputs** (`load_build_inputs`): `site_config_load` reads and validates the config that `-c` names, `sosig.toml` by default, and resolves each directory against the config's directory. `read_root_require` requires each configured read root to be a usable directory, and reports the cause when one is not. It skips the optional static root when a site does not have one. Then, before the build walks an input tree, `output_manifest_check_output_dir` rejects an `output_dir` that is at or below `content_dir`, `templates_dir`, or `static_dir`, and an `output_dir` that contains one of them or the config file. Then `walk_files_with_suffixes(paths, content_dir, output_dir, suffixes, ...)` finds and sorts every file below `content_dir` in one walk. `load_build_inputs_split_sources` splits that list into the content sources, the files that end in `.md` or `.org` in any letter case, and the assets, which are all the other files. A second walk lists every file below `templates_dir`, partials included, and a third finds the static files. Each walk of an input tree excludes `output_dir` by its identity, so a symlink into the output tree cannot send the outputs of an earlier build back in as inputs. A failure in this phase stops the build: the config load stops at its first error, and a root that fails its check stops the build before the overlap check.
-2. **Parse entries** (`parse_content_entries` -> `entry_renderer_parse_entries`): The build allocates `source_entries` and `draft_flags`, with one slot for each source file, and `job_run` runs one job for each source file. Each job reads its file up to `CONTENT_FILE_LEN_MAX`, so if a source grew past the limit after the walk, only its own job fails. For a Markdown source, the job separates the frontmatter from the body and parses the frontmatter. For an Org source, the job reads the keywords at the top of the file, and the body is the whole file. For an entry that is not a draft, the job keeps the body for the convert phase, and creates the URL and the output path. The job reads the file and builds the entry in a copy of its worker's perm, and it stores the copy back as the worker's perm only when it fills the slot. A draft sets its `draft_flags` slot. A draft and a failed source leave their slot `NULL` and leave nothing in the arena. Each job writes its entry to its own `source_entries` slot, and writes its errors to its own log, in the log share of its worker. `pool_run` joins every worker before `job_run` merges the job logs into the build's log.
-3. **Collect** (`collect_content_entries`): The build copies the entries that are not drafts into one compact array, and `content_entry_sort` sorts them from newest to oldest by `date`. Every later render reads the sorted array.
-4. **Load templates** (`load_templates`): `template_set_load` from the `templates` library reads and compiles every template that the build renders, the aggregate and feed templates, each entry's `template`, and the content template when an entry uses it, and every partial, once, and reports every template that cannot be read or does not compile in one run. A template that only entries name names the first of them, in source order, when it cannot be read. The set is read-only from then on, so every worker renders from it.
-5. **Manifest** (`populate_output_manifest` -> `output_manifest_populate`): Before the build renders a page, it records every output path for content, aggregates, feeds, static files and assets, and it records the output cache's path last. It stats each static file and asset first, and records each as a copy whose attributes are its source's path below its root, size and modification time, through `manifest_builder_add_copies`. A page, an aggregate, a feed, and the output cache declare no attributes. It rejects four kinds of conflict:
-   1. Two producers claim the same path, and `manifest_add` rejects the second claim. Two paths that differ only in ASCII case are the same path, because a case-insensitive filesystem, such as the macOS default, stores them as one file.
-   2. One output uses `a/b` and another output uses `a/b/c`. The first path must be a file, but the second path needs a directory at `a/b`. `manifest_find_prefix_collision` finds this conflict after the build records every path. It folds ASCII case in the same way, so `A/B` and `a/b/c` also conflict.
-   3. An output names an existing build input. `output_manifest_populate` compares the device and inode of each output with the device and inode of these inputs: the config, every discovered source (drafts included), the static files, the assets, and every file below `templates_dir`. The template tree includes partials, per-entry overrides, and templates that no configuration names. The load inputs phase lists that tree once.
-   4. An output is at or below `content_dir`, `templates_dir`, or `static_dir`, even when no file exists there yet. Such an output would come back as an input: the next build would read it as a source or copy it as an asset below `content_dir`, or copy it as a static file below `static_dir`, and the same build could read it as a partial below `templates_dir`. In the load inputs phase, `output_manifest_check_output_dir` already compared the device and inode of each root with the nearest existing ancestor of `output_dir`, and with each ancestor of that directory. This rejects an `output_dir` inside a root before any walk, whether `output_dir` exists yet or not. `output_manifest_populate` then compares each root with each existing directory between `output_dir` and the output. This catches a symlink inside `output_dir` that points into a root. These comparisons detect alternate spellings and symlinked roots. A sibling directory such as `contentx` does not match, and the comparisons skip a missing root. This check runs before the input-file check, so for an output below a root, the build reports this conflict.
-6. **Load the output cache** (`load_output_cache`): The build reads `_sosig/output-cache.tsv` below `output_dir` with `output_cache_load`, unless `--force` sets the writer's `is_forced`. The file has a row for each copy that an earlier build wrote or kept, with the copy's attributes and size. If the file is missing, is empty, cannot be read, or does not parse, the build uses an empty output cache and gives a verbose note. None of these cases is an error. The output cache vouches only for copies: every page, aggregate and feed is rendered on every build.
-7. **Convert bodies** (`convert_content_bodies` -> `entry_renderer_convert_bodies`): The build first finds the denote identifier in the name of every source and asset, and sorts these files by identifier. Then a second `job_run` phase runs one job for each `source_entries` slot, and skips a `NULL` slot. Each job converts the body of its entry to HTML with the converter for its format, in its worker's perm. The converter gives the target of every link and image to a callback in `entry_renderer`. For a link to another content file, by its path or by its denote identifier, the callback writes the relative URL of that file's page, or of the copy of an asset. It records an error for a link to a missing file or to a draft, and declines every other target. This phase runs even after a parse error or a manifest conflict, so one run reports every broken link with the other errors. If the log then holds an error, the build stops.
-8. **Prepare output** (`prepare_output_dir`): The build creates `output_dir` through `output_writer_mkdirs`. This is the build's first write, so when an earlier phase stops a build, the build creates nothing, not even an empty `output_dir`. Later writes create their own parent directories. From this point, every change under `output_dir` goes through the build's `OutputWriter`. In a dry run, the writer makes no change: it creates no `output_dir`, writes no file, and records what the prune would remove instead of removing it.
-9. **Render pages** (`render_content_pages` -> `page_renderer_render_pages`): A third `job_run` phase renders each content template, with one job for each `source_entries` slot, and skips a `NULL` slot. The render context holds the sorted entries and the page's `path_to_root`, which `output_path_to_root` computes from the entry's `url_path` without its leading `/`, as one `../` for each `/` that remains. Each job hands its render to `output_writer_produce`, which renders the page into a copy of the worker's perm, after the entries stored there, and then keeps an existing file of the same bytes or writes the page. The job gives the page's memory back when it returns, so each worker holds at most one page in memory. Jobs write at the same time. The manifest makes sure that no two jobs write the same file. When two jobs create the same parent directory at the same time, both jobs succeed, because `os_write` accepts a directory that already exists. A failed write is a diagnostic for that entry, as a failed render is, and the build still writes the other pages.
-10. **Write aggregates and feeds, and copy static files** (`write_generated_site` -> `site_writer`): The build renders each aggregate and feed template, with the `path_to_root` of its name, which is also its output path, through `output_writer_produce`, as the page phase does. This work runs on the main thread after every page, because each aggregate and feed reads the whole sorted set of entries. Then `write_generated_site_copy` gives `output_writer_produce` each static file, at its path below `static_dir`, and then each asset, at its path below `content_dir`. The writer keeps a copy whose attributes match its row in the output cache and whose output has the size that the row records, and streams every other copy from its source. A copy that fails is unmarked, so the output cache gets no row for it. Each write removes its destination and writes a new file, neither atomically nor synced, so neither this phase nor the page phase is transactional at any level. A page failure or a late template failure can leave new, old, and stale files together, and an interrupted write can leave one output truncated. The next build repairs both: it writes every page whose bytes differ, makes again every copy whose size differs from its row, and removes the stale files.
-11. **Write the output cache** (`write_output_cache`): Once `output_dir` is prepared, the build writes the output cache with `output_cache_write`, even when a phase after it failed. The file has a row for each copy that the build wrote or kept, so the next build keeps the copies that a failed build made. Until then the previous output cache stays, so an interrupted build leaves it, which keeps no copy that the build cut short, because that copy has another size than its row. A dry run does not make this write, as it does not make any write.
-12. **Remove stale outputs** (`prune_stale_outputs` -> `output_pruner_prune`): After the build writes every output, it removes every directory entry below `output_dir` that is not an output and is not a directory that an output is below, so the tree holds only what the current inputs produce. The prune compares device and inode values, not names, so on a case-insensitive filesystem it does not remove the old spelling of a current output. It sorts the identities once, so each lookup is a binary search. It removes a symlink as a link and never goes into one, so it touches nothing outside `output_dir`. `manifest_builder_check_output_dir` already rejected an input root inside `output_dir`, except one bind-mounted there, which the prune empties. It removes a stale directory after it removes everything in it. When it cannot list or remove a directory entry, it reports the failure and continues. It does not report again a directory that such a failure left non-empty. A failed build never gets to this phase, so it removes nothing. In a dry run, the prune finds no `output_dir` when no earlier build made one, and then it has nothing to remove.
-13. **Report the dry run** (`report_dry_run` -> `output_writer_report`): This phase runs only in a dry run. The build prints to `stdout`, in one `os_print` call, a `write` or `keep` line for each output path in manifest order. Then it prints a `remove` line for each path that the prune would remove, sorted bytewise. If an output path is still unmarked, a call site wrote without the output writer. In that case the report fails, so that it does not print a list that leaves out the write.
-
-### Errors and status output
-
-No phase writes a diagnostic to `stderr` itself. The one exception is the out-of-memory report, which `os_oom` prints through `oom_report` before the process exits. Every fallible function records its errors in the log that its caller gives, and `build_run` prints the build's errors and then its warnings in one `os_print` call each.
-
-Until the first write, the build continues after an error wherever the next phase still has something to check, except in the load inputs phase. One run reports every source that does not parse, every output collision, and every broken link between content files. If the build recorded an error, it then stops before it creates `output_dir`. After the first write, a failed phase is the last phase that runs. The page phase still writes every other page, and reports each page that fails. `site_writer` stops at the first aggregate or feed that fails to render or write. The prune runs only when every write succeeded, and it reports every directory entry that it cannot list or remove.
-
-A parallel phase gives each job a log of its own. After `pool_run` joins the workers, `job_run` appends the logs of the failed jobs to the build's log in job order: at most `JOB_ERROR_REPORT_COUNT_MAX` (20) distinct logs, then a count of the others. A render ends its failure message with `(while rendering '<output>')`, and the comparison of two logs stops at that text, so when every page repeats the same template failure, the build prints that failure once.
-
-Verbose status is separate from diagnostics, and both go through `os_print`. The main thread writes a status line between phases. A worker prints nothing to `stderr` except its progress line and an out-of-memory report. The worker formats the whole progress line (`\r<label> n/total`, such as `parsing content 3/12`) before it prints it in one `os_print` call, under a lock that `job.c` owns, so the lines of two workers never interleave.
+A first-party include starts at the `src/` root or at the include root of a library, for example `#include "build/template_context.h"` or `#include "core/ascii.h"`. So each include names the directory or the library that it depends on.
 
 ## Modules
 
-Each item below links to the module's header, which documents its interface. The `src/app` modules are in [Entry point and commands](#entry-point-and-commands).
+Each header documents the interface of its module.
 
-### Build (`src/build`)
+- [app/main](src/app/main.c): Calls `cli_dispatch` with the POSIX host, and defines `os_oom`.
+- [app/cli_spec](src/app/cli_spec.h): Tells the `cli` library the description, default config file, version text, grammar list and commands of `sosig`.
+- [app/cmd_build](src/app/cmd_build.h): `sosig build`. It owns the `BuildState` and runs the phases below.
+- [app/cmd_config](src/app/cmd_config.h): `sosig config`. It loads the config and prints it resolved.
+- [build/entry_renderer](src/build/entry_renderer.h): The parse and convert phases, and the rules for links between content files.
+- [build/output_manifest](src/build/output_manifest.h): The check of `output_dir` against the input roots, and the output plan with its conflict checks.
+- [build/page_renderer](src/build/page_renderer.h): The page phase. It renders each entry through its content template.
+- [build/site_writer](src/build/site_writer.h): Renders the aggregate and feed templates, and stops at the first one that fails.
+- [build/template_context](src/build/template_context.h): The template data. It resolves each name when a render asks for it, and marks only `body_html` as HTML that a template can write unescaped.
+- [domain/content_entry](src/domain/content_entry.h): The `ContentEntry` struct, the newest-first sort, and the newest change for `feed.modified`.
+- [domain/frontmatter](src/domain/frontmatter.h): Splits a Markdown file at its `+++` fences, parses the TOML frontmatter, and reads the keywords at the top of an Org file.
+- [domain/permalink](src/domain/permalink.h): Expands `{slug}` and `{section}` into the URL of an entry.
+- [domain/site_config](src/domain/site_config.h): Loads, checks, resolves and prints the config.
+- [domain/sosig_version](src/domain/sosig_version.h): The tool name and version, which CMake sets.
 
-- [entry_renderer](src/build/entry_renderer.h): The first two parallel phases. `entry_renderer_parse_entries` parses each source into its slot of an entry array that the caller owns, with one slot for each source path. For an entry that is not a draft, it keeps the body, and creates the URL and the output path. A draft leaves its slot `NULL` and sets its slot of `draft_flags`. `entry_renderer_convert_bodies` converts each body after every entry has its URL. The module owns the rules for links between content files: which link targets name a content file by path or by denote identifier, the URL of each target, and the errors for a missing file or a draft.
-- [output_manifest](src/build/output_manifest.h): Builds the [manifest](../../libs/src/output/manifest.h) before the build writes a generated file, through the `output` library's [manifest_builder](../../libs/src/output/manifest_builder.h), with `content_dir`, `templates_dir` and `static_dir` as its roots, each labelled by its config key. `output_manifest_check_output_dir` checks `output_dir` against the input roots before the build walks an input tree. `output_manifest_populate` records every content, aggregate, feed, static file, and asset output, and rejects the conflicts that the manifest phase lists. The root and input checks compare device and inode values, so they detect alternate spellings, hard links, symlinks, and case-insensitive paths to the same file or directory. The manifest and the writers use `path_join` to join each aggregate and feed template name, in `site_writer`, and the path of each static file below `static_dir` or asset below `content_dir`, in `write_generated_site_copy`, to `output_dir`, so the path that the manifest checked is the path that the build writes.
-- [page_renderer](src/build/page_renderer.h): The third parallel phase. `page_renderer_render_pages` renders each parsed entry through its content template, and writes the page only when its bytes changed. Each render reads the complete sorted set of entries through a template context that is `const` at every level.
-- [site_writer](src/build/site_writer.h): After the page phase, renders the aggregate and feed templates, and writes each one only when its bytes changed. It stops at the first template that fails. `write_generated_site_copy` in `cmd_build` then copies the static files and the assets through the output writer. `cmd_build` gives a feed only the newest `feed_count` entries.
-- [template_context](src/build/template_context.h): `template_context_render` renders a page template of the build's `TemplateSet` with a `TemplateContext`, through the `templates` library, and resolves each name lazily as the render asks for it: `site.*`, `feed.*` in a feed, `content_entries`, `generator`, `path_to_root`, and the fields of the current entry and of each listed one. Unescaped Mustache interpolation works only for a key that ends in `_html`, and `body_html` is the one such key, so an unescaped tag of any other value fails the render.
+## Build pipeline
 
-The build also uses [job](../../libs/src/runtime/job.h) from the `runtime` library, which runs the three parallel phases on the worker pool, and the `output` library: [output_cache](../../libs/src/output/output_cache.h) reads and writes the output cache, [output_path](../../libs/src/output/output_path.h) reports an output path that exceeds a limit for `entry_renderer` and `output_manifest`, [output_writer](../../libs/src/output/output_writer.h) keeps or makes every output through `output_writer_produce`, and makes every change under `output_dir` for the prune, and [output_pruner](../../libs/src/output/output_pruner.h) removes every directory entry below `output_dir` that the manifest does not name and that no output is below, as the prune phase describes, and never enters `content_dir`, `templates_dir` or `static_dir`.
+`cmd_build_run` gives the arena sizes of `sosig` to `build_run` from the `runtime` library. `build_run` reserves the memory, calls `cmd_build_execute`, prints the log, and releases the memory. `cmd_build_execute` runs `load_build_inputs`, and then `run_build_phases` runs the other phases in this order. No phase writes to `stderr` itself.
 
-### Domain (`src/domain`)
+1. **Load inputs** (`load_build_inputs`): Load the config, and check that each input root is a usable directory. Reject an `output_dir` that is inside an input root or holds one. Walk `content_dir`, `templates_dir` and `static_dir`. A failure here stops the build.
+2. **Parse entries** (`parse_content_entries`): In parallel, read each source, parse its frontmatter or Org keywords, and make its URL and output path.
+3. **Collect** (`collect_content_entries`): Put the entries that are not drafts in one array, sorted newest first.
+4. **Load templates** (`load_templates`): Read and compile every template that the build renders, and every partial, once.
+5. **Manifest** (`populate_output_manifest`): Record every output path and reject each conflict.
+6. **Load the output cache** (`load_output_cache`): Read `_sosig/output-cache.tsv`, unless the build has `--force`. A cache that is missing or not usable gives a verbose note, not an error.
+7. **Convert bodies** (`convert_content_bodies`): In parallel, convert each body to HTML and resolve its links to other content files. If the log then holds an error, the build stops.
+8. **Prepare output** (`prepare_output_dir`): Create `output_dir`. This is the first write.
+9. **Render pages** (`render_content_pages`): In parallel, render each content page, and keep or write it.
+10. **Write the site** (`write_generated_site`): On the main thread, render each aggregate and feed, then copy each static file and each asset.
+11. **Write the output cache** (`write_output_cache`): Write the cache, also when phase 9 or 10 failed.
+12. **Remove stale outputs** (`prune_stale_outputs`): Remove every path below `output_dir` that the build did not write. This phase runs only when every write succeeded.
+13. **Report the dry run** (`report_dry_run`): In a dry run only, print the `write`, `keep` and `remove` lines.
 
-- [content_entry](src/domain/content_entry.h): Defines the `ContentEntry` metadata struct. Its fields hold source data, template data, and generated paths. The entry, its source, and its strings live in the perm of the worker that parsed it, and `body_html` lives in the perm of the worker that converted it. `content_entry_sort` sorts entries from newest to oldest, and uses the output path to order entries with the same date. `content_entry_modified_latest` returns the newest change for `feed.modified`, among the entries of a feed. The change of an entry is its `modified`, or its `date` if `modified` is empty. For a feed without entries, the function returns the Unix epoch.
-- [frontmatter](src/domain/frontmatter.h): `frontmatter_split` splits a Markdown file at its `+++` fences, which `libs/formats`'s `frontmatter_find` finds, and refuses a file without them, a YAML `---` block included. `frontmatter_parse` parses the TOML frontmatter into a content entry, and rejects a key that is not in the schema or in the list of ignored keys that the caller gives, `frontmatter_ignored_keys`. `frontmatter_parse_org` reads the keywords at the top of an Org file into a content entry, with the same keys, required fields and template check, and ignores all other keywords.
-- [permalink](src/domain/permalink.h): `permalink_expand` creates an entry's URL: it replaces the `{slug}` and `{section}` tokens. It removes redundant `/` characters, and appends `index.html` when the expanded path ends with `/`. The expanded path's last byte decides this, not the pattern's. The URL without its leading `/` is the relative output path, so the public URL names the output file. `site_config_load` expands sample values to check two things: that every expansion is a safe relative path, and that different entries get different paths, so a bad pattern causes one config error. The build checks each entry's output path against both output-path limits when it parses the entry, because only a real entry's slug and section give the path's length.
-- [site_config](src/domain/site_config.h): Defines `SiteConfig` and its load and print operations. The load validates and normalizes each value, and copies it into the arena that the caller gives. It rejects a key that is not in the schema, and applies the defaults of optional keys. Later phases use the resolved config and do not change it. `base_url` needs an `http://` or `https://` scheme, which the load compares without regard to case, and a host that is not empty. The load removes trailing `/` characters from `base_url` and from each configured directory, resolves each directory, the defaults included, against the config's directory, and validates template names and permalink expansion. `frontmatter_ignored_keys` can hold any strings.
-- [sosig_version](src/domain/sosig_version.h): The tool name and version, which CMake sets when it configures `sosig`. The templates and `--version` print them, so they are in the lowest layer.
+## Shared libraries
 
-### Markup, formats and templates libraries
+These parts of `sosig` come from the libraries, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes them:
 
-`sosig` renders the bodies of Markdown and Org entries with the `markup` library, which also highlights their code blocks. `entry_renderer` gives each renderer a `LinkTargets` callback, which writes the URL of a link to another entry. `--version` names the grammars that `highlight_grammar_list` returns. The `formats` library parses the TOML of the config and the frontmatter, and the `templates` library compiles the templates and renders every page, aggregate and feed. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
-
-### Host, runtime and core libraries
-
-`sosig` takes its host interface, its POSIX host and the out-of-memory report from the `os` library, the worker pool, the directory walk and the check of the input directories from the `runtime` library, and its small primitives from the `core` library. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules. These rules are the ones that `sosig` adds:
-
-- `os_read` reads every file with `OS_READ_TEXT`, because every file that `sosig` reads is text. A file that contains a `NUL` byte fails the read.
-- `os_print` carries every byte that `sosig` prints: the log at the end of a command, a rejected command line, `--help` and `--version`, the resolved config, the verbose status lines, and the workers' progress lines.
-- The walk excludes `output_dir`, and skips a second alias of a directory, so an aliased directory publishes one copy of its files.
-- `path_is_below` gives the `{section}` of each entry from the source path below `content_dir` in `entry_renderer`. `output_manifest` uses it to plan the output of each static file and asset, and `write_generated_site_copy` copies the file to the same path below `output_dir`.
-
-## Cross-cutting conventions
-
-Every module follows these rules. When a design decision is behind a rule, the link goes to its reasons and costs.
-
-### Memory
-
-- Every first-party allocation comes from an arena, and each thread has a perm and a scratch. The build's log has an arena of its own. `markdown_to_html`, `org_to_html`, `template_context_render`, and `os_read` return their result in the caller's perm. See [Memory: arenas only](#memory-arenas-only) and [Memory: a perm and a scratch for each worker](#memory-a-perm-and-a-scratch-for-each-worker).
-- A command reserves its memory once, when it starts. It splits the block into arenas of fixed sizes, and the input and render limits bound those sizes. An arena commits pages only when its allocations get to them, and then commits one mebibyte more than the allocation needs. Only committed pages count against the system's memory. See [Memory: reserve, then commit on demand](#memory-reserve-then-commit-on-demand).
-- An allocation that does not fit calls `os_oom`, which reports and exits, so no call site checks for allocation failure. The vendored libraries that still use `malloc` also end in `os_oom`, with the exceptions that the decision lists. See [Out of memory exits the process](#out-of-memory-exits-the-process).
-- Under the address sanitizer, two arena allocations are never adjacent, so code that extends the last allocation in place uses `arena_extend`. See [Address sanitizer coverage in arenas](#address-sanitizer-coverage-in-arenas).
-- A log's arena is never an arena that a callee gets by value, so the log never grows into bytes that a callee uses. See [A log must not grow in a borrowed arena](#a-log-must-not-grow-in-a-borrowed-arena).
-
-### Threads and ownership
-
-Two jobs that run at the same time never share an arena or a log. Each job uses the arenas of the worker that runs it, and each worker has its own arenas. A parse job allocates its entry in its worker's perm, and a convert job allocates the HTML of its entry's body in its worker's perm. A worker gets immutable shared context, except for the manifest mark of the page that it writes and the converted fields of its own entry, and it owns one index in each mutable result array. A convert job reads the URLs of other entries, which no job writes. All workers share the highlighter's grammars and their compiled queries, which are immutable after they load under a lock. `pool_run` joins every worker before the main thread reads the result slots, and the entries stay in the worker arenas until the build ends. See [Memory: a perm and a scratch for each worker](#memory-a-perm-and-a-scratch-for-each-worker).
-
-### Strings and text input
-
-Every first-party string is a counted `struct Str` with a signed `ptrdiff_t` length, and every length and count is a `ptrdiff_t`. See [Counted strings with signed lengths](#counted-strings-with-signed-lengths).
-
-No input format gives a meaning to a `NUL` byte, so the input checks stop a `NUL` before it gets into the generated output. `os_read` with `OS_READ_TEXT` rejects a file that contains a `NUL`, and reports this policy failure separately from system errors. `toml_datum_is_text` rejects a TOML string that contains a decoded `NUL`. `toml_require_known_keys` rejects a TOML key that contains a `NUL`, before it names the key. A path that contains a `NUL` fails at the `os` boundary with `EINVAL`, because a system call would read the path only up to that byte.
-
-### Errors and diagnostics
-
-- A fallible action whose caller needs a message beyond success or failure takes a final `struct Log* log`. It records every error that it finds in that log, and never truncates one. A message is one `printf` format that the compiler checks. See [A growable log, and every error in one run](#a-growable-log-and-every-error-in-one-run) and [Log messages use checked format strings](#log-messages-use-checked-format-strings).
-- A filesystem action also takes the `operation` of the caller, such as `failed to read config`, and logs the whole message, because only the action knows which path failed. A failure inside a file names the file as `(in '<file>')` through `log_error_in`.
-- An action, and a producer that can fail, return `0` or `-1`, and the producer writes its result through an `_out` parameter. A producer that cannot fail returns its result directly, for example a `struct Str` by value. A predicate returns `bool`. Running out of memory is never a return value. [STYLE.md](../../STYLE.md#function-signatures) gives the full rules.
-- A first-party diagnostic is lowercase prose. It names the failed operation first, puts literal names and values in single quotes, and puts a value after the cause. Messages from the system or from a vendored library use their original capitalization and punctuation. [STYLE.md](../../STYLE.md#errors-and-diagnostics) gives the full rules.
-
-### Paths and limits
-
-- **Path safety.** Template names must be safe relative paths, and partial names use a more restrictive identifier grammar. Permalink expansion creates a public URL that starts with `/`, and the build removes that `/` to get the relative output path. Before the build joins an expansion to `output_dir`, `site_config_load` already checked that every expansion of the pattern is a safe relative path. These text checks prevent `.` and `..` traversal. Three checks cover symlink aliases that already exist, each at its own boundary: the identity checks of the input roots, the exclusion of `output_dir` from the walks, and the identity checks of the inputs.
-- **Input size limits.** Each caller of `os_read` gives a limit for the kind of file that it reads. The read checks the limit before it allocates, so it never loads a file that is too large. `CONTENT_FILE_LEN_MAX` in `entry_renderer` equals `MARKDOWN_INPUT_LEN_MAX` and `ORG_INPUT_LEN_MAX` (256 MiB), which the body could not exceed anyway, and it also bounds the frontmatter. `TOML_CONFIG_LEN_MAX` in the `formats` library is 1 MiB for the config. `TEMPLATE_FILE_LEN_MAX` in the `templates` library is 4 MiB for each template and each partial. `os_write` streams a static file from the file itself, so a static file or an asset has no size limit.
-- **Path limits.** The build checks each generated output path against two limits. `OUTPUT_PATH_RELATIVE_LEN_MAX` limits the whole relative path, and `FILENAME_LEN_MAX` limits each path segment. `output_path_check_limits` reports a failure of either limit in the same way for every producer.
-
-### Host access
-
-No code in `src/` makes a system call on a path or prints through `stdio`: only the POSIX host, `os/os_posix.c` in `libs/`, does. All host access goes through `os.h`, and the link step selects the host for each executable. A new unit test links the in-memory host, unless it needs a fact that only a real filesystem has. See [The `os` interface](#the-os-interface).
+- The arenas, the memory model and the ASan poisoning: [Arenas](../../libs/ARCHITECTURE.md#arenas) and [Build memory](../../libs/ARCHITECTURE.md#build-memory).
+- Counted strings, the log, its arena rule and its checked format strings: [Strings](../../libs/ARCHITECTURE.md#strings) and [Logs](../../libs/ARCHITECTURE.md#logs).
+- The out-of-memory report: [os_oom](../../libs/ARCHITECTURE.md#os_oom) and [os](../../libs/ARCHITECTURE.md#os).
+- The host interface and the in-memory host for unit tests: [os](../../libs/ARCHITECTURE.md#os).
+- The output manifest, the output writer that makes every change below `output_dir`, the output cache and the prune: [output](../../libs/ARCHITECTURE.md#output).
+- The worker pool, the parallel jobs and the directory walk: [runtime](../../libs/ARCHITECTURE.md#runtime).
+- Markdown, Org and syntax highlighting: [markup](../../libs/ARCHITECTURE.md#markup).
+- The template set and its renders: [templates](../../libs/ARCHITECTURE.md#templates).
 
 ## Design decisions
 
-Each decision below states what the code does and why, and some decisions also state what they cost. Read the decision before you change one of these designs, and make sure that the change deals with each of its reasons. The decisions come in groups, in this order: memory, strings, logs and their messages, host access, and where the shared code lives.
+Read a decision before you change its design, and make sure that the change deals with each of its reasons.
 
-### Memory: arenas only
+### Parse every entry before any body converts
 
-**Decision.** All first-party memory comes from arenas, and the code never frees an individual allocation. A scratch goes by value, so its memory is free again when the function returns. A perm goes by pointer.
+**Decision.** The build parses every entry in one parallel phase, sorts the entries, and converts the bodies in a second parallel phase. A third parallel phase renders the pages. **Why.** A link to another content file needs the URL of that file, and no URL exists until every entry is parsed. A content template can iterate `content_entries`, which needs every entry parsed and sorted. **Cost.** Each source stays in memory from its parse to the end of the build, so the peak memory of a build grows by about the total size of the sources.
 
-**Reasons.**
+### Arenas belong to workers, not to entries
 
-- No comment needs to say which code frees a buffer.
-- The bounds check is one comparison, and the comparison cannot overflow.
-- A `Buf` can grow in place when it is the last allocation.
-- An arena is one region, not a list of chunks, so a callee that allocates in a by-value copy leaks nothing.
+**Decision.** Each worker has its own perm and scratch, and a job uses the arenas of the worker that runs it. A parse job builds its entry in a copy of the perm, and stores the copy back only when it fills its slot. Each job writes only its own slot and its own log. **Why.** Separate arenas need no lock. A draft or a failed source leaves nothing in the arena. Thousands of entries, each with an arena for the largest entry, would need too much address space. **Cost.** A worker keeps every entry that it parsed until the build ends.
 
-### Memory: a perm and a scratch for each worker
+### Arena sizes come from the limits
 
-**Decision.** Each pool worker has its own perm and its own scratch, and a job uses the arenas of the worker that runs it. A parse job reads its source and builds its entry in a copy of the perm, and stores the copy back as the perm only when the entry is complete. The source stays in the perm, because the convert phase reads the body after every entry has its URL. The build's log has an arena of its own, and `job_run` splits the main thread's scratch into one share of job logs for each worker.
+**Decision.** Each thread's perm is `BUILD_PERM_LEN` (4 GiB), its scratch is `BUILD_SCRATCH_LEN` (3 GiB), and the log is `BUILD_LOG_LEN` (256 MiB). `cmd_build.c` derives the perm from the render limit, and its `_Static_assert`s check the scratch against the content, render and highlight limits. After a page is written, `arena_discard` gives back its pages. **Why.** An input that the limits accept fits, and no estimate from the inputs is necessary. Without the discard, a large page would stay resident in every worker after its write. **Cost.** Org lines with code references in a short `-l` label format need up to 32 bytes of scratch for each byte, so more than about 88 MiB of such lines ends in the out-of-memory report. The next page faults its pages in again, which costs far less than its render.
 
-**Reasons.**
+### Report every error before the first write
 
-- A bump arena is not thread-safe, and separate arenas need no lock.
-- A draft or a failed source leaves nothing in the arena.
-- Arenas belong to threads, not to entries. Thousands of entries, each with a cap large enough for the largest entry, would need too much address space.
+**Decision.** The config load stops at its first error, and an error in the load inputs phase stops the build. After any other error, the build runs each later phase that still has something to check, up to the convert phase. Then it stops before it creates `output_dir` if the log holds an error. After the first write, a page that fails to render does not stop the other pages, and the prune reports each failure and goes on. A parallel phase reports the distinct job errors up to a cap, and a count of the others, as [Logs](../../libs/ARCHITECTURE.md#logs) describes. The log keeps phase order, and job order within a phase, so the order does not change with the worker count. **Why.** A user sees every parse error, output conflict and broken link in one run. **Cost.** A build that fails early still runs the later checks.
 
-**Cost.** Every source of an entry stays in memory until the build ends, so the peak memory of a build grows by about the total size of the sources.
+### Plan every output before any write
 
-### Memory: reserve, then commit on demand
+**Decision.** The manifest phase records every output path, and rejects each conflict, before the build renders a page or creates `output_dir`. **Why.** A rejected build leaves the filesystem as it was. An output that would overwrite an input fails before it can destroy the file. A duplicate path fails before the build spends time on renders. **Cost.** The build stats every static file and asset before it renders a page.
 
-**Decision.** `build_run` reserves the build's memory once and halves it under an address-space limit, as [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#build-memory) describes. Every thread's perm is `BUILD_PERM_LEN` (4 GiB) and its scratch `BUILD_SCRATCH_LEN` (3 GiB), and the log is `BUILD_LOG_LEN` (256 MiB), sizes that come from the content, template and render limits and the expansion limit. A worker's arenas live longer than its jobs, so `arena_discard` gives back the pages of a page after it is written, where a `malloc` design would free it.
+### Compare roots and inputs by identity
 
-**Reasons.** A page costs far more to render than to fault in. Without the discard, a large page would stay resident in every worker after it is written.
+**Decision.** The checks of `output_dir` against the input roots, and of each output against the input files, compare device and inode values, not path text. **Why.** These checks find a different spelling of a path, a symlink, a hard link, and a case-insensitive path to the same file or directory. A sibling such as `contentx` does not match `content`. **Cost.** A missing root has no identity, so the checks skip it. A root that is bind-mounted inside `output_dir` passes the check, and the prune empties it.
+
+### Reject `NUL` bytes in input
+
+**Decision.** `os_read` with `OS_READ_TEXT` rejects a content file, config file or template that holds a `NUL` byte. The TOML helpers reject a string or key that holds a decoded `NUL`. **Why.** No input format gives a `NUL` byte a meaning, and a `%.*s` diagnostic stops at one. **Cost.** A file with a `NUL` byte fails the build, also where the byte would do no harm. The string type holds a `NUL` as an ordinary byte and does not need these checks, so you can remove them with the tests that pin them.
 
 ### Out of memory exits the process
 
-**Decision.** When an arena cannot commit more pages, when the system refuses even the smallest reservation, or when the allocation of a vendored library fails, the program calls `os_oom`. Each program defines `os_oom`. The `sosig` version, in [src/app/main.c](src/app/main.c), calls `cli_oom_exit` from [cli/cli_dispatch.h](../../libs/src/cli/cli_dispatch.h) with the name `sosig`, and `cli_oom_exit` does these steps:
-
-1. It takes a lock, so the first of two workers that run out at once prints its report and exits while the second waits.
-2. It prints the report of `oom_report` from [os/oom.h](../../libs/src/os/oom.h): the errors in the command's log and in the thread's job log, then `sosig: out of memory` and the name of the file that the thread was processing, as `(in '<file>')`.
-3. It exits with `EXIT_CODE_FAILURE` through `_Exit`, which runs no `atexit` handler that another thread could be using.
-
-`oom_set_log` and `oom_set_job` name what the report prints. `build_run` from [runtime/build_run.h](../../libs/src/runtime/build_run.h) names the build's log with `oom_set_log`, as `cli_dispatch` names the log of the `config` command. A job names its file and its log with `oom_set_job` when it starts: a parse, convert or page job names its source. A main-thread phase names its file, with no job log, as it goes: each aggregate or feed template, each static file and asset that it copies, and the output cache.
-
-**Reasons.**
-
-- `sosig` is a CLI tool, and it is easy to make its output directory again.
-- No call site checks for allocation failure.
-- The report names the file that the thread was working on. A user needs that name to find the input that failed.
-
-**Vendored code.** md4c, org4c, mustache4c, and tomlc17 still use `malloc`. md4c and org4c only parse, and their callbacks write into arenas. `sosig` replaces tomlc17's allocator with one that calls `os_oom` when `realloc` fails. When md4c, org4c, or mustache4c fails and reports no reason, the wrapper treats the failure as out of memory and calls `os_oom`. `sosig` also replaces tree-sitter's allocator, as [Highlighting: shared queries, memory per code block](../../libs/ARCHITECTURE.md#highlighting-shared-queries-memory-per-code-block) describes, so its failures also end in `os_oom`. The one exception is the Bash scanner's own `calloc` of its fixed-size state.
-
-### Address sanitizer coverage in arenas
-
-**Decision.** When `sosig` is compiled with the address sanitizer, an arena over a reserved region poisons the pages that it commits, and `arena_alloc` unpoisons only the bytes that it returns. Such an arena leaves a poisoned gap before each allocation, so two of its allocations are never adjacent, and code that extends the last allocation in place uses `arena_extend`. An arena over memory that the caller owns has no gap.
-
-**Reasons.** ASan cannot see an overflow that stays inside one large mapping. Without the poisoning, the debug preset loses most of its overflow checks.
-
-**Limits.**
-
-- The arena does not poison scratch memory again when a function returns, so ASan does not find a use of scratch memory after the function that owned it returned.
-- When a job's copy of its worker's arenas commits, it poisons the free space again, so a job that allocates past the usable part does not read what an earlier job allocated there.
-- `arena_release` leaves the shadow memory to the sanitizer's `munmap` interceptor, which clears it, so a later mapping at the same addresses gets no old poison. Unpoisoning the whole region instead would write an eighth of each reservation as resident shadow memory.
-
-### Counted strings with signed lengths
-
-**Decision.** Every first-party string is a `struct Str` from [str.h](../../libs/src/core/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. Every length and count is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`, and `error_system_message` fills a caller's buffer through `strerror_r`.
-
-**Reasons.**
-
-- Subtraction cannot wrap to a very large value.
-- A `NUL` byte is an ordinary byte, so no code calls `strlen` on owned text.
-
-**Deliberate.** The `NUL` checks in [Strings and text input](#strings-and-text-input) are a product decision, and the string type does not force them. If the product decision changes, you can remove those checks and the tests that pin them.
-
-### A growable log, and every error in one run
-
-**Decision.**
-
-- Each fallible function whose caller needs a message takes `struct Log* log` as its last parameter, and a callback type puts its `void* userdata` after the log. The log holds every error, with no truncation.
-- The config load stops at its first error, and a config error stops the build. After any other error, the build continues while the next phase still has something to check. It stops before its first write if the log holds an error.
-- The log records the errors of the phases in phase order, and the errors of one phase in walk order or job order, so the order does not change with the number of workers.
-- A parallel phase prints at most `JOB_ERROR_REPORT_COUNT_MAX` (20) distinct job errors, and a count of the others.
-
-**Reasons.**
-
-- A user sees every error after the config in one run.
-- No message buffer has a fixed size, so no message is truncated, and no message must be early enough in the order to survive truncation.
-
-### A log must not grow in a borrowed arena
-
-**Decision.** A `struct Log` and its `Buf` live in an arena that no callee gets by value. The build gives each log an arena of its own, or an arena that all users of the log get by pointer.
-
-**Reason.** A `Buf` grows in place. If a callee gets a copy of the same arena by value, the callee allocates the same bytes that the log grows into. The two then write over each other, with no crash and no ASan report.
-
-[STYLE.md](../../STYLE.md#memory-and-resources) states the rule. Treat a break of the rule as a bug, not as a style problem.
-
-### Log messages use checked format strings
-
-**Decision.** A log call takes one `printf` format and its arguments. `log_error`, `log_error_in`, `buf_printf`, and `buf_vprintf_measured` have `__attribute__((format(printf, ...)))`. A `struct Str` prints with `%.*s` and `STR_FMT`, and an integer prints with the conversion for its type. For example:
-
-```c
-log_error(log, "failed to read template: %s ('%.*s')", reason, STR_FMT(template_path));
-```
-
-**Reasons.**
-
-- Each message is one sentence in the source, so a reader reads its wording on one line, and `grep` finds it.
-- The compiler checks the number and the types of the arguments against the format. `-Wformat=2` is on for first-party code and for the libraries.
-- `%td` prints a `ptrdiff_t` with no cast. Only a string needs a helper, `STR_FMT`.
-- Each first-party function that formats a message has the attribute, so its callers get the same check.
-
-**Costs and limits.**
-
-- `STR_FMT` evaluates its argument two times. Give it a variable or another lvalue, and put a computed string in a variable first.
-- A string longer than `INT_MAX` bytes causes an assertion failure at run time, because the `%.*s` precision is an `int`.
-- The attribute is the only guard on the code that reads the arguments. Each formatting function measures the text with `vsnprintf`, allocates the text, and writes it with a second `vsnprintf`. These functions are `buf_printf` in `core`, which grows the buffer in place through `buf_vprintf_measured`, and the first-party functions that format their own message. Only those functions change the measured `int` length to a `ptrdiff_t`.
-- A first-party variadic function does not pass its `va_list` on to a formatter that copies the list with `va_copy`. If it did, the Clang analyzer, versions 22 and 23, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does, which hands its second pass to `buf_vprintf_measured`. `record_error` in the `cli` library, `verbose_printf` in the `runtime` library, and `test_log_is` in `testing/test_support.c` follow this rule, as `render_fail` in the `templates` library does.
-- `%.*s` stops at a `NUL` byte. The input checks reject a `NUL` in file content, in TOML strings and keys, and in paths at the `os` boundary, so a message gets no `NUL` from input. The `os` boundary's `EINVAL` message quotes a path that contains a `NUL` only up to that byte, and the contract test for this case shows the result.
-- An `off_t` has no conversion of its own. It prints with `%jd` and a cast to `intmax_t`.
-- `clang-format` breaks a string literal that is longer than the column limit, so some long messages are in two literals.
-
-### The `os` interface
-
-**Decision.** All host access goes through [os/os.h](../../libs/src/os/os.h) in the `os` library. `os/os_posix.c` is the POSIX implementation. [os/os_memory.c](../../libs/src/os/os_memory.c) is an in-memory implementation for unit tests: an in-memory tree with symlinks, hard links, a modification-time counter, injected failures, and captured output. The link step selects one implementation for each executable. A function that accesses the host takes `struct Os*` just before its arenas, and an `os_*` function takes it first.
-
-**Reasons.**
-
-- Tests of the walk, the manifest, the pages, the writes, and the prune need no temporary directories.
-- A link-time choice needs no table of function pointers, because no executable needs two hosts.
-
-**Linking.** `sosig` and every unit test registered without `OS memory` link `os_posix`, the object library of `os/os_posix.c`. The tests registered with `OS memory` link `os_memory`, as [BUILD.md](../../BUILD.md#sosig-tests) lists.
-
-**Condition.** Each property that a test checks against the in-memory host must have a contract test. [os/test_os.c](../../libs/src/os/test_os.c), in the `libs/` project, compiles once against each host and runs the same cases, and both executables must pass, so every property that a test relies on in the in-memory host is also true on POSIX. Without the contract tests, the in-memory host can accept what POSIX rejects. For example, an in-memory host could accept `file/` as a file where POSIX returns `ENOTDIR`, and a contract test checks this case.
-
-**Writes.** `os_write` writes either bytes or a file that it streams in 64 KiB pieces. `os_write`, `os_mkdirs`, `os_remove` and `os_remove_dir` are the only operations that change the host. A copy is an `os_write` from a file, and has no operation of its own. `os_write` removes a file, symlink or hard link at the destination without following it and writes a new file, so a link there never carries an output onto another file. The write is neither atomic nor synced, so an interrupted build can leave a truncated file. The next build repairs such a file, which is cheaper than a temporary-file protocol. `os_stat` reports the size and modification time that the output cache records for each copy's source.
-
-### Where the shared code lives
-
-**Decision.** The libraries in [libs/](../../libs/) hold the code that `sosig` shares with the other apps. `core` holds the generic parts: the arena with reserve, commit, and poisoning, `Buf`, `Str`, `Log`, and the small primitives. `os`, `runtime`, `cli`, `formats`, `markup`, `output` and `templates` hold the modules that more than one app uses in the same form. Each program defines `os_oom`, and has its own arena layout.
-
-**Reason.** These parts do not depend on what a program does.
+**Decision.** `os_oom` in [main.c](src/app/main.c) calls `cli_oom_exit` with the name `sosig`. The report names the file of the thread that ran out. A parse, convert or page job names its source. A main-thread phase names each aggregate or feed template, each static file and asset that it copies, and the output cache. **Why.** It is easy to make the output again, no call site checks for allocation failure, and the user needs the file name to find the input that failed. **Cost.** Under a low `ulimit -v`, a large input ends in the out-of-memory report and not in a sized refusal.
