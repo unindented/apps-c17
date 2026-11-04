@@ -1,8 +1,6 @@
 # Build system
 
-This document describes the CMake builds of the projects in this repository: their targets, how the targets link to each other, and the reasons for their settings. Every build needs CMake 3.25 or later. The Development section of each app's README lists the commands that compile, test and package that app: [sosig](apps/sosig/README.md#development), [fram](apps/fram/README.md#development), [cwrap](apps/cwrap/README.md#development) and [surge](apps/surge/README.md#development). [libs/README.md](libs/README.md#development) lists the commands of the `libs/` project.
-
-The first sections describe what every project shares. The sections [sosig](#sosig), [fram](#fram), [cwrap](#cwrap) and [surge](#surge) describe what one app has of its own.
+This document describes the CMake builds of the projects in this repository: how to build, test and package each project, the targets and their links, and the reasons for their settings. Every build needs CMake 3.25 or later. [Development](#development) gives the commands. The sections [sosig](#sosig), [fram](#fram), [cwrap](#cwrap) and [surge](#surge) give only what differs for one app.
 
 ## Projects
 
@@ -18,6 +16,96 @@ The repository root is not a CMake project. Each of these directories is a CMake
 
 Only one project is configured in each build tree, so the cache variables and the targets that the presets name have the same name in every project.
 
+## Development
+
+### Prerequisites
+
+- A POSIX-like system, CMake 3.25 or later, and a C17 compiler such as Clang or GCC. sosig, fram, surge and `libs/` also need pthreads.
+- Optional: `ninja` for the `multi` preset, and `cwrap`, `clang-format`, `clang-tidy` and `cppcheck` for analysis and lint.
+- Zig 0.17 and `llvm-strip`, for the Linux `musl` archives.
+
+The repository holds the vendored dependencies in [vendor/](vendor/) and the libraries in [libs/](libs/). fram and surge need more tools, as their sections list.
+
+### Building
+
+Run the commands from the directory of the project, such as `apps/sosig`. Each preset builds in `build/<preset>` and treats compiler warnings as errors. If `CC` is set, the preset builds in `build/<preset>/<CC>`, such as `build/debug/gcc-14`. CMake reads `CC` only when it configures a directory for the first time, so each compiler needs its own build tree. Change `-j 8` to suit your machine.
+
+```sh
+cmake --preset debug
+cmake --build --preset debug -j 8
+```
+
+| Preset | Configuration | App binary |
+| --- | --- | --- |
+| `debug` | `Debug` with AddressSanitizer and UndefinedBehaviorSanitizer. It runs `clang-tidy` and `cppcheck` during compilation if they are installed. | `build/debug/bin/<app>` |
+| `tsan` | `Debug` with ThreadSanitizer. | `build/tsan/bin/<app>` |
+| `release` | `RelWithDebInfo`, with no tests. The binary in the build tree keeps its debug information, and packaging strips the installed copy. | `build/release/bin/<app>` |
+| `multi` | `Debug` and `RelWithDebInfo` in one build tree, with the `Ninja Multi-Config` generator. Build with `--preset multi-debug` or `--preset multi-relwithdebinfo`. | `build/multi/bin/<config>/<app>` |
+
+In `libs/`, a preset builds each library as `src/<library>/lib<library>.a` in its build tree, and `multi` as `src/<library>/<config>/lib<library>.a`.
+
+To run the lint, configure the `debug` preset, and then run `cmake --build --preset lint`. `clang-tidy` runs only with Clang, as [Linting and formatting](#linting-and-formatting) explains.
+
+### Testing
+
+Build a preset, and then run its tests:
+
+```sh
+ctest --preset debug -j 8
+ctest --preset debug -L unit -j 8
+ctest --preset debug -R template -j 8
+```
+
+The test presets are `debug`, `tsan`, `multi-debug` and `multi-relwithdebinfo`. The `multi-relwithdebinfo` tests check the configuration of the `release` preset, which builds no tests. `-L` selects tests by label, and `-R` by a pattern of their names. Each test has the label of its app, or of its library in `libs/`, and also `unit`, `golden` or `idempotent`. [Tests](#tests) describes the tests.
+
+### Continuous integration
+
+The workflow presets run the same configure, build and test steps as CI:
+
+| Workflow | Steps |
+| --- | --- |
+| `cmake --workflow --preset ci-debug` | Build in `Debug`, run the lint, and run all tests with ASan and UBSan. |
+| `cmake --workflow --preset ci-tsan` | Build with TSan and run all tests. |
+| `cmake --workflow --preset ci-release` | Build in `RelWithDebInfo`. |
+| `cmake --workflow --preset ci-multi` | Build and test in `Debug` and `RelWithDebInfo` with the `Ninja Multi-Config` generator. |
+
+The CI workflow, [ci.yml](.github/workflows/ci.yml), checks each project that a change can affect, on Linux and on macOS, through [checks.yml](.github/workflows/checks.yml). It runs `ci-multi` again on Linux with `CC=gcc-14`. It also checks that the objects of `core` in the ASan build carry AddressSanitizer symbols. Its `Summary` job reports the result of every job. The workflows refer to actions by tag, and [actions.lock](.github/workflows/actions.lock) records the commit of each tag. After you change a `uses:` line, run `gh actions-lock --no-narrow`, from the [gh-actions-lock](https://github.com/github/gh-actions-lock) extension. The `Lockfile` job fails when the lockfile does not match the workflows.
+
+To run a Linux workflow with Podman, build the image from the root [Containerfile](Containerfile) in the repository root. Then run each workflow in a new container, with the project's directory as the working directory:
+
+```sh
+podman build --tag apps-c17-linux-ci --file Containerfile .
+podman run --rm --workdir /src/apps/sosig apps-c17-linux-ci ci-debug
+podman run --rm --workdir /src/apps/sosig -e CC=gcc-14 apps-c17-linux-ci ci-multi
+```
+
+The image holds a copy of the repository without the directories that [.containerignore](.containerignore) excludes, such as `.git/` and `build/`, so the Linux build products stay in the container. It supports x86-64 and AArch64 hosts. It pins LLVM 23, GCC 14 and a `cwrap` release, and installs NASM, FFmpeg, `git` and mise for the tests of fram and surge. It does not include Zig, because only the release archives need Zig.
+
+### Packaging
+
+Only the release configurations have package presets. Build a preset, and then package it:
+
+```sh
+cmake --preset release
+cmake --build --preset release -j 8
+cpack --preset release
+```
+
+| Preset | Archive |
+| --- | --- |
+| `release` | A native archive in `build/release/`. |
+| `release-linux-x86_64` | `build/release-linux-x86_64/<app>-<version>-x86_64-linux-musl.tar.gz`, cross-built with Zig. |
+| `release-linux-aarch64` | `build/release-linux-aarch64/<app>-<version>-aarch64-linux-musl.tar.gz`, cross-built with Zig. |
+
+A source archive needs a configured tree but no compiled binary:
+
+```sh
+cmake --preset release
+cpack --config build/release/CPackSourceConfig.cmake
+```
+
+The source archive is `build/release/<app>-<version>-source.tar.gz`. [Releases](#releases) describes the archives and the release workflow.
+
 ## Shared files
 
 | Path | Responsibility |
@@ -30,16 +118,16 @@ Only one project is configured in each build tree, so the cache variables and th
 | [cmake/apps_restyle_graphviz_svg.cmake](cmake/apps_restyle_graphviz_svg.cmake) | Adds light and dark styles to a target graph |
 | [cmake/toolchains/](cmake/toolchains/) | Configures Zig to cross-compile for the Linux `musl` release targets |
 | [cmake/presets.json](cmake/presets.json) | Defines the configure, build, test and workflow presets that every project has |
-| [cmake/release-presets.json](cmake/release-presets.json) | Includes `presets.json`, and adds the `release-linux-*` presets and the package presets that every app has |
+| [cmake/release-presets.json](cmake/release-presets.json) | Includes `presets.json`, and adds the `release-linux-*` presets and the package presets of an app |
 | [.clang-format](.clang-format) and [.clang-tidy](.clang-tidy) | Configure `clang-format` and `clang-tidy` for every project |
 | [Containerfile](Containerfile) | Builds the Linux CI image for every project |
-| [vendor/](vendor/) | Holds the sources of every vendored project, as upstream ships them, with the manifest and the script that check and update them (see [Vendored dependencies](#vendored-dependencies)) |
+| [vendor/](vendor/) | Holds the sources of every vendored project, with the manifest and the script that check and update them (see [Vendored dependencies](#vendored-dependencies)) |
 
-Each project adds the root `cmake/` directory to `CMAKE_MODULE_PATH`. Each module has `include_guard(GLOBAL)`, so a module that two projects of one build tree include runs one time.
+Each project adds the root `cmake/` directory to `CMAKE_MODULE_PATH`. Each module has `include_guard(GLOBAL)`, so a module runs one time in a build tree.
 
 ## App layout
 
-The top-level `CMakeLists.txt` of an app sets the project policy, includes the CMake modules of the root `cmake/` directory and of its own `cmake/` directory, includes its `vendor.cmake`, adds the `libs/` project, and adds each source directory. These are the other CMake files of an app:
+The top-level `CMakeLists.txt` of an app sets the project policy, includes the CMake modules of the root `cmake/` directory and of its own `cmake/` directory, includes its `vendor.cmake`, adds the `libs/` project, and adds each source directory. sosig, fram and surge also find the thread library. These are the other CMake files of an app:
 
 | Path | Responsibility |
 | --- | --- |
@@ -53,32 +141,30 @@ The top-level `CMakeLists.txt` of an app sets the project policy, includes the C
 
 ## Targets of an app
 
-Each app has one application library, two hosts, one target for each vendored dependency, the libraries of `libs/` that it links, and the interface targets of [Build profiles](#build-profiles). Each executable links the application library and one of the two hosts. Each app's section has the graph of its targets and their links, which CMake generates from the `release` preset. A graph does not show the dependencies between source modules, and it does not show test-only targets such as the in-memory host and the `testing` library.
+Each app has one application library, two hosts, one target for each vendored dependency, the libraries of `libs/` that it links, and the interface targets of [Build profiles](#build-profiles). Each executable links the application library and one of the two hosts. Each app's section has the graph of its targets, which CMake generates from the `release` preset. A graph does not show test-only targets such as the in-memory host and the `testing` library.
 
 ### Application library
 
-`<app>_app` is a private static library that holds every application source except `src/app/main.c`. The executable and every unit test link it. It is static because it supports one product and has no public ABI.
+`<app>_app` is a private static library that holds every application source except `src/app/main.c`. The executable and every unit test link it. It is static because it supports one product and has no public ABI. The source directories add their files to `<app>_app` and define no libraries of their own, because more libraries would add link boundaries without independent APIs.
 
-Each source directory holds the code for one purpose. The source directories add their files to `<app>_app` and do not define libraries of their own, because more libraries would add link boundaries without independent APIs.
+`<app>_app` links as `PUBLIC` dependencies the libraries whose types the application headers expose, and every other dependency as `PRIVATE`. In sosig, fram and surge, `Threads::Threads` is `PRIVATE`, but CMake still adds it to each executable that links the static library. `src/CMakeLists.txt` links `vendor_tomlc17`, the one vendored dependency that the code of these apps uses directly. The libraries link the other vendored dependencies that they use, such as copt in `cli` and mustache4c in `templates`.
 
-`<app>_app` links as `PUBLIC` dependencies the libraries whose types the application headers expose, and every other dependency as `PRIVATE`.
+The arena of `core` calls `os_oom` when an allocation does not fit, and each program defines `os_oom`, as [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md#os_oom) describes. An app defines it in `src/app/main.c`, and the `testing` library defines it for the unit tests.
 
-`core`, the library in [libs/src/core/](libs/src/core/), supplies the arena, the counted string, the output buffer and the diagnostic log. When an allocation does not fit, the arena calls `os_oom`, and each program defines its own `os_oom`. Each app's `src/app/main.c` defines the `os_oom` of that app, which the app's ARCHITECTURE.md describes. The `testing` library defines the `os_oom` of the unit tests.
+The version template is `src/domain/<app>_version.c.in`. The file that CMake generates from it defines `<app>_version_string()`, and in sosig, fram and surge also `<app>_generator_string()`.
 
 ### Hosts
 
-Each executable selects its host when it links. The POSIX host is an object library outside `<app>_app`, and the executable links it. The unit tests that use the default, `OS posix`, also link it (see [Unit tests](#unit-tests)). The tests registered with `OS memory` link the in-memory host instead. Every app links `os_posix` and `os_memory` from the `os` library.
-
-Both hosts are object libraries, because `<app>_app` refers to them and a single-pass linker skips a static archive when the archive comes before the code that uses it on the link line.
+Each executable selects its host when it links. Every app links the POSIX host `os_posix` and, for its unit tests, the in-memory host `os_memory` from the `os` library. The executable and the unit tests registered without `OS memory` link `os_posix`, and the tests registered with `OS memory` link `os_memory` (see [Unit tests](#unit-tests)). Both hosts are object libraries, because `<app>_app` refers to them, and a single-pass linker skips a static archive that comes before the code that uses it on the link line.
 
 ### Vendored dependencies
 
-The sources of each vendored project are in the root [vendor/](vendor/) directory, and each app's `vendor.cmake` compiles the sources that the app uses. An app that links `markup` includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake) for the vendored projects of that library. Each vendored project has its own target, `vendor_<lib>`: the header-only projects, acutest and copt, are interface libraries, and the other vendored projects are static libraries. The targets have the same names in every app, because the libraries of `libs/` link the app's `vendor_acutest`, `vendor_mustache` and `vendor_tomlc17`.
+The sources of each vendored project are in the root [vendor/](vendor/) directory, and each app's `vendor.cmake` compiles the sources that the app uses. An app that links `markup` includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake) for the vendored projects of that library. Each vendored project has its own target, `vendor_<lib>`. The header-only projects, acutest and copt, are interface libraries, and the others are static libraries. The targets have the same names in every app, because the libraries of `libs/` link the app's `vendor_acutest`, `vendor_mustache` and `vendor_tomlc17`.
 
-[vendor/vendor.toml](vendor/vendor.toml) pins each vendored project: its upstream repository, its release when it has one, and its commit. It also lists the upstream files that the directory of the project holds, the patches that this repository applies to them, and the files that this repository writes, such as the configuration headers of libjpeg-turbo. The `THIRD_PARTY_NOTICES.md` of each app and of `libs/` records the pin of each project that it lists. Renovate reads the releases in the manifest and opens a pull request for each new release. [vendor/vendor.py](vendor/vendor.py), which needs Python 3.11 or later, uses the manifest:
+[vendor/vendor.toml](vendor/vendor.toml) pins each vendored project: its upstream repository, its release when it has one, and its commit. It also lists the upstream files that the project's directory holds, the patches that this repository applies, and the files that this repository writes, such as the configuration headers of libjpeg-turbo. The `THIRD_PARTY_NOTICES.md` of each app and of `libs/` records the pin of each project that it lists. Renovate reads the releases in the manifest and opens a pull request for each new release. [vendor/vendor.py](vendor/vendor.py) needs Python 3.11 or later:
 
-- `vendor/vendor.py check` fetches each pinned commit and makes the copy that the manifest describes. It fails when a directory of `vendor/` differs from that copy, when a release no longer names its commit, or when a notices file records another pin. The Vendored sources job of CI runs this check.
-- `vendor/vendor.py sync <project>...` replaces the directory of each project with the copy of the commit that its release names, or of its pinned commit when it has no release, and records the pin in the manifest and in every notices file. For a tree-sitter grammar, it prints the upstream changes to the query files whose patterns `markup` keeps in `libs/src/markup/queries/`.
+- `vendor/vendor.py check` fetches each pinned commit and makes the copy that the manifest describes. It fails when a directory of `vendor/` differs from that copy, when a release no longer names its commit, or when a notices file records another pin. The `Vendored sources` job of CI runs this check.
+- `vendor/vendor.py sync <project>...` replaces the directory of each project with the copy of its release, or of its pinned commit when it has no release, and records the pin in the manifest and in every notices file. For a tree-sitter grammar, it prints the upstream changes to the query files whose patterns `markup` keeps in `libs/src/markup/queries/`.
 
 To bump a project, change its `release`, or its `commit` when it has no release, and run `vendor/vendor.py sync` with its name.
 
@@ -102,12 +188,12 @@ To bump a project, change its `release`, or its `commit` when it has no release,
 
 ## The libs project
 
-[libs/CMakeLists.txt](libs/CMakeLists.txt) adds one directory of `libs/src/` for each library, and that directory defines the library's target, as [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md) describes. An app adds the project with `add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)`:
+[libs/CMakeLists.txt](libs/CMakeLists.txt) adds one directory of `libs/src/` for each library, as [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md) describes. An app adds the project with `add_subdirectory(../../libs ${CMAKE_BINARY_DIR}/libs EXCLUDE_FROM_ALL SYSTEM)`:
 
 - `EXCLUDE_FROM_ALL` builds a library only when a target of the app links it.
 - Each library links `apps_build_project` of the app, so it compiles with the app's warnings and sanitizer options.
 - `SYSTEM` makes the include directories of the libraries system directories for the app, so the analysis of the app checks only the app's own code.
-- The libraries use the vendored targets of the app. The project adds `cli` only when the target `vendor_copt` exists. It adds `formats` only when the target `vendor_tomlc17` exists, so cwrap, which vendors no tomlc17, builds without it. It adds `markup` only when `formats` and the targets of `libs/src/markup/vendor.cmake` exist, so fram and cwrap build without it. It adds `templates` only when `formats` and the target `vendor_mustache` exist, so cwrap builds without it.
+- The libraries use the vendored targets of the app. The project adds `cli` only when `vendor_copt` exists, `formats` only when `vendor_tomlc17` exists, `markup` only when `formats` and the targets of `libs/src/markup/vendor.cmake` exist, and `templates` only when `formats` and `vendor_mustache` exist. cwrap therefore builds without `formats`, `markup` and `templates`, and fram without `markup`.
 - An app never builds the tests of the libraries.
 
 Configured on its own, from `libs/`, the project defines the vendored targets that the libraries need in [libs/vendor.cmake](libs/vendor.cmake), and builds every library, its analysis, its lint and its tests. `libs_add_unit_test(<lib> <module>)` registers the test `<lib>.<module>`, which links the library, `apps_build_tests`, acutest and the libraries in `LIBRARIES`. With `OS posix` or `OS memory`, the test also links `os_posix` or `os_memory`, and with `OS memory` it compiles with `APPS_TEST_OS_MEMORY` set to 1. Each library test has the labels `<lib>` and `unit`, and the same timeouts as the tests of an app.
@@ -116,7 +202,7 @@ Configured on its own, from `libs/`, the project defines the vendored targets th
 
 `markup` links the grammars that [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake) builds. That file also builds md4c, org4c and the tree-sitter runtime. Each app that links `markup` includes it from its own `vendor.cmake`, and the `libs/` project includes it from `libs/vendor.cmake`.
 
-`APPS_GRAMMARS` selects the tree-sitter grammars that a binary links. The default is an empty value, which links every grammar, as in the release archives. A list links only the grammars that it names, and each name in the list must be the name of one `markup_add_tree_sitter_grammar` call in `libs/src/markup/vendor.cmake`. These names are `c`, `bash`, `html`, `css`, `javascript`, `typescript`, `tsx` and `json`. If the binary does not link the grammar for the language of a code block, `markup` only escapes the block, as it does for a language that has no grammar.
+`APPS_GRAMMARS` selects the tree-sitter grammars that a binary links. The default is an empty value, which links every grammar, as in the release archives. A list links only the grammars that it names, and each name must be the name of one `markup_add_tree_sitter_grammar` call in `libs/src/markup/vendor.cmake`. These names are `c`, `bash`, `html`, `css`, `javascript`, `typescript`, `tsx` and `json`. If the binary does not link the grammar for the language of a code block, `markup` only escapes the block, as it does for a language that has no grammar.
 
 ```sh
 cmake --preset release -B build/release-small -DAPPS_GRAMMARS="c;bash"
@@ -127,7 +213,7 @@ TypeScript and TSX are separate grammars. You can select either of them without 
 
 The configure step stops with an error when a name matches no grammar. It also stops with an error when `APPS_GRAMMARS` is not empty and `APPS_BUILD_TESTING` is on, because the tests need every grammar.
 
-Each selected grammar is a static library, `vendor_tree_sitter_<name>`. This library holds the highlight queries of the grammar as an embedded byte array. The parsers come from the root `vendor/` directory. The queries come from [libs/src/markup/queries/](libs/src/markup/queries/), where `markup` keeps its own copy of the upstream patterns. A grammar bump changes a query only when you port the changes of the upstream query files, as [libs/THIRD_PARTY_NOTICES.md](libs/THIRD_PARTY_NOTICES.md) describes. `vendor_tree_sitter_grammars` is an interface library. It links the selected grammars and carries the generated header `tree_sitter_grammars.h`, which declares the language, the queries and the names of each selected grammar. [libs/src/markup/highlight.c](libs/src/markup/highlight.c) defines its table of grammars from this header.
+Each selected grammar is a static library, `vendor_tree_sitter_<name>`, which holds the highlight queries of the grammar as an embedded byte array. The parsers come from the root `vendor/` directory. The queries come from [libs/src/markup/queries/](libs/src/markup/queries/), where `markup` keeps its own copy of the upstream patterns. A grammar bump changes a query only when you port the changes of the upstream query files, as [libs/THIRD_PARTY_NOTICES.md](libs/THIRD_PARTY_NOTICES.md) describes. `vendor_tree_sitter_grammars` is an interface library. It links the selected grammars and carries the generated header `tree_sitter_grammars.h`, which declares the language, the queries and the names of each selected grammar. [libs/src/markup/highlight.c](libs/src/markup/highlight.c) defines its table of grammars from this header.
 
 With `address`, the CMake build also turns off the `function` check for the tree-sitter runtime, because the runtime calls the `create` function of each grammar scanner, and this function has no prototype.
 
@@ -152,27 +238,23 @@ These tests run in the `libs/` project, as `core.format_compile.*`, and no app r
 - `apps_build_tests` sets the common warning group and the sanitizer options.
 - `apps_build_vendor` sets optimization and the sanitizer options that vendored code supports.
 
-All three targets require C17 or later. A parent project can select a newer standard, but not an older one.
-
-Generator expressions select the options separately for each configuration, so the same rules work with single-config generators and with multi-config generators.
-
-The presets set `CMAKE_COMPILE_WARNING_AS_ERROR`, so the compiler treats warnings as errors. The CMake build does not force this setting on a parent project.
+All three targets require C17 or later. A parent project can select a newer standard, but not an older one. Generator expressions select the options for each configuration, so the same rules work with single-config and multi-config generators. The presets set `CMAKE_COMPILE_WARNING_AS_ERROR`, so the compiler treats warnings as errors. The CMake build does not force this setting on a parent project.
 
 ### Sanitizers
 
-`APPS_SANITIZER` accepts `none`, `address` or `thread`. `address` enables AddressSanitizer and UndefinedBehaviorSanitizer, and `thread` enables ThreadSanitizer. The option adds flags to the standard CMake configurations and does not create custom build types.
+`APPS_SANITIZER` accepts `none`, `address` or `thread`. `address` enables AddressSanitizer and UndefinedBehaviorSanitizer, and `thread` enables ThreadSanitizer. The option adds flags to the standard CMake configurations and creates no custom build types.
 
-With `address`, the CMake build instruments first-party code, the libraries and vendored code. The libraries build with the first-party profile, so they keep every check, and the arena poisoning of `core` runs in an app's ASan build. CI checks that the objects of `core` in each project's ASan build carry AddressSanitizer symbols. For vendored code, the build turns off the `null` and `object-size` checks, because vendored code does not support these checks. First-party code keeps every check.
+With `address`, the CMake build instruments first-party code, the libraries and vendored code. The libraries build with the first-party profile, so they keep every check, and the arena poisoning of `core` runs in an app's ASan build. For vendored code, the build turns off the `null` and `object-size` checks, because vendored code does not support them.
 
 ## Linting and formatting
 
-When a project is the top-level CMake project, the `C_CLANG_TIDY` and `C_CPPCHECK` properties of its first-party targets make CMake run `clang-tidy` and `cppcheck` while it compiles these targets. Neither tool checks vendored code, and an app's analysis does not check the libraries, which the `libs/` project checks. The `HeaderFilterRegex` of the root `.clang-tidy` covers the headers under `src/` and `libs/`. In an app, the include path of `cppcheck` contains the include roots of the libraries that `APPS_LIBRARIES` in the app's `CMakeLists.txt` lists, because `cppcheck` needs these headers to expand macros such as `STR_FMT` of `core`. Thus `cppcheck` also analyzes the inline functions that these headers define.
+When a project is the top-level CMake project, CMake runs `clang-tidy` and `cppcheck` while it compiles the first-party targets, through their `C_CLANG_TIDY` and `C_CPPCHECK` properties. Neither tool checks vendored code, and an app's analysis does not check the libraries, which the `libs/` project checks. The `HeaderFilterRegex` of the root `.clang-tidy` covers the headers under `src/` and `libs/`. In an app, the include path of `cppcheck` holds the include roots of the libraries that `APPS_LIBRARIES` in the app's `CMakeLists.txt` lists, because `cppcheck` needs these headers to expand macros such as `STR_FMT`. Thus `cppcheck` also analyzes the inline functions of these headers.
 
-Test targets run `cppcheck` but not `clang-tidy`, because their intentional failure cases cause analyzer errors. When CMake cross-compiles, neither tool runs. Zig supplies the headers for the target platform, and the analyzers on the host cannot find these headers when they repeat the compile command. When the compiler is not Clang, the CMake build turns off `clang-tidy`, because `clang-tidy` reads the compile command and rejects GCC-only warning options such as `-Wlogical-op`. `cppcheck` runs with any compiler.
+Test targets run `cppcheck` but not `clang-tidy`, because their intentional failure cases cause analyzer errors. When CMake cross-compiles, neither tool runs, because the analyzers on the host cannot find the headers that Zig supplies for the target platform. When the compiler is not Clang, the build turns off `clang-tidy`, because it rejects GCC-only warning options such as `-Wlogical-op`. `cppcheck` runs with any compiler.
 
-The `format` and `lint` targets run `clang-format` and then `cwrap`, which refills comment prose to 100 columns, the `.clang-format` column limit. Either tool is skipped when it is not installed. CI and the Linux image install a pinned `cwrap` release. It is the installed `cwrap`, not the one that `apps/cwrap` builds, so a change to how it rewraps reaches the sources only through a new release and the pin in CI and the Linux image.
+The `format` and `lint` targets run `clang-format` and then `cwrap`, which refills comment prose to 100 columns, the `.clang-format` column limit. The targets skip a tool that is not installed. CI and the Linux image install a pinned `cwrap` release, not the one that `apps/cwrap` builds, so a change to how `cwrap` rewraps reaches the sources only through a new release and a new pin.
 
-Both targets run both tools on the `.c` and `.h` files that the project's targets list in their `SOURCES`, `INTERFACE_SOURCES` and header sets, which `apps_add_lint_targets` gathers once the last target is defined, so a new file needs only its target. The list follows the configuration, so the test files are linted only when `APPS_BUILD_TESTING` is on. A file that no target compiles, such as a test helper header or `libs/src/core/test_format_compile.c`, is added to a target's sources for this. A source that starts with a generator expression gets a CMake warning, because lint cannot see its path. In an app, both tools also check the version template, which `clang-format` reads as the `.c` file that it configures because of `--assume-filename`.
+Both targets check the `.c` and `.h` files that the project's targets list in their `SOURCES`, `INTERFACE_SOURCES` and header sets. `apps_add_lint_targets` gathers them after the last target is defined, so a new file needs only its target. The test files are linted only when `APPS_BUILD_TESTING` is on. A file that no target compiles, such as a test helper header or `libs/src/core/test_format_compile.c`, is added to the sources of a target for this. A source that starts with a generator expression gets a CMake warning, because lint cannot see its path. In an app, both tools also check the version template, which `clang-format` reads as a `.c` file because of `--assume-filename`.
 
 ## Tests
 
@@ -182,19 +264,22 @@ Each source directory adds its own unit tests, and `tests/` adds the golden test
 
 ### Unit tests
 
-`apps_add_unit_test(<module>)` compiles `test_<module>.c` into the executable `<app>_unit_<module>`, and registers this executable as the CTest case `<app>.<module>`. The executable links `apps_build_tests`, acutest, the `testing` library, `<app>_test_support` when the app defines it, `<app>_app` and one host, the library's `os_<OS>`.
+`apps_add_unit_test(<module>)` compiles `test_<module>.c` into the executable `<app>_unit_<module>`, and registers it as the CTest case `<app>.<module>`. The executable links `apps_build_tests`, acutest, the `testing` library, `<app>_test_support` when the app defines it, `<app>_app` and one host.
 
-With the `OS memory` option, `apps_add_unit_test` links the in-memory host and compiles the test with `<APP>_TEST_OS_MEMORY` set to 1. New tests use this option. The tests registered without `OS memory` link the POSIX host. Each app's section lists these tests.
+With the `OS memory` option, `apps_add_unit_test` links the in-memory host and compiles the test with `<APP>_TEST_OS_MEMORY` set to 1. New tests use this option. The tests registered without `OS memory` link the POSIX host, and each app's section lists them. The contract tests of `os/os.h`, `os.contract_posix` and `os.contract_memory`, run in the `libs/` project, and both must pass.
 
-The contract tests of `os/os.h`, `os.contract_posix` and `os.contract_memory`, run in the `libs/` project, and both must pass.
+Each unit test has a CTest timeout of 60 seconds, so a test that hangs fails and does not block the run. A ThreadSanitizer build waits 300 seconds. No test target compiles an application source file a second time with different definitions.
 
-Each unit test has a CTest timeout of 60 seconds, so a test that hangs fails and does not block the test run. A ThreadSanitizer build waits 300 seconds.
+### Golden tests
 
-No test target compiles an application source file a second time with different definitions.
+sosig, fram and surge share the steps of their golden tests through [cmake/apps_golden.cmake](cmake/apps_golden.cmake). Each golden script does these steps in a scratch tree of its own:
 
-### Test-support library
+1. It copies the fixture and puts stale files in its output, which the first build must remove.
+2. It builds the fixture three times: on one worker, on two workers with the output cache, and on eight workers with `--force`. The later builds must not change a generated file. The first build's `stderr` must be the warnings in `tests/expected/<fixture>.warnings.txt`, or empty without that file.
+3. A dry run must keep every output but the output cache.
+4. It compares the list of output files with `tests/expected/<fixture>`, and then the files.
 
-The `testing` library, [libs/src/testing/test_support.h](libs/src/testing/test_support.h), holds the helpers that several `test_*.c` files need: fixture directories, files and trees, the working directory, environment variables, the capture of the standard streams, an arena or a log over a fresh reservation, checks that compare the text of a log or a text exactly, the out-of-memory check `test_is_oom`, a seeded random generator, and a printable copy of any bytes for a failure message. It also defines the `os_oom` of the unit tests. [libs/ARCHITECTURE.md](libs/ARCHITECTURE.md#testing) describes it.
+The comparison leaves out the output cache, `_<app>/output-cache.tsv`, which records the modification times of the sources and has no expected copy. It looks each name up on the other side, because a sync tool can rewrite the Unicode normalization of a checked-out name. The scripts find the files with globs when the test runs, so a change to a fixture does not require CMake to configure the project again.
 
 ### Tests in a parent build
 
@@ -204,13 +289,13 @@ A parent project that turns on the tests of an app must call `enable_testing()` 
 
 ### Version
 
-`project(VERSION)` in an app's `CMakeLists.txt` holds the only copy of its numeric release version. CMake generates one source file from the app's version template, and this file defines `<app>_version_string()`. When the version changes, CMake compiles this file again and links the targets that use it again.
+`project(VERSION)` in an app's `CMakeLists.txt` holds the only copy of its numeric release version. CMake generates one source file from the app's version template. When the version changes, CMake compiles this file again and links the targets that use it again.
 
-Release versions have the form `MAJOR.MINOR.PATCH`. `project(VERSION)` accepts only numeric components, so a prerelease suffix needs a second version value. A release tag is `<app>-vMAJOR.MINOR.PATCH`, and it starts the root [release.yml](.github/workflows/release.yml) for that app.
+Release versions have the form `MAJOR.MINOR.PATCH`. `project(VERSION)` accepts only numeric components, so a prerelease suffix needs a second version value. Tag each release commit with `<app>-vMAJOR.MINOR.PATCH`. The tag starts the root [release.yml](.github/workflows/release.yml), which tests, packages and publishes that app only: the two Linux `musl` archives, an AArch64 macOS archive, and a `SHA256SUMS` file over them. A manual run of the workflow with `dry_run` tests and packages the dispatched commit, and publishes nothing.
 
 ### Install
 
-The installation of an app contains the executable and its documentation files, `README.md`, `LICENSE.txt` and `THIRD_PARTY_NOTICES.md`. All of these files are in the `<app>_runtime` component. `GNUInstallDirs` selects the install paths. An app installs no library and no header, so it has no export set and no development component.
+The installation of an app holds the executable and its documentation files, `README.md`, `LICENSE.txt` and `THIRD_PARTY_NOTICES.md`, all in the `<app>_runtime` component. `GNUInstallDirs` selects the install paths. An app installs no library and no header, so it has no export set and no development component.
 
 ### Packages
 
@@ -220,7 +305,7 @@ The macOS deployment target, `CMAKE_OSX_DEPLOYMENT_TARGET`, is `13.0` by default
 
 The Linux `musl` presets cross-compile with the Zig toolchain files in the root `cmake/toolchains/` directory. These files select `llvm-strip`, because the strip tool of the host cannot read the cross-compiled ELF files.
 
-The source archive, `<app>-<version>-source.tar.gz`, holds the whole repository except the directories of the other apps, because an app builds with the root CMake modules, the libraries in `libs/` and the sources in `vendor/`. The archive keeps the default CPack exclusions for version-control directories and temporary files. It also leaves out the `build/` directories and `CMakeUserPresets.json`.
+The source archive holds the whole repository except the directories of the other apps, because an app builds with the root CMake modules, the libraries in `libs/` and the sources in `vendor/`. It also leaves out the version-control directories, temporary files, the `build/` directories and `CMakeUserPresets.json`.
 
 ## sosig
 
@@ -228,31 +313,14 @@ The source archive, `<app>-<version>-source.tar.gz`, holds the whole repository 
 
 ### sosig files and targets
 
-- [apps/sosig/CMakeLists.txt](apps/sosig/CMakeLists.txt) also finds the thread library.
-- [apps/sosig/vendor.cmake](apps/sosig/vendor.cmake) also includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake), as [Grammars](#grammars) describes.
-- `sosig` links the libraries `cli`, `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `markup`, `output` and `templates`, and for the unit tests `testing` and the in-memory host `os_memory`.
-- `sosig_app` links `vendor_tomlc17`, `cli`, `core`, `formats`, `markup`, `os`, `output`, `runtime` and `templates` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
-- `src/CMakeLists.txt` links `vendor_tomlc17`, the one vendored dependency that the code of `sosig` uses directly. The libraries link the other vendored dependencies that they use, such as copt, which `cli` links, and mustache4c, which `templates` links.
-- The version template is [apps/sosig/src/domain/sosig_version.c.in](apps/sosig/src/domain/sosig_version.c.in). The file that CMake generates from it also defines `sosig_generator_string()`.
+- `sosig` links the libraries `cli`, `core`, `os`, `runtime`, `formats`, `markup`, `output` and `templates`, and `sosig_app` links them all as `PUBLIC` dependencies.
+- [apps/sosig/vendor.cmake](apps/sosig/vendor.cmake) includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake), as [Grammars](#grammars) describes.
 
 ### sosig tests
 
-The golden tests highlight code blocks, so they need every tree-sitter grammar, as [Grammars](#grammars) describes. The tests registered without `OS memory` link the POSIX host. These tests are:
+The golden tests highlight code blocks, so they need every tree-sitter grammar. The tests registered without `OS memory` are `template_context_posix`, which renders the templates of the golden site `site_file_permalink` from `tests/fixtures/`, and the tests that use no host.
 
-- `template_context_posix`, which renders the templates of the golden site `site_file_permalink` from `tests/fixtures/`
-- the tests that use no host
-
-`sosig_fixture_sites` in [apps/sosig/tests/CMakeLists.txt](apps/sosig/tests/CMakeLists.txt) lists the fixture sites in `tests/fixtures/`. Each fixture site is the golden test `sosig.golden.<site>`. [apps/sosig/cmake/sosig_run_golden.cmake](apps/sosig/cmake/sosig_run_golden.cmake) does these steps:
-
-1. It copies the site into a scratch tree of its own.
-2. It puts stale files in the output. The first build must remove these files.
-3. It builds the site three times: on one worker, on two workers with the output cache, and on eight workers with `--force`. The later two builds must not change a generated file. The first build's `stderr` must be the warnings in `tests/expected/<site>.warnings.txt`, or empty without that file.
-4. A dry run must keep every output but the output cache.
-5. It compares the list of output files with `tests/expected/<site>`, and it compares every file byte for byte.
-
-The comparison leaves out the output cache, `_sosig/output-cache.tsv`, whose rows hold the modification times of the copied sources, and which has no expected copy.
-
-The steps that the golden tests of `sosig`, `fram` and `surge` share are functions in [cmake/apps_golden.cmake](cmake/apps_golden.cmake). They compare the two lists by looking each name up on the other side, because a sync tool can rewrite the Unicode normalization of a checked-out name. The script finds the expected files and the actual files with globs after `sosig` runs. These globs run in the test and are not inputs of the CMake build, so a change to a fixture does not require CMake to configure the project again.
+`sosig_fixture_sites` in [apps/sosig/tests/CMakeLists.txt](apps/sosig/tests/CMakeLists.txt) lists the fixture sites in `tests/fixtures/`. Each site is the golden test `sosig.golden.<site>`, which [apps/sosig/cmake/sosig_run_golden.cmake](apps/sosig/cmake/sosig_run_golden.cmake) runs as [Golden tests](#golden-tests) describes. It compares every file byte for byte.
 
 ## fram
 
@@ -260,47 +328,28 @@ The steps that the golden tests of `sosig`, `fram` and `surge` share are functio
 
 ### fram files and targets
 
-- [apps/fram/CMakeLists.txt](apps/fram/CMakeLists.txt) also finds the thread library.
-- `fram` links the libraries `cli`, `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `output` and `templates`, and for the unit tests `testing` and the in-memory host `os_memory`.
-- `fram_app` links `vendor_tomlc17`, `cli`, `core`, `formats`, `os`, `output`, `runtime` and `templates` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
-- `src/media/` links libjpeg-turbo, libwebp and stb, because only its own code uses them. `src/CMakeLists.txt` links `vendor_tomlc17`, and the libraries link the other vendored dependencies that they use, such as copt, which `cli` links, and mustache4c, which `templates` links.
-- The version template is [apps/fram/src/domain/fram_version.c.in](apps/fram/src/domain/fram_version.c.in). The file that CMake generates from it also defines `fram_generator_string()`.
+- fram needs NASM on x86-64, for the SIMD routines of libjpeg-turbo, and `ffmpeg` and `ffprobe`, for MP4 files and for the golden test.
+- `fram` links the libraries `cli`, `core`, `os`, `runtime`, `formats`, `output` and `templates`, and `fram_app` links them all as `PUBLIC` dependencies.
+- `src/media/` links libjpeg-turbo, libwebp and stb, because only its own code uses them.
 
 ### fram vendored dependencies
 
-The pinned stb implementation has its own translation unit, [apps/fram/src/media/stb.c](apps/fram/src/media/stb.c), which the target `vendor_stb` compiles. This file compiles the resizer with its allocator hooks, and it keeps the warnings of vendored code out of the compilation of first-party code.
+The pinned stb implementation has its own translation unit, [apps/fram/src/media/stb.c](apps/fram/src/media/stb.c), which the target `vendor_stb` compiles. This file compiles the resizer with its allocator hooks, and keeps the warnings of vendored code out of the compilation of first-party code.
 
-The libjpeg-turbo target compiles the source files that the build system of libjpeg-turbo compiles. It uses the configuration headers in the root `vendor/libjpeg-turbo/config/` directory in place of the headers that this build system generates. On x86-64, the SIMD routines of libjpeg-turbo compile from NASM sources, so an x86-64 build needs NASM. On AArch64, these routines compile from Neon intrinsics, and other architectures use the C routines. The NASM sources are the object library `vendor_libjpeg_turbo_simd`, because the options of the vendored-code profile are for the C compiler, and NASM rejects them.
+The libjpeg-turbo target compiles the source files that the build system of libjpeg-turbo compiles. It uses the configuration headers in the root `vendor/libjpeg-turbo/config/` directory in place of the headers that this build system generates. On x86-64, the SIMD routines compile from NASM sources. On AArch64, they compile from Neon intrinsics, and other architectures use the C routines. The NASM sources are the object library `vendor_libjpeg_turbo_simd`, because the options of the vendored-code profile are for the C compiler, and NASM rejects them.
 
-The libwebp target compiles the encoder, the decoder, the DSP sources and utility sources that they use, and libsharpyuv. It does not use the configuration header that the build system of libwebp generates. Only the tests decode WebP, so `fram` links no part of the decoder. The encoder selects its SIMD routines at run time. On x86-64, the CMake build compiles the SSE4.1 and AVX2 sources with their instruction sets enabled, and tells every other source that these routines exist. `WEBP_USE_THREAD` makes the one-time DSP setup of the encoder safe when several workers encode at the same time. libwebp also calls the math library, which glibc supplies separately from the C library. Thus the CMake build links `libm` only when a call to a math function does not link without it.
+The libwebp target compiles the encoder, the decoder, the DSP and utility sources that they use, and libsharpyuv. It does not use the configuration header that the build system of libwebp generates. Only the tests decode WebP, so `fram` links no part of the decoder. The encoder selects its SIMD routines at run time. On x86-64, the CMake build compiles the SSE4.1 and AVX2 sources with their instruction sets enabled, and tells every other source that these routines exist. `WEBP_USE_THREAD` makes the one-time DSP setup of the encoder safe when several workers encode at the same time. libwebp also calls the math library, which glibc supplies apart from the C library, so the build links `libm` only when a call to a math function does not link without it.
 
 ### fram tests
 
-[apps/fram/tests/CMakeLists.txt](apps/fram/tests/CMakeLists.txt) adds the golden test, the test helpers of `fram` and the seeded random tests in `tests/test_random.c`. `fram_test_support` holds the test helpers of `fram`, which every unit test of `fram` links:
+[apps/fram/tests/CMakeLists.txt](apps/fram/tests/CMakeLists.txt) adds the golden test, the test helpers of `fram` and the seeded random tests in `tests/test_random.c`. Every unit test of `fram` links `fram_test_support`, which holds these helpers:
 
 - a fixture JPEG encoder over libjpeg-turbo, in `tests/test_jpeg_fixture.h`, which writes baseline, progressive, CMYK and YCCK JPEGs, and a lossless JPEG that the probe rejects
 - a WebP decoder for derivative outputs, in `tests/test_webp_output.h`
 
-The tests registered without `OS memory` link the POSIX host. These tests are:
+The tests registered without `OS memory` are the tests that run processes or decode video, `proc`, `video`, `album_scan_video`, `cmd_build_video` and `derivative_renderer_video`, and the tests that use no host. The derivative renderer exports `derivative_renderer_decode_scale`, so its test checks the scale that its jobs select directly, and not through the decoded output.
 
-- the tests that need the real host: `proc`, `video`, `album_scan_video`, `cmd_build_video` and `derivative_renderer_video`, which run processes or decode video
-- the tests that use no host
-
-The derivative renderer exports `derivative_renderer_decode_scale`, which returns the scale that its jobs select, so its test checks this selection directly and not through the decoded output.
-
-The golden test `fram.golden` builds the fixture gallery in `tests/fixtures/gallery`, which mixes JPEG and MP4 sources in the default `media/` directory. `tests/CMakeLists.txt` defines this test only when the configure step finds both `ffmpeg` and `ffprobe`. [apps/fram/cmake/fram_run_golden.cmake](apps/fram/cmake/fram_run_golden.cmake) does these steps:
-
-1. It copies the gallery into a scratch tree of its own.
-2. It puts stale files in the output. The first build must remove these files.
-3. It builds the gallery three times: on one worker, on two workers with the output cache, and on eight workers with `--force`. The later two builds must not change a generated file. The first build's `stderr` must be the warnings in `tests/expected/gallery.warnings.txt`, or empty without that file.
-4. A dry run must keep every output but the output cache.
-5. It compares the list of output files with `tests/expected/gallery`.
-
-The comparison leaves out the output cache, `_fram/output-cache.tsv`, whose rows and probe facts hold the modification times of the sources, and which has no expected copy.
-
-The script compares the non-media files and the copied originals byte for byte, after it replaces the `@PROJECT_VERSION@` placeholder in each expected page with the project version. For each generated derivative, it checks only that the file is not empty, because the WebP output can change with the libwebp version and the SIMD path. Unit tests check the dimensions and the pixels of derivatives.
-
-The script finds the expected files and the actual files with globs after `fram` runs. These globs run in the test and are not inputs of the CMake build, so a change to a fixture does not require CMake to configure the project again.
+The golden test `fram.golden` builds the gallery in `tests/fixtures/gallery`, which mixes JPEG and MP4 sources, as [Golden tests](#golden-tests) describes. `tests/CMakeLists.txt` defines it only when the configure step finds both `ffmpeg` and `ffprobe`. [apps/fram/cmake/fram_run_golden.cmake](apps/fram/cmake/fram_run_golden.cmake) compares the pages and the copied originals byte for byte, after it replaces the `@PROJECT_VERSION@` placeholder in each expected page with the project version. It checks only that each derivative is not empty, because the WebP output can change with the libwebp version and the SIMD path. Unit tests check the dimensions and the pixels of derivatives.
 
 ## cwrap
 
@@ -308,27 +357,19 @@ The script finds the expected files and the actual files with globs after `fram`
 
 ### cwrap files and targets
 
-- [apps/cwrap/tests/CMakeLists.txt](apps/cwrap/tests/CMakeLists.txt) adds the golden and idempotence tests and the seeded random tests. [apps/cwrap/cmake/cwrap_run_idempotent.cmake](apps/cwrap/cmake/cwrap_run_idempotent.cmake) runs the idempotence test.
-- `cwrap` links the libraries `core` and `os` with the POSIX host `os_posix`, and for the unit tests `testing` and the in-memory host `os_memory`. It links no `runtime`, so its binary carries no worker pool and no thread library.
-- `cwrap_app` holds every application source except `src/app/main.c`, and links `core` and `os` as `PUBLIC` dependencies. `src/CMakeLists.txt` links the vendored dependencies.
-- The two vendored projects of `cwrap`, acutest and copt, are header-only, so their targets are interface libraries. `cwrap` has no compiled vendored code, so it uses two of the three build profiles: `apps_build_project` and `apps_build_tests`. With `address`, the CMake build instruments first-party code and the `core` library.
-- The common presets give `cwrap` the `tsan` and `ci-tsan` presets too. CI does not run a ThreadSanitizer build of `cwrap`, because `cwrap` starts no threads.
-- The version template is [apps/cwrap/src/domain/cwrap_version.c.in](apps/cwrap/src/domain/cwrap_version.c.in).
+- `cwrap` links only `core` and `os`, and `cwrap_app` links both as `PUBLIC` dependencies. It links no `runtime`, so its binary has no worker pool and no thread library. `src/CMakeLists.txt` links the vendored dependencies.
+- The two vendored projects of `cwrap`, acutest and copt, are header-only, so `cwrap` uses only `apps_build_project` and `apps_build_tests`. With `address`, the build instruments first-party code and `core`.
+- The common presets give `cwrap` the `tsan` and `ci-tsan` presets too, but CI does not run them, because `cwrap` starts no threads.
 
 ### cwrap tests
 
-The tests registered without `OS memory` link the POSIX host. These tests are:
+The tests registered without `OS memory` are `cli` and `cli_dispatch`, which are not yet converted to the in-memory host and create their fixtures in a real temporary directory, and the tests that use no host. [apps/cwrap/tests/CMakeLists.txt](apps/cwrap/tests/CMakeLists.txt) adds the golden and idempotence tests and the seeded random tests. Select the idempotence test with `ctest --preset debug -L idempotent`.
 
-- the suites that are not yet converted to the in-memory host, which create their fixtures in a real temporary directory: `cli` and `cli_dispatch`
-- the tests that use no host
+The golden test `cwrap.golden` runs [apps/cwrap/cmake/cwrap_run_golden.cmake](apps/cwrap/cmake/cwrap_run_golden.cmake). The script rewraps every fixture in `tests/fixtures/` at width 40, in a scratch tree of its own. It then compares the list of fixture files with the list of files in `tests/expected/`, and compares each result with its expected file byte for byte.
 
-The contract tests of the hosts that `cwrap` links are `os.contract_posix` and `os.contract_memory`, in the `libs/` project.
+The idempotence test `cwrap.idempotent` runs [apps/cwrap/cmake/cwrap_run_idempotent.cmake](apps/cwrap/cmake/cwrap_run_idempotent.cmake) in another scratch tree. The script rewraps the fixture files, the expected files, every first-party source file in `src/` and `tests/`, and the sources of the libraries that `APPS_LIBRARIES` in [apps/cwrap/CMakeLists.txt](apps/cwrap/CMakeLists.txt) lists, at widths 20, 40, 60 and 100. A second rewrap of each result must make no change, and `--check` must agree that the first result is stable.
 
-The golden test `cwrap.golden` runs [apps/cwrap/cmake/cwrap_run_golden.cmake](apps/cwrap/cmake/cwrap_run_golden.cmake). The script rewraps every fixture in `tests/fixtures/` at width 40, in a scratch tree of its own. It then compares the list of fixture files with the list of files in `tests/expected/`, and it compares each result with its expected file byte for byte.
-
-The idempotence test `cwrap.idempotent` runs `cmake/cwrap_run_idempotent.cmake` in another scratch tree. The script rewraps the fixture files, the expected files and every first-party source file in `src/` and `tests/`, and the sources of the libraries that `APPS_LIBRARIES` in [apps/cwrap/CMakeLists.txt](apps/cwrap/CMakeLists.txt) lists, `libs/src/core`, `libs/src/os` and `libs/src/testing`, at widths 20, 40, 60 and 100. A second rewrap of each result must make no change, and `--check` must agree that the first result is stable.
-
-Both scripts find their input files with globs. These globs run in the test and are not inputs of the CMake build, so a change to a fixture or a source file does not require CMake to configure the project again.
+Both scripts find their input files with globs when the test runs, so a change to a fixture or a source file does not require CMake to configure the project again.
 
 ## surge
 
@@ -336,12 +377,9 @@ Both scripts find their input files with globs. These globs run in the test and 
 
 ### surge files and targets
 
-- [apps/surge/CMakeLists.txt](apps/surge/CMakeLists.txt) also finds the thread library.
-- [apps/surge/vendor.cmake](apps/surge/vendor.cmake) defines the targets of copt, tomlc17, mustache4c and acutest, includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake), as [Grammars](#grammars) describes, and adds libgit2, as [surge vendored dependencies](#surge-vendored-dependencies) describes.
-- `surge` links the libraries `cli`, `core`, `os` with the POSIX host `os_posix`, `runtime`, `formats`, `markup`, `output` and `templates`, and for the unit tests `testing` and the in-memory host `os_memory`.
-- `surge_app` links `vendor_tomlc17`, `cli`, `core`, `formats`, `markup`, `os`, `output`, `runtime` and `templates` as `PUBLIC` dependencies. `Threads::Threads` is one of its `PRIVATE` dependencies, but CMake still adds it to each executable that links the static library.
-- `src/vcs/` links `vendor_libgit2`, because only its own code uses it. `src/CMakeLists.txt` links `vendor_tomlc17`, and the libraries link the other vendored dependencies that they use, such as copt, which `cli` links, and mustache4c, which `templates` links.
-- The version template is [apps/surge/src/domain/surge_version.c.in](apps/surge/src/domain/surge_version.c.in). The file that CMake generates from it also defines `surge_generator_string()`.
+- surge needs `git` for the tests that read the fixture repositories, and `python3` and mise 2026.11.0 for the clone test and the mise test. Without one of them, the configure step leaves out the tests that need it, as [surge tests](#surge-tests) describes.
+- `surge` links the libraries `cli`, `core`, `os`, `runtime`, `formats`, `markup`, `output` and `templates`, and `surge_app` links them all as `PUBLIC` dependencies.
+- [apps/surge/vendor.cmake](apps/surge/vendor.cmake) includes [libs/src/markup/vendor.cmake](libs/src/markup/vendor.cmake), as [Grammars](#grammars) describes, and adds libgit2, as [surge vendored dependencies](#surge-vendored-dependencies) describes. `src/vcs/` links `vendor_libgit2`, because only its own code uses it.
 
 ### surge vendored dependencies
 
@@ -365,26 +403,20 @@ Each object library of libgit2, `libgit2`, `util`, `xdiff`, `zlib` and `llhttp`,
 
 ### surge tests
 
-The tests registered without `OS memory` link the POSIX host. These tests are:
+The tests registered without `OS memory` are the tests that read real repositories through libgit2, outside `os/os.h`, and the tests that use no host. The first group is `cmd_build` and the unit tests of `src/vcs/`, `changeset`, `filetree`, `pack_export`, `refset`, `repository` and `revision`, which also link `vendor_libgit2`.
 
-- the tests that read real repositories through libgit2, outside `os/os.h`: `cmd_build`, and the unit tests of `src/vcs/`, `changeset`, `filetree`, `pack_export`, `refset`, `repository` and `revision`, which also link `vendor_libgit2`
-- the tests that use no host
-
-The fixture repositories are `git fast-import` streams in [apps/surge/tests/repos/](apps/surge/tests/repos/), so every test that reads one needs `git`. The configure step looks for `git`, and without it leaves out `cmd_build`, the tests of `src/vcs/`, the golden tests and `surge.fixture_repos`, as fram leaves out its golden test without FFmpeg. These tests use the fixture repositories:
+The fixture repositories are `git fast-import` streams with fixed dates in [apps/surge/tests/repos/](apps/surge/tests/repos/), so every object id is the same on every run. Every test that reads one needs `git`. Without `git`, the configure step leaves out `cmd_build`, the tests of `src/vcs/`, the golden tests and `surge.fixture_repos`. These tests use the fixture repositories:
 
 - `surge.fixture_repos_setup` runs [apps/surge/cmake/surge_make_fixture_repos.cmake](apps/surge/cmake/surge_make_fixture_repos.cmake), which makes the repositories in `build/<preset>/fixture-repos/<config>` with `GIT_CONFIG_NOSYSTEM=1` and a `HOME` of its own. It is the CTest fixture setup `surge_fixture_repos`, which `cmd_build` and the `src/vcs/` tests require, and they find the repositories through `SURGE_FIXTURE_REPOS_DIR`.
 - `surge.fixture_repos` runs [apps/surge/cmake/surge_check_fixture_repos.cmake](apps/surge/cmake/surge_check_fixture_repos.cmake). It makes the repositories in a scratch tree of its own, and checks that each one holds exactly the refs and ids that its `tests/repos/<name>.refs` lists, so a change to a stream or to the script shows up as a change of the ids that the golden tests rely on.
 
-`surge_fixture_sites` in [apps/surge/tests/CMakeLists.txt](apps/surge/tests/CMakeLists.txt) lists the fixture sites in `tests/fixtures/`. Each fixture site is the golden test `surge.golden.<site>`, which [apps/surge/cmake/surge_run_golden.cmake](apps/surge/cmake/surge_run_golden.cmake) runs in `build/<preset>/golden/<config>/<site>`:
+`surge_fixture_sites` in [apps/surge/tests/CMakeLists.txt](apps/surge/tests/CMakeLists.txt) lists the fixture sites in `tests/fixtures/`. Each site is the golden test `surge.golden.<site>`, which [apps/surge/cmake/surge_run_golden.cmake](apps/surge/cmake/surge_run_golden.cmake) runs in `build/<preset>/golden/<config>/<site>`. It follows [Golden tests](#golden-tests), with these differences:
 
-1. It copies the site into a scratch tree, makes the fixture repositories there, and sets `TMPDIR` to a scratch directory.
-2. For a site whose expected directory holds only `stderr.txt`, it runs one build, which must exit with status 1 with exactly that text, and create no `public/`, and stops.
-3. Otherwise it puts stale files in the output, which the first build must remove, and builds the site three times: with `-w 1`, with `-w 2` over the output cache, and with `--force -w 8`. The first build's `stderr` must match `tests/expected/<site>.warnings.txt`, and the later builds must not change a generated file.
-4. A dry run must keep every output, and `TMPDIR` must be empty.
-5. It compares the list of output files with `tests/expected/<site>`, and every file byte for byte, the packs included, after it replaces the `@PROJECT_VERSION@` placeholder in each expected text file. It checks each pack with `git verify-pack` and `git index-pack --strict`, and each `info/refs` against `git for-each-ref`.
-6. With `SURGE_PYTHON`, it runs [apps/surge/tests/clone_test.py](apps/surge/tests/clone_test.py) with `python3 -I`, and with `SURGE_MISE` as well, [apps/surge/tests/mise_test.py](apps/surge/tests/mise_test.py).
-7. It moves a branch and changes the release directories, and checks what each dry run writes, keeps and removes, and that the previous pack stays one build, also after a failed build. Last, a `--force` dry run and one after a template change must make every page and feed again.
+1. It makes the fixture repositories in the scratch tree, and sets `TMPDIR` to a scratch directory.
+2. For a site whose expected directory holds only `stderr.txt`, such as a `refuse-*` site, it runs one build. The build must exit with status 1 with exactly that text, and create no `public/`. The script runs `build --verbose --workers 1`, so `stderr.txt` also shows the phases that ran before the build stopped.
+3. After the dry run, `TMPDIR` must be empty.
+4. It compares every file byte for byte, the packs included, after it replaces the `@PROJECT_VERSION@` placeholder in each expected text file. It checks each pack with `git verify-pack` and `git index-pack --strict`, and each `info/refs` against `git for-each-ref`.
+5. With `python3`, it runs [apps/surge/tests/clone_test.py](apps/surge/tests/clone_test.py) with `python3 -I`. The test serves the output on localhost, clones every clone export over dumb HTTP, and compares the refs with the source. It then clones from a server that answers a missing path with status 200 and an HTML page, and checks for the corrupt-object errors. With mise as well, it runs [apps/surge/tests/mise_test.py](apps/surge/tests/mise_test.py), which installs a release project of the site with mise, and checks that a tampered checksum or archive fails.
+6. It moves a branch and changes the release directories, and checks what each dry run writes, keeps and removes, and that the previous pack stays for one build, also after a failed build. Last, a `--force` dry run and one after a template change must make every page and feed again.
 
-The configure step looks for `python3` and `mise`. Without `python3`, the golden test runs without the clone test and the mise test, and without `mise`, it runs without the mise test. CI installs mise 2026.11.0 for the `surge` job through the `mise` input of [checks.yml](.github/workflows/checks.yml), and the [Containerfile](Containerfile) installs `git` and the same mise release. The comparison leaves out the output cache, `_surge/output-cache.tsv`, whose rows hold the modification times of the static files and a page recipe that hashes those of the copied templates, and which has no expected copy.
-
-The script finds the expected files and the actual files with globs after `surge` runs, and looks each name up on the other side's filesystem, because a sync tool can rewrite the Unicode normalization of a checked-out name. These globs run in the test and are not inputs of the CMake build, so a change to a fixture does not require CMake to configure the project again.
+Without `python3`, the golden test runs without the clone test and the mise test, and without mise, it runs without the mise test. CI installs mise 2026.11.0 for the `surge` job on Linux and macOS through the `mise` input of [checks.yml](.github/workflows/checks.yml), and the GCC job runs without it. The output cache of surge holds the modification times of the static files and a page recipe that hashes those of the copied templates.
