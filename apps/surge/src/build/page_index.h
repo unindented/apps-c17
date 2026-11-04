@@ -17,10 +17,7 @@ struct TemplateValue;
 /**
  * @brief Returns the data tree of the site index, `index.html`.
  *
- * Besides `site`, `generator` and `path_to_root`, it holds `repos`, one map per repo in config
- * order, each with `name`, `description`, `url` (the repo home), `clone_url`, `default_branch`,
- * `modified` and `projects`. A project has `name`, `description`, `url` (its directory's tree page
- * on the default branch), `has_releases` and `releases_url`.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `index.html` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repos       What the scan found, one per repo of `site_config`. Must not be `NULL`.
@@ -35,11 +32,9 @@ struct TemplateValue* page_index_value(const struct SiteConfig* site_config,
     __attribute__((nonnull(1, 2, 4), returns_nonnull));
 
 /**
- * @brief Returns the data tree of the not-found page, `404.html`, which holds `site`, `generator`
- *        and `path_to_root`.
+ * @brief Returns the data tree of the not-found page, `404.html`.
  *
- * A host serves the page for any missing path, at any depth, so its relative links would break: a
- * template links with `{{site.base_url}}` instead.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `404.html` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param arena       Arena that owns the tree. Must not be `NULL`.

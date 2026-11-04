@@ -54,27 +54,8 @@ struct Str page_commit_link(struct Str path_to_root,
 /**
  * @brief Returns the data tree of a commit page.
  *
- * Besides `site`, `generator`, `path_to_root` and `repo`, it holds `commit` (`oid`, `short_oid`,
- * `subject`, `body`, `author`, `author_date`, `committer`, `date`, `url`, `is_root`, `is_merge`,
- * and `parents`, each with `oid`, `short_oid`, `url`, and an empty `subject`, `author` and `date`),
- * `stats` (`file_count`, `additions`, `deletions`), `is_truncated`, `tree` and `files`.
- *
- * `files` lists the changed files in the changed-files tree's order, each with `index`, from 0,
- * `anchor` (`diff-<index>`), `path`, `old_path` (empty unless renamed), `similarity` (empty unless
- * renamed), `status` (`added`, `deleted`, `modified`, `renamed` or `type-changed`), one
- * `is_<status>` for each, with `_` for `-`, `is_too_large`, `is_binary`, `is_shown`,
- * `is_truncated`, `additions`, `deletions`, `diff_html`, `is_image` (whether the page shows a file
- * of an image extension whose type did not change), `old_image_url` and `new_image_url` (a `data:`
- * URI of each side's bytes, or empty for a side that does not exist or was left out), and
- * `is_image_omitted` (whether a side with bytes was left out). `tree` is the changed-files tree's
- * root node. A node has `name`, `is_dir`, `children` (a directory's nodes, empty for a file) and
- * `file` (a file's map from `files`, or `false` for a directory).
- *
- * `diff_html` is a `<pre class="surge-diff"><code>` with a code line of `body_html_code_line_open`
- * for each hunk's header, classed `surge-hunk`, and for each line, classed `surge-add`,
- * `surge-del`, `surge-context` or `surge-no-newline`, whose old and new line numbers are links to
- * themselves, `<anchor>-hunk-<h>-L<old>` and `-R<new>`, `h` from 0, and whose text is the line's
- * fragment, or the line escaped alone.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `commit.html` rows, and describes
+ * `diff_html`.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.

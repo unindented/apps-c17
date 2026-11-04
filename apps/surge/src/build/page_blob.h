@@ -58,14 +58,7 @@ struct Str page_blob_image_type(struct Str name);
 /**
  * @brief Returns the data tree of the blob page of `entry`, `<r>/blob/<ref>/<p>/index.html`.
  *
- * Besides `site`, `generator`, `path_to_root`, `repo` and `ref`, it holds `path`, `name`,
- * `breadcrumbs` (as a tree page has them, the file last), `mode` (`100644` or `100755`),
- * `is_executable`, `size` in bytes, `raw_url`, empty without a raw copy, `has_raw`, `is_too_large`,
- * `is_binary`, `false` for a blob that is too large, `is_image`, `is_markup`, `rendered_html`,
- * `source_html` and `line_count`. `source_html` is the text's lines, highlighted by the grammar its
- * path names, as a `<pre class="surge-code"><code>`, with a code line of `body_html_code_line_open`
- * for each line, whose number is an `<a id="L<n>" href="#L<n>">`, or empty for a blob that is too
- * large or binary.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `blob.html` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.

@@ -112,17 +112,8 @@ const struct Release* page_release_find(const struct RepoModel* repo, const stru
 /**
  * @brief Returns the data tree of a repo's releases page, `<r>/releases/index.html`.
  *
- * Besides `site`, `generator`, `path_to_root` and `repo`, it holds `projects`, one map per release
- * project in its order, and `releases`, every release: each project's in its order, then those in
- * no project by tag.
- *
- * A project's map has `name`, `url`, `versions_url`, `versions_json_url`, `mise_toml` (the example
- * `mise.toml` of `page_release_mise_toml` for a project with `mise`, else empty) and `releases`. A
- * release's map has `tag`, `version`, `date`, `url`, `is_listed` (whether `versions.txt` lists it),
- * `project_name` and `project_url` (empty for no project), `commit` (as the tags page has it),
- * `notes_html` (the tag's message as Markdown), `signature` (the tag's signature, or empty),
- * `signature_kind`, `has_sums`, `is_mise` (whether its project has `mise`) and `assets`, each with
- * `name`, `url` and `size` in bytes.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `releases.html` row, and the keys of the
+ * project and release maps.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.
@@ -139,8 +130,7 @@ struct TemplateValue* page_release_index_value(const struct SiteConfig* site_con
 /**
  * @brief Returns the data tree of a release project's page, `<r>/releases/<project>/index.html`.
  *
- * Besides `site`, `generator`, `path_to_root` and `repo`, it holds `project`, as
- * `page_release_index_value` has it.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `release-project.html` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.
@@ -159,8 +149,7 @@ struct TemplateValue* page_release_project_value(const struct SiteConfig* site_c
 /**
  * @brief Returns the data tree of a release's page, `<r>/releases/tag/<tag>/index.html`.
  *
- * Besides `site`, `generator`, `path_to_root` and `repo`, it holds `release` and `project`, as
- * `page_release_index_value` has them, `project` `false` for a release in no project.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `release.html` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.
@@ -203,9 +192,7 @@ struct Str page_release_versions_json(const struct ReleaseProject* project, stru
  *        from `base_url` and the archives of its newest listed release that is no pre-release, or
  *        of its newest when all are, as mise's `latest` passes over pre-releases.
  *
- * Each archive named `<project>-<version>-<target>.tar.gz`, for the targets `x86_64-linux-musl`,
- * `aarch64-linux-musl` and `aarch64-macos`, gives mise's platform `linux-x64`, `linux-arm64` or
- * `macos-arm64`. `checksum_url` names the release's `SHA256SUMS` when it has one.
+ * `apps/surge/README.md#version-lists-and-mise` describes the example.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.

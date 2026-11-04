@@ -44,12 +44,7 @@ struct Str page_log_path(struct Str repo_name,
 /**
  * @brief Returns the data tree of one log page.
  *
- * Besides `site`, `generator`, `path_to_root`, `repo` and `ref`, it holds `page` (`number`, from 1,
- * `count`, `is_first`, `is_last`, and `first_url`, `previous_url`, `next_url` and `last_url`, each
- * empty where there is no such page or it is this page) and `commits`, newest first, each with
- * `oid`, `short_oid`, `subject`, `author`, `date`, `url` (its commit page) and `refs`, the branches
- * and tags that name it, each with `name`, `kind` (`branch` or `tag`), `is_branch`, `is_tag` and
- * `url` (a branch's tree page, or the tags page).
+ * `apps/surge/README.md#data-trees` lists its keys, in the `commits.html` row.
  *
  * @param site_config  Configuration of the build. Must not be `NULL`.
  * @param repo         What the scan found for the repo. Must not be `NULL`.

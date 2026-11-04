@@ -37,19 +37,7 @@ struct TreeDocument {
  * @brief Returns the data tree of a repo's home, `<r>/index.html`, or of the tree page of `dir`,
  *        `<r>/tree/<ref>/<p>/index.html`, which one template renders alike.
  *
- * Besides `site`, `generator` and `path_to_root`, it holds `repo` (as every page of the repo has
- * it), `is_home` (whether the page is the repo's home), `is_empty` (whether the home is of a repo
- * with no commit), `ref` (`name`, `tree_url`, `commits_url`, `commits_feed_url`, with empty links
- * for an empty repo), `commit` (the branch's newest commit, as the refs pages have it, on the page
- * of its root only, and `false` elsewhere), `path`, `is_root`, `breadcrumbs` (`name`, `url`,
- * `is_last`, from the repo to the directory's parent, then the directory without a link and with
- * `is_last` set), `tree_entries` and `documents`, one map per document found, in kind order, with
- * `kind`, one `is_<kind>` for each kind (`is_readme`, `is_license`, `is_code_of_conduct`,
- * `is_contributing`, `is_security`), `is_main` (whether it is the document the page shows first:
- * the README, or else the first document), `path`, `url` (its blob page) and `rendered_html`. An
- * entry has `name`, `kind` (`dir`, `file`, `executable`, `symlink` or `gitlink`), one `is_<kind>`
- * for each kind, `url`, empty for an entry without pages, `is_linked`, `link_target`, `oid` and
- * `size`.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `tree.html` rows.
  *
  * @param site_config    Configuration of the build. Must not be `NULL`.
  * @param repo           What the scan found for the repo. Must not be `NULL`.
@@ -101,8 +89,8 @@ struct TemplateValue* page_tree_entries(const struct RepoModel* repo,
     __attribute__((nonnull(1, 2, 3, 5), returns_nonnull));
 
 /**
- * @brief Returns the breadcrumbs from the repo to `path`, each with `name`, `url` and `is_last`,
- *        the last one, `path` itself, with an empty `url`.
+ * @brief Returns the breadcrumbs from the repo to `path`, the last one, `path` itself, with an
+ *        empty `url`.
  *
  * @param repo         What the scan found for the repo. Must not be `NULL`.
  * @param tree         Tree of the branch. Must not be `NULL`.

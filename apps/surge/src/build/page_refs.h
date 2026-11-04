@@ -39,11 +39,7 @@ struct PageRefsDated {
 /**
  * @brief Returns the data tree of a repo's branches page, `<r>/branches/index.html`.
  *
- * Besides `site`, `generator`, `path_to_root` and `repo`, it holds `branches`, one map per branch
- * in byte order of name, with `name`, `is_default`, `author` and `date` (those of its commit),
- * `tree_url`, `commits_url`, and the `commit` the branch names (`oid`, `short_oid`, `subject`,
- * `author`, `date` and `url`). A branch that names a tree or a blob has an empty `author`, `date`
- * and links, and a `commit` of `false`.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `branches.html` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.
@@ -58,12 +54,8 @@ struct TemplateValue* page_refs_branches_value(const struct SiteConfig* site_con
 /**
  * @brief Returns the data tree of a repo's tags page, `<r>/tags/index.html`.
  *
- * Besides `site`, `generator`, `path_to_root` and `repo`, it holds `tags`, one map per tag, in the
- * order of `page_refs_tags_newest`, with `name`, `is_annotated`, `author` (as
- * `page_refs_tag_author` gives it), `date` (the RFC 3339 date that orders the tag, or empty for
- * none), `signature` (a signed tag's signature, or empty), `signature_kind`, `release_url` (its
- * release's page, or empty when it has none), and the `commit` the tag peels to, as the branches
- * page has it, `false` for a tag of a tree or a blob.
+ * It lists the tags in the order of `page_refs_tags_newest`. `apps/surge/README.md#data-trees`
+ * lists its keys, in the `tags.html` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.
@@ -76,9 +68,9 @@ struct TemplateValue* page_refs_tags_value(const struct SiteConfig* site_config,
     __attribute__((nonnull(1, 2, 3), returns_nonnull));
 
 /**
- * @brief Returns the `commit` map of a ref's commit, as the refs pages and the repo home show it:
- *        `oid`, `short_oid`, `subject`, `author`, `date`, `signature` (a signed commit's signature,
- *        or empty), `signature_kind` (as `page_refs_signature_kind` names it) and `url`.
+ * @brief Returns the commit summary of a ref's commit, as the refs pages and the repo home show it.
+ *
+ * `apps/surge/README.md#data-trees` lists its keys.
  *
  * @param repo         What the scan found for the repo. Must not be `NULL`.
  * @param commit       The commit, zeroed for none.

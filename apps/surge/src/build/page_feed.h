@@ -48,15 +48,8 @@ struct Str page_feed_commits_path(struct Str repo_name, struct Str branch_name, 
 /**
  * @brief Returns the data tree of a branch's commit feed, `<r>/commits/<ref>.atom`.
  *
- * Besides `site`, `generator`, `path_to_root`, `repo` and `ref` (as a branch's pages have them), it
- * holds `feed` and `feed_entries`. `feed` has `id` and `url` (the feed's own URL), `html_url` (the
- * page it follows) and `modified` (its newest entry's date). Each entry, newest first, has `id`,
- * `title`, `url`, `modified`, `author`, `content` (plain text) and `content_html` (HTML, empty for
- * a commit). A date a feed or an entry lacks is the Unix epoch, as Atom requires one. Every link in
- * `repo`, `ref`, `feed` and `feed_entries` is absolute, below `base_url`.
- *
- * A commit's entry is its commit page: its subject, committer date, author and the rest of its
- * message.
+ * Its entries are the branch's newest commits. `apps/surge/README.md#feeds` describes them, and
+ * `apps/surge/README.md#data-trees` lists the keys, in the Feeds row.
  *
  * @param site_config  Configuration of the build. Must not be `NULL`.
  * @param repo         What the scan found for the repo. Must not be `NULL`.
@@ -79,10 +72,7 @@ struct TemplateValue* page_feed_commits_value(const struct SiteConfig* site_conf
  * @brief Returns the data tree of a repo's tag feed, `<r>/tags.atom`, as `page_feed_commits_value`
  *        lays it out, without `ref`.
  *
- * Its entries are the newest `feed_count` tags by date, a tie in byte order of name, each titled by
- * its name, dated by its note, with its annotated message as `content` and its tagger, or else its
- * commit's author, as `author`. A tag links its release's page when it has one, else its commit's
- * page, else the tags page, and its `id` is the tags page with the tag's name as the fragment.
+ * Its entries are the repo's newest tags, as `apps/surge/README.md#feeds` describes.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.
@@ -98,9 +88,7 @@ struct TemplateValue* page_feed_tags_value(const struct SiteConfig* site_config,
  * @brief Returns the data tree of a repo's release feed, `<r>/releases.atom`, as
  *        `page_feed_commits_value` lays it out, without `ref`.
  *
- * Its entries are the newest `feed_count` releases by date, a tie in byte order of tag, each titled
- * by its tag, with its release's page as both its `url` and its `id`, its notes as `content_html`
- * and its tagger, or else its commit's author, as `author`.
+ * Its entries are the repo's newest releases, as `apps/surge/README.md#feeds` describes.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.
