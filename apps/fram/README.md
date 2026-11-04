@@ -13,7 +13,7 @@
 
 ## Installation
 
-Download a prebuilt archive from a `fram-v` release on the [Releases](https://github.com/unindented/apps-c17/releases) page, or [build it from source](#building). Each release has one archive for each target, `fram-<version>-<target>.tar.gz`, where the target is `x86_64-linux-musl`, `aarch64-linux-musl` or `aarch64-macos`, and a `SHA256SUMS` file with the SHA-256 digest of each archive. An archive holds `fram-<version>-<target>/bin/fram` and, below `share/doc/fram/`, this README, `LICENSE.txt` and `THIRD_PARTY_NOTICES.md`. The Linux binaries are static `musl` executables. The archives do not include `ffmpeg` and `ffprobe`, which a gallery with MP4 files needs on `PATH`.
+Download a prebuilt archive from a `fram-v` release on the [Releases](https://github.com/unindented/apps-c17/releases) page, or [build it from source](#development). Each release has one archive for each target, `fram-<version>-<target>.tar.gz`, where the target is `x86_64-linux-musl`, `aarch64-linux-musl` or `aarch64-macos`, and a `SHA256SUMS` file with the SHA-256 digest of each archive. An archive holds `fram-<version>-<target>/bin/fram` and, below `share/doc/fram/`, this README, `LICENSE.txt` and `THIRD_PARTY_NOTICES.md`. The Linux binaries are static `musl` executables. The archives do not include `ffmpeg` and `ffprobe`, which a gallery with MP4 files needs on `PATH`.
 
 mise's [`http:` backend](https://mise.jdx.dev/dev-tools/backends/http.html) can install these archives. A GitHub release publishes no list of versions, so this `mise.toml` names the version:
 
@@ -30,7 +30,7 @@ linux-arm64 = { url = "https://github.com/unindented/apps-c17/releases/download/
 macos-arm64 = { url = "https://github.com/unindented/apps-c17/releases/download/fram-v{{ version }}/fram-{{ version }}-aarch64-macos.tar.gz" }
 ```
 
-`mise install` does not read `checksum_url`. Run `mise lock` to record the digest of each platform's archive in `mise.lock`, and later installs then refuse an archive that does not match.
+`mise install` does not read `checksum_url`. Run `mise lock` to record the digest of each platform's archive in `mise.lock`. Later installs then refuse an archive that does not match.
 
 ## Usage
 
@@ -40,9 +40,9 @@ macos-arm64 = { url = "https://github.com/unindented/apps-c17/releases/download/
 
 - `fram build`: Generate the gallery in `output_dir`. This command has these flags:
   - `-c, --config PATH`: Read the configuration from `PATH`. The default is `fram.toml` in the working directory.
-  - `-w, --workers N`: Set the maximum number of worker threads for the build. `N` must be a positive integer. The default is the number of CPUs that `fram` detects. The build never runs more workers than the number of media files or the number of albums, whichever is larger, and never more than four workers for each online CPU.
-  - `-n, --dry-run`: Report the changes that the build would make, but do not make them. See [Dry run](#dry-run).
-  - `--force`: Make every output again, keeping nothing from earlier builds. See [Output cache](#output-cache).
+  - `-w, --workers N`: Use at most `N` worker threads. `N` must be a positive integer. The default is the number of CPUs that `fram` detects. A phase never runs more workers than it has jobs, which is one for each media file, or one for each album when it renders pages. A build never runs more than four workers for each online CPU.
+  - `-n, --dry-run`: Report the changes that the build would make, and make none. See [Dry run](#dry-run).
+  - `--force`: Make every output again, and keep nothing from earlier builds. See [Output cache](#output-cache).
   - `-v, --verbose`: Print build progress to `stderr`.
 - `fram config`: Print the resolved configuration as TOML. It also takes `-c, --config PATH`.
 
@@ -76,18 +76,16 @@ templates/
 fram.toml
 ```
 
-Each part of the project has one purpose:
-
-- `media/` holds the media files: the regular files whose names end in `.jpg`, `.jpeg`, or `.mp4`, in any ASCII letter case, in any directory below `media/`. [Albums and media](#albums-and-media) describes how `fram` makes albums from them. `fram` ignores every other file in `media/`, so it does not copy a `.png` image or a text file. Put a file that the gallery must publish as it is in `static/`.
-- `static/` holds the files that `fram` copies into `output_dir` without changes, at the same relative path. For example, `static/robots.txt` becomes `output_dir/robots.txt`.
+- `media/` holds the media files. A media file is a regular file whose name ends in `.jpg`, `.jpeg` or `.mp4`, in any ASCII letter case, in any directory below `media/`. `fram` ignores every other file in `media/`, so it does not copy a `.png` image or a text file. [Albums and media](#albums-and-media) describes how `fram` makes albums.
+- `static/` holds the files that `fram` copies into `output_dir` without changes, at the same relative path. For example, `static/robots.txt` becomes `output_dir/robots.txt`. Put a file that the gallery must publish as it is here.
 - `templates/` holds the Mustache templates and their partials, as [Templates](#templates) describes.
 - `fram.toml` is the config file, as [Configuration](#configuration) describes.
 
-The media directory and the templates directory must exist, and the static directory is optional. The repository and the release archives contain no starter templates or static files, so each gallery supplies its own.
+The media directory and the templates directory must exist. The static directory is optional. The repository and the release archives contain no starter templates or static files, so each gallery supplies its own.
 
 When `fram` searches `media/` and `static/`, it follows symlinks to directories, but it reads each directory only once:
 
-- If more than one path leads to a directory, `fram` uses only one of them: the path that goes through no symlink, or, if every path goes through a symlink, the first of those paths in byte order. For example, if `album` is a symlink to `trips`, the media files publish only under `trips`.
+- If more than one path leads to a directory, `fram` uses one of them. That is the path that goes through no symlink, or, if every path goes through a symlink, the first of those paths in byte order. For example, if `album` is a symlink to `trips`, the media files publish only under `trips`.
 - `fram` skips a symlink that points back into one of its own parent directories.
 
 ### Configuration
@@ -100,56 +98,58 @@ description = "Photos and videos of the family"
 author = "Daniel Perez Alvarez"
 ```
 
-This table lists every key that the config file can contain. `fram` rejects any other key, including a key inside a derivative table. For example, if the file contains the misspelled key `ouput_dir`, `fram` cannot load the file. It does not ignore the key and use the default value of `output_dir`.
+This table lists every key that the config file can contain. `fram` rejects any other key, also inside a derivative table or the `sort` table. For example, a misspelled `ouput_dir` makes the load fail. `fram` does not ignore the key and use the default `output_dir`.
 
 | Key | Default | Bounds | Meaning |
 | --- | --- | --- | --- |
-| `title` | Required | A string | The title of the gallery, `site.title` in templates. The root album also uses this title. |
-| `description` | Required | A string | The description of the gallery, `site.description` in templates. |
-| `author` | Required | A string | The name of the gallery's author, `site.author` in templates. |
-| `base_url` | `""` | Empty, which is the same as absent, or an `http://` or `https://` URL with a host, and without `?`, `#`, a space or a control character. The scheme can be in any letter case. | The absolute URL where you deploy the gallery. `fram` removes any trailing `/`. If it is not set, a template can read it as an empty section. |
-| `media_dir` | `"media"` | Must be a directory | The directory that contains the media files. |
-| `output_dir` | `"public"` | Not empty | The directory that the build writes to. The build controls all of its contents. See [Output directory](#output-directory). |
-| `templates_dir` | `"templates"` | Must be a directory | The directory that contains the templates and partials. |
-| `static_dir` | `"static"` | A directory, if it exists | The directory of files that the build copies into `output_dir` without changes. A build skips it when it does not exist. |
-| `album_template` | `"album.html"` | A safe relative template name | The template for each album page. |
-| `aggregate_templates` | `[]` | An array of safe relative template names | The templates that the build renders once, with the context of the root album. |
-| `derivatives` | `s`, `m`, and `l` | One to six derivatives, named `xs`, `s`, `m`, `l`, `xl` or `xxl` | The named derivatives. See [Derivatives](#derivatives). |
-| `sort` | `{ albums = "asc", media = "asc" }` | `"asc"` or `"desc"` for each | The order of the immediate child albums and the direct media items of each album, by source filename. |
-| `video_frame_seconds` | `1` | 0 to 86400 | The preferred position of the video poster frame, in seconds. A video that is shorter than this uses its midpoint. |
+| `title` | Required | A string | The gallery title, `site.title` in templates, and the root album's title. |
+| `description` | Required | A string | The gallery description, `site.description` in templates. |
+| `author` | Required | A string | The gallery author, `site.author` in templates. |
+| `base_url` | `""` | Empty, or an `http://` or `https://` URL, in any letter case, with a host, and without `?`, `#`, a space or a control character | The absolute URL of the deployed gallery. `fram` removes any trailing `/`. Empty is the same as absent, and a template reads it as an empty section. |
+| `media_dir` | `"media"` | A directory | The directory of the media files. |
+| `output_dir` | `"public"` | Not empty | The directory that the build writes to and controls. See [Output directory](#output-directory). |
+| `templates_dir` | `"templates"` | A directory | The directory of the templates and partials. |
+| `static_dir` | `"static"` | A directory, if it exists | The files that the build copies into `output_dir`. A build skips it when it does not exist. |
+| `album_template` | `"album.html"` | A safe template name | The template of each album page. |
+| `aggregate_templates` | `[]` | An array of safe template names | The templates that the build renders once, with the root album's context. |
+| `derivatives` | `s`, `m` and `l` | One to six of `xs`, `s`, `m`, `l`, `xl` and `xxl` | The named derivatives. See [Derivatives](#derivatives). |
+| `sort` | `{ albums = "asc", media = "asc" }` | `"asc"` or `"desc"` for each | The order of each album's child albums and of its direct media items, by source filename. |
+| `video_frame_seconds` | `1` | 0 to 86400 | The position of the video poster frame, in seconds. A video that is not longer than this uses its midpoint. |
 
-`fram` resolves each directory in the config, the defaults included, against the directory of the config file, so `-c sub/fram.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from each directory value, and rejects a value that is then empty, `/` included. A directory can be an absolute path, or a relative path that contains `..`. `fram config` prints every directory resolved, and leaves out an optional string that is empty.
+`fram` resolves each directory, the defaults included, against the directory of the config file, so `-c sub/fram.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from each directory, and rejects a directory that is then empty, `/` included. A directory can be an absolute path, or a relative path that contains `..`. `fram config` prints each directory resolved, and leaves out an empty optional string.
 
-The load stops at the first bad key and reports it, and the build then stops before it reads anything else.
+The load stops at the first bad key and reports it. The build then stops before it reads anything else.
 
-A template name in the configuration must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.`, and `/`. It cannot contain an empty segment, or the segment `.` or `..`. The name of an aggregate template is both its source path below `templates_dir` and its output path below `output_dir`. So a name that contains `/` creates the same subdirectories in `output_dir`. If `aggregate_templates` is an empty array, the build renders no aggregate templates.
+A template name in the configuration must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.` and `/`, and it cannot contain an empty segment or the segment `.` or `..`. The name of an aggregate template is both its source path below `templates_dir` and its output path below `output_dir`, so a name that contains `/` makes the same subdirectories in `output_dir`.
 
 ### Output directory
 
 > [!caution]
 > The first build into a directory removes everything in that directory that the build did not write, including hidden files. Set `output_dir` to a directory that you use for nothing else.
 
-When a build writes an output, it replaces any file that is already at that path. A build keeps an output that is current, as the [output cache](#output-cache) describes, and leaves its file untouched. After a successful build, the build removes every file and directory below `output_dir` that it did not write, so `output_dir` contains only the outputs of the current inputs. For example, the build removes the pages of removed albums, the outputs of deleted media files and removed static files, the derivatives of an earlier configuration, and anything that you added by hand. If a symlink does not lead to a current output, the build removes the symlink itself. It does not change the file or directory that the symlink points to. A failed build removes nothing. If rendering or writing fails before the build completes, some outputs can be new while other outputs stay unchanged.
+A build writes an output over any file that is at its path. A written output gets mode `0666` reduced by the process umask, and a rewritten output does not keep its old mode. It keeps an output that is current, as the [output cache](#output-cache) describes, and leaves its file untouched. After a successful build, the build removes every file and directory below `output_dir` that it did not write. Examples are the pages of removed albums, the outputs of deleted media files and static files, the derivatives of an earlier configuration, and files that you added by hand. If a symlink does not lead to a current output, the build removes the symlink and not its target. A failed build removes nothing. If rendering or writing fails, some outputs can be new while others stay unchanged. A write is not atomic, so an interrupted build can leave one output cut short. The next build writes that output again.
 
 Before a build searches the media directory, `fram` rejects `output_dir` in these cases:
 
-- `output_dir` is at or below `media_dir`, `templates_dir`, or `static_dir`. `fram` also makes this check when `output_dir` does not exist yet.
+- `output_dir` is at or below `media_dir`, `templates_dir` or `static_dir`. `fram` also makes this check when `output_dir` does not exist yet.
 - `output_dir` exists and contains one of those directories or the config file, for example with `output_dir = "."`.
 
-Every search of an input directory skips `output_dir`, so a symlink that leads into `output_dir` cannot make the build read generated files as inputs.
+These checks do not find an input directory that is bind-mounted inside `output_dir`. The build removes the contents of such a mount.
 
-Before it renders page templates or writes output files, `fram` rejects an output plan that has one of these conflicts:
+Every search of an input directory skips `output_dir`, so a symlink into `output_dir` cannot make the build read generated files as inputs.
 
-- Two outputs have the same path, for example a static file at the same path as an album page, a derivative, or an aggregate. Paths that differ only in ASCII letter case, such as `assets/Logo.png` and `assets/logo.png`, count as the same path, because a case-insensitive filesystem such as the macOS default stores them as one file.
+Before it renders a page or writes a file, `fram` rejects an output plan that has one of these conflicts:
+
+- Two outputs have the same path. An example is a static file at the path of an album page, a derivative or an aggregate. Paths that differ only in ASCII letter case, such as `assets/Logo.png` and `assets/logo.png`, are the same path, because a case-insensitive filesystem, such as the macOS default, stores them as one file.
 - One output path must be both a file and a directory. This check also ignores ASCII letter case.
-- An output is at or below `media_dir`, `templates_dir`, or `static_dir`, for example through a symlink inside `output_dir`. This check also applies when no file exists at that path yet.
-- An output overwrites the config file, a media file, a static file, or any file below `templates_dir`, including partials.
+- An output is at or below `media_dir`, `templates_dir` or `static_dir`, for example through a symlink inside `output_dir`. This check applies also when no file exists at that path yet.
+- An output overwrites the config file, a media file, a static file, or any file below `templates_dir`, partials included.
 
-These checks compare the directories themselves, not the text of the paths, so they also find a different spelling of the same directory, or a symlink to it. The build creates `output_dir` only after all of these checks pass, so a rejected build creates nothing.
+These checks compare the directories and files themselves, not the text of their paths, so they also find a different spelling of the same path or a symlink to it. The build creates `output_dir` only after all of these checks pass, so a rejected build creates nothing.
 
 ### Dry run
 
-`fram build --dry-run` runs every phase of a build, probes every media file, and renders every page. But it changes nothing in `output_dir`, and it does not create `output_dir`. It also makes no derivatives, and only checks which derivatives are current. For each path that the build would change or keep, it prints one line to `stdout`. Each line has a mark, a tab, and the path. This is a shortened listing:
+`fram build --dry-run` runs every phase of a build, probes every media file, and renders every page. It changes nothing in `output_dir`, and it does not create `output_dir`. It makes no derivatives, and only checks which derivatives are current. It prints one line to `stdout` for each path that the build would change or keep. Each line has a mark, a tab and the path. This is a shortened listing:
 
 ```text
 write	public/album/index.html
@@ -164,8 +164,8 @@ remove	public/_fram/v1-s-120x120c-q70-m-1200x800-q85-f1000/album/one-jpg-m.webp
 | Mark | Meaning |
 | --- | --- |
 | `write` | The build would write this output. |
-| `keep` | The build would not change this output, because it is current. |
-| `remove` | The build would remove this path, because the current inputs no longer produce it. The path can be a directory. |
+| `keep` | The build would keep this output, because it is current. |
+| `remove` | The build would remove this path, because the current inputs do not produce it. The path can be a directory. |
 
 The `write` and `keep` lines come first, in the order that the build plans them:
 
@@ -174,32 +174,32 @@ The `write` and `keep` lines come first, in the order that the build plans them:
 3. Static files.
 4. The output cache.
 
-The `remove` lines come after them, in sorted order. To get only the paths, for `sort`, `diff`, or `comm`, use `cut -f2-`. A dry run reports a failure in the same way as a build: on `stderr`, with the same exit code. A dry run that fails prints no listing. With `-v`, the progress messages still go to `stderr`, so `stdout` contains only the listing when you send it through a pipe.
+The `remove` lines come after them, in sorted order. To get only the paths, for `sort`, `diff` or `comm`, use `cut -f2-`. A dry run reports a failure as a build does, on `stderr` with the same exit code, and prints no listing. With `-v`, the progress messages go to `stderr`, so `stdout` holds only the listing.
 
 A dry run writes nothing, so a build can still fail after a dry run succeeds. A dry run cannot find these failures:
 
-- The build has no permission to write to `output_dir`, or its disk is full.
+- The build cannot write to `output_dir`, or its disk is full.
 - `fram` cannot read a static file or an original. A dry run does not open the files that it would copy.
-- An old file is at a path where a new output needs a directory, or an old directory is at a path where a new output needs a file. For example, the old output is the file `public/blog`, and the new output is `public/blog/index.html`.
+- An old file is at a path where a new output needs a directory, or the reverse. For example, the old output is the file `public/blog`, and the new output is `public/blog/index.html`.
 - `output_dir` exists but is not a usable directory.
 - A source image is damaged after its header. A dry run does not decode images.
 
 ### Output cache
 
-A build writes the output cache to `_fram/output-cache.tsv` below `output_dir`, even when the build fails after it creates `output_dir`. The next build reads it to decide what to keep:
+A build writes the output cache to `_fram/output-cache.tsv` below `output_dir`, also when the build fails after it creates `output_dir`. The next build reads it to decide what to keep:
 
-- A derivative is kept while its media file has the path, size and modification time that the cache recorded, and the derivative still has the size that the cache recorded. Its settings are in its path, so a changed setting makes a new derivative. The cache also records the versions of libjpeg-turbo and libwebp, so a `fram` built with a new release of either makes every derivative again.
-- A copied original or static file is kept in the same way, by its source.
-- A page or an aggregate is rendered on every build, but it is written only when its bytes change.
-- What a probe read from a media file, its dimensions, its EXIF orientation and the duration of a video, is reused while the file has the size and modification time that the cache recorded, and the same `fram` version wrote the cache. Thus the build does not read an unchanged photo and does not run `ffprobe` for an unchanged video.
+- The build keeps a derivative while its media file has the path, size and modification time that the cache recorded, and the derivative has the size that the cache recorded. The derivative's path holds its settings, so a changed setting makes a new derivative. The cache also records the versions of libjpeg-turbo and libwebp, so a `fram` built with a new release of either makes every derivative again.
+- The build keeps a copied original or static file in the same way, by its source.
+- The build renders each page and aggregate on every build, and writes it only when its bytes change.
+- The build reuses what a probe read from a media file while the file has the size and modification time that the cache recorded, and the same `fram` version wrote the cache. A probe reads the dimensions, the EXIF orientation and the duration of a video. So the build does not read an unchanged photo or run `ffprobe` for an unchanged video.
 
-Some tools, such as `exiftool -P`, change a file but keep its size and modification time. To correct this, run `fram build --force` once. That build probes every media file again and writes every output again.
+Some tools, such as `exiftool -P`, change a file but keep its size and modification time. After such a change, run `fram build --force` once. That build probes every media file and writes every output again.
 
-When you publish `output_dir`, you also publish the output cache. It contains the path of each media file relative to `media_dir`, with the raw filename that page titles and URL slugs change, and the size and modification time of each media file and static file. If you do not want to publish this information, exclude `_fram/output-cache.tsv` when you deploy.
+When you publish `output_dir`, you also publish the output cache. It holds the path of each media file below `media_dir`, with the raw filename that page titles and URL slugs change. It also holds the size and modification time of each media file and static file. To keep this private, exclude `_fram/output-cache.tsv` when you deploy.
 
 ### Limits
 
-The build rejects an input file that is too large before it reads the file. The error message gives the limit and the file size.
+The build rejects an input file that is too large before it reads the file. The error message gives the limit and the file size. The copy of an original has no size limit of its own, because the build streams the copy from its source.
 
 | Input | Limit |
 | --- | --- |
@@ -207,24 +207,30 @@ The build rejects an input file that is too large before it reads the file. The 
 | Config file | 1 MiB |
 | Template or partial | 4 MiB |
 
-A source image can have at most 100 million pixels. A gallery can have at most 64 partials in the `partials/` directory of `templates_dir`. A rendered page can be at most 256 MiB, a render can use at most 300,000 partial expansions, and a render that passes a limit fails. An output cache over 256 MiB is not read, and the build probes every media file again.
+These limits also apply:
 
-The build reserves its memory once, in fixed sizes that come from these limits, and under an address-space limit (`ulimit -v`) it runs fewer workers and then a smaller reservation, as [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#build-memory) describes:
+- A source image can have at most 100 million pixels.
+- A gallery can have at most 64 partials in the `partials/` directory of `templates_dir`.
+- A rendered page can be at most 256 MiB, and a render can use at most 300,000 partial expansions. A render that passes a limit fails.
+- An output path below `output_dir` can be at most 1,024 bytes, and each of its segments at most 255 bytes.
+- The build does not read an output cache over 256 MiB, and probes every media file again.
+
+The build reserves its memory once, in fixed sizes that come from these limits. Under an address-space limit (`ulimit -v`), it runs fewer workers and then a smaller reservation, as [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#build-memory) describes:
 
 - A build needs about 280 MB (`ulimit -v 270000`). With a lower limit, the build stops at startup with `fram: out of memory`.
-- The stacks of the worker threads need room beside the reservation: about 24 MB for two workers. If the limit leaves less room than this, the build fails with `cannot start worker thread`.
-- A build can need more memory than it reserved or than the limit leaves, for example for a template whose nested sections expand without bound, or for a decode that is too large for the remaining memory. Then the build prints the errors that the command and the failing job logged up to that point, prints `fram: out of memory (in '<file>')`, and exits with status 1.
-- Each worker has at least 256 MiB to keep the errors that it reports. A worker that reports about a million one-line errors, or about 290 files that each contain about 16,000 unknown keys, can also make the build end with that out-of-memory report.
+- The stacks of the worker threads need room beside the reservation. If the limit leaves too little room, the build fails with `cannot start worker thread`.
+- A build can need more memory than it reserved or than the limit leaves. Examples are a template whose nested sections expand without bound, and a decode that is too large for the remaining memory. The build then prints the errors that the command and the failing job logged, prints `fram: out of memory (in '<file>')`, and exits with status 1.
+- Without an address-space limit, the build's log and each worker's errors have at least 256 MiB each. A worker that reports more errors than that also ends the build with the out-of-memory report.
 
 ## Albums and media
 
-Each directory below `media_dir` becomes a nested album page if it contains media files or if a directory below it is an album. `media_dir` itself becomes `output_dir/index.html`. For each JPEG, the build makes every configured derivative and copies the original. Each derivative is a lossy WebP image. For each MP4, the build makes the same derivatives from an auto-rotated poster frame, and the copied original is the video that the gallery plays. A gallery with MP4 files needs the `ffmpeg` and `ffprobe` executables on `PATH`. A gallery with only images does not need them.
+Each directory below `media_dir` becomes a nested album page if it contains media files, or if a directory below it is an album. `media_dir` itself becomes `output_dir/index.html`. For each JPEG, the build makes every configured derivative and copies the original. Each derivative is a lossy WebP image. For each MP4, the build makes the same derivatives from an auto-rotated poster frame, and the copied original is the video that the gallery plays. A gallery with MP4 files needs `ffmpeg` and `ffprobe` on `PATH`. A gallery with only images does not need them.
 
 ### Albums
 
-`fram` sorts albums and media items by source filename, in the order that `sort.albums` and `sort.media` set. The default order of both is ascending. With these two settings, album directories that have dates in their names can list the newest album first, while the files in each album stay in the order in which you took them. The cover of an album is the first media item that the album lists. If the album has no media items of its own, its cover is the cover of the first child album that it lists.
+`fram` sorts albums and media items by source filename, in the order that `sort.albums` and `sort.media` set. The default order of both is ascending. So album directories with dates in their names can list the newest album first, while the files in each album stay in the order in which you took them. The cover of an album is the first media item that the album lists. If the album has no media items of its own, its cover is the cover of the first child album that it lists.
 
-In the titles of albums and media items, `fram` shows each underscore as a space. The HTML `download` name of a media item uses this title.
+The title of an album is its directory name, and the title of a media item is its filename, extension included. `fram` shows each underscore in a title as a space.
 
 ### Derivatives
 
@@ -242,19 +248,24 @@ This `derivatives` table sets the same defaults:
 derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, m = { width = 520, height = 360, quality = 80, crop = true }, l = { width = 792, height = 594, quality = 85 } }
 ```
 
-A `derivatives` table replaces the defaults and does not add to them, so a gallery that adds a derivative such as `xl` must also list each default derivative that it still uses.
+A `derivatives` table replaces the defaults and does not add to them. So a gallery that adds a derivative such as `xl` must also list each default derivative that it still uses.
 
-A gallery can define from one through six derivatives, named after their size: `xs`, `s`, `m`, `l`, `xl` and `xxl`. Each name becomes a field of each media item and an output directory, and a fixed name never hides another key of the template data. Each derivative must set `width` and `height`, each at most 16,383, which define a bounding box, and `quality`, the WebP quality, from 1 through 100. With `crop = true`, `fram` crops the image around its center to the aspect ratio of the bounding box before it resizes the image. The default value of `crop` is `false`. `fram` does not enlarge a media file that is smaller than the bounding box.
+A gallery can define one to six derivatives, named after their size: `xs`, `s`, `m`, `l`, `xl` and `xxl`. Each name becomes a field of each media item and an output directory, and a fixed name never hides another key of the template data. Each derivative must set these keys:
 
-`fram` applies the EXIF orientation before it sizes the derivatives, and then applies the crop policy of each derivative separately. It decodes each media file at a smaller scale, in eighths, and uses the smallest scale that still gives each derivative of the file at least twice its own size to resize from. So `fram` decodes only a fraction of the pixels of a large photo. Each worker decodes one media file at a time, so the memory for decodes grows with `--workers`.
+- `width` and `height`, from 1 to 16,383 each, which define a bounding box of at most 100 million pixels.
+- `quality`, the WebP quality, from 1 to 100.
+
+With `crop = true`, `fram` crops the image around its center to the aspect ratio of the bounding box before it resizes the image. The default value of `crop` is `false`. `fram` does not enlarge a media file that is smaller than the bounding box.
+
+`fram` applies the EXIF orientation before it sizes the derivatives, and then applies the crop policy of each derivative. It decodes each media file at a smaller scale, in eighths. It uses the smallest scale that gives each derivative at least twice its own size to resize from. So it decodes only a fraction of the pixels of a large photo. Each worker decodes one media file at a time, so the memory for decodes grows with `--workers`.
 
 ### Output paths
 
 The directory segments of generated albums and the filenames of generated media are lowercase slugs that are safe in a URL. `fram` never renames source files or directories.
 
-Derivatives are at `_fram/<recipe>/<album-slug>/<media-slug>-<derivative>.webp`. The media slug includes the source extension, so `foo.jpg` becomes `foo-jpg`. All derivatives of one media item are thus in one album directory. The recipe name includes the name, dimensions, crop policy, and WebP quality of each derivative, the poster-frame position, and the version of the derivative algorithm. Thus a build never reuses derivatives from an older recipe after you change a setting that affects the output. Originals are at `_fram/originals/<album-slug>/<media-slug>.<source-extension>`.
+Derivatives are at `_fram/<recipe>/<album-slug>/<media-slug>-<derivative>.webp`. The media slug includes the source extension, so `foo.jpg` becomes `foo-jpg`, and all derivatives of one media item are in one album directory. The recipe holds the name, dimensions, crop policy and WebP quality of each derivative, the poster-frame position, and the version of the derivative algorithm. So a build never reuses derivatives of an older recipe after you change a setting that affects the output. Originals are at `_fram/originals/<album-slug>/<media-slug>.<extension>`, where the extension is `.jpg`, `.jpeg` or `.mp4` in lowercase.
 
-Every `url` that `fram` generates is relative and uses the slugs of the output names, so the same output works through `file://`, or on a server below any URL prefix. Each `absolute_url` is the same path below `base_url`, and is empty when `base_url` is not set.
+Every `url` that `fram` makes is relative and uses the slugs of the output names. So the same output works through `file://`, or on a server below any URL prefix. Each `absolute_url` is the same path below `base_url`, and is empty when `base_url` is not set.
 
 ## Templates
 
@@ -262,28 +273,28 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 
 | Kind | Configured by | Rendered |
 | --- | --- | --- |
-| Album | `album_template` | Once for each album, to the `index.html` of the album. The fields, direct media, immediate child albums, and breadcrumbs of the album are available. |
-| Aggregate | `aggregate_templates` | Once, with the context of the root album, to the same relative path below `output_dir`. |
+| Album | `album_template` | Once for each album, to the album's `index.html`, with the album's fields, direct media, child albums and breadcrumbs. |
+| Aggregate | `aggregate_templates` | Once, with the root album's context, to the same relative path below `output_dir`. |
 
-`{{value}}` escapes its output for HTML. `{{{value}}}` and `{{& value}}` write it without escaping, and work only for a key that ends in `_html`, which holds HTML that `fram` made itself. Any other key that the data holds fails the render, so a value that it did not make, such as a title, cannot add markup to a page. A name that the data does not hold writes nothing, as with `{{value}}`. `fram` makes no HTML of its own, so it has no such key and escapes every value.
+`{{value}}` escapes its output for HTML. `{{{value}}}` and `{{& value}}` write it without escaping, and work only for a key that ends in `_html`. `fram` makes no HTML of its own, so it has no such key, and an unescaped tag of any key that the data holds fails the render. So a value such as a title cannot add markup to a page. A name that the data does not hold writes nothing, as with `{{value}}`.
 
-Every page and aggregate that `fram` renders is valid UTF-8 without the characters that XML 1.0 forbids, so a browser and a feed reader accept it. `fram` replaces each invalid sequence in a value or a template with U+FFFD, and drops the C0 control characters but tab, line feed and carriage return, and U+FFFE and U+FFFF.
+Every page and aggregate that `fram` renders is valid UTF-8 without the characters that XML 1.0 forbids, so a browser and a feed reader accept it. `fram` replaces each invalid sequence in a value or a template with U+FFFD. It drops U+FFFE, U+FFFF, and the C0 control characters other than tab, line feed and carriage return.
 
-Each album, media item and derivative sets every one of its fields, and an absent value or a false flag is empty, so a section over it is skipped, and the field never resolves from an enclosing album. A name that the album, item or derivative does not have is looked up in the enclosing scopes, as Mustache does. A flag such as `is_last` is `true` when it holds, and empty otherwise, so it works both as a section and as text.
+Each album, media item and derivative sets each of its fields. An absent value or a false flag is empty, so a section over it is skipped, and the field never resolves from an enclosing album. A name that the album, item or derivative does not have resolves in the enclosing scopes, as in Mustache. A flag such as `is_last` is `true` when it holds and empty otherwise, so it works both as a section and as text.
 
 Every template gets these keys:
 
 | Key | Value |
 | --- | --- |
 | `site.title`, `site.description`, `site.author`, `site.base_url` | The values from the configuration. |
-| `album.title`, `album.url`, `album.absolute_url`, `album.media_count_total`, `album.is_media_count_total_one`, `album.cover`, `album.has_media`, `album.has_sub_albums`, `album.parent` | The fields of the current album. They are also available at the top level. `album.media_count_total` counts the media items of the album and of every album below it. `album.is_media_count_total_one` is true when that count is 1, so a template can choose between "item" and "items". `album.cover` is a media value, so its named derivatives are available in the same way as for `media`. It is empty for an album with no media below it. `album.parent` is empty for the root album. |
-| `sub_albums` | The immediate child albums, each with the album fields. |
-| `breadcrumbs` | The albums from the root album through the current album, each with the album fields and `is_last`, which is true only for the current album on its own page. Its `url` is empty there, so the page does not link to itself, and its `absolute_url` still names the page. An aggregate is not an album's page, so no crumb of it is last. |
-| `media` | The media items directly in the current album. Each item has `title`, `kind` (`image` or `video`), `is_image`, `is_video`, `url` (the copied original), `absolute_url`, and `duration`, the length of a video in milliseconds, empty for an image. Each configured derivative is also a named child with `url`, `absolute_url`, `width`, and `height`, so the defaults give `s.url`, `s.width`, `s.height`, `m.url`, and so on. Each `absolute_url` is its `url`'s path below `base_url`, for a sitemap or a feed, and is empty when `base_url` is not set. |
+| `album.title`, `album.url`, `album.absolute_url`, `album.media_count_total`, `album.is_media_count_total_one`, `album.cover`, `album.has_media`, `album.has_sub_albums`, `album.parent` | The fields of the current album, also at the top level. `media_count_total` counts the media items of the album and of every album below it. `is_media_count_total_one` is true when that count is 1, so a template can choose between "item" and "items". `cover` is a media value, with the same named derivatives as `media`, and is empty for an album with no media below it. `parent` is empty for the root album. |
+| `sub_albums` | The child albums, each with the album fields. |
+| `breadcrumbs` | The albums from the root album to the current album, each with the album fields and `is_last`. `is_last` is true only for the current album on its own page. That crumb's `url` is empty, so the page does not link to itself, and its `absolute_url` still names the page. An aggregate is not an album's page, so none of its crumbs is last. |
+| `media` | The media items directly in the current album. Each item has `title`, `kind` (`image` or `video`), `is_image`, `is_video`, `url` (the copied original), `absolute_url`, and `duration`, the length of a video in milliseconds, empty for an image. Each configured derivative is a named child with `url`, `absolute_url`, `width` and `height`, so the defaults give `s.url`, `s.width`, `s.height`, `m.url`, and so on. |
 | `generator` | The name and version of `fram`, for a tag such as `<meta name="generator" content="{{generator}}">`. |
 | `path_to_root` | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. It stays the page's prefix inside `sub_albums`, `breadcrumbs` and `parent`. |
 
-A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_` and `-`. A reference to another name fails the build, and `fram` ignores the other files of `partials/` and its subdirectories. The build compiles every template that it renders and every partial once, before it writes anything, and reports every template that cannot be read or does not compile in one run. The aggregate templates also use the `.html` partials.
+A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_` and `-`. A reference to another name fails the build. `fram` ignores the other files of `partials/` and its subdirectories. The build compiles every template that it renders and every partial once, before it writes anything, and reports in one run every template that it cannot read or compile. The aggregate templates use the same partials.
 
 ```html
 {{> menu}}
@@ -302,117 +313,17 @@ A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A p
 
 `fram` writes plain files that any static host serves.
 
-GitHub Pages runs Jekyll when it publishes from a branch, and Jekyll drops every file or directory whose name starts with `_`, `.` or `#`. `fram` writes every derivative and every copied original below `_fram/`, so the album pages then show no images and play no videos. Publish the gallery with a GitHub Actions workflow that uploads `output_dir`, or put an empty `.nojekyll` file in `static_dir`. The prune removes any file that the build did not write, so a `.nojekyll` that you add to `output_dir` by hand does not survive the next build.
+GitHub Pages runs Jekyll when it publishes from a branch, and Jekyll drops every file or directory whose name starts with `_`, `.` or `#`. `fram` writes every derivative and every copied original below `_fram/`, so the album pages then show no images and play no videos. Publish the gallery with a GitHub Actions workflow that uploads `output_dir`, or put an empty `.nojekyll` file in `static_dir`. The build removes any file that it did not write, so a `.nojekyll` that you add to `output_dir` by hand does not survive the next build.
 
 ## Development
 
-[ARCHITECTURE.md](ARCHITECTURE.md) describes the code. [BUILD.md](../../BUILD.md) describes the CMake targets and the reasons for the configurations below. [STYLE.md](../../STYLE.md) describes the code style.
-
-### Prerequisites
-
-- A POSIX-like system with CMake 3.25 or later, a C17 compiler such as Clang or GCC, and pthreads.
-- NASM on x86-64, for the SIMD routines of libjpeg-turbo.
-- `ffmpeg` and `ffprobe`, for galleries with MP4 files and for the golden test.
-- Optional build tools: `ninja` for the `multi` preset.
-- Optional quality tools: `cwrap`, `clang-format`, `clang-tidy`, `cppcheck`.
-- Zig 0.17 and `llvm-strip` for the Linux `musl` archives.
-
-The repository includes the dependencies in [vendor/](../../vendor/), and the libraries in [libs/](../../libs/).
-
-### Building
-
-Run the commands in this section and in the sections below from `apps/fram`, the directory of this README. Each preset builds in `build/<preset>`, outside the source tree, and treats compiler warnings as errors. If `CC` is set, the preset builds in `build/<preset>/<CC>` instead, such as `build/debug/gcc-14`. CMake reads `CC` only when it configures a directory for the first time, so each compiler needs its own CMake cache. The commands use eight parallel jobs. Change that number to suit your machine.
-
-```sh
-cmake --preset debug
-cmake --build --preset debug -j 8
-```
-
-| Preset | Configuration | Binary |
-| --- | --- | --- |
-| `debug` | `Debug` with AddressSanitizer and UndefinedBehaviorSanitizer. It runs `clang-tidy` and `cppcheck` during compilation if they are available. | `build/debug/bin/fram` |
-| `tsan` | `Debug` with ThreadSanitizer. | `build/tsan/bin/fram` |
-| `release` | `RelWithDebInfo`, with no tests. The binary in the build tree keeps its debug information, and packaging strips the installed copy. | `build/release/bin/fram` |
-| `multi` | `Debug` and `RelWithDebInfo` in one build tree, with the `Ninja Multi-Config` generator. Build with `--preset multi-debug` or `--preset multi-relwithdebinfo`. | `build/multi/bin/Debug/fram`, `build/multi/bin/RelWithDebInfo/fram` |
-
-`clang-tidy` runs only with Clang, because it rejects the warning options of GCC. To run linting, configure the `debug` preset, and then run this command:
-
-```sh
-cmake --build --preset lint
-```
-
-### Testing
-
-CTest registers the unit tests. It also registers the end-to-end golden test if the configure step finds `ffmpeg` and `ffprobe`. Build a preset, and then run its tests:
-
-```sh
-ctest --preset debug -j 8
-```
-
-The test presets are `debug`, `tsan`, `multi-debug`, and `multi-relwithdebinfo`. The `multi-relwithdebinfo` tests check the same CMake configuration as the `release` preset, which builds no tests. To run only part of a suite, select the tests by label or by name pattern:
-
-```sh
-ctest --preset debug -L unit -j 8
-ctest --preset debug -L golden -j 8
-ctest --preset debug -R template -j 8
-```
-
-### Continuous integration
-
-The workflow presets run the same configure, build, and test steps as CI:
-
-| Workflow | Steps |
-| --- | --- |
-| `cmake --workflow --preset ci-debug` | Build in `Debug`, run linting, and run all ASan and UBSan tests. |
-| `cmake --workflow --preset ci-tsan` | Build with TSan and run all TSan tests. |
-| `cmake --workflow --preset ci-release` | Build in `RelWithDebInfo`. |
-| `cmake --workflow --preset ci-multi` | Build and test in `Debug` and `RelWithDebInfo` with the `Ninja Multi-Config` generator. CI runs this workflow a second time with `CC=gcc-14` to check GCC. |
-
-To run the Linux workflows on a machine with Podman, build the pinned Ubuntu image from the root [Containerfile](../../Containerfile), with the repository root as the build context. Then run each workflow in a new container, with the directory of `fram` as the working directory:
-
-```sh
-podman build --tag apps-c17-linux-ci --file ../../Containerfile ../..
-podman run --rm --workdir /src/apps/fram apps-c17-linux-ci ci-debug
-podman run --rm --workdir /src/apps/fram apps-c17-linux-ci ci-tsan
-podman run --rm --workdir /src/apps/fram apps-c17-linux-ci ci-release
-podman run --rm --workdir /src/apps/fram apps-c17-linux-ci ci-multi
-podman run --rm --workdir /src/apps/fram -e CC=gcc-14 apps-c17-linux-ci ci-multi
-```
-
-The image contains a snapshot of the repository, including the vendored dependencies, without `.git/` and the `build/` directories, which [.containerignore](../../.containerignore) excludes, so the Linux build products stay in the container and do not go into a `build/` directory of the host. The image supports x86-64 and AArch64 hosts, and pins LLVM 23 and GCC 14. It does not include Zig, because only the release archives need Zig.
-
-### Packaging
-
-Only the release configurations have package presets. Build a preset, and then package it:
-
-```sh
-cmake --preset release
-cmake --build --preset release -j 8
-cpack --preset release
-```
-
-| Preset | Archive |
-| --- | --- |
-| `release` | A stripped native archive in `build/release/`. |
-| `release-linux-x86_64` | `build/release-linux-x86_64/fram-<version>-x86_64-linux-musl.tar.gz`, cross-built with Zig. |
-| `release-linux-aarch64` | `build/release-linux-aarch64/fram-<version>-aarch64-linux-musl.tar.gz`, cross-built with Zig. |
-
-A source archive needs a configured tree but no compiled binary. It holds the repository without the other apps, and it does not contain build products or private workspace metadata:
-
-```sh
-cmake --preset release
-cpack --config build/release/CPackSourceConfig.cmake
-```
-
-The source archive is `build/release/fram-<version>-source.tar.gz`.
-
-The version of every archive comes from `project(VERSION)` in [CMakeLists.txt](CMakeLists.txt). Tag each release commit with the matching `fram-vMAJOR.MINOR.PATCH`. The tag starts the root release workflow, [release.yml](../../.github/workflows/release.yml), which tests, packages and publishes `fram` only. A manual run of this workflow with `dry_run` tests and packages the dispatched commit, and publishes nothing.
+[BUILD.md](../../BUILD.md) describes the prerequisites, the CMake presets, the tests, CI and packaging, [ARCHITECTURE.md](ARCHITECTURE.md) describes the code, and [STYLE.md](../../STYLE.md) describes the code style.
 
 ## Dependencies
 
-The root [vendor/](../../vendor/) directory contains these dependencies, except the libraries in `libs/`. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the licenses of the vendored dependencies.
+The root [vendor/](../../vendor/) directory holds these dependencies, except the libraries in `libs/`. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the licenses of the vendored dependencies.
 
-- [libs/](../../libs/): The libraries that `fram` shares with the other apps: `cli`, `core`, `os`, `runtime`, `formats`, `output` and `templates`, and for the unit tests `testing` and `os_memory`. [libs/src/core/](../../libs/src/core/) holds arena allocation, counted strings, output buffers, the diagnostic log and the small primitives, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the others.
+- [libs/](../../libs/): The libraries that `fram` shares with the other apps: `cli`, `core`, `os`, `runtime`, `formats`, `output` and `templates`, and `testing` and `os_memory` for the unit tests. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes them.
 - [copt](https://github.com/fardaniqbal/copt): Command-line option parsing.
 - [tomlc17](https://github.com/cktan/tomlc17): TOML configuration parsing.
 - [libjpeg-turbo](https://github.com/libjpeg-turbo/libjpeg-turbo): JPEG decoding.
