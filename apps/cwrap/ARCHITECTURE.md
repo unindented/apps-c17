@@ -1,299 +1,64 @@
 # Architecture
 
-`cwrap` is a small C17 C comment formatter. It reads source files or standard input, refills the comment blocks that it can wrap, and writes the result to `stdout`, back to each input file, or as a `--check` report. This document describes the code: the directories and their dependency rules, the wrap pipeline, the job of each module, the conventions that every module follows, and the design decisions behind them. [README.md](README.md) covers usage and wrapping behavior, [BUILD.md](../../BUILD.md) covers the CMake build, and [STYLE.md](../../STYLE.md) covers the code style.
+This document describes the code of `cwrap`: the directories, the wrap pipeline, its fixed-point invariant, and the design decisions. [README.md](README.md) covers usage and wrapping behavior, [BUILD.md](../../BUILD.md) covers the CMake build, and [STYLE.md](../../STYLE.md) covers the code style. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes the shared libraries, which hold the arenas, the strings, the log, the host interface and the out-of-memory report.
 
 ## Layout
 
 - [src/app/](src/app/): The process entry point, the command-line interface, the command boundary, and the rewrap of one input.
 - [src/domain/](src/domain/): Comment lexing, grouping, filling, Doxygen alignment, source rewriting, and the version.
-- [tests/](tests/): The golden and idempotence test suites, and the seeded random tests. Each C file under [tests/fixtures/](tests/fixtures/) has a matching file of expected output under [tests/expected/](tests/expected/). The idempotence test also rewraps these files, every first-party source file, and the sources of the libraries that `cwrap` links, at several widths.
+- [tests/](tests/): The golden and idempotence test suites, and the seeded random test. Each C file under [tests/fixtures/](tests/fixtures/) has a matching file of expected output under [tests/expected/](tests/expected/).
+- [cmake/](cmake/): The golden and idempotence test drivers.
 - [CMakeLists.txt](CMakeLists.txt) and [CMakePresets.json](CMakePresets.json): The project entry point and the supported CMake configurations.
-- [cmake/](cmake/): The golden and idempotence test drivers. The root [cmake/](../../cmake/) directory holds the CMake profiles, quality tools, packaging, and reusable cross toolchains that every app uses. [BUILD.md](../../BUILD.md) documents their boundaries and policy.
-- [libs/](../../libs/): The libraries that `cwrap` links: `core` and `os`, with the POSIX host `os_posix`, and for the unit tests `testing` and the in-memory host `os_memory`. The `libs/` project builds and tests them, and [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md) describes their modules.
-- [vendor.cmake](vendor.cmake): The build of the bundled dependencies, whose sources are in the root [vendor/](../../vendor/) directory: `copt` and `acutest`.
+- [vendor.cmake](vendor.cmake): The build of the bundled dependencies `copt` and `acutest`, whose sources are in the root [vendor/](../../vendor/) directory.
 
-### Dependency rules
-
-First-party dependencies point inward:
-
-- `app` can depend on every other directory.
-- `domain` depends on no other directory in `src/`.
-- Every directory can depend on the libraries in `libs/`, and no library depends on `cwrap`.
-
-A module can skip layers, and modules in the same directory can depend on each other. Vendored code is outside this hierarchy. A first-party include starts at the `src/` root or at the include root of a library that the app links, for example `#include "domain/fill.h"` or `#include "core/ascii.h"`, so every include names the directory or the library that it depends on.
-
-## Terms
-
-These words have one meaning everywhere in this document:
-
-- **Arena.** A `struct Arena` from `core`. It has two pointers, `beg` and `end`, into one region. When the region is reserved and the arena commits pages on demand, it has a third pointer, `limit`. An arena never frees an individual allocation.
-- **Perm.** An arena for data that lives longer than the function that makes it. A function takes it by pointer, as `struct Arena* perm`. `wrap_input_read_file` reads a source into a copy of the input arena, and takes this copy as its perm.
-- **Scratch.** The run's arena for temporary data. A function takes it by value, as `struct Arena scratch`, so its allocations are free again when the function returns.
-- **Input arena.** The run's arena for the source and the rewritten output of one input. A function takes a copy by value, as `struct Arena input`, so the next input reuses its memory.
-- **Log.** A `struct Log`: a growable buffer with one line for each error, and an error count. A command prints its log once. A log grows in an arena of its own, and no callee gets this arena by value.
-- **Block.** The one reservation that a command makes when it starts. The command splits the block into its arenas, and releases the block when it ends.
-- **Comment block.** A group of comments that the rewrap refills as one unit, as a `struct CommentBlock`. A Doxygen block, a slash-star block and a starred block are kinds of comment block. The word "block" alone always means the reservation above.
-- **Region.** A range of address space that one arena uses. Two arenas never use the same region at the same time.
-- **Reserve.** To get address space from the system without memory behind it.
-- **Commit.** To make reserved pages usable. The system charges committed pages against its memory limit.
-- **Run.** One invocation of `cwrap` with the run action, which rewraps its inputs.
-- **Input.** One source file, or standard input, that a run rewraps.
-
-## Entry point and command
-
-[main.c](src/app/main.c) defines `main`. `main` only calls `cli_dispatch` with the POSIX host, so the unit tests can link the code that maps an action to an exit code. These are the other modules in `src/app`:
-
-- [cli](src/app/cli.h): `cli_parse` parses the command line into one of four actions: version, help, run, or error. It never prints and never exits. `cli.c` is the only translation unit that defines `COPT_IMPL`.
-- [cli_dispatch](src/app/cli_dispatch.h): `cli_dispatch` calls `cli_parse`. For the run action, it calls `cmd_wrap_run`. For each other action, it prints one text through `os_print`: the diagnostic for the rejected command line, the `--help` text, or the `--version` text. It formats these texts in a reservation of its own, and releases that reservation when the command or the print returns. A command reserves its own memory.
-- [cmd_wrap](src/app/cmd_wrap.h): `cmd_wrap_run` rewraps every input, as [Wrap pipeline](#wrap-pipeline) describes.
-- [exit_code](../../libs/src/core/exit_code.h), in the `core` library: Every command returns an `enum ExitCode`: `EXIT_CODE_OK` (0), `EXIT_CODE_FAILURE` (1), or `EXIT_CODE_USAGE` (2).
-- [wrap_input](src/app/wrap_input.h): Reads, rewrites, and emits one input, as [Wrap pipeline](#wrap-pipeline) describes.
+First-party dependencies point inward. `app` can depend on every other directory, and `domain` depends on no other directory in `src/`. Every directory can depend on the libraries in `libs/`, and no library depends on `cwrap`. A first-party include starts at the `src/` root or at the include root of a library, such as `#include "domain/fill.h"` or `#include "core/ascii.h"`.
 
 ## Wrap pipeline
 
-A run has two layers:
+`cmd_wrap_run` reserves the memory of the run, gives each input to `wrap_input`, and prints the run's log to `stderr` once. `wrap_input` reads one input, calls `rewrite_source`, and prints the result, writes the file, or reports a change. `rewrite_source` ([src/domain/rewrite.h](src/domain/rewrite.h)) runs these stages over one source buffer:
 
-- `cmd_wrap_run` is the outer boundary. Before it reads any input, it reserves the memory of the run once: the run's log, and one block of address space that it splits into the input arena and the scratch. It selects standard input or goes through the input paths in order, and gives each input to `wrap_input`. Check mode reports every input, and the default mode stops at the first input that fails. In-place mode checks every input before its first write, as [the decision below](#in-place-mode-checks-every-input-before-the-first-write) describes. `cmd_wrap_run` prints the run's log to `stderr` once, through `os_print`.
-- `wrap_input` runs the read, rewrite, and emit steps for one input, in the input arena and the scratch that it gets from `cmd_wrap_run`. Its entry point for a file and its entry point for standard input share one rewrite path in memory. `WrapInputResult` keeps three results apart: success, a check-mode change, and an operational error. In the default mode, `wrap_input` prints each rewritten source to `stdout` in one `os_print` call. In in-place mode, it writes a file only when the file changes. In check mode, it writes nothing.
+1. **Lex** (`lex_comment_spans`) finds every comment span outside strings and character literals, and marks a comment after code as trailing.
+2. **Group** (`comment_group`) joins line comments into comment blocks, classifies slash-star blocks as starred or hanging, and leaves out the comments that it copies unchanged.
+3. **Extract** (`comment_extract_body`) strips the decoration and classifies each body line as prose, tag, list item, sample, decoration, directive or blank.
+4. **Align** (`doxygen_align_parameters`) aligns the descriptions of the `@param` tags in one column, and of the `@retval` tags in another.
+5. **Fill** (`fill_body_lines`) fills each prose paragraph greedily with the atoms of `atom_split`.
+6. **Emit** (`comment_emit`) restores the opener, the prefixes and the closer, with the line endings of the comment block.
+7. **Splice** copies the bytes outside the comment blocks unchanged.
 
-### Steps
-
-`rewrite_source` ([src/domain/rewrite.h](src/domain/rewrite.h)) owns the domain pipeline for one source buffer. It copies a grouped slash-star block unchanged when this comment block is on one line, fits the column, and contains no tab. It runs every other comment block through the steps from Extract on:
-
-1. **Lex** (`lex_comment_spans`): A character state machine records every comment span, and ignores strings and character literals. A shared transition keeps LF and CRLF line splices inside the state that they continue, including in a `//` comment. When a comment follows code, or follows the closer of another comment on its line, the step records the comment as trailing.
-2. **Group** (`comment_group`): Each comment block records its exact opener marker: `//`, `///`, or `//!` for a line comment, and `/*`, `/**`, or `/*!` for a slash-star comment. The four markers other than `//` and `/*` make it a Doxygen block. Consecutive line comments with the same marker become one comment block when each comment is on the line after the previous comment, has only horizontal whitespace before it, and starts at the indent column of the first comment. So indented line comments group in the same way as line comments at the left margin. A line at a different indent, a code line, or a blank line starts a new comment block. A slash-star block is starred when a continuation `*` is at the decoration column (`opener + 1`). A `*` under the hanging prose is a list marker. The step leaves out three kinds of comment:
-   - A trailing comment.
-   - A `//` comment that a backslash line splice continues. Its spliced physical lines have no `//` marker for a refill to restore, so the step copies the comment unchanged, and the comment ends the comment block before it.
-   - A comment block with no letter, digit, or non-ASCII byte, such as `/**/` or a row of stars. It keeps its exact bytes.
-3. **Extract** (`comment_extract_body`): The step strips the decoration (`*/` before `*`) and classifies each payload line. It drops a last line that holds only the closer, and strips the hanging indent. Extra indent that is not a tag continuation makes an indented sample. A line whose payload starts with a tool directive is a directive line in any comment shape. The directives are `cppcheck-suppress` with any suffix, `NOLINT`, `NOLINTNEXTLINE`, `NOLINTBEGIN`, `NOLINTEND`, `clang-format off`, `clang-format on`, and `IWYU pragma:`, each as a whole word. `tool_directives` in [src/domain/comment.c](src/domain/comment.c) lists them. Fill copies a directive line without wrapping it, so the directive line ends the paragraph before it, and the next line starts a new paragraph. In a Doxygen block, a line that starts with any `@word` or `\word` command is a tag that starts a paragraph. A prose line after the tag, at any indent, continues the tag, and the step removes the indent of that line. The step does not change `@code` through `@endcode` and `@verbatim` through `@endverbatim`, in either spelling, in the same way as a Markdown fence.
-4. **Align** (`doxygen_align_parameters`): The step aligns the descriptions of all `@param` tags in a comment block in one column. It aligns the descriptions of the `@retval` tags separately, in the same way.
-5. **Fill** (`fill_body_lines`): The step fills prose paragraphs greedily with the atoms of `atom_split`. A tag keeps its keyword on the first line, and a `@param` or `@retval` tag also keeps its name there. The wrapped description of a tag hangs under the first word of the description. A Doxygen command, a list marker, or a tool directive inside a paragraph stays on the line of the word before it. When the body of a starred block fits on the opener line, the step fills the body again with room for the closer, which then follows the body on that line.
-6. **Emit** (`comment_emit`): The step restores the recorded opener, prefixes, and closers, with the original LF or CRLF convention of the comment block.
-7. **Splice**: The rewrite copies the bytes outside comments unchanged.
+A slash-star block on one line that fits the column and has no tab skips the stages from Extract on, and `rewrite_source` copies it unchanged.
 
 ### Fixed-point invariant
 
-Rewrapping is idempotent: a second rewrap of the output of a first rewrap changes nothing, and `--check` agrees. `--check` works as a CI gate only because of this property. If `comment_emit` wrote a shape that it cannot make again from its own output, `--check` would report a rewrap for a file that `--in-place` just wrote.
+A rewrap is idempotent. A second rewrap of the output of a first rewrap changes nothing, and `--check` agrees. `--check` works as a CI gate only because of this property. Every closer, prefix and indent that `comment_emit` writes must parse again to the same shape of comment block:
 
-The constraint is on the emitter. Every closer, prefix, and indent that the emitter writes must parse again to the same shape of comment block:
-
-- A starred block whose refilled prose fits on the opener line puts its closer on that line, because a closer alone on its line would parse again as a line to join.
-- A wrapped tag description parses again as a continuation of that tag at any indent, so it refills at any width.
-- No refilled continuation line starts with a Doxygen command, a list marker, or a tool directive, because such a line would parse again as a new tag, list item, or directive line.
-
-### Errors
-
-No domain module or host writes a failure diagnostic to `stderr` itself. The one exception is the out-of-memory report, which `os_oom` prints through `oom_report` before the process exits. Every fallible function records its errors in the log that its caller gives, and the command boundary prints the log once. The domain cannot fail, so every error is about an input, never about a comment.
-
-## Modules
-
-Each item below links to the module's header, which documents its interface. The `src/app` modules are in [Entry point and command](#entry-point-and-command).
-
-### Domain (`src/domain`)
-
-- [atom](src/domain/atom.h): Measures display-column width by Unicode 16.0, and splits prose into atoms, the units that a wrap never breaks.
-- [comment](src/domain/comment.h): Groups comment spans into comment blocks, extracts the classified body lines, and rebuilds the selected comment shape.
-- [doxygen](src/domain/doxygen.h): Parses a Doxygen command at the start of a payload, and aligns the `@param` and `@retval` descriptions.
-- [fill](src/domain/fill.h): Fills prose paragraphs greedily, and keeps samples, lists, tags, and hanging indentation.
-- [lex](src/domain/lex.h): Finds comments, and does not treat string literals or character literals as comments. It records source spans, line positions, indentation, and whether a comment follows code.
-- [rewrite](src/domain/rewrite.h): Runs the domain pipeline over one source buffer, and splices the rewritten comments between the unchanged source ranges.
-- [cwrap_version](src/domain/cwrap_version.h): The version, which CMake sets when it configures `cwrap`. It is in the lowest layer, as in sosig and fram.
-
-### Host access
-
-No code in `src/` makes a system call on a path or a standard stream, or prints through `stdio`: only the POSIX host, `os/os_posix.c` in `libs/`, does. All host access goes through `os/os.h`, and the link step selects the host for each executable. A new unit test links the in-memory host, unless it needs a fact that only a real filesystem has. See [The `os` interface](#the-os-interface).
-
-### Line endings
-
-Each comment block records whether its source uses LF or CRLF. Refilled lines use the same convention, and the source bytes outside the refilled lines do not change.
+- A starred block whose refilled prose fits on the opener line puts its closer on that line. A closer alone on its line parses again as a line to join.
+- A wrapped tag description parses again as a continuation of that tag at any indent, so it refills the same at any width.
+- No refilled continuation line starts with a Doxygen command, a list marker or a tool directive. Such a line parses again as a new tag, list item or directive line.
 
 ## Design decisions
 
-Each decision below states what the code does and why, and some decisions also state what they cost. Read the decision before you change one of these designs, and make sure that the change deals with each of its reasons. The decisions come in groups, in this order: memory, strings, logs and their messages, host access, tests, and where the shared code lives.
+Each decision states what the code does, why, and what it costs. Read the decision before you change the design, and make sure that the change deals with each reason.
 
-### Memory: arenas only
+### Memory: fixed reservations for one input at a time
 
-**Decision.** All first-party memory comes from arenas, and the code never frees an individual allocation. A scratch goes by value, so its memory is free again when the function returns. A perm goes by pointer.
+`cmd_wrap_run` reserves the log (64 MiB) on its own. It reserves one more block, and splits it into the input arena (8 GiB) and the scratch (8 GiB). The input arena holds one source and its rewritten output, and the scratch holds the temporaries of that input. Each input gets both arenas by value, so the next input uses the same memory again. The run thus needs memory for its largest input, not for the sum of its inputs. The fixed sizes need no pass over the inputs before the first read. The cost is that an input whose output grows faster than its source can outgrow the arenas and run out of memory. Under `ulimit -v`, `arena_reserve_halving` makes the block smaller, so a smaller input can run out of memory. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#arenas) describes how an arena reserves, commits and halves its memory.
 
-**Reasons.**
+### One thread
 
-- No comment needs to say which code frees a buffer.
-- The bounds check is one comparison, and the comparison cannot overflow.
-- A `Buf` can grow in place when it is the last allocation. The rewritten output grows after its source in the input arena, and standard input grows in place while the run reads it.
-- An arena is one region, not a list of chunks, so a callee that allocates in a by-value copy leaks nothing.
-
-### Memory: a log, an input arena and a scratch, and no pool
-
-**Decision.** `cwrap` runs on one thread and processes one input at a time, in three arenas:
-
-- **The log.** It holds the errors of the run, at most one or two diagnostics for each input. Its size depends on the number of inputs, not on their size, so it keeps its full size under an address-space limit.
-- **The input arena.** It holds one source and its rewritten output.
-- **The scratch.** It holds the temporary data of one input. `rewrite_source` keeps the comment spans and the comment blocks there, and gives each comment block its own copy of the scratch by value.
-
-`cmd_wrap_run` reserves the log, and then the input arena and the scratch in one block, when it starts. Each input gets the input arena and the scratch by value, so the next input uses the same memory again. `cli_dispatch` formats the diagnostic for the command line and the help text in a 16 MiB reservation of its own, which is several times the largest `ARG_MAX` in use. It releases this reservation when the run or the print returns.
-
-**Reasons.**
-
-- The run needs memory for its largest input, not for the sum of its inputs.
-- The lines and atoms of one comment block are free again before the next comment block.
-- The log grows while each input copies the input arena and the scratch by value, so the log needs an arena that no input gets.
-- A diagnostic quotes an argument as a whole, and only the system's limit on argument size bounds an argument, so the diagnostic for the command line goes in a reservation that is several times that limit.
-- The reservation for the command line has a fixed size, and does not take its size from `sysconf(_SC_ARG_MAX)`. glibc derives that value from `RLIMIT_STACK`, so the value is very large when the stack is unlimited, and musl gives a different value.
-- `cwrap` runs on one thread, because there is no reason to rewrap inputs in parallel. Also, `os_replace` reads the umask by setting it and restoring it, and a diagnostic calls `strerror`. Both are safe only with one thread.
-
-### Memory: reserve, then commit on demand
-
-**Decision.**
-
-1. When the run starts, it reserves its memory with `PROT_NONE`, and it releases the memory when it ends: the log (`CMD_WRAP_LOG_LEN`, 64 MiB) on its own, and one block for the input arena (`CMD_WRAP_INPUT_LEN`, 8 GiB) and the scratch (`CMD_WRAP_SCRATCH_LEN`, 8 GiB). The reservations cost no memory.
-2. An arena commits more pages only when an allocation does not fit in the committed part, so the fast path is still one bounds check. The slow path commits pages to one mebibyte past what the allocation needs, but not past the end of the region.
-3. The sizes are fixed and generous, and do not come from a prediction for the inputs. A comment whose rewrapped output grows faster than its source, such as one indented by about half its line at a narrow width, can still outgrow them.
-4. If the system refuses the block, for example under a `ulimit -v` below the size of the block, `arena_reserve_halving` halves the block, and both arenas with it, up to six times. It then halves the first size that fits one more time, so that the rest of the process has room. If the system refuses even the smallest size, the run ends with the out-of-memory report. A run under a limit of a few GiB still handles ordinary inputs. An input that grows past the smaller arenas runs out of memory, with the report below.
-
-**Reasons.**
-
-- A fixed size needs no pass over the inputs before the first read, no budget, and no refusal messages.
-- On macOS, a reservation costs system time in proportion to its size: about 1 µs per GiB to reserve, and the same to release. The arena sizes come from their bounds, not from the largest size that the system allows, because 65 GiB would cost a very small run about 0.2 ms, 7% of its time.
-- An arena commits its pages on demand, not all at once, because strict overcommit charges every committed page against the system's limit, and Linux ignores `MAP_NORESERVE` under strict overcommit.
-
-**Cost.** Under a `ulimit -v` below the reserved total, the arenas are smaller, and an input that grows past them runs out of memory, where a `malloc` design could have fitted it. A pathological input can run out of memory even when no limit is set.
+`cwrap` runs on one thread and rewraps one input at a time, because a run has no need to rewrap inputs in parallel. `os_replace` reads the umask by setting it and restoring it, and a diagnostic calls `strerror`. Both are safe only with one thread. The cost is that a run over many large files does not use more than one CPU.
 
 ### Out of memory exits the process
 
-**Decision.** When an arena cannot commit more pages, it calls `os_oom`. Each program defines `os_oom`, and the `cwrap` version, in `main.c`, calls `oom_report` from the `os` library, as sosig and fram do, which does these steps:
+When an arena cannot commit more pages, it calls `os_oom`, which `main.c` defines. `os_oom` calls `oom_report`, and then exits with status 1. `cmd_wrap_run` names its log with `oom_set_log`. Before `wrap_input` reads an input, it names the input with `oom_set_job`, so the report names the input that failed. No call site checks for allocation failure, and the domain cannot fail. A stopped run is safe because each in-place write is atomic, so each file is either as it was or completely rewritten. The cost is that a run stops at the first input that does not fit. [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#os) describes the report.
 
-1. It prints the errors in the command's log. `cmd_wrap_run` names its log with `oom_set_log`.
-2. It prints `cwrap: out of memory`, followed by the input that the run was in: `(in '<path>')` for a file and `(in 'stdin')` for standard input. Before it reads an input, `wrap_input` names the input with `oom_set_job`.
+### Every error in one run
 
-Then `os_oom` exits with `EXIT_CODE_FAILURE`.
-
-**Reasons.**
-
-- `cwrap` is a CLI tool, and its in-place write is atomic, so each file that a stopped run leaves is either as it was or completely rewritten.
-- No call site checks for allocation failure, and the domain cannot fail.
-- The report names the input that the run was working on. A user needs that name to find the input that failed.
-
-**Vendored code.** No vendored library in the program allocates. `copt` parses the arguments in place.
-
-### Address sanitizer coverage in arenas
-
-**Decision.** When `cwrap` is compiled with the address sanitizer, an arena over a reserved region poisons the pages that it commits, and `arena_alloc` unpoisons only the bytes that it returns. Such an arena leaves a poisoned gap before each allocation, so two of its allocations are never adjacent, and code that extends the last allocation in place uses `arena_extend`. An arena over memory that the caller owns has no gap.
-
-**Reasons.** ASan cannot see an overflow that stays inside one large mapping. Without the poisoning, the debug preset loses most of its overflow checks.
-
-**Limits.**
-
-- The arena does not poison scratch memory again when a function returns, so ASan does not find a use of scratch memory after the function that owned it returned.
-- `arena_release` leaves the shadow memory to the sanitizer's `munmap` interceptor, which clears it, so a later mapping at the same addresses gets no old poison. Unpoisoning the whole region instead would write an eighth of each reservation as resident shadow memory.
-
-### Counted strings with signed lengths
-
-**Decision.** Every first-party string is a `struct Str` from [str.h](../../libs/src/core/str.h): a pointer and a `ptrdiff_t` length, for both owned and borrowed text. Every length, count and column is a `ptrdiff_t`. A value changes to `size_t` only at a libc, POSIX, or vendored call, or in a C buffer that goes to such a call. Each such change asserts that the value is not negative, unless this is true by construction. A C string exists only where libc, POSIX, or a vendored API needs one. The POSIX host copies each path into a `PATH_MAX` buffer at the system call, with `copy_cstr`.
-
-**Reasons.**
-
-- Subtraction cannot wrap to a very large value.
-- A `NUL` byte is an ordinary byte, so no code calls `strlen` on owned text, and a body line is a view into the source until a refill makes new text.
-
-**Deliberate.** The `NUL` checks that sosig's [Strings and text input](../sosig/ARCHITECTURE.md#strings-and-text-input) describes are a product decision, and the string type does not force them. If the product decision changes, you can remove the `memchr` checks in both hosts and the contract tests that pin them, `test_read_rejects_embedded_nul_in_text` and `test_read_stdin_rejects_embedded_nul_and_input_over_limit`.
-
-### A growable log, and every error in one run
-
-**Decision.**
-
-- Each fallible function whose caller needs a message takes `struct Log* log` as its last parameter. The log holds every error, with no truncation.
-- Check mode and in-place mode report every bad input in one run, and the default mode stops at the first bad input, as the in-place decision above describes.
-- A rejected command line reports only its first error, because the later errors are usually results of the first error.
-
-**Reasons.**
-
-- A user sees every error in one run.
-- No message buffer has a fixed size, so no message is truncated, and no message must be early enough in the order to survive truncation.
-
-### A log must not grow in a borrowed arena
-
-**Decision.** A `struct Log` and its `Buf` live in an arena that no callee gets by value. The run gives its log an arena of its own.
-
-**Reason.** A `Buf` grows in place. If a callee gets a copy of the same arena by value, the callee allocates the same bytes that the log grows into. The two then write over each other, with no crash and no ASan report.
-
-[STYLE.md](../../STYLE.md#memory-and-resources) states the rule. Treat a break of the rule as a bug, not as a style problem.
-
-### Log messages use checked format strings
-
-**Decision.** A log call takes one `printf` format and its arguments. `log_error`, `log_error_in`, `buf_printf`, and `buf_vprintf_measured` have `__attribute__((format(printf, ...)))`. A `struct Str` prints with `%.*s` and `STR_FMT`, and an integer prints with the conversion for its type. For example:
-
-```c
-log_error(log, "failed to read file: %s ('%.*s')", reason, STR_FMT(path));
-```
-
-**Reasons.**
-
-- Each message is one sentence in the source, so a reader reads its wording on one line, and `grep` finds it.
-- The compiler checks the number and the types of the arguments against the format. `-Wformat=2` is on for first-party code and for the libraries.
-- `%td` prints a `ptrdiff_t` with no cast. Only a string needs a helper, `STR_FMT`.
-- Each first-party function that formats a message has the attribute, so its callers get the same check.
-
-**Costs and limits.**
-
-- `STR_FMT` evaluates its argument two times. Give it a variable or another lvalue, and put a computed string in a variable first.
-- A string longer than `INT_MAX` bytes causes an assertion failure at run time, because the `%.*s` precision is an `int`.
-- The attribute is the only guard on the code that reads the arguments. Each formatting function measures the text with `vsnprintf`, allocates the text, and writes it with a second `vsnprintf`. These functions are `buf_printf` in `core`, which grows the buffer in place through `buf_vprintf_measured`, and the first-party functions that format their own message. Only those functions change the measured `int` length to a `ptrdiff_t`.
-- A first-party variadic function does not pass its `va_list` on to a formatter that copies the list with `va_copy`. If it did, the Clang analyzer, versions 22 and 23, would report a false `va_end` on an uninitialized list when it targets AArch64 Linux, where a `va_list` is a structure. Instead, the function starts its list once for each `vsnprintf` pass, as `buf_printf` does, which hands its second pass to `buf_vprintf_measured`. `record_error` in `cli.c`, and `test_log_is` and `test_text_is` in `testing/test_support.c`, follow this rule.
-- `%.*s` stops at a `NUL` byte. The input checks reject a `NUL` in file content, on standard input, and in paths at the `os` boundary, and a message quotes only the command-line arguments and the name `stdin`, so a message gets no `NUL` from input. The `os` boundary's `EINVAL` message quotes a path that contains a `NUL` only up to that byte, and the contract test for this case shows the result.
-- An `off_t` has no conversion of its own. It prints with `%jd` and a cast to `intmax_t`.
-- `clang-format` breaks a string literal that is longer than the column limit, so some long messages are in two literals.
-
-### The `os` interface
-
-**Decision.** All host access goes through [os/os.h](../../libs/src/os/os.h) in the `os` library: `os_read`, `os_read_stdin`, `os_replace`, `os_print`, and `os_oom`. `os/os_posix.c` is the POSIX implementation. [os/os_memory.c](../../libs/src/os/os_memory.c) is an in-memory implementation for unit tests: a tree with a standard input, injected failures, and captured output. The link step selects one implementation for each executable. A function that accesses the host takes `struct Os*` just before its arenas, and an `os_*` function takes it first.
-
-**Reasons.**
-
-- The tests of the command, of each input and of the out-of-memory report need no temporary files and no redirected descriptors. The in-memory host also injects the failures that are hard to cause on POSIX, such as a failed write to `stdout` or a failed in-place write.
-- `os_print` carries every byte that the program prints, `--help` and `--version` included, so a test sees all of it, and the code reports a failed write where it occurs, with its input.
-- Host access is visible at one boundary, and is not spread over calls to `stdio` in the app layer.
-- A link-time choice needs no table of function pointers, because no executable needs two hosts.
-
-**Linking.** `cwrap` and every unit test registered without `OS memory` link `os_posix`, the object library of `os/os_posix.c`. The tests registered with `OS memory` link `os_memory`, as [BUILD.md](../../BUILD.md#cwrap-tests) lists. `cwrap` does not link the `runtime` library, so it gets no worker pool and no `Threads::Threads`.
-
-**Condition.** Each property that a test checks against the in-memory host must have a contract test. [os/test_os.c](../../libs/src/os/test_os.c) compiles once against each host and runs the same cases, and both executables must pass, so every property that a test relies on in the in-memory host is also true on POSIX. Without the contract tests, the in-memory host can accept what POSIX rejects. For example, an in-memory host could accept `file/` as a file where POSIX returns `ENOTDIR`, and a contract test checks this case.
-
-**What `cwrap` uses.** `os_read` reads each file with `OS_READ_TEXT`, so a file that contains a `NUL` fails the read. `os_replace` rewrites a user's source, so the write is atomic and synced. It writes, `fsync`s and closes a temporary file next to the destination, and then renames the temporary file over the destination. `os_replace` reads the umask by setting it and restoring it, which is safe because `cwrap` runs on one thread. `cwrap` never writes with `os_write`, which removes the destination and writes a new file, neither atomically nor synced, and is meant for outputs that a build can make again.
+Each fallible function records its errors in the log that its caller gives, and `cmd_wrap_run` prints the log once. The log holds every error with no truncation. Check mode and in-place mode report every bad input in one run, and a rejected command line reports only its first error. The user thus sees every input error in one run. The cost is a log whose size depends on the number of inputs, not on their size. The run reserves the log apart from the block that `ulimit -v` makes smaller, so the log keeps its full size.
 
 ### In-place mode checks every input before the first write
 
-**Decision.** In in-place mode, a first pass without writes reads every path with `wrap_input_read_file`. It logs, in path order and in the words of `os_read`, each path that meets one of these conditions. The path:
+In in-place mode, a first pass reads every path with `wrap_input_read_file` and writes nothing. If any path is bad, the run writes no file. A bad input among many thus leaves every file as it was, unlike `clang-format -i`, which rewrites the good inputs. The user fixes the bad input and runs the same command again. The cost is a second open and read of each file, which the `fsync` of each written file hides. A write that fails, or a file that changes during the run, still stops the run after it wrote the inputs before it. `os_replace` makes each write atomic and synced, and `cwrap` never writes with `os_write`.
 
-- is missing
-- cannot be read
-- is not a regular file
-- is larger than `SOURCE_LEN_MAX`
-- contains a `NUL`
+### Seeded random test in the normal suite
 
-If the log has an error after that pass, the run writes no file. The default mode reads each file once, in order, and stops at the first bad path, after it prints the files before that path. Check mode writes nothing, reads each file once, and reports every input in path order.
-
-**Reasons.**
-
-- A bad input among many leaves every file as it was, and one run reports every bad input. The default mode only prints, and the user can run it again, so it keeps one read of each file.
-- The pass costs a second open and read of every file in in-place mode, and the one `fsync` for each written file hides this cost.
-- A run that has an error writes nothing, unlike `clang-format -i`, which rewrites the good inputs. The user fixes the bad input and runs the same command again.
-
-**Limit.** A write that fails, or a file that changes during the run, still stops the run part-way, after the run wrote the inputs before it. Each write is atomic, so no file is left half-written. When a file is given twice, the run writes it once, at its first position, and finds it already wrapped at its second position.
-
-### Seeded random tests in the normal suite
-
-**Decision.** `tests/test_random.c` checks two properties on generated files. A second rewrap changes nothing, and the bytes outside comments do not change, except for the line breaks that a refill moves between the lines of one `//` comment block. The test gets the files from the generator in the `testing` library, a 64-bit linear congruential step, with a fixed seed (`TEST_RNG_SEED`), so the test checks the same cases every time. A failed check names the case.
-
-**Reasons.**
-
-- The idempotence suite checks the [fixed-point invariant](#fixed-point-invariant) only on fixed files. The random tests check it on files that nobody wrote by hand.
-- The random tests run in every test preset, under its sanitizers, with no fuzzing engine.
-- A fixed seed makes the suite deterministic, so a failure occurs every time the test runs.
-
-**Limit.** The random tests reach only the input shapes that their generator lists. A fuzzing harness would search past these shapes, and the tree does not have one yet.
-
-### Where the shared code lives
-
-**Decision.** The libraries in [libs/](../../libs/) hold the code that `cwrap` shares with the other apps. `core` holds the generic parts, the arena with reserve, commit, and poisoning, `Buf`, `Str`, and `Log`, and the small primitives, `os` the host interface, its two hosts and the out-of-memory report, and `testing` the unit-test support. Each program defines `os_oom`, and has its own arena layout.
-
-**Reason.** These parts do not depend on what a program does.
+`tests/test_random.c` generates source files with the seeded generator of the `testing` library and checks that a second rewrap at the same width changes nothing. The fixed seed, `TEST_RNG_SEED`, makes the test check the same cases on each run, and a failed check names the case. The test checks the [fixed-point invariant](#fixed-point-invariant) on files that nobody wrote by hand, in every test preset and under its sanitizers, with no fuzzing engine. The cost is that the test reaches only the input shapes that its generator lists.
