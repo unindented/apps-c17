@@ -316,9 +316,10 @@ static void collect_content_entries_compact(struct BuildState* state) __attribut
  * @brief Reads and compiles every template the build renders and every partial, and reports every
  *        one that cannot be read or does not compile.
  *
- * The templates are the aggregate and feed templates, each entry's `template`, and the content
- * template when an entry uses it. A template that only entries name names the first of them, in
- * source order, when it cannot be read.
+ * The templates are the content template when an entry uses it, the aggregate and feed templates,
+ * and each entry's `template`. A template that a key of `[templates]` names names the first such
+ * key in table order, as `templates.<key>`, when it cannot be read. A template that only entries
+ * name names the first of them, in source order.
  *
  * @param state Build state holding the parsed entries, which receives the set. Must not be `NULL`.
  * @param log   Log that receives every error. Must not be `NULL`.
@@ -721,35 +722,36 @@ static void collect_content_entries_compact(struct BuildState* state) {
 static int load_templates(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "compiling templates");
   const struct SiteConfig* site_config = &state->site_config;
-  const ptrdiff_t name_count_max = 1 + site_config->aggregate_template_count +
-                                   site_config->feed_template_count + state->content_entry_count;
+  const struct SiteTemplates* templates = &site_config->templates;
+  const ptrdiff_t name_count_max = 1 + templates->aggregate_template_count +
+                                   templates->feed_template_count + state->content_entry_count;
   struct Arena scratch = state->scratch;
   struct Str* names = arena_new(&scratch, name_count_max, struct Str);
   struct Str* owners = arena_new(&scratch, name_count_max, struct Str);
   ptrdiff_t name_count = 0;
+  // A site whose every entry names its own template needs no content template.
   bool is_content_template_used = false;
-  for (ptrdiff_t i = 0; i < site_config->aggregate_template_count; i++) {
-    load_templates_add(names, owners, &name_count, site_config->aggregate_templates[i],
-                       (struct Str){0});
+  for (ptrdiff_t i = 0; i < state->source_paths.count && !is_content_template_used; i++) {
+    const struct ContentEntry* entry = state->source_entries[i];
+    is_content_template_used = entry != NULL && entry->template.len == 0;
   }
-  for (ptrdiff_t i = 0; i < site_config->feed_template_count; i++) {
-    load_templates_add(names, owners, &name_count, site_config->feed_templates[i], (struct Str){0});
+  // The keys go in table order, so a template that two keys name names the first.
+  if (is_content_template_used) {
+    load_templates_add(names, owners, &name_count, templates->content, S("templates.content"));
   }
-  // The entries go in source order, so a template that only entries name names the first of them. A
-  // site whose every entry names its own template needs no content template.
+  for (ptrdiff_t i = 0; i < templates->aggregate_template_count; i++) {
+    load_templates_add(names, owners, &name_count, templates->aggregates[i],
+                       S("templates.aggregates"));
+  }
+  for (ptrdiff_t i = 0; i < templates->feed_template_count; i++) {
+    load_templates_add(names, owners, &name_count, templates->feeds[i], S("templates.feeds"));
+  }
+  // The entries go in source order, so a template that only entries name names the first of them.
   for (ptrdiff_t i = 0; i < state->source_paths.count; i++) {
     const struct ContentEntry* entry = state->source_entries[i];
-    if (entry == NULL) {
-      continue;
-    }
-    if (entry->template.len == 0) {
-      is_content_template_used = true;
-    } else {
+    if (entry != NULL && entry->template.len > 0) {
       load_templates_add(names, owners, &name_count, entry->template, entry->source_path);
     }
-  }
-  if (is_content_template_used) {
-    load_templates_add(names, owners, &name_count, site_config->content_template, (struct Str){0});
   }
   return template_set_load(site_config->templates_dir, names, owners, name_count, state->os,
                            &state->perm, scratch, &state->template_set, log);
@@ -849,8 +851,8 @@ static int write_generated_site(struct BuildState* state, struct Log* log) {
       (const struct ContentEntry* const*)state->content_entries;
   if (site_writer_write_templates(
           &state->writer, &state->cache, site_config, state->template_set,
-          site_config->aggregate_templates, site_config->aggregate_template_count, entries,
-          state->content_entry_count, false, state->perm, state->scratch, log) != 0) {
+          site_config->templates.aggregates, site_config->templates.aggregate_template_count,
+          entries, state->content_entry_count, false, state->perm, state->scratch, log) != 0) {
     return -1;
   }
   verbose_printf(&state->verbose, "rendering feed templates");
@@ -858,9 +860,9 @@ static int write_generated_site(struct BuildState* state, struct Log* log) {
                                          ? state->content_entry_count
                                          : site_config->feed_count;
   if (site_writer_write_templates(&state->writer, &state->cache, site_config, state->template_set,
-                                  site_config->feed_templates, site_config->feed_template_count,
-                                  entries, feed_entry_count, true, state->perm, state->scratch,
-                                  log) != 0) {
+                                  site_config->templates.feeds,
+                                  site_config->templates.feed_template_count, entries,
+                                  feed_entry_count, true, state->perm, state->scratch, log) != 0) {
     return -1;
   }
   verbose_printf(&state->verbose, "copying static files");

@@ -24,6 +24,38 @@ struct Os;
 extern const struct Str SITE_CONFIG_PATH_DEFAULT;
 
 /**
+ * The `[templates]` table: the name of each template the build renders, relative to
+ * `templates_dir`. Each name is a safe relative template name.
+ */
+struct SiteTemplates {
+  /**
+   * Template of each content entry, unless the entry's `template` field names another. Defaults to
+   * `content.html`.
+   */
+  struct Str content;
+
+  /**
+   * Templates rendered once as aggregate outputs, each name also its output path. Defaults to
+   * `[index.html]`. It is `const` as a thread-safety invariant. Render workers reach this config
+   * through `TemplateContext`, and the default arrays only land in read-only data while they are
+   * `const`.
+   */
+  const struct Str* aggregates;
+
+  /** Number of names in `aggregates`. */
+  ptrdiff_t aggregate_template_count;
+
+  /**
+   * Templates rendered once with the feed-limited entries, each name also its output path. Defaults
+   * to `[atom.xml]`.
+   */
+  const struct Str* feeds;
+
+  /** Number of names in `feeds`. */
+  ptrdiff_t feed_template_count;
+};
+
+/**
  * Site configuration loaded from a config file, `sosig.toml` by default. Every string and array it
  * points at is either a default literal or a copy in the arena `site_config_load` was given.
  */
@@ -59,37 +91,21 @@ struct SiteConfig {
   /** Directory containing static files copied as-is into `output_dir`. Defaults to `static`. */
   struct Str static_dir;
 
-  /** Default safe relative template name for content entries. Defaults to `content.html`. */
-  struct Str content_template;
-
-  /**
-   * Safe relative template names rendered as aggregate outputs. Defaults to `[index.html]`. It is
-   * `const` as a thread-safety invariant. Render workers reach this config through
-   * `TemplateContext`, and the default arrays only land in read-only data while they are `const`.
-   */
-  const struct Str* aggregate_templates;
-
-  /** Number of names in `aggregate_templates`. */
-  ptrdiff_t aggregate_template_count;
-
-  /** Safe relative template names rendered with feed-limited context. Defaults to `[atom.xml]`. */
-  const struct Str* feed_templates;
-
-  /** Number of names in `feed_templates`. */
-  ptrdiff_t feed_template_count;
-
   /** Maximum number of content entries included in the feed. Defaults to `25`. */
   ptrdiff_t feed_count;
 
   /**
    * Keys that Markdown frontmatter accepts with any value and does not read, such as the
    * `identifier` key that denote writes. Defaults to `[]`, as `NULL` with a count of `0`. It is
-   * `const` for the reason `aggregate_templates` gives.
+   * `const` for the reason `SiteTemplates.aggregates` gives.
    */
   const struct Str* frontmatter_ignored_keys;
 
   /** Number of keys in `frontmatter_ignored_keys`. */
   ptrdiff_t frontmatter_ignored_key_count;
+
+  /** The `[templates]` table. */
+  struct SiteTemplates templates;
 };
 
 /**

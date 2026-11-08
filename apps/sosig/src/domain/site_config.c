@@ -42,11 +42,18 @@ static const struct Str config_keys[] = {
     STR_INIT("output_dir"),
     STR_INIT("templates_dir"),
     STR_INIT("static_dir"),
-    STR_INIT("content_template"),
-    STR_INIT("aggregate_templates"),
-    STR_INIT("feed_templates"),
     STR_INIT("feed_count"),
     STR_INIT("frontmatter_ignored_keys"),
+    STR_INIT("templates"),
+    // clang-format on
+};
+
+/** Every key the `[templates]` table may hold, each read by `site_config_load_fields_templates`. */
+static const struct Str templates_keys[] = {
+    // clang-format off: one key per line, so adding or removing a key is a one-line change.
+    STR_INIT("content"),
+    STR_INIT("aggregates"),
+    STR_INIT("feeds"),
     // clang-format on
 };
 
@@ -85,11 +92,11 @@ enum PermalinkVerdict {
 /**
  * @brief Copies recognized configuration keys into site config storage.
  *
- * Rejects a key outside `config_keys`, then applies required and optional string keys,
- * template-name arrays, and `feed_count`, and stops at the first key that fails. It copies every
- * value into `perm` rather than borrowing from `table`. `site_config_load` calls `toml_free` as
- * soon as this returns, which releases the pool every `toml_datum_t` string points into, while the
- * config outlives the parse.
+ * Rejects a key outside `config_keys`, then applies required and optional string keys, the
+ * directories, `feed_count`, `frontmatter_ignored_keys` and the `[templates]` table, and stops at
+ * the first key that fails. It copies every value into `perm` rather than borrowing from `table`.
+ * `site_config_load` calls `toml_free` as soon as this returns, which releases the pool every
+ * `toml_datum_t` string points into, while the config outlives the parse.
  *
  * @param site_config Config that receives the values. Must not be `NULL`.
  * @param table       Parsed TOML top-level table.
@@ -105,6 +112,20 @@ static int site_config_load_fields(struct SiteConfig* site_config,
                                    struct Arena* perm,
                                    struct Arena scratch,
                                    struct Log* log) __attribute__((nonnull(1, 4, 6)));
+
+/**
+ * @brief Copies the `[templates]` table into `templates`, stopping at the first error.
+ *
+ * @param templates Templates that receive the names, holding their defaults. Must not be `NULL`.
+ * @param table     Parsed TOML top-level table.
+ * @param perm      Arena that owns the copied names. Must not be `NULL`.
+ * @param log       Log that receives the error. Must not be `NULL`.
+ * @return `0` on success or when the table is absent, or `-1` after logging the first error.
+ */
+static int site_config_load_fields_templates(struct SiteTemplates* templates,
+                                             toml_datum_t table,
+                                             struct Arena* perm,
+                                             struct Log* log) __attribute__((nonnull(1, 3, 4)));
 
 /**
  * @brief Validates the `permalink` key, translating each verdict into its diagnostic.
@@ -156,13 +177,17 @@ void site_config_init(struct SiteConfig* site_config) {
       .output_dir = OUTPUT_DIR_DEFAULT,
       .templates_dir = TEMPLATES_DIR_DEFAULT,
       .static_dir = STATIC_DIR_DEFAULT,
-      .content_template = CONTENT_TEMPLATE_DEFAULT,
-      .aggregate_templates = AGGREGATE_TEMPLATES_DEFAULT,
-      .aggregate_template_count =
-          sizeof(AGGREGATE_TEMPLATES_DEFAULT) / sizeof(AGGREGATE_TEMPLATES_DEFAULT[0]),
-      .feed_templates = FEED_TEMPLATES_DEFAULT,
-      .feed_template_count = sizeof(FEED_TEMPLATES_DEFAULT) / sizeof(FEED_TEMPLATES_DEFAULT[0]),
       .feed_count = FEED_COUNT_DEFAULT,
+      .templates =
+          {
+              .content = CONTENT_TEMPLATE_DEFAULT,
+              .aggregates = AGGREGATE_TEMPLATES_DEFAULT,
+              .aggregate_template_count =
+                  sizeof(AGGREGATE_TEMPLATES_DEFAULT) / sizeof(AGGREGATE_TEMPLATES_DEFAULT[0]),
+              .feeds = FEED_TEMPLATES_DEFAULT,
+              .feed_template_count =
+                  sizeof(FEED_TEMPLATES_DEFAULT) / sizeof(FEED_TEMPLATES_DEFAULT[0]),
+          },
   };
 }
 
@@ -200,15 +225,17 @@ int site_config_print(const struct SiteConfig* site_config, struct Os* os, struc
   toml_print_key_string(&text, "output_dir", site_config->output_dir);
   toml_print_key_string(&text, "templates_dir", site_config->templates_dir);
   toml_print_key_string(&text, "static_dir", site_config->static_dir);
-  toml_print_key_string(&text, "content_template", site_config->content_template);
-  toml_print_key_string_array(&text, "aggregate_templates", site_config->aggregate_templates,
-                              site_config->aggregate_template_count);
-  toml_print_key_string_array(&text, "feed_templates", site_config->feed_templates,
-                              site_config->feed_template_count);
   buf_printf(&text, "feed_count = %td\n", site_config->feed_count);
   toml_print_key_string_array(&text, "frontmatter_ignored_keys",
                               site_config->frontmatter_ignored_keys,
                               site_config->frontmatter_ignored_key_count);
+  // The table comes last, because every key after its header belongs to it.
+  const struct SiteTemplates* templates = &site_config->templates;
+  buf_append(&text, S("\n[templates]\n"));
+  toml_print_key_string(&text, "content", templates->content);
+  toml_print_key_string_array(&text, "aggregates", templates->aggregates,
+                              templates->aggregate_template_count);
+  toml_print_key_string_array(&text, "feeds", templates->feeds, templates->feed_template_count);
   return os_print(os, 1, buf_str(&text));
 }
 
@@ -242,15 +269,8 @@ static int site_config_load_fields(struct SiteConfig* site_config,
       toml_copy_dir(table, S(""), "templates_dir", false, config_dir, perm,
                     &site_config->templates_dir, log) != 0 ||
       toml_copy_dir(table, S(""), "static_dir", false, config_dir, perm, &site_config->static_dir,
-                    log) != 0 ||
-      toml_copy_string(table, S(""), "content_template", false, perm,
-                       &site_config->content_template, log) != 0) {
+                    log) != 0) {
     return -1;
-  }
-  if (!path_is_safe_relative(site_config->content_template)) {
-    return log_error(log,
-                     "config key 'content_template' must be a safe relative template name: '%.*s'",
-                     STR_FMT(site_config->content_template));
   }
   const struct TomlSizeKey feed_count = {
       .key = "feed_count",
@@ -260,17 +280,37 @@ static int site_config_load_fields(struct SiteConfig* site_config,
       .value_max = PTRDIFF_MAX,
       .limit_name = "feed count",
   };
-  if (toml_copy_strings(table, S(""), "aggregate_templates", true, perm,
-                        &site_config->aggregate_templates, &site_config->aggregate_template_count,
-                        log) != 0 ||
-      toml_copy_strings(table, S(""), "feed_templates", true, perm, &site_config->feed_templates,
-                        &site_config->feed_template_count, log) != 0 ||
-      toml_copy_size(table, S(""), &feed_count, log) != 0) {
+  if (toml_copy_size(table, S(""), &feed_count, log) != 0 ||
+      toml_copy_strings(table, S(""), "frontmatter_ignored_keys", false, perm,
+                        &site_config->frontmatter_ignored_keys,
+                        &site_config->frontmatter_ignored_key_count, log) != 0) {
     return -1;
   }
-  return toml_copy_strings(table, S(""), "frontmatter_ignored_keys", false, perm,
-                           &site_config->frontmatter_ignored_keys,
-                           &site_config->frontmatter_ignored_key_count, log);
+  return site_config_load_fields_templates(&site_config->templates, table, perm, log);
+}
+
+static int site_config_load_fields_templates(struct SiteTemplates* templates,
+                                             toml_datum_t table,
+                                             struct Arena* perm,
+                                             struct Log* log) {
+  const toml_datum_t value = toml_get(table, "templates");
+  if (value.type == TOML_UNKNOWN) {
+    return 0;
+  }
+  if (value.type != TOML_TABLE) {
+    return log_error(log, "config key 'templates' must be a table");
+  }
+  const struct Str key_prefix = S("templates.");
+  if (toml_require_known_keys(value, templates_keys,
+                              sizeof(templates_keys) / sizeof(templates_keys[0]), S("config"),
+                              key_prefix, (struct Str){0}, log) != 0 ||
+      toml_copy_template_name(value, key_prefix, "content", perm, &templates->content, log) != 0 ||
+      toml_copy_strings(value, key_prefix, "aggregates", true, perm, &templates->aggregates,
+                        &templates->aggregate_template_count, log) != 0) {
+    return -1;
+  }
+  return toml_copy_strings(value, key_prefix, "feeds", true, perm, &templates->feeds,
+                           &templates->feed_template_count, log);
 }
 
 static int require_valid_permalink(struct Str pattern, struct Arena scratch, struct Log* log) {

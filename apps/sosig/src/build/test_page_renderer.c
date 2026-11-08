@@ -122,7 +122,7 @@ static int render_entry_slots(struct ContentEntry* const* source_entries,
   struct SiteConfig site_config;
   site_config_init(&site_config);
   struct TemplateSet* template_set = NULL;
-  if (template_set_load(site_config.templates_dir, &site_config.content_template, NULL, 1, os,
+  if (template_set_load(site_config.templates_dir, &site_config.templates.content, NULL, 1, os,
                         &perm, test_arena(), &template_set, log) != 0) {
     return -1;
   }

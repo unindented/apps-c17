@@ -103,7 +103,7 @@ author = "Author Name"
 base_url = "https://www.example.com"
 ```
 
-The table lists every key that the config file can contain. `sosig` rejects any other key. For example, the misspelled key `ouput_dir` stops the load. `sosig` does not ignore it and use the default `output_dir`.
+This table and the [Templates table](#templates-table) list every key that the config file can contain. `sosig` rejects any other key. For example, the misspelled key `ouput_dir` stops the load. `sosig` does not ignore it and use the default `output_dir`.
 
 | Key | Default | Bounds | Meaning |
 | --- | --- | --- | --- |
@@ -116,17 +116,32 @@ The table lists every key that the config file can contain. `sosig` rejects any 
 | `output_dir` | `"public"` | Not empty | The directory that the build writes to and controls. See [Output directory](#output-directory). |
 | `templates_dir` | `"templates"` | An existing directory | The directory of the templates and partials. |
 | `static_dir` | `"static"` | A directory, if it exists | The directory of files that the build copies without changes. The build skips it if it does not exist. |
-| `content_template` | `"content.html"` | A safe relative template name | The template for each entry. The `template` field of an entry overrides it. |
-| `aggregate_templates` | `["index.html"]` | An array of safe relative template names | Templates that the build renders once, with every entry that is not a draft. |
-| `feed_templates` | `["atom.xml"]` | An array of safe relative template names | Templates that the build renders once, with the newest `feed_count` entries. |
 | `feed_count` | `25` | 0 or more | The maximum number of entries in each feed. |
 | `frontmatter_ignored_keys` | `[]` | An array of strings | More keys that Markdown frontmatter can contain. `sosig` accepts any value for them and does not read it. For denote notes, set it to `["identifier", "signature"]`. |
+| `templates` | | A table | The `[templates]` table below. |
 
 `sosig` resolves each directory, the defaults included, against the directory of the config file. So `-c sub/sosig.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from each directory, and rejects a value that is then empty, `/` included. A directory can be an absolute path, or a relative path that contains `..`. `sosig config` prints each directory after it resolves it.
 
 The load stops at the first bad key. A config error stops the build before it searches `content_dir`.
 
-A template name, in the config or in the `template` field of an entry, must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.` and `/`. It cannot contain an empty segment, or the segment `.` or `..`. The name of an aggregate or feed template is its source path below `templates_dir` and also its output path below `output_dir`, so a name with `/` creates subdirectories in `output_dir`. If `aggregate_templates` or `feed_templates` is an empty array, the build renders no template of that kind.
+#### Templates table
+
+The optional `[templates]` table names the template of each kind of page, relative to `templates_dir`. Each key that the table leaves out keeps its default, and `sosig` rejects any other key in it. A diagnostic names a key with its table, such as `config key 'templates.content' must be a safe relative template name: '../x.html'`.
+
+```toml
+[templates]
+content = "content.html"
+aggregates = ["index.html"]
+feeds = ["atom.xml"]
+```
+
+| Key | Default | Bounds | Meaning |
+| --- | --- | --- | --- |
+| `content` | `"content.html"` | A safe relative template name | The template for each entry. The `template` field of an entry overrides it. |
+| `aggregates` | `["index.html"]` | An array of safe relative template names | Templates that the build renders once, with every entry that is not a draft. |
+| `feeds` | `["atom.xml"]` | An array of safe relative template names | Templates that the build renders once, with the newest `feed_count` entries. |
+
+A template name, in the table or in the `template` field of an entry, must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.` and `/`. It cannot contain an empty segment, or the segment `.` or `..`. The name of an aggregate or feed template is its source path below `templates_dir` and also its output path below `output_dir`, so a name with `/` creates subdirectories in `output_dir`. If `aggregates` or `feeds` is an empty array, the build renders no template of that kind. Every template that the build renders must exist. A missing one fails the build with an error that names the template and the key, such as `(for 'templates.content')`.
 
 ### Output directory
 
@@ -240,7 +255,7 @@ Each content file is one entry. A Markdown entry starts with TOML frontmatter, a
 | `tags` | `tags`, an array of strings | `#+filetags:`, where `:Emacs:Org:` gives `Emacs` and `Org` | Optional. |
 | `slug` | `slug` | `#+slug:` | Optional. The default is the filename without its extension. `sosig` normalizes the slug as [URLs and slugs](#urls-and-slugs) describes. |
 | `draft` | `draft`, a boolean | `#+draft:`, `true` or `false` | Optional. The default is `false`. `sosig` checks the fields of a draft, but skips its body and makes no output for it. |
-| `template` | `template` | `#+template:` | Optional. A template name that overrides `content_template`. It must obey the [template name rules](#configuration). |
+| `template` | `template` | `#+template:` | Optional. A template name that overrides `templates.content`. It must obey the [template name rules](#templates-table). |
 
 ### Markdown frontmatter
 
@@ -446,9 +461,9 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 
 | Kind | Configured by | Rendered |
 | --- | --- | --- |
-| Content | `content_template`, or the `template` field of an entry | Once for each entry, to the output path of the entry. The entry fields are at the top level. |
-| Aggregate | `aggregate_templates` | Once, to the same relative path below `output_dir`. No entry fields are at the top level. |
-| Feed | `feed_templates` | As an aggregate, but with only the newest `feed_count` entries. |
+| Content | `templates.content`, or the `template` field of an entry | Once for each entry, to the output path of the entry. The entry fields are at the top level. |
+| Aggregate | `templates.aggregates` | Once, to the same relative path below `output_dir`. No entry fields are at the top level. |
+| Feed | `templates.feeds` | As an aggregate, but with only the newest `feed_count` entries. |
 
 `{{value}}` escapes its output for HTML. `{{{value}}}` and `{{& value}}` write it without escaping, and work only for a key that ends in `_html`, which holds HTML that `sosig` made. Any other key that the data holds fails the render, so a value that `sosig` did not make, such as a title, cannot add markup to a page. A name that the data does not hold writes nothing. Use `{{{body_html}}}` to write the rendered body.
 

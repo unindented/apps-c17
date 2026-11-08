@@ -40,8 +40,8 @@ static const char* const SITE_CONFIG =
     "description = \"Example notes\"\n"
     "author = \"Author\"\n"
     "base_url = \"https://example.com\"\n"
-    "aggregate_templates = []\n"
-    "feed_templates = []\n";
+    "templates.aggregates = []\n"
+    "templates.feeds = []\n";
 
 /**
  * @brief Allocates one `JobArenas` per worker, each region a fresh `test_arena` reservation.
@@ -118,7 +118,7 @@ static int render_pages(const struct SiteConfig* site_config,
   content_entry_sort(entries, entry_count);
   struct Arena template_arena = test_arena();
   struct TemplateSet* template_set = NULL;
-  if (template_set_load(site_config->templates_dir, &site_config->content_template, NULL, 1, os,
+  if (template_set_load(site_config->templates_dir, &site_config->templates.content, NULL, 1, os,
                         &template_arena, test_arena(), &template_set, log) != 0) {
     return -1;
   }
@@ -699,8 +699,8 @@ static void test_rejects_oversize_path_segment(void) {
       "author = \"Author\"\n"
       "base_url = \"https://example.com\"\n"
       "permalink = \"/{slug}-overflow.html\"\n"
-      "aggregate_templates = []\n"
-      "feed_templates = []\n";
+      "templates.aggregates = []\n"
+      "templates.feeds = []\n";
   struct Os* os = site_host("content/hello.md", content, "{{{body_html}}}\n");
   os_memory_write(os, "sosig.toml", config);
   struct SiteConfig site_config;

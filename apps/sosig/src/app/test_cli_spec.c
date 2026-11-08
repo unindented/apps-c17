@@ -46,8 +46,8 @@ static struct Os* site_host(const char* site_dir) {
       "description = \"Example notes\"\n"
       "author = \"Author\"\n"
       "base_url = \"https://example.com\"\n"
-      "aggregate_templates = []\n"
-      "feed_templates = []\n";
+      "templates.aggregates = []\n"
+      "templates.feeds = []\n";
   static const char entry[] =
       "+++\n"
       "title = \"Hello\"\n"
@@ -145,11 +145,13 @@ static void test_config_command_is_dispatched(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
-                                  "content_template = \"content.html\"\n"
-                                  "aggregate_templates = []\n"
-                                  "feed_templates = []\n"
                                   "feed_count = 25\n"
-                                  "frontmatter_ignored_keys = []\n"));
+                                  "frontmatter_ignored_keys = []\n"
+                                  "\n"
+                                  "[templates]\n"
+                                  "content = \"content.html\"\n"
+                                  "aggregates = []\n"
+                                  "feeds = []\n"));
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
   // No page was written, which is what separates `config` from `build`.
   TEST_CHECK(!os_memory_has_path(os, "public/hello.html"));
@@ -219,11 +221,13 @@ static void test_config_option_reaches_both_commands(void) {
                                   "output_dir = \"sub/public\"\n"
                                   "templates_dir = \"sub/templates\"\n"
                                   "static_dir = \"sub/static\"\n"
-                                  "content_template = \"content.html\"\n"
-                                  "aggregate_templates = []\n"
-                                  "feed_templates = []\n"
                                   "feed_count = 25\n"
-                                  "frontmatter_ignored_keys = []\n"));
+                                  "frontmatter_ignored_keys = []\n"
+                                  "\n"
+                                  "[templates]\n"
+                                  "content = \"content.html\"\n"
+                                  "aggregates = []\n"
+                                  "feeds = []\n"));
   TEST_CHECK(os_memory_is_printed(config_os, 2, ""));
 
   struct Os* build_os = site_host("sub/");

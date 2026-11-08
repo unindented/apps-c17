@@ -150,11 +150,11 @@ static void test_load_applies_required_and_defaults(void) {
   TEST_CHECK(is_config_dir(config.output_dir, "public"));
   TEST_CHECK(is_config_dir(config.templates_dir, "templates"));
   TEST_CHECK(is_config_dir(config.static_dir, "static"));
-  TEST_CHECK(str_eq(config.content_template, S("content.html")));
-  TEST_ASSERT(config.aggregate_template_count == 1);
-  TEST_CHECK(str_eq(config.aggregate_templates[0], S("index.html")));
-  TEST_ASSERT(config.feed_template_count == 1);
-  TEST_CHECK(str_eq(config.feed_templates[0], S("atom.xml")));
+  TEST_CHECK(str_eq(config.templates.content, S("content.html")));
+  TEST_ASSERT(config.templates.aggregate_template_count == 1);
+  TEST_CHECK(str_eq(config.templates.aggregates[0], S("index.html")));
+  TEST_ASSERT(config.templates.feed_template_count == 1);
+  TEST_CHECK(str_eq(config.templates.feeds[0], S("atom.xml")));
   TEST_CHECK(config.feed_count == 25);
   TEST_CHECK(config.frontmatter_ignored_key_count == 0);
 }
@@ -171,11 +171,13 @@ static void test_load_overrides_optional_keys(void) {
       "output_dir = \"dist\"\n"
       "templates_dir = \"layouts\"\n"
       "static_dir = \"files\"\n"
-      "content_template = \"post.html\"\n"
-      "aggregate_templates = [\"index.html\", \"archive.html\"]\n"
-      "feed_templates = []\n"
       "feed_count = 5\n"
-      "frontmatter_ignored_keys = [\"identifier\", \"signature\"]\n";
+      "frontmatter_ignored_keys = [\"identifier\", \"signature\"]\n"
+      "\n"
+      "[templates]\n"
+      "content = \"post.html\"\n"
+      "aggregates = [\"index.html\", \"archive.html\"]\n"
+      "feeds = []\n";
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
@@ -186,11 +188,11 @@ static void test_load_overrides_optional_keys(void) {
   TEST_CHECK(is_config_dir(config.output_dir, "dist"));
   TEST_CHECK(is_config_dir(config.templates_dir, "layouts"));
   TEST_CHECK(is_config_dir(config.static_dir, "files"));
-  TEST_CHECK(str_eq(config.content_template, S("post.html")));
-  TEST_ASSERT(config.aggregate_template_count == 2);
-  TEST_CHECK(str_eq(config.aggregate_templates[0], S("index.html")));
-  TEST_CHECK(str_eq(config.aggregate_templates[1], S("archive.html")));
-  TEST_CHECK(config.feed_template_count == 0);
+  TEST_CHECK(str_eq(config.templates.content, S("post.html")));
+  TEST_ASSERT(config.templates.aggregate_template_count == 2);
+  TEST_CHECK(str_eq(config.templates.aggregates[0], S("index.html")));
+  TEST_CHECK(str_eq(config.templates.aggregates[1], S("archive.html")));
+  TEST_CHECK(config.templates.feed_template_count == 0);
   TEST_CHECK(config.feed_count == 5);
   TEST_ASSERT(config.frontmatter_ignored_key_count == 2);
   TEST_CHECK(str_eq(config.frontmatter_ignored_keys[0], S("identifier")));
@@ -199,7 +201,41 @@ static void test_load_overrides_optional_keys(void) {
 
 // Directory keys have trailing separators trimmed at load. Left in place, a trailing slash defeats
 // the `<content_dir>/` prefix strip during section derivation and leaks the content directory name
-// into every URL. The end-to-end consequence is asserted in the `cmd_build` tests. An absolute
+// into every URL. The end-to-end consequence is asserted in the `cmd_build` tests. An absolute An
+// empty `[templates]` table keeps every default, and a table that sets one key keeps the default of
+// each other key.
+static void test_load_keeps_the_default_of_each_unset_template_key(void) {
+  static const char* const tables[] = {
+      "[templates]\n",
+      "[templates]\ncontent = \"post.html\"\n",
+      "[templates]\naggregates = [\"archive.html\"]\n",
+      "[templates]\nfeeds = [\"rss.xml\"]\n",
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(tables) / sizeof(tables[0])); i++) {
+    char toml[512];
+    const int n = snprintf(toml, sizeof(toml),
+                           "title = \"Example Site\"\n"
+                           "description = \"Example notes\"\n"
+                           "author = \"Example Author\"\n"
+                           "base_url = \"https://example.com\"\n"
+                           "%s",
+                           tables[i]);
+    TEST_ASSERT(n > 0 && (size_t)n < sizeof(toml));
+    struct SiteConfig config;
+    site_config_init(&config);
+    struct Log log = test_log();
+    TEST_CHECK(load_text(&config, toml, &log) == 0);
+    TEST_CHECK(test_log_is_empty(&log));
+    const struct SiteTemplates* templates = &config.templates;
+    TEST_CHECK(str_eq(templates->content, i == 1 ? S("post.html") : S("content.html")));
+    TEST_ASSERT(templates->aggregate_template_count == 1);
+    TEST_CHECK(str_eq(templates->aggregates[0], i == 2 ? S("archive.html") : S("index.html")));
+    TEST_ASSERT(templates->feed_template_count == 1);
+    TEST_CHECK(str_eq(templates->feeds[0], i == 3 ? S("rss.xml") : S("atom.xml")));
+    TEST_MSG("table '%s'", tables[i]);
+  }
+}
+
 // directory survives normalization unchanged, and a parent-relative one resolves as it is written.
 static void test_load_normalizes_directory_keys(void) {
   const char toml[] =
@@ -541,6 +577,20 @@ static void test_load_rejects_unknown_keys(void) {
   }
 }
 
+// A `templates` key that is not a table is rejected, and so is a key inside the table that the
+// schema does not define, named with the table. The top-level keys that named templates before the
+// table are as unknown as any other key.
+static void test_load_rejects_unknown_template_keys(void) {
+  check_load_rejects("templates = \"content.html\"\n", "config key 'templates' must be a table");
+  check_load_rejects("[templates]\nalbum = \"album.html\"\n",
+                     "unknown config key 'templates.album'");
+  check_load_rejects("[templates]\ncontent_template = \"post.html\"\n",
+                     "unknown config key 'templates.content_template'");
+  check_load_rejects("content_template = \"post.html\"\n", "unknown config key 'content_template'");
+  check_load_rejects("aggregate_templates = []\n", "unknown config key 'aggregate_templates'");
+  check_load_rejects("feed_templates = []\n", "unknown config key 'feed_templates'");
+}
+
 // No key in the schema holds a table, so a table under a known key fails that key's type check.
 static void test_load_rejects_table_values(void) {
   static const char* const cases[][2] = {
@@ -551,8 +601,8 @@ static void test_load_rejects_table_values(void) {
        "base_url = \"https://example.com\"\n[description]\ntext = \"Example notes\"\n",
        "config key 'description' must be a string"},
       {"title = \"Example Site\"\ndescription = \"Example notes\"\nauthor = \"Example Author\"\n"
-       "base_url = \"https://example.com\"\n[aggregate_templates]\nname = \"index.html\"\n",
-       "config key 'aggregate_templates' must be an array"},
+       "base_url = \"https://example.com\"\n[templates.aggregates]\nname = \"index.html\"\n",
+       "config key 'templates.aggregates' must be an array"},
       {"title = \"Example Site\"\ndescription = \"Example notes\"\nauthor = \"Example Author\"\n"
        "base_url = \"https://example.com\"\n[feed_count]\ncount = 10\n",
        "config key 'feed_count' must be an integer"},
@@ -594,8 +644,8 @@ static void test_load_rejects_nul_in_string_values(void) {
        "base_url = \"https://example.com\"\ncontent_dir = \"a\\u0000b\"\n",
        "config key 'content_dir' must not contain a NUL byte"},
       {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\n"
-       "base_url = \"https://example.com\"\naggregate_templates = [\"a\\u0000b\"]\n",
-       "config key 'aggregate_templates' must not contain a NUL byte"},
+       "base_url = \"https://example.com\"\ntemplates.aggregates = [\"a\\u0000b\"]\n",
+       "config key 'templates.aggregates' must not contain a NUL byte"},
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
@@ -673,7 +723,7 @@ static void test_load_rejects_base_url_with_path_breaking_byte(void) {
                              "character: 'https://example.com/x?y=1'"));
 }
 
-// An unsafe `content_template` is rejected at load, in the singular wording that names the key,
+// An unsafe `templates.content` is rejected at load, in the singular wording that names the key,
 // rather than flowing through to the render and failing once per content entry that has no
 // frontmatter `template` of its own. Parent-relative, absolute and empty names are all unsafe.
 static void test_load_rejects_unsafe_content_template(void) {
@@ -682,12 +732,12 @@ static void test_load_rejects_unsafe_content_template(void) {
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(unsafe_names) / sizeof(unsafe_names[0])); i++) {
     char toml_extra[256];
     const int n =
-        snprintf(toml_extra, sizeof(toml_extra), "content_template = \"%s\"\n", unsafe_names[i]);
+        snprintf(toml_extra, sizeof(toml_extra), "templates.content = \"%s\"\n", unsafe_names[i]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml_extra));
     char expected[EXPECTED_SIZE];
     const int expected_len =
         snprintf(expected, sizeof(expected),
-                 "config key 'content_template' must be a safe relative template name: '%s'",
+                 "config key 'templates.content' must be a safe relative template name: '%s'",
                  unsafe_names[i]);
     TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected));
     check_load_rejects(toml_extra, expected);
@@ -697,12 +747,12 @@ static void test_load_rejects_unsafe_content_template(void) {
 // A non-array value, a non-string element, and an unsafe name for a template array key are each
 // rejected.
 static void test_load_rejects_invalid_template_arrays(void) {
-  check_load_rejects("aggregate_templates = \"index.html\"\n",
-                     "config key 'aggregate_templates' must be an array");
-  check_load_rejects("aggregate_templates = [1]\n",
-                     "config key 'aggregate_templates' must contain only strings");
-  check_load_rejects("aggregate_templates = [\"../evil.html\"]\n",
-                     "config key 'aggregate_templates' must contain only safe relative template "
+  check_load_rejects("templates.aggregates = \"index.html\"\n",
+                     "config key 'templates.aggregates' must be an array");
+  check_load_rejects("templates.aggregates = [1]\n",
+                     "config key 'templates.aggregates' must contain only strings");
+  check_load_rejects("templates.aggregates = [\"../evil.html\"]\n",
+                     "config key 'templates.aggregates' must contain only safe relative template "
                      "names: '../evil.html'");
 }
 
@@ -724,18 +774,18 @@ static void test_load_reports_every_invalid_template_name(void) {
       "description = \"Example notes\"\n"
       "author = \"Example Author\"\n"
       "base_url = \"https://example.com\"\n"
-      "feed_templates = [\"../a.xml\", 1, \"a\\u0000b\", \"ok.xml\", \"/b.xml\", 2, "
+      "templates.feeds = [\"../a.xml\", 1, \"a\\u0000b\", \"ok.xml\", \"/b.xml\", 2, "
       "\"c\\u0000d\"]\n";
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
   TEST_CHECK(load_text(&config, toml, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "config key 'feed_templates' must contain only safe relative template "
+                         "config key 'templates.feeds' must contain only safe relative template "
                          "names: '../a.xml'\n"
-                         "config key 'feed_templates' must contain only strings\n"
-                         "config key 'feed_templates' must not contain a NUL byte\n"
-                         "config key 'feed_templates' must contain only safe relative template "
+                         "config key 'templates.feeds' must contain only strings\n"
+                         "config key 'templates.feeds' must not contain a NUL byte\n"
+                         "config key 'templates.feeds' must contain only safe relative template "
                          "names: '/b.xml'\n"));
   TEST_CHECK(log.errors == 4);
 }
@@ -854,11 +904,13 @@ static void test_print_defaults(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
-                                  "content_template = \"content.html\"\n"
-                                  "aggregate_templates = [\"index.html\"]\n"
-                                  "feed_templates = [\"atom.xml\"]\n"
                                   "feed_count = 25\n"
-                                  "frontmatter_ignored_keys = []\n"));
+                                  "frontmatter_ignored_keys = []\n"
+                                  "\n"
+                                  "[templates]\n"
+                                  "content = \"content.html\"\n"
+                                  "aggregates = [\"index.html\"]\n"
+                                  "feeds = [\"atom.xml\"]\n"));
 }
 
 // Printing escapes quotes, backslashes, and every named control escape (\t \b \n \f \r). It uses
@@ -883,11 +935,13 @@ static void test_print_escapes_strings(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
-                                  "content_template = \"content.html\"\n"
-                                  "aggregate_templates = [\"index.html\"]\n"
-                                  "feed_templates = [\"atom.xml\"]\n"
                                   "feed_count = 25\n"
-                                  "frontmatter_ignored_keys = []\n"));
+                                  "frontmatter_ignored_keys = []\n"
+                                  "\n"
+                                  "[templates]\n"
+                                  "content = \"content.html\"\n"
+                                  "aggregates = [\"index.html\"]\n"
+                                  "feeds = [\"atom.xml\"]\n"));
 }
 
 // Printing a config and loading the printed output back from the working directory yields the same
@@ -911,11 +965,11 @@ static void test_print_load_round_trips(void) {
   config.output_dir = S("dist");
   config.templates_dir = S("layouts");
   config.static_dir = S("files");
-  config.content_template = S("post.html");
-  config.aggregate_templates = aggregates;
-  config.aggregate_template_count = 2;
-  config.feed_templates = feeds;
-  config.feed_template_count = 1;
+  config.templates.content = S("post.html");
+  config.templates.aggregates = aggregates;
+  config.templates.aggregate_template_count = 2;
+  config.templates.feeds = feeds;
+  config.templates.feed_template_count = 1;
   config.feed_count = 7;
   config.frontmatter_ignored_keys = ignored_keys;
   config.frontmatter_ignored_key_count = 2;
@@ -938,12 +992,12 @@ static void test_print_load_round_trips(void) {
   TEST_CHECK(str_eq(reloaded.output_dir, config.output_dir));
   TEST_CHECK(str_eq(reloaded.templates_dir, config.templates_dir));
   TEST_CHECK(str_eq(reloaded.static_dir, config.static_dir));
-  TEST_CHECK(str_eq(reloaded.content_template, config.content_template));
-  TEST_ASSERT(reloaded.aggregate_template_count == 2);
-  TEST_CHECK(str_eq(reloaded.aggregate_templates[0], S("index.html")));
-  TEST_CHECK(str_eq(reloaded.aggregate_templates[1], S("archive.html")));
-  TEST_ASSERT(reloaded.feed_template_count == 1);
-  TEST_CHECK(str_eq(reloaded.feed_templates[0], S("atom.xml")));
+  TEST_CHECK(str_eq(reloaded.templates.content, config.templates.content));
+  TEST_ASSERT(reloaded.templates.aggregate_template_count == 2);
+  TEST_CHECK(str_eq(reloaded.templates.aggregates[0], S("index.html")));
+  TEST_CHECK(str_eq(reloaded.templates.aggregates[1], S("archive.html")));
+  TEST_ASSERT(reloaded.templates.feed_template_count == 1);
+  TEST_CHECK(str_eq(reloaded.templates.feeds[0], S("atom.xml")));
   TEST_CHECK(reloaded.feed_count == config.feed_count);
   TEST_ASSERT(reloaded.frontmatter_ignored_key_count == 2);
   TEST_CHECK(str_eq(reloaded.frontmatter_ignored_keys[0], S("identifier")));
@@ -959,8 +1013,8 @@ static void test_print_empty_template_arrays(void) {
       "description = \"Example notes\"\n"
       "author = \"Example Author\"\n"
       "base_url = \"https://example.com\"\n"
-      "aggregate_templates = []\n"
-      "feed_templates = []\n";
+      "templates.aggregates = []\n"
+      "templates.feeds = []\n";
   struct Os* os = os_memory();
   os_memory_write(os, "sosig.toml", toml);
   struct SiteConfig config;
@@ -969,11 +1023,11 @@ static void test_print_empty_template_arrays(void) {
   // Loaded from the working directory, so the directories print as the config names them.
   TEST_CHECK(load_site_config(&config, "sosig.toml", os, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_ASSERT(config.aggregate_template_count == 0);
-  TEST_ASSERT(config.feed_template_count == 0);
+  TEST_ASSERT(config.templates.aggregate_template_count == 0);
+  TEST_ASSERT(config.templates.feed_template_count == 0);
   // The empty array is a distinct pointer that is not `NULL`.
-  TEST_CHECK(config.aggregate_templates != NULL);
-  TEST_CHECK(config.feed_templates != NULL);
+  TEST_CHECK(config.templates.aggregates != NULL);
+  TEST_CHECK(config.templates.feeds != NULL);
 
   // Compared whole: an empty array must print as `[]` and must not disturb its neighbors.
   TEST_CHECK(os_memory_is_printed(print_config(&config), 1,
@@ -986,11 +1040,13 @@ static void test_print_empty_template_arrays(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
-                                  "content_template = \"content.html\"\n"
-                                  "aggregate_templates = []\n"
-                                  "feed_templates = []\n"
                                   "feed_count = 25\n"
-                                  "frontmatter_ignored_keys = []\n"));
+                                  "frontmatter_ignored_keys = []\n"
+                                  "\n"
+                                  "[templates]\n"
+                                  "content = \"content.html\"\n"
+                                  "aggregates = []\n"
+                                  "feeds = []\n"));
 }
 
 // A standard output that refuses the write makes `site_config_print` report `-1` with the write's
@@ -1015,6 +1071,8 @@ static void test_print_reports_write_failure(void) {
 TEST_LIST = {
     {"load applies required and defaults", test_load_applies_required_and_defaults},
     {"load overrides optional keys", test_load_overrides_optional_keys},
+    {"load keeps the default of each unset template key",
+     test_load_keeps_the_default_of_each_unset_template_key},
     {"load normalizes directory keys", test_load_normalizes_directory_keys},
     {"load resolves directories against config dir",
      test_load_resolves_directories_against_config_dir},
@@ -1030,6 +1088,7 @@ TEST_LIST = {
     {"load rejects missing required key", test_load_rejects_missing_required_key},
     {"load rejects wrong key type", test_load_rejects_wrong_key_type},
     {"load rejects unknown keys", test_load_rejects_unknown_keys},
+    {"load rejects unknown template keys", test_load_rejects_unknown_template_keys},
     {"load rejects table values", test_load_rejects_table_values},
     {"load rejects invalid integer type and minimum",
      test_load_rejects_invalid_integer_type_and_minimum},

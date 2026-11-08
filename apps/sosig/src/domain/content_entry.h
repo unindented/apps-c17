@@ -71,7 +71,7 @@ struct ContentEntry {
    */
   ptrdiff_t tag_count;
 
-  /** Optional safe relative template name override. Empty uses site config `content_template`. */
+  /** Optional safe relative template name override. Empty uses `templates.content`. */
   struct Str template;
 
   /**

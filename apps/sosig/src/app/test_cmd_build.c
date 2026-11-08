@@ -44,8 +44,8 @@ static const char* const SITE_CONFIG =
     "description = \"Example notes\"\n"
     "author = \"Author\"\n"
     "base_url = \"https://example.com\"\n"
-    "aggregate_templates = []\n"
-    "feed_templates = []\n";
+    "templates.aggregates = []\n"
+    "templates.feeds = []\n";
 
 /** Minimal content template, which renders a page as its body alone. */
 static const char* const CONTENT_TEMPLATE = "{{{body_html}}}\n";
@@ -111,8 +111,8 @@ static struct Os* every_output_kind_fixture(void) {
                   "description = \"Example notes\"\n"
                   "author = \"Author\"\n"
                   "base_url = \"https://example.com\"\n"
-                  "aggregate_templates = [\"index.html\"]\n"
-                  "feed_templates = [\"feed.xml\"]\n");
+                  "templates.aggregates = [\"index.html\"]\n"
+                  "templates.feeds = [\"feed.xml\"]\n");
   os_memory_write(os, "content/alpha.md",
                   "+++\ntitle = \"Alpha\"\ndate = 2026-07-02T00:00:00Z\n+++\nAlpha body\n");
   os_memory_write(os, "content/beta.md",
@@ -367,7 +367,7 @@ static void build_in_tiny_arena(void* userdata) {
 
 // A configured content template name is used instead of the default.
 static void test_honors_configured_content_template(void) {
-  struct Os* os = site_fixture("content_template = \"content-entry.html\"\n");
+  struct Os* os = site_fixture("templates.content = \"content-entry.html\"\n");
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);
   os_memory_write(os, "templates/content-entry.html", "<main>{{title}} {{{body_html}}}</main>\n");
 
@@ -381,7 +381,7 @@ static void test_honors_configured_content_template(void) {
 // whose every entry names its own template, nor one with no entry at all, and a draft's `template`
 // is never loaded.
 static void test_loads_the_content_template_only_when_an_entry_uses_it(void) {
-  struct Os* os = site_fixture("content_template = \"absent.html\"\n");
+  struct Os* os = site_fixture("templates.content = \"absent.html\"\n");
   os_memory_mkdir(os, "content");
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == 0);
@@ -731,8 +731,8 @@ static void test_rebuild_skips_output_dir_linked_from_content_dir(void) {
                   "description = \"Example notes\"\n"
                   "author = \"Author\"\n"
                   "base_url = \"https://example.com\"\n"
-                  "aggregate_templates = [\"notes.md\"]\n"
-                  "feed_templates = []\n");
+                  "templates.aggregates = [\"notes.md\"]\n"
+                  "templates.feeds = []\n");
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);
   os_memory_write(os, "templates/content.html", CONTENT_TEMPLATE);
   os_memory_write(os, "templates/notes.md", "notes\n");
@@ -937,7 +937,7 @@ static void test_changed_source_rewrites_only_its_page(void) {
 // A page whose template lists `content_entries` is written again when another entry's title
 // changes, while a page whose template reads only its own entry is kept.
 static void test_page_reading_the_entry_list_follows_every_entry(void) {
-  struct Os* os = site_fixture("content_template = \"listing.html\"\n");
+  struct Os* os = site_fixture("templates.content = \"listing.html\"\n");
   struct Arena arena = test_arena();
   os_memory_write(os, "templates/listing.html",
                   "{{{body_html}}}{{#content_entries}}{{title}};{{/content_entries}}\n");
@@ -1552,7 +1552,7 @@ static void test_rejects_static_file_colliding_with_content_page(void) {
 // A content template that fails to parse fails the build when the templates load, before anything
 // is written. The diagnostic carries the parser's cause, its position and the template name.
 static void test_reports_bad_template(void) {
-  struct Os* os = site_fixture("content_template = \"broken.html\"\n");
+  struct Os* os = site_fixture("templates.content = \"broken.html\"\n");
   // The section never closes, so the template is read but fails to compile.
   os_memory_write(os, "templates/broken.html", "{{#title}}{{title}}\n");
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);
@@ -1569,7 +1569,7 @@ static void test_reports_bad_template(void) {
 // A dry run loads every template, so a content template that does not compile fails it with the
 // diagnostic a real build gives, and no listing is printed.
 static void test_dry_run_reports_bad_template(void) {
-  struct Os* os = site_fixture("content_template = \"broken.html\"\n");
+  struct Os* os = site_fixture("templates.content = \"broken.html\"\n");
   os_memory_write(os, "templates/broken.html", "{{#title}}{{title}}\n");
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);
 
@@ -1630,7 +1630,7 @@ static void test_reports_stale_output_that_cannot_be_removed(void) {
 // `test_reports_unwritable_output` covers two entries that fail for different causes.
 static void test_reports_a_shared_render_failure_once(void) {
   // A triple mustache of `title` fails the page render of both entries.
-  struct Os* os = site_fixture("content_template = \"raw.html\"\n");
+  struct Os* os = site_fixture("templates.content = \"raw.html\"\n");
   os_memory_write(os, "templates/raw.html", "{{{title}}}\n");
   os_memory_write(os, "content/a.md", HELLO_ENTRY);
   os_memory_write(os, "content/b.md",
@@ -1666,6 +1666,46 @@ static void test_reports_a_missing_entry_template_once(void) {
                          "'content/a.md')\n",
                          strerror(ENOENT)));
   TEST_CHECK(!os_memory_has_path(os, "public"));
+}
+
+// A missing template that a `[templates]` key names fails the build when the templates load, naming
+// the key, and a template that two keys name names the first in table order.
+static void test_reports_a_missing_configured_template_with_its_key(void) {
+  static const struct {
+    const char* templates;
+    const char* missing;
+    const char* key;
+  } cases[] = {
+      {"content = \"missing.html\"\naggregates = []\nfeeds = []\n", "missing.html",
+       "templates.content"},
+      {"content = \"index.html\"\naggregates = [\"index.html\"]\nfeeds = []\n", "index.html",
+       "templates.content"},
+      {"aggregates = [\"index.html\"]\nfeeds = []\n", "index.html", "templates.aggregates"},
+      {"aggregates = []\nfeeds = [\"atom.xml\"]\n", "atom.xml", "templates.feeds"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    TEST_CASE(cases[i].templates);
+    struct Os* os = os_memory();
+    struct Arena arena = test_arena();
+    struct Buf config = {.arena = &arena};
+    buf_printf(&config,
+               "title = \"Site\"\n"
+               "description = \"Example notes\"\n"
+               "author = \"Author\"\n"
+               "base_url = \"https://example.com\"\n"
+               "[templates]\n"
+               "%s",
+               cases[i].templates);
+    os_memory_write(os, "sosig.toml", buf_cstr(&config));
+    os_memory_write(os, "templates/content.html", CONTENT_TEMPLATE);
+    os_memory_write(os, "content/hello.md", HELLO_ENTRY);
+
+    struct Log log = test_log();
+    TEST_CHECK(execute_build(os, &log) == -1);
+    TEST_CHECK(test_log_is(&log, "failed to read template: %s ('templates/%s') (for '%s')\n",
+                           strerror(ENOENT), cases[i].missing, cases[i].key));
+    TEST_CHECK(!os_memory_has_path(os, "public"));
+  }
 }
 
 // An output path that cannot be written fails the build at the page phase, where each job writes
@@ -1709,15 +1749,15 @@ static void test_rejects_unsafe_permalink(void) {
 
 // A config error stops the build after the config load, with that error alone and nothing written.
 // The load stops at its first error, so the second case reports the permalink and not the
-// `feed_templates` that the load checks later.
+// `templates.feeds` that the load checks later.
 static void test_stops_after_config_error(void) {
   static const struct {
     const char* config;
     const char* expected;
   } cases[] = {
-      {"aggregate_templates = [5]\n",
-       "config key 'aggregate_templates' must contain only strings\n"},
-      {"feed_templates = [\"../x\"]\npermalink = \"/{slug}.htm#l\"\n",
+      {"templates.aggregates = [5]\n",
+       "config key 'templates.aggregates' must contain only strings\n"},
+      {"templates.feeds = [\"../x\"]\npermalink = \"/{slug}.htm#l\"\n",
        "config key 'permalink' must expand to a safe relative path using only letters, digits, "
        "'_', '-', '.', '/' and the '{slug}'/'{section}' tokens, with no empty, '.' or '..' path "
        "segment: '/{slug}.htm#l'\n"},
@@ -1844,8 +1884,8 @@ static void test_rejects_duplicate_output(void) {
                   "description = \"Example notes\"\n"
                   "author = \"Author\"\n"
                   "base_url = \"https://example.com\"\n"
-                  "aggregate_templates = [\"index.html\"]\n"
-                  "feed_templates = []\n");
+                  "templates.aggregates = [\"index.html\"]\n"
+                  "templates.feeds = []\n");
   os_memory_write(os, "content/index.md", HELLO_ENTRY);
   os_memory_write(os, "templates/content.html", CONTENT_TEMPLATE);
   os_memory_write(os, "templates/index.html", "index\n");
@@ -1856,7 +1896,7 @@ static void test_rejects_duplicate_output(void) {
   // appended to it.
   TEST_CHECK(test_log_is(&log,
                          "duplicate output path for 'content/index.md' and "
-                         "'aggregate_templates[0]': 'public/index.html'\n"));
+                         "'templates.aggregates[0]': 'public/index.html'\n"));
   TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
@@ -1998,6 +2038,8 @@ TEST_LIST = {
      test_reports_stale_output_that_cannot_be_removed},
     {"reports a shared render failure once", test_reports_a_shared_render_failure_once},
     {"reports a missing entry template once", test_reports_a_missing_entry_template_once},
+    {"reports a missing configured template with its key",
+     test_reports_a_missing_configured_template_with_its_key},
     {"reports unwritable output", test_reports_unwritable_output},
     {"rejects unsafe permalink", test_rejects_unsafe_permalink},
     {"stops after config error", test_stops_after_config_error},

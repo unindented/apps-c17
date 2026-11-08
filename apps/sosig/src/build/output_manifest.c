@@ -105,11 +105,11 @@ int output_manifest_populate(struct Manifest* manifest,
       rc = -1;
     }
   }
-  if (manifest_builder_add_template_list(
-          &builder, S("aggregate_templates"), site_config->aggregate_templates,
-          site_config->aggregate_template_count, scratch, log) != 0 ||
-      manifest_builder_add_template_list(&builder, S("feed_templates"), site_config->feed_templates,
-                                         site_config->feed_template_count, scratch, log) != 0) {
+  const struct SiteTemplates* templates = &site_config->templates;
+  if (manifest_builder_add_template_list(&builder, S("templates.aggregates"), templates->aggregates,
+                                         templates->aggregate_template_count, scratch, log) != 0 ||
+      manifest_builder_add_template_list(&builder, S("templates.feeds"), templates->feeds,
+                                         templates->feed_template_count, scratch, log) != 0) {
     rc = -1;
   }
   if (manifest_builder_add_copies(&builder, static_paths, static_stats, site_config->static_dir,

@@ -179,7 +179,7 @@ static int render_content_page_make(struct Arena* perm,
   struct PageRender* render = userdata;
   const struct ContentEntry* entry = render->context.content_entry_current;
   const struct Str template_name =
-      entry->template.len > 0 ? entry->template : render->context.site_config->content_template;
+      entry->template.len > 0 ? entry->template : render->context.site_config->templates.content;
   // The page's path below `output_dir` is its URL without the leading `/`, which a failure names.
   if (template_context_render(render->template_set, template_name, &render->context,
                               str_tail(entry->url_path, 1), perm, scratch, bytes_out, log) != 0) {

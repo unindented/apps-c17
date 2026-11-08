@@ -56,11 +56,13 @@ static void test_prints_loaded_config(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
-                                  "content_template = \"content.html\"\n"
-                                  "aggregate_templates = [\"index.html\"]\n"
-                                  "feed_templates = [\"atom.xml\"]\n"
                                   "feed_count = 25\n"
-                                  "frontmatter_ignored_keys = [\"identifier\", \"signature\"]\n"));
+                                  "frontmatter_ignored_keys = [\"identifier\", \"signature\"]\n"
+                                  "\n"
+                                  "[templates]\n"
+                                  "content = \"content.html\"\n"
+                                  "aggregates = [\"index.html\"]\n"
+                                  "feeds = [\"atom.xml\"]\n"));
 }
 
 // A config whose template arrays are empty prints and reports success. A loader that accepted `[]`
@@ -74,8 +76,8 @@ static void test_prints_empty_template_arrays(void) {
                   "description = \"Example notes\"\n"
                   "author = \"Author Name\"\n"
                   "base_url = \"https://example.com\"\n"
-                  "aggregate_templates = []\n"
-                  "feed_templates = []\n");
+                  "templates.aggregates = []\n"
+                  "templates.feeds = []\n");
 
   TEST_CHECK(run_config(S("sosig.toml"), os) == EXIT_CODE_OK);
   // Compared whole, and `stderr` empty, for the reasons at `test_prints_loaded_config`.
@@ -90,11 +92,13 @@ static void test_prints_empty_template_arrays(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
-                                  "content_template = \"content.html\"\n"
-                                  "aggregate_templates = []\n"
-                                  "feed_templates = []\n"
                                   "feed_count = 25\n"
-                                  "frontmatter_ignored_keys = []\n"));
+                                  "frontmatter_ignored_keys = []\n"
+                                  "\n"
+                                  "[templates]\n"
+                                  "content = \"content.html\"\n"
+                                  "aggregates = []\n"
+                                  "feeds = []\n"));
 }
 
 // `config -c sub/sosig.toml` prints every directory resolved against `sub`, a default as well as a
@@ -122,11 +126,13 @@ static void test_prints_directories_resolved_against_config_dir(void) {
                                   "output_dir = \"sub/public\"\n"
                                   "templates_dir = \"sub/layouts\"\n"
                                   "static_dir = \"/srv/static\"\n"
-                                  "content_template = \"content.html\"\n"
-                                  "aggregate_templates = [\"index.html\"]\n"
-                                  "feed_templates = [\"atom.xml\"]\n"
                                   "feed_count = 25\n"
-                                  "frontmatter_ignored_keys = []\n"));
+                                  "frontmatter_ignored_keys = []\n"
+                                  "\n"
+                                  "[templates]\n"
+                                  "content = \"content.html\"\n"
+                                  "aggregates = [\"index.html\"]\n"
+                                  "feeds = [\"atom.xml\"]\n"));
 }
 
 // A missing config is reported with the read failure that caused it, naming the path, so this

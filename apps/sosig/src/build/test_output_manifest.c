@@ -44,8 +44,8 @@ static struct Os* init_manifest_fixture(struct SiteConfig* site_config) {
   site_config->output_dir = S("site/public");
   site_config->templates_dir = S("site/templates");
   site_config->static_dir = S("site/static");
-  site_config->aggregate_template_count = 0;
-  site_config->feed_template_count = 0;
+  site_config->templates.aggregate_template_count = 0;
+  site_config->templates.feed_template_count = 0;
   struct Os* os = os_memory();
   os_memory_write(os, "site/sosig.toml", "title = 'x'\n");
   os_memory_write(os, "site/templates/content.html", "content");
@@ -208,10 +208,10 @@ static void test_registers_complete_output_set(void) {
   os_memory_write(os, "site/static/a.txt", "static");
   static const struct Str aggregates[] = {STR_INIT("index.html")};
   static const struct Str feeds[] = {STR_INIT("feed.xml")};
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
-  site_config.feed_templates = feeds;
-  site_config.feed_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
+  site_config.templates.feeds = feeds;
+  site_config.templates.feed_template_count = 1;
   const struct ContentEntry first = entry_at("site/public/a/index.html", "site/content/a.md");
   const struct ContentEntry second = entry_at("site/public/b/index.html", "site/content/b.md");
   const struct ContentEntry* entries[] = {&first, &second};
@@ -432,8 +432,8 @@ static void test_rejects_entry_aggregate_collision(void) {
   struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "site/templates/index.html", "aggregate");
   static const struct Str aggregates[] = {STR_INIT("index.html")};
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   const struct ContentEntry entry = entry_at("site/public/index.html", "site/content/index.md");
   const struct ContentEntry* entries[] = {&entry};
   struct Manifest manifest = {0};
@@ -442,7 +442,7 @@ static void test_rejects_entry_aggregate_collision(void) {
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, NULL, entries, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "duplicate output path for 'site/content/index.md' and "
-                         "'aggregate_templates[0]': 'site/public/index.html'\n"));
+                         "'templates.aggregates[0]': 'site/public/index.html'\n"));
 }
 
 // `output_manifest_populate` rejects two configured templates that claim one output path. It names
@@ -455,31 +455,31 @@ static void test_rejects_duplicate_template(void) {
   struct SiteConfig site_config;
   struct Os* os = init_manifest_fixture(&site_config);
 
-  // First case: the same name twice inside `aggregate_templates`, so the two indexes differ.
+  // First case: the same name twice inside `templates.aggregates`, so the two indexes differ.
   static const struct Str aggregates[] = {STR_INIT("dup.html"), STR_INIT("dup.html")};
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 2;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 2;
   struct Manifest one_list_manifest = {0};
   struct Log one_list_log = test_log();
   TEST_CHECK(populate(&one_list_manifest, &site_config, NULL, NULL, NULL, NULL, 0, os,
                       &one_list_log) == -1);
   TEST_CHECK(test_log_is(&one_list_log,
-                         "duplicate output path for 'aggregate_templates[0]' and "
-                         "'aggregate_templates[1]': 'site/public/dup.html'\n"));
+                         "duplicate output path for 'templates.aggregates[0]' and "
+                         "'templates.aggregates[1]': 'site/public/dup.html'\n"));
 
   // Second case: one name in each list, so the two keys differ.
   static const struct Str shared[] = {STR_INIT("dup.html")};
-  site_config.aggregate_templates = shared;
-  site_config.aggregate_template_count = 1;
-  site_config.feed_templates = shared;
-  site_config.feed_template_count = 1;
+  site_config.templates.aggregates = shared;
+  site_config.templates.aggregate_template_count = 1;
+  site_config.templates.feeds = shared;
+  site_config.templates.feed_template_count = 1;
   struct Manifest shared_manifest = {0};
   struct Log shared_log = test_log();
   TEST_CHECK(populate(&shared_manifest, &site_config, NULL, NULL, NULL, NULL, 0, os, &shared_log) ==
              -1);
   TEST_CHECK(test_log_is(&shared_log,
-                         "duplicate output path for 'aggregate_templates[0]' and "
-                         "'feed_templates[0]': 'site/public/dup.html'\n"));
+                         "duplicate output path for 'templates.aggregates[0]' and "
+                         "'templates.feeds[0]': 'site/public/dup.html'\n"));
 }
 
 // `output_manifest_populate` rejects an output path that names one of the build's own input files,
@@ -555,14 +555,14 @@ static void test_rejects_config_overwrite(void) {
   struct Os* os = init_manifest_fixture(&site_config);
   static const struct Str aggregates[] = {STR_INIT("sosig.toml")};
   site_config.output_dir = S("site");
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, NULL, NULL, 0, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "output path would overwrite build input for 'aggregate_templates[0]': "
+                         "output path would overwrite build input for 'templates.aggregates[0]': "
                          "'site/sosig.toml'\n"));
 }
 
@@ -583,11 +583,11 @@ static void test_rejects_template_overwrite(void) {
   os_memory_link(os, "site/templates/custom.html", "site/public/custom.html");
   os_memory_link(os, "site/templates/partials/card.html", "site/public/card.html");
 
-  // First case: an entry lands on a hard link to a template named in `aggregate_templates`. The
+  // First case: an entry lands on a hard link to a template named in `templates.aggregates`. The
   // aggregate's own output is that same link, so every output is checked and both are reported.
   static const struct Str aggregates[] = {STR_INIT("index.html")};
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   const struct ContentEntry aggregate_entry = entry_at("site/public/index.html", "content/a.md");
   const struct ContentEntry* aggregate_entries[] = {&aggregate_entry};
   struct Manifest aggregate_manifest = {0};
@@ -597,12 +597,12 @@ static void test_rejects_template_overwrite(void) {
   TEST_CHECK(test_log_is(&aggregate_log,
                          "output path would overwrite build input for 'content/a.md': "
                          "'site/public/index.html'\n"
-                         "output path would overwrite build input for 'aggregate_templates[0]': "
+                         "output path would overwrite build input for 'templates.aggregates[0]': "
                          "'site/public/index.html'\n"));
 
   // Second case: an entry lands on a hard link to its own `template` override, which no configured
   // list names.
-  site_config.aggregate_template_count = 0;
+  site_config.templates.aggregate_template_count = 0;
   struct ContentEntry override_entry = entry_at("site/public/custom.html", "content/b.md");
   override_entry.template = S("custom.html");
   const struct ContentEntry* override_entries[] = {&override_entry};
@@ -724,14 +724,14 @@ static void test_rejects_output_in_templates_dir(void) {
 
   // A configured template whose name leads into the template tree is rejected by its list entry.
   static const struct Str aggregates[] = {STR_INIT("templates/index.html")};
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct Manifest manifest = {0};
   struct Log log = test_log();
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, NULL, NULL, 0, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "output path would write inside 'templates_dir' for "
-                         "'aggregate_templates[0]': 'site/templates/index.html'\n"));
+                         "'templates.aggregates[0]': 'site/templates/index.html'\n"));
 }
 
 // An output that would land below `static_dir` is rejected, because the next build would copy it as
@@ -752,8 +752,8 @@ static void test_rejects_static_aggregate_collision(void) {
   os_memory_write(os, "site/templates/index.html", "aggregate");
   os_memory_write(os, "site/static/index.html", "static");
   static const struct Str aggregates[] = {STR_INIT("index.html")};
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct Arena arena = test_arena();
   struct PathList static_paths = {0};
   path_list_push(&static_paths, S("site/static/index.html"), &arena);
@@ -762,7 +762,7 @@ static void test_rejects_static_aggregate_collision(void) {
 
   TEST_CHECK(populate(&manifest, &site_config, NULL, &static_paths, NULL, NULL, 0, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "duplicate output path for 'aggregate_templates[0]' and "
+                         "duplicate output path for 'templates.aggregates[0]' and "
                          "'site/static/index.html': 'site/public/index.html'\n"));
 }
 
@@ -841,14 +841,14 @@ static void test_rejects_oversize_template_path(void) {
   const struct Str aggregates[] = {{name, (ptrdiff_t)sizeof(name) - 1}};
   struct SiteConfig site_config;
   struct Os* os = init_manifest_fixture(&site_config);
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, NULL, NULL, 0, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "output path for 'aggregate_templates[0]' exceeds max output path length "
+                         "output path for 'templates.aggregates[0]' exceeds max output path length "
                          "(%d bytes) at %td bytes: '%.*s'\n",
                          OUTPUT_PATH_RELATIVE_LEN_MAX, aggregates[0].len, STR_FMT(aggregates[0])));
 }
@@ -863,14 +863,14 @@ static void test_rejects_oversize_template_segment(void) {
   const struct Str feeds[] = {{name, (ptrdiff_t)sizeof(name) - 1}};
   struct SiteConfig site_config;
   struct Os* os = init_manifest_fixture(&site_config);
-  site_config.feed_templates = feeds;
-  site_config.feed_template_count = 1;
+  site_config.templates.feeds = feeds;
+  site_config.templates.feed_template_count = 1;
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, NULL, NULL, 0, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "output path segment for 'feed_templates[0]' exceeds max filename length "
+                         "output path segment for 'templates.feeds[0]' exceeds max filename length "
                          "(%d bytes) at %zu bytes: '%s'\n",
                          FILENAME_LEN_MAX, sizeof(name) - 1, name));
 }
