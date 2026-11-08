@@ -44,3 +44,26 @@ struct Str output_path_to_root(struct Str relative_path, struct Arena* arena) {
   }
   return (struct Str){prefix, depth * 3};
 }
+
+int output_path_check_not_found(struct Str not_found_path, struct Log* log) {
+  // `path_is_safe_relative` rejects an empty path too, so an empty value gets the same message.
+  if (!path_is_safe_relative(not_found_path) || !str_endswith(not_found_path, S(".html"))) {
+    return log_error(log,
+                     "config key 'not_found_path' must be a safe relative path ending in '.html': "
+                     "'%.*s'",
+                     STR_FMT(not_found_path));
+  }
+  return 0;
+}
+
+struct Str output_path_not_found_root(struct Str base_url, struct Arena* arena) {
+  // The path starts at the first `/` after the `//` that opens the authority, and an accepted
+  // `base_url` holds no `?` or `#` that could end it sooner.
+  const struct StrCut scheme = str_cut(base_url, ':');
+  const struct Str authority_and_path =
+      scheme.is_found ? str_tail(scheme.tail, 2) : (struct Str){0};
+  const struct StrCut host = str_cut(authority_and_path, '/');
+  const struct Str path =
+      host.is_found ? str_tail(authority_and_path, host.head.len) : (struct Str){0};
+  return str_concat(path_trim_trailing_slashes(path), S("/"), arena);
+}
