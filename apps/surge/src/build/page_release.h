@@ -11,19 +11,6 @@ struct RepoModel;
 struct SiteConfig;
 struct TemplateValue;
 
-/** Name of a repo's releases page's template. */
-#define PAGE_RELEASE_INDEX_TEMPLATE S("releases.html")
-
-/** Name of a release project's page's template. */
-#define PAGE_RELEASE_PROJECT_TEMPLATE S("release-project.html")
-
-/** Name of a release's page's template. */
-#define PAGE_RELEASE_TAG_TEMPLATE S("release.html")
-
-/** The release templates, which a build needs when a repo has a release project. */
-#define PAGE_RELEASE_TEMPLATES \
-  STR_INIT("releases.html"), STR_INIT("release-project.html"), STR_INIT("release.html")
-
 /** File name of a release project's version list, which mise's `version_list_url` reads. */
 #define PAGE_RELEASE_VERSIONS_TEXT S("versions.txt")
 
@@ -112,7 +99,7 @@ const struct Release* page_release_find(const struct RepoModel* repo, const stru
 /**
  * @brief Returns the data tree of a repo's releases page, `<r>/releases/index.html`.
  *
- * `apps/surge/README.md#data-trees` lists its keys, in the `releases.html` row, and the keys of the
+ * `apps/surge/README.md#data-trees` lists its keys, in the `release_list` row, and the keys of the
  * project and release maps.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
@@ -130,7 +117,7 @@ struct TemplateValue* page_release_index_value(const struct SiteConfig* site_con
 /**
  * @brief Returns the data tree of a release project's page, `<r>/releases/<project>/index.html`.
  *
- * `apps/surge/README.md#data-trees` lists its keys, in the `release-project.html` row.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `release_project` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.
@@ -149,7 +136,7 @@ struct TemplateValue* page_release_project_value(const struct SiteConfig* site_c
 /**
  * @brief Returns the data tree of a release's page, `<r>/releases/tag/<tag>/index.html`.
  *
- * `apps/surge/README.md#data-trees` lists its keys, in the `release.html` row.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `release` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.

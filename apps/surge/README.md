@@ -76,17 +76,17 @@ templates/
     head.html
   404.html
   blob.html
-  branches.html
+  branch-list.html
+  commit-feed.atom
+  commit-list.html
   commit.html
-  commits.atom
-  commits.html
   index.html
+  release-feed.atom
+  release-list.html
   release-project.html
   release.html
-  releases.atom
-  releases.html
-  tags.atom
-  tags.html
+  tag-feed.atom
+  tag-list.html
   tree.html
 surge.toml
 ```
@@ -133,10 +133,11 @@ Top-level keys:
 | `output_dir` | `"public"` | Not empty | The directory that the build writes to and controls. See [Output directory](#output-directory). |
 | `templates_dir` | `"templates"` | A directory | The templates and partials. |
 | `static_dir` | `"static"` | A directory, if it exists | The files that the build copies into `output_dir`. |
-| `log_page_size` | `100` | 1 to 10000 | The commits on each log page. |
+| `log_page_size` | `100` | 1 to 10000 | The commits on each commit list page. |
 | `feed_count` | `25` | 0 or more | The most entries in each commit, tag and release feed. |
 | `headers_file` | `false` | A boolean | Whether the build writes `_headers`. See [Cache headers](#cache-headers). |
 | `limits` | | A table | The `[limits]` table below. |
+| `templates` | | A table | The `[templates]` table below. |
 | `repo` | Required | At least one table | The `[[repo]]` tables below, in the order of the site index. |
 
 The `[limits]` table:
@@ -150,6 +151,25 @@ The `[limits]` table:
 | `diff_len_max` | `1048576` (1 MiB) | 0 to 4194304 (4 MiB) | The most bytes of diff lines that a commit page shows. |
 | `image_len_max` | `2097152` (2 MiB) | 0 to 4194304 (4 MiB) | The most bytes of images that a commit page embeds, over all sides of all changed images. A side that does not fit is left out, and a later, smaller side can still fit. |
 | `pack_len_max` | `26214400` (25 MiB) | 0 or more | The largest clone pack, in bytes, that builds without a warning. A larger pack still builds. |
+
+The `[templates]` table names the template of each kind of page, relative to `templates_dir`. Each key that the table leaves out keeps its default. A default is the key with `_` as `-` and the page's extension, `.html` for a page and `.atom` for a feed, except `not_found`. Each value is a safe relative template name: only letters, digits, `_`, `-`, `.` and `/`, and no empty, `.` or `..` segment. Two keys can name one template, which then renders each kind of page with that page's data. [Templates](#templates) says which templates a site needs.
+
+| Key | Default | Bounds | Meaning |
+| --- | --- | --- | --- |
+| `index` | `"index.html"` | A template name | The site index. |
+| `tree` | `"tree.html"` | A template name | Each repository home and each tree page. |
+| `blob` | `"blob.html"` | A template name | Each blob page. |
+| `branch_list` | `"branch-list.html"` | A template name | Each branch list. |
+| `tag_list` | `"tag-list.html"` | A template name | Each tag list. |
+| `tag_feed` | `"tag-feed.atom"` | A template name | Each tag feed. |
+| `commit` | `"commit.html"` | A template name | Each commit page. |
+| `commit_list` | `"commit-list.html"` | A template name | Each commit list page. |
+| `commit_feed` | `"commit-feed.atom"` | A template name | Each commit feed. |
+| `release` | `"release.html"` | A template name | Each release page. |
+| `release_list` | `"release-list.html"` | A template name | Each release list. |
+| `release_project` | `"release-project.html"` | A template name | Each release project page. |
+| `release_feed` | `"release-feed.atom"` | A template name | Each release feed. |
+| `not_found` | `"404.html"` | A template name | The not-found page. |
 
 Each `[[repo]]` table:
 
@@ -196,19 +216,19 @@ _headers                                       with headers_file = true
 _surge/output-cache.tsv                        output cache
 <static files>
 <r>/index.html                                 repo home
-<r>/branches/index.html                        branches
-<r>/tags/index.html                            tags
+<r>/branches/index.html                        branch list
+<r>/tags/index.html                            tag list
 <r>/tags.atom                                  tag feed
 <r>/releases.atom                              release feed, with a release project
 <r>/tree/<ref>/index.html                      root directory of a branch
 <r>/tree/<ref>/<p>/index.html                  directory
 <r>/blob/<ref>/<p>/index.html                  file
 <r>/raw/<ref>/<p>                              raw copy, up to raw_len_max
-<r>/commits/<ref>/index.html                   first log page, newest commits
-<r>/commits/<ref>/page-<n>.html                log page n, from 2
+<r>/commits/<ref>/index.html                   first commit list page, newest commits
+<r>/commits/<ref>/page-<n>.html                commit list page n, from 2
 <r>/commits/<ref>.atom                         commit feed
 <r>/commit/<oid>/index.html                    commit with its diff
-<r>/releases/index.html                        releases
+<r>/releases/index.html                        release list
 <r>/releases/<project>/index.html              release project
 <r>/releases/<project>/versions.txt            versions for mise
 <r>/releases/<project>/versions.json           version dates for mise
@@ -220,7 +240,7 @@ _surge/output-cache.tsv                        output cache
 <r>.git/objects/pack/pack-<id>.pack, .idx
 ```
 
-The paths follow GitHub's URL scheme, with each page as the `index.html` of its directory. A branch name or a tree path keeps its `/` characters as nested directories, so the branch `feature/x` has its tree pages below `tree/feature/x/`. Only branches get `tree/`, `blob/`, `raw/` and `commits/` pages. A tag has a row on the tags page, a link to its commit page, and a release page when it has a release.
+The paths follow GitHub's URL scheme, with each page as the `index.html` of its directory. A branch name or a tree path keeps its `/` characters as nested directories, so the branch `feature/x` has its tree pages below `tree/feature/x/`. Only branches get `tree/`, `blob/`, `raw/` and `commits/` pages. A tag has a row on the tag list, a link to its commit page, and a release page when it has a release.
 
 Every link on a page is relative, so the site works below any path prefix. Each link names the `index.html` of a page, so the links work on a host that does not redirect `/x` to `/x/`. A link percent-encodes each byte of a branch or tree name outside RFC 3986's unreserved set, `+` included. The feeds and the mise examples use absolute links below `base_url`.
 
@@ -270,7 +290,7 @@ remove	public/apps-c17/tree/old-branch/index.html
 The `write` and `keep` lines come first, in this order:
 
 1. The clone export of each repository, in config order.
-2. The pages of each repository: the home, the branches and tags pages, the tag feed and the release feed, then for each branch its tree, blob and raw outputs, its log pages and its commit feed, and then the commit pages.
+2. The pages of each repository: the home, the branch and tag lists, the tag feed and the release feed, then for each branch its tree, blob and raw outputs, its commit list pages and its commit feed, and then the commit pages.
 3. `_headers`.
 4. The release outputs of each repository.
 5. `index.html` and `404.html`.
@@ -292,13 +312,13 @@ A build writes the output cache to `_surge/output-cache.tsv` below `output_dir`.
 
 The inputs of each output are these:
 
-- Every page depends on the page recipe: the `surge` version, the grammars of the binary, `title`, `description`, `author`, `base_url`, `log_page_size`, `feed_count`, every limit but `pack_len_max`, and the path, size and modification time of every file below `templates_dir`. A change to any of them, a partial included, makes every page again.
+- Every page depends on the page recipe: the `surge` version, the grammars of the binary, `title`, `description`, `author`, `base_url`, `log_page_size`, `feed_count`, every limit but `pack_len_max`, every name of the `[templates]` table, and the path, size and modification time of every file below `templates_dir`. A change to any of them, a partial included, makes every page again.
 - Every page of a repository depends on what its `repo` map shows: the default branch, whether the branch names a commit, the description, and whether the repository has a release project.
-- A commit page depends on its commit. A blob page depends on its blob and mode, and a tree page on its tree. Both also depend on the branch's root tree when they show Markdown or Org, because their links resolve against every path of the branch. The page of a branch's root also depends on the branch's newest commit. A log page depends on its commits and the refs that name them, and a feed on its entries.
-- The home, the branches and tags pages and the site index depend on every ref, and on the repository's place in the config, description, newest commit date and projects. The tags page and the release outputs also depend on the releases.
+- A commit page depends on its commit. A blob page depends on its blob and mode, and a tree page on its tree. Both also depend on the branch's root tree when they show Markdown or Org, because their links resolve against every path of the branch. The page of a branch's root also depends on the branch's newest commit. A commit list page depends on its commits and the refs that name them, and a feed on its entries.
+- The home, the branch and tag lists and the site index depend on every ref, and on the repository's place in the config, description, newest commit date and projects. The tag list and the release outputs also depend on the releases.
 - A raw copy depends only on its blob. A static file and a release asset depend on their path, size and modification time. A clone pack depends on `info/refs`.
 
-So a new commit on a branch makes these outputs again: the branch's log pages and feed, the new commit's page, the tree and blob pages and raw copies of the paths that it changes, the pages that show Markdown or Org, the page of the branch's root, the repository's home and refs pages, the site index, and the changed files and new pack of the clone export. `--force` ignores the output cache and writes every output.
+So a new commit on a branch makes these outputs again: the branch's commit list pages and feed, the new commit's page, the tree and blob pages and raw copies of the paths that it changes, the pages that show Markdown or Org, the page of the branch's root, the repository's home and its branch and tag lists, the site index, and the changed files and new pack of the clone export. `--force` ignores the output cache and writes every output.
 
 The output cache does not see two kinds of change. Run `surge build --force` once after either:
 
@@ -343,9 +363,9 @@ The build fails for a repository with one of these refs, and names each ref:
 - A ref whose name is a `/`-prefix of another, such as `feature` and `feature/x`. git does not make them, but a hand-written `packed-refs` can hold them.
 - A ref whose name git calls invalid.
 
-A branch that names a tree or a blob, and not a commit, gets a warning and no pages. Its row on the branches page has no links.
+A branch that names a tree or a blob, and not a commit, gets a warning and no pages. Its row on the branch list has no links.
 
-An empty repository, with no commit, has a home that says so, branches and tags pages, a tag feed, and a clone export. The export's `HEAD` names the branch that the repository's `HEAD` names.
+An empty repository, with no commit, has a home that says so, a branch list and a tag list, a tag feed, and a clone export. The export's `HEAD` names the branch that the repository's `HEAD` names.
 
 The site index lists each repository in config order, with its projects under it. A project is a directory of a monorepo, such as `apps/sosig`, with a name and a description. The index links each project to the tree page of its directory on the default branch, and a project with a `tag_prefix` to its release page. See [Releases](#releases).
 
@@ -405,7 +425,7 @@ The raw copy of a file is its bytes at `<r>/raw/<ref>/<p>`, for every file up to
 
 ### History
 
-A branch's log lists its commits newest first, in the order of `git log --date-order`: by committer time, with no commit before one of its children. Each page holds `log_page_size` commits, with links to the first, previous, next and last pages. Each commit shows the branches and tags that name it. A new commit moves the page boundaries, so it makes all of the branch's log pages again.
+A branch's log lists its commits newest first, in the order of `git log --date-order`: by committer time, with no commit before one of its children. Each page holds `log_page_size` commits, with links to the first, previous, next and last pages. Each commit shows the branches and tags that name it. A new commit moves the page boundaries, so it makes all of the branch's commit list pages again.
 
 Every commit that a branch or a tag reaches has a commit page. It shows the message, the author's and committer's names and dates, a link to each parent, a diffstat, a tree of the changed files, and the diffs in the order of that tree. It shows no e-mail address, and no branch or tag that names the commit.
 
@@ -450,7 +470,7 @@ The `releases_dir` of a repository holds one directory for each release, named a
 
 A release project groups releases by tag prefix. A repository's release projects are its projects with a `tag_prefix`, in config order. A repository with a `releases_dir` and no project with a `tag_prefix` has one release project of its own, named after the repository, whose tags can start with `v`. The version of a release is its tag without the project's prefix, or, for the repository's own project, without a leading `v`. For example, the tag `sosig-v0.1.0` of the project with `tag_prefix = "sosig-v"` is the version `0.1.0`.
 
-A release whose tag fits no project's prefix keeps its release page and its row on the releases page, belongs to no project, and gets a warning. A project with a `tag_prefix` in a repository without `releases_dir` has a project page with no releases.
+A release whose tag fits no project's prefix keeps its release page and its row on the release list, belongs to no project, and gets a warning. A project with a `tag_prefix` in a repository without `releases_dir` has a project page with no releases.
 
 ### Version lists and mise
 
@@ -461,7 +481,7 @@ Each release project has two files that mise's `http:` backend reads:
 
 Every release project has its version lists. A release project shows a mise install only with `mise = true`, on its `[[repo.project]]` table, or on the `[[repo]]` table for the repository's own project. A project can publish releases that mise cannot install, such as a library.
 
-The data of each releases page, project page and release page holds `mise_toml`, a `mise.toml` example built from `base_url`, for each project with `mise`. It is empty for any other project. For the project `alpha` of the repository `monorepo` in the fixture site, it is this:
+The data of each release list, release project page and release page holds `mise_toml`, a `mise.toml` example built from `base_url`, for each project with `mise`. It is empty for any other project. For the project `alpha` of the repository `monorepo` in the fixture site, it is this:
 
 ```toml
 [tools."http:alpha"]
@@ -508,7 +528,7 @@ Each repository has these Atom feeds:
 | Feed | Entries |
 | --- | --- |
 | `<r>/commits/<ref>.atom` | The newest `feed_count` commits of the branch. An entry is a commit page, with the subject as title, the committer date, the author, and the rest of the message as text. A branch that names no commit has no feed. |
-| `<r>/tags.atom` | The newest `feed_count` tags by date, a tie in byte order of name. An entry has the tag name as title, and links the tag's release page, else its commit page, else the tags page. Its id is the tags page with the tag name as fragment, so two tags of one commit are two entries. Its text is the tag message without its signature. |
+| `<r>/tags.atom` | The newest `feed_count` tags by date, a tie in byte order of name. An entry has the tag name as title, and links the tag's release page, else its commit page, else the tag list. Its id is the tag list with the tag name as fragment, so two tags of one commit are two entries. Its text is the tag message without its signature. |
 | `<r>/releases.atom` | With a release project only. The newest `feed_count` releases by date, a tie in byte order of tag. An entry has the tag as title, its release page as link and id, and the notes as HTML. |
 
 The author of a tag or release entry is the tagger, or else the author of its commit. A feed's `modified` date is the date of its newest entry. A feed or an entry without a date has the Unix epoch, because Atom requires a date. Every feed link is absolute, below `base_url`. Every text holds only characters that XML 1.0 allows, as [Templates](#templates) describes.
@@ -532,26 +552,26 @@ The pack's name is the hash of its content, and the same refs give the same pack
 
 ## Templates
 
-Templates use [Mustache](https://mustache.github.io/) syntax and are in `templates_dir`. `surge` has no default templates, so each site supplies the templates below. [tests/fixtures/site/templates/](tests/fixtures/site/templates/) holds a complete set, which the golden test renders.
+Templates use [Mustache](https://mustache.github.io/) syntax and are in `templates_dir`. `surge` has no default templates, so each site supplies the templates that the keys of the [`[templates]` table](#configuration) name. [tests/fixtures/site/templates/](tests/fixtures/site/templates/) holds a complete set, which the golden test renders.
 
-| Template | Required | Renders |
+| Key | Required | Renders |
 | --- | --- | --- |
-| `index.html` | Always | The site index, `index.html`. |
-| `404.html` | Always | The not-found page, `404.html`. A host serves it at any depth, so it links with `{{site.base_url}}`, not `{{path_to_root}}`. |
-| `tree.html` | Always | Each repository home, `<r>/index.html`, and each tree page. The home is the tree page of the default branch's root. |
-| `blob.html` | Always | Each blob page. |
-| `branches.html` | Always | Each branches page. |
-| `tags.html` | Always | Each tags page. |
-| `commits.html` | Always | Each log page. |
-| `commit.html` | Always | Each commit page. |
-| `commits.atom` | Always | Each commit feed. |
-| `tags.atom` | Always | Each tag feed. |
-| `releases.html` | With a release project | Each releases page, `<r>/releases/index.html`. |
-| `release-project.html` | With a release project | Each project page, `<r>/releases/<project>/index.html`. |
-| `release.html` | With a release project | Each release page, `<r>/releases/tag/<tag>/index.html`. |
-| `releases.atom` | With a release project | Each release feed. |
+| `index` | Always | The site index, `index.html`. |
+| `tree` | Always | Each repository home, `<r>/index.html`, and each tree page. The home is the tree page of the default branch's root. |
+| `blob` | Always | Each blob page. |
+| `branch_list` | Always | Each branch list, `<r>/branches/index.html`. |
+| `tag_list` | Always | Each tag list, `<r>/tags/index.html`. |
+| `tag_feed` | Always | Each tag feed. |
+| `commit` | Always | Each commit page. |
+| `commit_list` | Always | Each commit list page. |
+| `commit_feed` | Always | Each commit feed. |
+| `release` | With a release project | Each release page, `<r>/releases/tag/<tag>/index.html`. |
+| `release_list` | With a release project | Each release list, `<r>/releases/index.html`. |
+| `release_project` | With a release project | Each release project page, `<r>/releases/<project>/index.html`. |
+| `release_feed` | With a release project | Each release feed. |
+| `not_found` | Always | The not-found page, `404.html`. A host serves it at any depth, so it links with `{{site.base_url}}`, not `{{path_to_root}}`. |
 
-A site has a release project when a repository has a `releases_dir`, or a project with a `tag_prefix`. A site without one needs none of the four release templates. Every required template must exist.
+A site has a release project when a repository has a `releases_dir`, or a project with a `tag_prefix`. A site without one needs none of the four release templates. Every required template must exist. A missing one fails the build with an error that names the template and the first key in table order that names it, such as `(for 'templates.tree')`.
 
 `{{value}}` escapes its output for HTML. `{{{value}}}` and `{{& value}}` write it without escaping, and work only for a key whose name ends in `_html`: `rendered_html`, `source_html`, `diff_html`, `notes_html` and `content_html`. `surge` makes the HTML of these keys itself. An unescaped tag of any other key that the data holds fails the render, so a value such as a title cannot add markup. A name that the data does not hold writes nothing. In an Atom template, `{{content_html}}` inside `<content type="html">` escapes the HTML, as Atom expects.
 
@@ -575,33 +595,33 @@ The templates share these maps:
 
 | Map | Keys |
 | --- | --- |
-| `repo` | Every page of a repository: `name`, `description`, `default_branch`, `url` (the home), `clone_url` (`<base_url>/<r>.git`), `branches_url`, `tags_url`, `tags_feed_url`, `commits_url` (the default branch's first log page, empty when it names no commit), `has_releases` (whether the repository has a [release project](#release-directories)), `releases_url` and `releases_feed_url` (each empty without one). |
-| `ref` | The pages of a branch: `name`, `tree_url` (its root's tree page), `commits_url` (its first log page) and `commits_feed_url`. |
+| `repo` | Every page of a repository: `name`, `description`, `default_branch`, `url` (the home), `clone_url` (`<base_url>/<r>.git`), `branches_url`, `tags_url`, `tags_feed_url`, `commits_url` (the default branch's first commit list page, empty when it names no commit), `has_releases` (whether the repository has a [release project](#release-directories)), `releases_url` and `releases_feed_url` (each empty without one). |
+| `ref` | The pages of a branch: `name`, `tree_url` (its root's tree page), `commits_url` (its first commit list page) and `commits_feed_url`. |
 | Commit summary | `oid`, `short_oid` (7 hex digits), `subject`, `author` (a name), `date` (the committer date), `signature` (of a signed commit, or empty), `signature_kind` (`PGP`, `SSH` or `X.509`, from the line that opens the signature, or empty) and `url` (its commit page). It is `false` for a ref that names no commit, so `{{#commit}}…{{/commit}}` shows its contents only for a commit. |
 | Entry | One row of a directory: `name`, `kind` (`dir`, `file`, `executable`, `symlink` or `gitlink`), `is_dir`, `is_file`, `is_executable`, `is_symlink`, `is_gitlink`, `url` (empty without a page), `is_linked`, `link_target` (a symlink's target), `oid` and `size` (empty for a directory or a submodule). |
 | Breadcrumb | `name`, `url` and `is_last`. The last breadcrumb is the page's own directory or file, with an empty `url`. |
 | Project map | `name`, `url` (its page), `versions_url`, `versions_json_url`, `mise_toml` (the [mise example](#version-lists-and-mise), empty without `mise`), and `releases`: release maps of its listed releases newest first, then of its other releases in byte order of tag. |
-| Release map | `tag`, `version`, `date` (of its tag, as on the tags page), `url` (its page), `is_listed` (whether `versions.txt` lists it), `project_name` and `project_url` (empty for no project), `commit` (the tag's commit summary, `false` for a tag of a tree or a blob), `notes_html` (the tag message as Markdown, without its signature, with relative links that work on the release page), `signature` (of a signed tag, or empty), `signature_kind`, `has_sums` (whether it has `SHA256SUMS`), `is_mise` (whether its project has `mise`) and `assets`, each with `name`, `url` and `size`. |
+| Release map | `tag`, `version`, `date` (of its tag, as on the tag list), `url` (its page), `is_listed` (whether `versions.txt` lists it), `project_name` and `project_url` (empty for no project), `commit` (the tag's commit summary, `false` for a tag of a tree or a blob), `notes_html` (the tag message as Markdown, without its signature, with relative links that work on the release page), `signature` (of a signed tag, or empty), `signature_kind`, `has_sums` (whether it has `SHA256SUMS`), `is_mise` (whether its project has `mise`) and `assets`, each with `name`, `url` and `size`. |
 
-Each template also gets these keys:
+Each kind of page also gets these keys, by the key of its template:
 
-| Template | Keys |
+| Key | Keys |
 | --- | --- |
-| `index.html` | `repos`, one map for each repository in config order: `name`, `description`, `url` (its home), `clone_url`, `default_branch`, `modified` (the committer date of the default branch's newest commit, empty for an empty repository) and `projects`. A project, in config order, has `name`, `description`, `url` (its directory's tree page on the default branch), `has_releases` (whether it has a `tag_prefix`) and `releases_url` (its project page, or empty). |
-| `404.html` | None. |
-| `tree.html` | `repo`; `ref` (for an empty repository, the default branch with empty links); `is_home` (whether the page is `<r>/index.html`); `is_empty` (whether the default branch has no commit, so the home has no tree page); `commit` (the branch's newest commit summary on the root's page, `false` elsewhere); `path` (empty for the root); `is_root`; `breadcrumbs` (to the directory); `tree_entries` (directories first, then files, each group in byte order); and `documents`. |
-| `tree.html` `documents` | One map for each document, in [Documents](#documents) order: `kind`, the five kind flags (true for this one's kind), `is_main` (whether the page shows it first: the README, or else the first document), `path`, `url` (its blob page) and `rendered_html`. |
-| `blob.html` | `repo`; `ref`; `path`; `name` (the file name); `breadcrumbs` (to the file); `mode` (`100644` or `100755`); `is_executable`; `size`; `raw_url` and `has_raw` (empty and `false` over `raw_len_max`); `is_too_large` (over `blob_len_max`, so the page has no contents); `is_binary` (libgit2's check, false when too large); `is_image` (an [image extension](#files)); `is_markup` (Markdown or Org); `rendered_html` (the rendered view, or empty); `source_html` (the lines, empty when binary or too large); and `line_count`. |
-| `branches.html` | `repo`, and `branches` in byte order of name, each with `name`, `is_default`, `author` and `date` (of its commit), `tree_url`, `commits_url` and `commit` (its commit summary). A branch that names a tree or a blob has an empty `author`, `date` and links, and a `commit` of `false`. |
-| `tags.html` | `repo`, and `tags`, newest first by the tagger's date, else the commit's committer date. A tie sorts in byte order of name, and a tag with neither date comes last. Each tag has `name`, `is_annotated`, `author` (the tagger, else the commit's author), `date` (or empty), `signature` (of a signed tag, or empty), `signature_kind`, `release_url` (or empty) and `commit` (the summary of the commit that the tag peels to, `false` for a tag of a tree or a blob). |
-| `commits.html` | `repo`; `ref`; `page`; and `commits`, newest first. `page` has `number` (from 1), `count`, `is_first`, `is_last`, and `first_url`, `previous_url`, `next_url` and `last_url`, each empty when there is no such page or it is this page. A commit has the commit summary keys and `refs`, the branches and tags that name it, each with `name`, `kind` (`branch` or `tag`), `is_branch`, `is_tag` and `url` (a branch's tree page, or the tags page). |
-| `commit.html` | `repo`; `commit`; `stats` (`file_count`, `additions` and `deletions`, which count the lines that the page shows); `is_truncated` (whether a cap cut the diff); `files` (in changed-files tree order); and `tree`. `commit` has the commit summary keys and `body` (the message after the subject), `author_date`, `committer` (a name), `is_root`, `is_merge` and `parents`, each with `oid`, `short_oid` and `url`, and an empty `subject`, `author` and `date`. |
-| `commit.html` `files` | `index` (from 0), `anchor` (`diff-<index>`), `path`, `old_path` and `similarity` (in percent, `100` for an exact rename, both empty unless renamed), `status` (`added`, `deleted`, `modified`, `renamed` or `type-changed`), `is_added`, `is_deleted`, `is_modified`, `is_renamed`, `is_type_changed`, `is_too_large`, `is_binary`, `is_shown` (whether the page shows its diff), `is_truncated` (whether a cap cut its diff), `additions`, `deletions`, `diff_html`, `is_image` (whether the page shows it as an [image](#history)), `old_image_url` and `new_image_url` (each side as a `data:` URI, empty for a missing side or one that `image_len_max` leaves out) and `is_image_omitted` (whether a side with bytes was left out). |
-| `commit.html` `tree` | The root node of the changed-files tree. A node has `name`, `is_dir`, `children` (empty for a file) and `file` (a file's map from `files`, `false` for a directory), so a partial that includes itself can render it. |
-| `releases.html` | `repo`; `projects` (a project map for each release project, in config order); and `releases` (a release map for every release: each project's releases in project order, then the releases of no project in byte order of tag). |
-| `release-project.html` | `repo`, and `project`, the project map. |
-| `release.html` | `repo`; `release`, the release map; and `project`, the project map of its project, `false` for a release of no project. |
-| Feeds | `repo` with absolute links; in `commits.atom` only, `ref` with absolute links; `feed`; and `feed_entries`, newest first. `feed` has `id` and `url` (the feed's own URL), `html_url` (the first log page, the tags page or the releases page) and `modified`. An entry has `id`, `title`, `url`, `modified`, `author`, `content` (text, empty for a release) and `content_html` (HTML, empty for a commit or a tag). A relative link in `content_html` is relative to the entry's page, so the fixture's feeds set `xml:base="{{url}}"` on `<content>`. |
+| `index` | `repos`, one map for each repository in config order: `name`, `description`, `url` (its home), `clone_url`, `default_branch`, `modified` (the committer date of the default branch's newest commit, empty for an empty repository) and `projects`. A project, in config order, has `name`, `description`, `url` (its directory's tree page on the default branch), `has_releases` (whether it has a `tag_prefix`) and `releases_url` (its project page, or empty). |
+| `not_found` | None. |
+| `tree` | `repo`; `ref` (for an empty repository, the default branch with empty links); `is_home` (whether the page is `<r>/index.html`); `is_empty` (whether the default branch has no commit, so the home has no tree page); `commit` (the branch's newest commit summary on the root's page, `false` elsewhere); `path` (empty for the root); `is_root`; `breadcrumbs` (to the directory); `tree_entries` (directories first, then files, each group in byte order); and `documents`. |
+| `tree` `documents` | One map for each document, in [Documents](#documents) order: `kind`, the five kind flags (true for this one's kind), `is_main` (whether the page shows it first: the README, or else the first document), `path`, `url` (its blob page) and `rendered_html`. |
+| `blob` | `repo`; `ref`; `path`; `name` (the file name); `breadcrumbs` (to the file); `mode` (`100644` or `100755`); `is_executable`; `size`; `raw_url` and `has_raw` (empty and `false` over `raw_len_max`); `is_too_large` (over `blob_len_max`, so the page has no contents); `is_binary` (libgit2's check, false when too large); `is_image` (an [image extension](#files)); `is_markup` (Markdown or Org); `rendered_html` (the rendered view, or empty); `source_html` (the lines, empty when binary or too large); and `line_count`. |
+| `branch_list` | `repo`, and `branches` in byte order of name, each with `name`, `is_default`, `author` and `date` (of its commit), `tree_url`, `commits_url` and `commit` (its commit summary). A branch that names a tree or a blob has an empty `author`, `date` and links, and a `commit` of `false`. |
+| `tag_list` | `repo`, and `tags`, newest first by the tagger's date, else the commit's committer date. A tie sorts in byte order of name, and a tag with neither date comes last. Each tag has `name`, `is_annotated`, `author` (the tagger, else the commit's author), `date` (or empty), `signature` (of a signed tag, or empty), `signature_kind`, `release_url` (or empty) and `commit` (the summary of the commit that the tag peels to, `false` for a tag of a tree or a blob). |
+| `commit_list` | `repo`; `ref`; `page`; and `commits`, newest first. `page` has `number` (from 1), `count`, `is_first`, `is_last`, and `first_url`, `previous_url`, `next_url` and `last_url`, each empty when there is no such page or it is this page. A commit has the commit summary keys and `refs`, the branches and tags that name it, each with `name`, `kind` (`branch` or `tag`), `is_branch`, `is_tag` and `url` (a branch's tree page, or the tag list). |
+| `commit` | `repo`; `commit`; `stats` (`file_count`, `additions` and `deletions`, which count the lines that the page shows); `is_truncated` (whether a cap cut the diff); `files` (in changed-files tree order); and `tree`. `commit` has the commit summary keys and `body` (the message after the subject), `author_date`, `committer` (a name), `is_root`, `is_merge` and `parents`, each with `oid`, `short_oid` and `url`, and an empty `subject`, `author` and `date`. |
+| `commit` `files` | `index` (from 0), `anchor` (`diff-<index>`), `path`, `old_path` and `similarity` (in percent, `100` for an exact rename, both empty unless renamed), `status` (`added`, `deleted`, `modified`, `renamed` or `type-changed`), `is_added`, `is_deleted`, `is_modified`, `is_renamed`, `is_type_changed`, `is_too_large`, `is_binary`, `is_shown` (whether the page shows its diff), `is_truncated` (whether a cap cut its diff), `additions`, `deletions`, `diff_html`, `is_image` (whether the page shows it as an [image](#history)), `old_image_url` and `new_image_url` (each side as a `data:` URI, empty for a missing side or one that `image_len_max` leaves out) and `is_image_omitted` (whether a side with bytes was left out). |
+| `commit` `tree` | The root node of the changed-files tree. A node has `name`, `is_dir`, `children` (empty for a file) and `file` (a file's map from `files`, `false` for a directory), so a partial that includes itself can render it. |
+| `release_list` | `repo`; `projects` (a project map for each release project, in config order); and `releases` (a release map for every release: each project's releases in project order, then the releases of no project in byte order of tag). |
+| `release_project` | `repo`, and `project`, the project map. |
+| `release` | `repo`; `release`, the release map; and `project`, the project map of its project, `false` for a release of no project. |
+| `tag_feed`, `commit_feed`, `release_feed` | `repo` with absolute links; in `commit_feed` only, `ref` with absolute links; `feed`; and `feed_entries`, newest first. `feed` has `id` and `url` (the feed's own URL), `html_url` (the first commit list page, the tag list or the release list) and `modified`. An entry has `id`, `title`, `url`, `modified`, `author`, `content` (text, empty for a release) and `content_html` (HTML, empty for a commit or a tag). A relative link in `content_html` is relative to the entry's page, so the fixture's feeds set `xml:base="{{url}}"` on `<content>`. |
 
 `source_html` is a `<pre class="surge-code"><code>` with a code line for each line of the blob. The line's number is an `<a id="L<n>" href="#L<n>">`.
 

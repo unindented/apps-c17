@@ -17,11 +17,6 @@ struct RepoScan;
 struct SiteConfig;
 struct TemplateSet;
 
-/** The templates of a repo's pages, which every build compiles. */
-#define REPO_PAGES_TEMPLATES                                                                      \
-  STR_INIT("tree.html"), STR_INIT("blob.html"), STR_INIT("branches.html"), STR_INIT("tags.html"), \
-      STR_INIT("commits.html"), STR_INIT("commit.html")
-
 /** What the pages of one repo left out, which a verbose build notes. */
 struct RepoPagesNotes {
   /**

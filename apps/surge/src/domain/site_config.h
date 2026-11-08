@@ -115,6 +115,71 @@ struct SurgeLimits {
 };
 
 /**
+ * The `[templates]` table: the name of the template of each kind of page, relative to
+ * `templates_dir`. Each name is a safe relative template name, and two keys may name one template.
+ * Each default is the key, with `_` as `-`, and `.html` for a page or `.atom` for a feed, except
+ * `not_found`, whose default is `404.html`.
+ */
+struct SurgeTemplates {
+  /** The site index. */
+  struct Str index;
+
+  /** Each repo home and each tree page. */
+  struct Str tree;
+
+  /** Each blob page. */
+  struct Str blob;
+
+  /** Each branch list. */
+  struct Str branch_list;
+
+  /** Each tag list. */
+  struct Str tag_list;
+
+  /** Each tag feed. */
+  struct Str tag_feed;
+
+  /** Each commit page. */
+  struct Str commit;
+
+  /** Each commit list. */
+  struct Str commit_list;
+
+  /** Each commit feed. */
+  struct Str commit_feed;
+
+  /** Each release page, which only a site with a release project renders. */
+  struct Str release;
+
+  /** Each release list, which only a site with a release project renders. */
+  struct Str release_list;
+
+  /** Each release project's page, which only a site with a release project renders. */
+  struct Str release_project;
+
+  /** Each release feed, which only a site with a release project renders. */
+  struct Str release_feed;
+
+  /** The not-found page. */
+  struct Str not_found;
+};
+
+/** Number of keys of the `[templates]` table, one per field of `SurgeTemplates`. */
+enum { SURGE_TEMPLATE_KEY_COUNT = 14 };
+
+/** One key of the `[templates]` table, with the name it holds. */
+struct SurgeTemplateKey {
+  /** Key in the table, such as `commit_list`. */
+  const char* key;
+
+  /** Template name the key holds. */
+  struct Str name;
+
+  /** Whether only a site with a release project renders the template. */
+  bool is_release;
+};
+
+/**
  * Configuration loaded from `surge.toml`. Every string and array it points at is either a default
  * literal or a copy in the arena `site_config_load` was given. Each directory and repo path is
  * resolved against the directory of the config file, so the build reads the paths as they are.
@@ -158,6 +223,9 @@ struct SiteConfig {
 
   /** The `[limits]` table. */
   struct SurgeLimits limits;
+
+  /** The `[templates]` table. */
+  struct SurgeTemplates templates;
 
   /** The repos, in config order, which may be `NULL` when `repo_count` is `0`. */
   const struct SurgeRepo* repos;
@@ -211,6 +279,20 @@ int site_config_load(struct SiteConfig* site_config,
  * @return `0` on success, or `-1` when the write fails.
  */
 int site_config_print(const struct SiteConfig* site_config, struct Os* os, struct Arena scratch)
+    __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Lists every key of the `[templates]` table of `site_config`, in table order, with the name
+ *        it holds.
+ *
+ * @param site_config Configuration whose names are listed. Must not be `NULL`.
+ * @param keys_out    Receives the keys, in the order the table lists them: `index`, `tree`, `blob`,
+ *                    `branch_list`, `tag_list`, `tag_feed`, `commit`, `commit_list`, `commit_feed`,
+ *                    `release`, `release_list`, `release_project`, `release_feed` and `not_found`.
+ *                    Must not be `NULL`.
+ */
+void site_config_template_keys(const struct SiteConfig* site_config,
+                               struct SurgeTemplateKey keys_out[SURGE_TEMPLATE_KEY_COUNT])
     __attribute__((nonnull(1, 2)));
 
 #endif

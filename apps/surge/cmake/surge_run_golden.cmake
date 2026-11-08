@@ -10,7 +10,8 @@
 # byte too: libgit2 writes the same pack for the same objects on one thread. Each pack is also
 # checked with `git verify-pack` and a strict `git index-pack`, and each `info/refs` against
 # `git for-each-ref` of its source. Before the comparison, a dry run must keep every output. After
-# it, a commit moves a branch: a dry run must write only what the move decides, and after a build
+# it, a config that renames two templates in a `[templates]` table must make every page again and
+# give the same output. Then a commit moves a branch: a dry run must write only what the move decides, and after a build
 # that fails at a page, the next two builds must keep the previous pack one build. Then limits that
 # give a blob a raw copy but no shown page, and a `base_url` with a path, check that copy and the
 # paths of `_headers`, and last a changed blob must make only what it decides again. The first
@@ -164,6 +165,58 @@ apps_golden_compare_trees(
   VERSION "${SURGE_VERSION}"
   VERSIONED "\\.(html|xml|atom|txt|json)$"
   EXCLUDE "_surge/output-cache.tsv"
+)
+
+# A second config renames `tree.html` and `commit.html` and names them in a `[templates]` table. The
+# page recipe holds every template name, so a dry run makes every page again, and the build after it
+# writes the same pages. The templates and the config are put back afterwards, and a build settles
+# the output cache on the first config's recipe for the steps below.
+set(templates_config_file "${SURGE_SCRATCH_DIR}/surge.toml")
+file(READ "${templates_config_file}" templates_config_text)
+set(templates_dir "${SURGE_SCRATCH_DIR}/templates")
+file(RENAME "${templates_dir}/tree.html" "${templates_dir}/repo-tree.html")
+file(RENAME "${templates_dir}/commit.html" "${templates_dir}/commit-page.html")
+file(APPEND "${templates_config_file}"
+     "\n[templates]\ntree = \"repo-tree.html\"\ncommit = \"commit-page.html\"\n"
+)
+apps_golden_run_build(
+  EXECUTABLE "${SURGE_EXECUTABLE}"
+  EMULATOR ${SURGE_EMULATOR}
+  WORKING_DIRECTORY "${SURGE_SCRATCH_DIR}"
+  LABEL "dry run with renamed templates"
+  ARGS --dry-run
+  STDOUT renamed_stdout
+)
+string(REGEX MATCHALL "keep\t[^\n]+" renamed_keeps "${renamed_stdout}")
+foreach(line IN LISTS renamed_keeps)
+  if(line MATCHES "\\.(html|atom)$" AND NOT line MATCHES "^keep\tpublic/[^/]+\\.git/")
+    message(FATAL_ERROR "the dry run with renamed templates keeps a page: '${line}'")
+  endif()
+endforeach()
+apps_golden_run_build(
+  EXECUTABLE "${SURGE_EXECUTABLE}"
+  EMULATOR ${SURGE_EMULATOR}
+  WORKING_DIRECTORY "${SURGE_SCRATCH_DIR}"
+  LABEL "fixture site with renamed templates"
+  ARGS --workers 2
+)
+apps_golden_compare_trees(
+  EXPECTED_DIR "${SURGE_EXPECTED_DIR}"
+  ACTUAL_DIR "${actual_dir}"
+  SCRATCH_DIR "${SURGE_SCRATCH_DIR}"
+  VERSION "${SURGE_VERSION}"
+  VERSIONED "\\.(html|xml|atom|txt|json)$"
+  EXCLUDE "_surge/output-cache.tsv"
+)
+file(RENAME "${templates_dir}/repo-tree.html" "${templates_dir}/tree.html")
+file(RENAME "${templates_dir}/commit-page.html" "${templates_dir}/commit.html")
+file(WRITE "${templates_config_file}" "${templates_config_text}")
+apps_golden_run_build(
+  EXECUTABLE "${SURGE_EXECUTABLE}"
+  EMULATOR ${SURGE_EMULATOR}
+  WORKING_DIRECTORY "${SURGE_SCRATCH_DIR}"
+  LABEL "fixture site with its templates put back"
+  ARGS --workers 2
 )
 
 # Each clone export holds a pack git reads, and the refs of its source.

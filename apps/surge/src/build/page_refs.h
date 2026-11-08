@@ -12,12 +12,6 @@ struct RepoModel;
 struct SiteConfig;
 struct TemplateValue;
 
-/** Name of a branches page's template. */
-#define PAGE_REFS_BRANCHES_TEMPLATE S("branches.html")
-
-/** Name of a tags page's template. */
-#define PAGE_REFS_TAGS_TEMPLATE S("tags.html")
-
 /** Output path of a branches page below the repo's directory. */
 #define PAGE_REFS_BRANCHES_PAGE S("branches/index.html")
 
@@ -39,7 +33,7 @@ struct PageRefsDated {
 /**
  * @brief Returns the data tree of a repo's branches page, `<r>/branches/index.html`.
  *
- * `apps/surge/README.md#data-trees` lists its keys, in the `branches.html` row.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `branch_list` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.
@@ -55,7 +49,7 @@ struct TemplateValue* page_refs_branches_value(const struct SiteConfig* site_con
  * @brief Returns the data tree of a repo's tags page, `<r>/tags/index.html`.
  *
  * It lists the tags in the order of `page_refs_tags_newest`. `apps/surge/README.md#data-trees`
- * lists its keys, in the `tags.html` row.
+ * lists its keys, in the `tag_list` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.

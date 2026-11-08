@@ -30,7 +30,7 @@ A module can skip a layer, and modules in one directory can depend on each other
 ### Phases
 
 1. **Load inputs** (`load_build_inputs`): Load the config, check the input directories, set up libgit2, open each repository to find its git directory, reject an `output_dir` that overlaps an input, and list and stat the templates and static files.
-2. **Load templates** (`load_templates`): Read and compile every page template and partial, without the release templates when no repo has a release project.
+2. **Load templates** (`load_templates`): Read and compile every template that the `[templates]` table names, each once, and every partial, without the release templates when no repo has a release project.
 3. **Load the output cache** (`load_recipe_id`, `load_output_cache`): Make the page recipe's id, and read `_surge/output-cache.tsv` unless `--force` is set.
 4. **Scan** (`scan_repos`): On the worker pool, read each repository into a `RepoScan`, and write a changed clone pack below `TMPDIR`.
 5. **Manifest** (`populate_output_manifest`): Record every output path with its attributes, and reject every conflict.
@@ -39,7 +39,7 @@ A module can skip a layer, and modules in one directory can depend on each other
 8. **Pages** (`write_repo_pages`): On the worker pool, make or keep every page, feed and raw copy of every repo.
 9. **Clone exports** (`write_clone_exports`): Copy each new pack and idx, then make `HEAD`, `info/refs` and `objects/info/packs`, and `_headers` when `headers_file` is set.
 10. **Releases** (`write_release_outputs`): Make or keep the release pages, version lists and assets of each repo.
-11. **Site pages** (`write_site_pages`): Make or keep `index.html` and `404.html`.
+11. **Site pages** (`write_site_pages`): Make or keep the site index, `index.html`, and the not-found page, `404.html`.
 12. **Static files** (`copy_static_files`): Copy or keep each static file.
 13. **Write the output cache** (`write_output_cache`): Write a row for each output that the build wrote or kept, also when an earlier write phase failed.
 14. **Remove stale outputs** (`prune_stale_outputs`): Remove every entry below `output_dir` that is not an output, only when every write succeeded.
@@ -95,7 +95,7 @@ The header of each module documents its interface.
 `surge` adds these parts of its own:
 
 - Each output declares its inputs as attributes, such as `recipe=`, `map=`, `refs=`, `tree=`, `blob=`, `commit=` and `releases=`. [README.md](README.md#output-cache) lists what each output depends on.
-- The page recipe is the generator string, the grammars, the site keys, every limit but `pack_len_max`, and the path, size and modification time of every template. A code change to what a page holds needs a new version before a release, because the version is the only part of the recipe that a code change moves.
+- The page recipe is the generator string, the grammars, the site keys, every limit but `pack_len_max`, every name of the `[templates]` table, and the path, size and modification time of every template. A code change to what a page holds needs a new version before a release, because the version is the only part of the recipe that a code change moves.
 - A failure inside libgit2 reads `<operation>: <libgit2 message> (in repo '<repo>')`, and only `repository_fail` writes it. A message about a branch ends with `(in repo '<repo>', branch '<branch>')`.
 
 ## Design decisions

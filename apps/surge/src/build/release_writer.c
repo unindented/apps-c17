@@ -279,15 +279,15 @@ static int release_writer_write_make(struct Arena* perm,
       return 0;
     case RELEASE_OUTPUT_INDEX:
       value = page_release_index_value(site_config, repo, perm, scratch);
-      template_name = PAGE_RELEASE_INDEX_TEMPLATE;
+      template_name = site_config->templates.release_list;
       break;
     case RELEASE_OUTPUT_PROJECT:
       value = page_release_project_value(site_config, repo, output->project, perm, scratch);
-      template_name = PAGE_RELEASE_PROJECT_TEMPLATE;
+      template_name = site_config->templates.release_project;
       break;
     default:
       value = page_release_tag_value(site_config, repo, output->release, perm, scratch);
-      template_name = PAGE_RELEASE_TAG_TEMPLATE;
+      template_name = site_config->templates.release;
       break;
   }
   // The page grows in `perm` after its data tree.

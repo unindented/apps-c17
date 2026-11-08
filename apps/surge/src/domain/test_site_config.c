@@ -1,6 +1,7 @@
 #include <acutest.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <string.h>
 
 #include "core/arena.h"
 #include "core/buf.h"
@@ -150,6 +151,122 @@ static void test_load_reads_every_key(void) {
   TEST_CHECK(!repo->is_mise);
 }
 
+/**
+ * The keys of the `[templates]` table in table order, each with its default and whether only a site
+ * with a release project renders its template.
+ */
+static const struct {
+  const char* key;
+  const char* name_default;
+  bool is_release;
+} TEMPLATE_KEYS[] = {
+    {"index", "index.html", false},
+    {"tree", "tree.html", false},
+    {"blob", "blob.html", false},
+    {"branch_list", "branch-list.html", false},
+    {"tag_list", "tag-list.html", false},
+    {"tag_feed", "tag-feed.atom", false},
+    {"commit", "commit.html", false},
+    {"commit_list", "commit-list.html", false},
+    {"commit_feed", "commit-feed.atom", false},
+    {"release", "release.html", true},
+    {"release_list", "release-list.html", true},
+    {"release_project", "release-project.html", true},
+    {"release_feed", "release-feed.atom", true},
+    {"not_found", "404.html", false},
+};
+
+_Static_assert(sizeof(TEMPLATE_KEYS) / sizeof(TEMPLATE_KEYS[0]) == SURGE_TEMPLATE_KEY_COUNT,
+               "the test lists every key of the table");
+
+// Without a `[templates]` table, and with an empty one, every key holds its default, and
+// `site_config_template_keys` lists the keys in table order.
+static void test_load_applies_template_defaults(void) {
+  static const char* const texts[] = {SITE_KEYS REPO_TABLE, SITE_KEYS "[templates]\n" REPO_TABLE};
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(texts) / sizeof(texts[0])); i++) {
+    struct SiteConfig site_config;
+    struct Log log = test_log();
+    TEST_CHECK(load_text(texts[i], &site_config, &log) == 0);
+    TEST_CHECK(test_log_is_empty(&log));
+    struct SurgeTemplateKey keys[SURGE_TEMPLATE_KEY_COUNT];
+    site_config_template_keys(&site_config, keys);
+    for (ptrdiff_t j = 0; j < SURGE_TEMPLATE_KEY_COUNT; j++) {
+      TEST_CHECK(strcmp(keys[j].key, TEMPLATE_KEYS[j].key) == 0);
+      TEST_CHECK(test_text_is(keys[j].name, "%s", TEMPLATE_KEYS[j].name_default));
+      TEST_CHECK(keys[j].is_release == TEMPLATE_KEYS[j].is_release);
+      TEST_MSG("config %td, key '%s'", i, TEMPLATE_KEYS[j].key);
+    }
+  }
+  struct SiteConfig site_config;
+  struct Log log = test_log();
+  TEST_ASSERT(load_text(SITE_KEYS REPO_TABLE, &site_config, &log) == 0);
+  TEST_CHECK(test_text_is(site_config.templates.commit_list, "commit-list.html"));
+  TEST_CHECK(test_text_is(site_config.templates.not_found, "404.html"));
+}
+
+// Each key of `[templates]` is read into its own field, and a table that sets one key keeps the
+// default of every other.
+static void test_load_reads_each_template_key(void) {
+  for (ptrdiff_t i = 0; i < SURGE_TEMPLATE_KEY_COUNT; i++) {
+    struct Arena text_arena = test_arena();
+    struct Buf text = {.arena = &text_arena};
+    buf_printf(&text, SITE_KEYS "[templates]\n%s = \"pages/%s.html\"\n" REPO_TABLE,
+               TEMPLATE_KEYS[i].key, TEMPLATE_KEYS[i].key);
+    struct SiteConfig site_config;
+    struct Log log = test_log();
+    TEST_CHECK(load_text(buf_cstr(&text), &site_config, &log) == 0);
+    TEST_CHECK(test_log_is_empty(&log));
+    struct SurgeTemplateKey keys[SURGE_TEMPLATE_KEY_COUNT];
+    site_config_template_keys(&site_config, keys);
+    for (ptrdiff_t j = 0; j < SURGE_TEMPLATE_KEY_COUNT; j++) {
+      if (i == j) {
+        TEST_CHECK(test_text_is(keys[j].name, "pages/%s.html", TEMPLATE_KEYS[j].key));
+      } else {
+        TEST_CHECK(test_text_is(keys[j].name, "%s", TEMPLATE_KEYS[j].name_default));
+      }
+      TEST_MSG("set '%s', key '%s'", TEMPLATE_KEYS[i].key, TEMPLATE_KEYS[j].key);
+    }
+  }
+}
+
+// A table that sets every key fills every field, and two keys may name one template.
+static void test_load_reads_every_template_key(void) {
+  struct SiteConfig site_config;
+  struct Log log = test_log();
+  TEST_CHECK(load_text(SITE_KEYS "[templates]\n"
+                                 "index = \"a/index.html\"\n"
+                                 "tree = \"a/tree.html\"\n"
+                                 "blob = \"a/blob.html\"\n"
+                                 "branch_list = \"a/branch-list.html\"\n"
+                                 "tag_list = \"a/tag-list.html\"\n"
+                                 "tag_feed = \"a/feed.atom\"\n"
+                                 "commit = \"a/commit.html\"\n"
+                                 "commit_list = \"a/commit-list.html\"\n"
+                                 "commit_feed = \"a/feed.atom\"\n"
+                                 "release = \"a/release.html\"\n"
+                                 "release_list = \"a/release-list.html\"\n"
+                                 "release_project = \"a/release-project.html\"\n"
+                                 "release_feed = \"a/feed.atom\"\n"
+                                 "not_found = \"a/404.html\"\n" REPO_TABLE,
+                       &site_config, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  const struct SurgeTemplates* templates = &site_config.templates;
+  TEST_CHECK(test_text_is(templates->index, "a/index.html"));
+  TEST_CHECK(test_text_is(templates->tree, "a/tree.html"));
+  TEST_CHECK(test_text_is(templates->blob, "a/blob.html"));
+  TEST_CHECK(test_text_is(templates->branch_list, "a/branch-list.html"));
+  TEST_CHECK(test_text_is(templates->tag_list, "a/tag-list.html"));
+  TEST_CHECK(test_text_is(templates->tag_feed, "a/feed.atom"));
+  TEST_CHECK(test_text_is(templates->commit, "a/commit.html"));
+  TEST_CHECK(test_text_is(templates->commit_list, "a/commit-list.html"));
+  TEST_CHECK(test_text_is(templates->commit_feed, "a/feed.atom"));
+  TEST_CHECK(test_text_is(templates->release, "a/release.html"));
+  TEST_CHECK(test_text_is(templates->release_list, "a/release-list.html"));
+  TEST_CHECK(test_text_is(templates->release_project, "a/release-project.html"));
+  TEST_CHECK(test_text_is(templates->release_feed, "a/feed.atom"));
+  TEST_CHECK(test_text_is(templates->not_found, "a/404.html"));
+}
+
 // A relative path, given or default, resolves against the config's directory, and an absolute one
 // stays as it is.
 static void test_load_resolves_paths_against_config_dir(void) {
@@ -275,6 +392,30 @@ static void test_load_rejects_unknown_keys(void) {
 }
 
 // `base_url` needs an HTTP(S) scheme and a host. `core/url`'s tests cover the other URLs without a
+// A `templates` key that is not a table, a key inside it that the schema does not define, and a
+// name that is not a safe relative template name are each rejected, named with the table.
+static void test_load_rejects_invalid_template_keys(void) {
+  TEST_CHECK(is_logged_as(SITE_KEYS "templates = \"tree.html\"\n" REPO_TABLE,
+                          "config key 'templates' must be a table\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[templates]\nbranches = \"branches.html\"\n" REPO_TABLE,
+                          "unknown config key 'templates.branches'\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[templates]\ntree = 1\n" REPO_TABLE,
+                          "config key 'templates.tree' must be a string\n"));
+  static const char* const names[] = {"", "../tree.html", "/tree.html", "a//b.html", "a b.html"};
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(names) / sizeof(names[0])); i++) {
+    struct Arena text_arena = test_arena();
+    struct Buf text = {.arena = &text_arena};
+    buf_printf(&text, SITE_KEYS "[templates]\ncommit_feed = \"%s\"\n" REPO_TABLE, names[i]);
+    struct Arena expected_arena = test_arena();
+    struct Buf expected = {.arena = &expected_arena};
+    buf_printf(&expected,
+               "config key 'templates.commit_feed' must be a safe relative template name: '%s'\n",
+               names[i]);
+    TEST_CHECK(is_logged_as(buf_cstr(&text), buf_cstr(&expected)));
+    TEST_MSG("name '%s'", names[i]);
+  }
+}
+
 // host.
 static void test_load_rejects_base_url_without_host(void) {
   TEST_CHECK(
@@ -509,6 +650,9 @@ static void test_load_reports_missing_file(void) {
 static void test_print_round_trips(void) {
   static const char text[] = SITE_KEYS
       "headers_file = true\n"
+      "[templates]\n"
+      "tree = \"pages/tree.html\"\n"
+      "not_found = \"errors/missing.html\"\n"
       "[[repo]]\n"
       "name = \"apps-c17\"\n"
       "path = \"repos/apps \\\"c17\\\"\"\n"
@@ -545,6 +689,22 @@ static void test_print_round_trips(void) {
       "image_len_max = 2097152\n"
       "pack_len_max = 26214400\n"
       "\n"
+      "[templates]\n"
+      "index = \"index.html\"\n"
+      "tree = \"pages/tree.html\"\n"
+      "blob = \"blob.html\"\n"
+      "branch_list = \"branch-list.html\"\n"
+      "tag_list = \"tag-list.html\"\n"
+      "tag_feed = \"tag-feed.atom\"\n"
+      "commit = \"commit.html\"\n"
+      "commit_list = \"commit-list.html\"\n"
+      "commit_feed = \"commit-feed.atom\"\n"
+      "release = \"release.html\"\n"
+      "release_list = \"release-list.html\"\n"
+      "release_project = \"release-project.html\"\n"
+      "release_feed = \"release-feed.atom\"\n"
+      "not_found = \"errors/missing.html\"\n"
+      "\n"
       "[[repo]]\n"
       "name = \"apps-c17\"\n"
       "path = \"repos/apps \\\"c17\\\"\"\n"
@@ -569,6 +729,9 @@ static void test_print_round_trips(void) {
   TEST_CHECK(str_eq(reloaded.repos[0].projects[0].tag_prefix, S("sosig-v")));
   TEST_CHECK(reloaded.repos[0].projects[0].is_mise);
   TEST_CHECK(reloaded.has_headers_file);
+  TEST_CHECK(test_text_is(reloaded.templates.tree, "pages/tree.html"));
+  TEST_CHECK(test_text_is(reloaded.templates.not_found, "errors/missing.html"));
+  TEST_CHECK(test_text_is(reloaded.templates.commit, "commit.html"));
 }
 
 // A repo's `description` set to an empty string shows no description and hides the repository's
@@ -608,6 +771,22 @@ static void test_empty_repo_description_is_set(void) {
                                   "image_len_max = 2097152\n"
                                   "pack_len_max = 26214400\n"
                                   "\n"
+                                  "[templates]\n"
+                                  "index = \"index.html\"\n"
+                                  "tree = \"tree.html\"\n"
+                                  "blob = \"blob.html\"\n"
+                                  "branch_list = \"branch-list.html\"\n"
+                                  "tag_list = \"tag-list.html\"\n"
+                                  "tag_feed = \"tag-feed.atom\"\n"
+                                  "commit = \"commit.html\"\n"
+                                  "commit_list = \"commit-list.html\"\n"
+                                  "commit_feed = \"commit-feed.atom\"\n"
+                                  "release = \"release.html\"\n"
+                                  "release_list = \"release-list.html\"\n"
+                                  "release_project = \"release-project.html\"\n"
+                                  "release_feed = \"release-feed.atom\"\n"
+                                  "not_found = \"404.html\"\n"
+                                  "\n"
                                   "[[repo]]\n"
                                   "name = \"one\"\n"
                                   "path = \"repos/one\"\n"
@@ -617,6 +796,9 @@ static void test_empty_repo_description_is_set(void) {
 TEST_LIST = {
     {"load applies defaults", test_load_applies_defaults},
     {"load reads every key", test_load_reads_every_key},
+    {"load applies template defaults", test_load_applies_template_defaults},
+    {"load reads each template key", test_load_reads_each_template_key},
+    {"load reads every template key", test_load_reads_every_template_key},
     {"load resolves paths against config dir", test_load_resolves_paths_against_config_dir},
     {"load accepts project names across repos", test_load_accepts_project_names_across_repos},
     {"load accepts project paths of any bytes", test_load_accepts_project_paths_of_any_bytes},
@@ -625,6 +807,7 @@ TEST_LIST = {
     {"load requires a repo", test_load_requires_a_repo},
     {"load reports wrong types", test_load_reports_wrong_types},
     {"load rejects unknown keys", test_load_rejects_unknown_keys},
+    {"load rejects invalid template keys", test_load_rejects_invalid_template_keys},
     {"load rejects base url without host", test_load_rejects_base_url_without_host},
     {"load rejects base url with path breaking byte",
      test_load_rejects_base_url_with_path_breaking_byte},

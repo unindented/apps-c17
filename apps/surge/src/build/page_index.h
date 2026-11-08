@@ -8,16 +8,16 @@ struct RepoModel;
 struct SiteConfig;
 struct TemplateValue;
 
-/** Name of the site index's template, and of its output below `output_dir`. */
-#define PAGE_INDEX_TEMPLATE S("index.html")
+/** Output path of the site index below `output_dir`. */
+#define PAGE_INDEX_PAGE S("index.html")
 
-/** Name of the not-found page's template, and of its output below `output_dir`. */
-#define PAGE_INDEX_NOT_FOUND_TEMPLATE S("404.html")
+/** Output path of the not-found page below `output_dir`. */
+#define PAGE_INDEX_NOT_FOUND_PAGE S("404.html")
 
 /**
  * @brief Returns the data tree of the site index, `index.html`.
  *
- * `apps/surge/README.md#data-trees` lists its keys, in the `index.html` row.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `index` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repos       What the scan found, one per repo of `site_config`. Must not be `NULL`.
@@ -34,7 +34,7 @@ struct TemplateValue* page_index_value(const struct SiteConfig* site_config,
 /**
  * @brief Returns the data tree of the not-found page, `404.html`.
  *
- * `apps/surge/README.md#data-trees` lists its keys, in the `404.html` row.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `not_found` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param arena       Arena that owns the tree. Must not be `NULL`.

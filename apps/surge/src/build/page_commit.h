@@ -13,9 +13,6 @@ struct RepoModel;
 struct SiteConfig;
 struct TemplateValue;
 
-/** Name of a commit page's template. */
-#define PAGE_COMMIT_TEMPLATE S("commit.html")
-
 /** The bytes of the two sides of one changed image, which a commit page embeds. */
 struct ChangedImage {
   /** The blob before the commit, or empty for an added file or a side left out. */
@@ -54,7 +51,7 @@ struct Str page_commit_link(struct Str path_to_root,
 /**
  * @brief Returns the data tree of a commit page.
  *
- * `apps/surge/README.md#data-trees` lists its keys, in the `commit.html` rows, and describes
+ * `apps/surge/README.md#data-trees` lists its keys, in the `commit` rows, and describes
  * `diff_html`.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.

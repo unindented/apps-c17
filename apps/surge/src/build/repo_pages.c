@@ -860,10 +860,13 @@ static struct Str repo_page(ptrdiff_t index);
 /**
  * @brief Returns the template of one of a repo's own pages.
  *
- * @param index Index of the page, as `repo_page` takes it.
+ * @param site_config Configuration whose `[templates]` table names the template. Must not be
+ *                    `NULL`.
+ * @param index       Index of the page, as `repo_page` takes it.
  * @return The template's name.
  */
-static struct Str repo_page_template(ptrdiff_t index);
+static struct Str repo_page_template(const struct SiteConfig* site_config, ptrdiff_t index)
+    __attribute__((nonnull(1)));
 
 /**
  * @brief Returns the number of a repo's own feeds: its tag feed, and its release feed when it has
@@ -1167,7 +1170,8 @@ static int repo_pages_job_repo_make(struct Arena* perm,
                                 &value_perm, scratch, &value, log) != 0) {
     return -1;
   }
-  return render_page(make, repo_page_template(make->index), value, perm, scratch, bytes_out, log);
+  return render_page(make, repo_page_template(make->run->inputs->site_config, make->index), value,
+                     perm, scratch, bytes_out, log);
 }
 
 static int repo_pages_job_repo_value(const struct RepoPagesRun* run,
@@ -1236,8 +1240,9 @@ static int repo_pages_job_repo_feeds_make(struct Arena* perm,
   const struct TemplateValue* value =
       is_tags ? page_feed_tags_value(site_config, repo, &value_perm)
               : page_feed_releases_value(site_config, repo, &value_perm, scratch);
-  return render_page(make, is_tags ? PAGE_FEED_TAGS_TEMPLATE : PAGE_FEED_RELEASES_TEMPLATE, value,
-                     perm, scratch, bytes_out, log);
+  return render_page(
+      make, is_tags ? site_config->templates.tag_feed : site_config->templates.release_feed, value,
+      perm, scratch, bytes_out, log);
 }
 
 static int repo_pages_job_dir(const struct RepoPagesRun* run,
@@ -1294,7 +1299,7 @@ static int repo_pages_job_dir_tree_make(struct Arena* perm,
   }
   const struct TemplateValue* value =
       page_tree_value(site_config, repo, tree, dir, false, documents, document_count, &value_perm);
-  return render_page(make, PAGE_TREE_TEMPLATE, value, perm, scratch, bytes_out, log);
+  return render_page(make, site_config->templates.tree, value, perm, scratch, bytes_out, log);
 }
 
 static int repo_pages_job_dir_file(const struct RepoPagesRun* run,
@@ -1416,7 +1421,8 @@ static int repo_pages_job_dir_file_page_make(struct Arena* perm,
   }
   const struct TemplateValue* value =
       page_blob_value(site_config, repo, tree, entry, &content, &value_perm, scratch);
-  const int rc = render_page(make, PAGE_BLOB_TEMPLATE, value, perm, scratch, bytes_out, log);
+  const int rc =
+      render_page(make, site_config->templates.blob, value, perm, scratch, bytes_out, log);
   // The highlighted lines and the rendered view cost more to make than to fault in again, so their
   // pages are given back with the page's.
   arena_discard(&value_perm, perm_beg, value_perm.beg - perm_beg);
@@ -1475,7 +1481,8 @@ static int repo_pages_job_log_page_make(struct Arena* perm,
   }
   const struct TemplateValue* value = page_log_value(site_config, repo, tree, job->item_index,
                                                      page_count, commits, end - begin, &value_perm);
-  return render_page(make, PAGE_LOG_TEMPLATE, value, perm, scratch, bytes_out, log);
+  return render_page(make, site_config->templates.commit_list, value, perm, scratch, bytes_out,
+                     log);
 }
 
 static int repo_pages_job_log_feed(const struct RepoPagesRun* run,
@@ -1518,7 +1525,8 @@ static int repo_pages_job_log_feed_make(struct Arena* perm,
   }
   const struct TemplateValue* value =
       page_feed_commits_value(site_config, repo, tree, commits, count, &value_perm);
-  return render_page(make, PAGE_FEED_COMMITS_TEMPLATE, value, perm, scratch, bytes_out, log);
+  return render_page(make, site_config->templates.commit_feed, value, perm, scratch, bytes_out,
+                     log);
 }
 
 static int repo_pages_job_commits(const struct RepoPagesRun* run,
@@ -1579,7 +1587,8 @@ static int repo_pages_job_commits_make(struct Arena* perm,
   }
   const struct TemplateValue* value = page_commit_value(site_config, repo, &detail, &changeset,
                                                         fragments, images, &value_perm, scratch);
-  const int rc = render_page(make, PAGE_COMMIT_TEMPLATE, value, perm, scratch, bytes_out, log);
+  const int rc =
+      render_page(make, site_config->templates.commit, value, perm, scratch, bytes_out, log);
   // The diff and its highlighted lines cost more to make than to fault in again, so their pages are
   // given back with the page's.
   arena_discard(&value_perm, perm_beg, value_perm.beg - perm_beg);
@@ -1953,10 +1962,10 @@ static struct Str repo_page(ptrdiff_t index) {
   return pages[index];
 }
 
-static struct Str repo_page_template(ptrdiff_t index) {
-  const struct Str templates[] = {PAGE_TREE_TEMPLATE, PAGE_REFS_BRANCHES_TEMPLATE,
-                                  PAGE_REFS_TAGS_TEMPLATE};
-  return templates[index];
+static struct Str repo_page_template(const struct SiteConfig* site_config, ptrdiff_t index) {
+  const struct SurgeTemplates* templates = &site_config->templates;
+  const struct Str names[] = {templates->tree, templates->branch_list, templates->tag_list};
+  return names[index];
 }
 
 static ptrdiff_t repo_feed_count(const struct RepoModel* repo) {

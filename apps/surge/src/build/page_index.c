@@ -43,7 +43,7 @@ struct TemplateValue* page_index_value(const struct SiteConfig* site_config,
                                        const struct RepoModel* repos,
                                        ptrdiff_t repo_count,
                                        struct Arena* arena) {
-  struct TemplateValue* root = page_context_new(site_config, PAGE_INDEX_TEMPLATE, arena);
+  struct TemplateValue* root = page_context_new(site_config, PAGE_INDEX_PAGE, arena);
   struct TemplateValue* list = template_value_list(repo_count, arena);
   for (ptrdiff_t i = 0; i < repo_count; i++) {
     list->items[i] = page_index_value_repo(site_config, &repos[i], arena);
@@ -54,7 +54,7 @@ struct TemplateValue* page_index_value(const struct SiteConfig* site_config,
 
 struct TemplateValue* page_index_not_found_value(const struct SiteConfig* site_config,
                                                  struct Arena* arena) {
-  return page_context_new(site_config, PAGE_INDEX_NOT_FOUND_TEMPLATE, arena);
+  return page_context_new(site_config, PAGE_INDEX_NOT_FOUND_PAGE, arena);
 }
 
 static struct TemplateValue* page_index_value_repo(const struct SiteConfig* site_config,

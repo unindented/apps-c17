@@ -15,9 +15,6 @@ struct TemplateValue;
 struct TreeDir;
 struct TreeEntry;
 
-/** Name of the template of a repo's home and of every tree page. */
-#define PAGE_TREE_TEMPLATE S("tree.html")
-
 /** Output path of a repo home below the repo's directory. */
 #define PAGE_TREE_HOME_PAGE S("index.html")
 
@@ -37,7 +34,7 @@ struct TreeDocument {
  * @brief Returns the data tree of a repo's home, `<r>/index.html`, or of the tree page of `dir`,
  *        `<r>/tree/<ref>/<p>/index.html`, which one template renders alike.
  *
- * `apps/surge/README.md#data-trees` lists its keys, in the `tree.html` rows.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `tree` rows.
  *
  * @param site_config    Configuration of the build. Must not be `NULL`.
  * @param repo           What the scan found for the repo. Must not be `NULL`.

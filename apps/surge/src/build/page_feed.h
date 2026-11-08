@@ -12,21 +12,6 @@ struct RepoModel;
 struct SiteConfig;
 struct TemplateValue;
 
-/** Name of a branch's commit feed's template. */
-#define PAGE_FEED_COMMITS_TEMPLATE S("commits.atom")
-
-/** Name of a repo's tag feed's template. */
-#define PAGE_FEED_TAGS_TEMPLATE S("tags.atom")
-
-/** Name of a repo's release feed's template. */
-#define PAGE_FEED_RELEASES_TEMPLATE S("releases.atom")
-
-/** The feed templates every site needs: a branch's commits and a repo's tags. */
-#define PAGE_FEED_TEMPLATES STR_INIT("commits.atom"), STR_INIT("tags.atom")
-
-/** The feed template a site with a release project needs. */
-#define PAGE_FEED_RELEASE_TEMPLATES STR_INIT("releases.atom")
-
 /** Output path of a repo's tag feed below the repo's directory. */
 #define PAGE_FEED_TAGS_PAGE S("tags.atom")
 
@@ -49,7 +34,8 @@ struct Str page_feed_commits_path(struct Str repo_name, struct Str branch_name, 
  * @brief Returns the data tree of a branch's commit feed, `<r>/commits/<ref>.atom`.
  *
  * Its entries are the branch's newest commits. `apps/surge/README.md#feeds` describes them, and
- * `apps/surge/README.md#data-trees` lists the keys, in the Feeds row.
+ * `apps/surge/README.md#data-trees` lists the keys, in the `tag_feed`, `commit_feed`,
+ * `release_feed` row.
  *
  * @param site_config  Configuration of the build. Must not be `NULL`.
  * @param repo         What the scan found for the repo. Must not be `NULL`.

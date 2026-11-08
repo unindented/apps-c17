@@ -13,9 +13,6 @@ struct SiteConfig;
 struct TemplateValue;
 struct TreeEntry;
 
-/** Name of a blob page's template. */
-#define PAGE_BLOB_TEMPLATE S("blob.html")
-
 /** What the job of a blob page read of the blob, which the page shows. */
 struct BlobContent {
   /** Bytes of the blob, or empty when it is over `blob_len_max` and was not read. */
@@ -58,7 +55,7 @@ struct Str page_blob_image_type(struct Str name);
 /**
  * @brief Returns the data tree of the blob page of `entry`, `<r>/blob/<ref>/<p>/index.html`.
  *
- * `apps/surge/README.md#data-trees` lists its keys, in the `blob.html` row.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `blob` row.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repo        What the scan found for the repo. Must not be `NULL`.

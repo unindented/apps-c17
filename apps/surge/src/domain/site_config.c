@@ -85,6 +85,7 @@ static const struct Str config_keys[] = {
     STR_INIT("feed_count"),
     STR_INIT("headers_file"),
     STR_INIT("limits"),
+    STR_INIT("templates"),
     STR_INIT("repo"),
     // clang-format on
 };
@@ -148,8 +149,8 @@ static const struct Str PROJECT_NAMES_RESERVED[] = {
 };
 
 /**
- * @brief Copies the top-level keys and the `[limits]` table into `site_config`, stopping at the
- *        first error.
+ * @brief Copies the top-level keys, the `[limits]` table and the `[templates]` table into
+ *        `site_config`, stopping at the first error.
  *
  * @param site_config Config that receives the values. Must not be `NULL`.
  * @param table       Parsed top-level table.
@@ -175,6 +176,20 @@ static int site_config_load_fields(struct SiteConfig* site_config,
 static int site_config_load_fields_limits(struct SurgeLimits* limits,
                                           toml_datum_t table,
                                           struct Log* log) __attribute__((nonnull(1, 3)));
+
+/**
+ * @brief Copies the `[templates]` table into `templates`, stopping at the first error.
+ *
+ * @param templates Templates that receive the names, holding their defaults. Must not be `NULL`.
+ * @param table     Parsed top-level table.
+ * @param perm      Arena that owns the copied names. Must not be `NULL`.
+ * @param log       Log that receives the error. Must not be `NULL`.
+ * @return `0` on success or when the table is absent, or `-1` after logging the first error.
+ */
+static int site_config_load_fields_templates(struct SurgeTemplates* templates,
+                                             toml_datum_t table,
+                                             struct Arena* perm,
+                                             struct Log* log) __attribute__((nonnull(1, 3, 4)));
 
 /**
  * @brief Copies every `[[repo]]` table into `site_config`, and checks the names across repos.
@@ -325,6 +340,23 @@ void site_config_init(struct SiteConfig* site_config) {
               .image_len_max = IMAGE_LEN_MAX_DEFAULT,
               .pack_len_max = PACK_LEN_MAX_DEFAULT,
           },
+      .templates =
+          {
+              .index = S("index.html"),
+              .tree = S("tree.html"),
+              .blob = S("blob.html"),
+              .branch_list = S("branch-list.html"),
+              .tag_list = S("tag-list.html"),
+              .tag_feed = S("tag-feed.atom"),
+              .commit = S("commit.html"),
+              .commit_list = S("commit-list.html"),
+              .commit_feed = S("commit-feed.atom"),
+              .release = S("release.html"),
+              .release_list = S("release-list.html"),
+              .release_project = S("release-project.html"),
+              .release_feed = S("release-feed.atom"),
+              .not_found = S("404.html"),
+          },
   };
 }
 
@@ -379,6 +411,13 @@ int site_config_print(const struct SiteConfig* site_config, struct Os* os, struc
              limits->diff_line_count_max, limits->diff_len_max, limits->image_len_max,
              limits->pack_len_max);
 
+  struct SurgeTemplateKey template_keys[SURGE_TEMPLATE_KEY_COUNT];
+  site_config_template_keys(site_config, template_keys);
+  buf_append(&text, S("\n[templates]\n"));
+  for (ptrdiff_t i = 0; i < SURGE_TEMPLATE_KEY_COUNT; i++) {
+    toml_print_key_string(&text, template_keys[i].key, template_keys[i].name);
+  }
+
   for (ptrdiff_t i = 0; i < site_config->repo_count; i++) {
     const struct SurgeRepo* repo = &site_config->repos[i];
     buf_append(&text, S("\n[[repo]]\n"));
@@ -405,6 +444,32 @@ int site_config_print(const struct SiteConfig* site_config, struct Os* os, struc
     }
   }
   return os_print(os, 1, buf_str(&text));
+}
+
+void site_config_template_keys(const struct SiteConfig* site_config,
+                               struct SurgeTemplateKey keys_out[SURGE_TEMPLATE_KEY_COUNT]) {
+  const struct SurgeTemplates* templates = &site_config->templates;
+  const struct SurgeTemplateKey keys[] = {
+      {"index", templates->index, false},
+      {"tree", templates->tree, false},
+      {"blob", templates->blob, false},
+      {"branch_list", templates->branch_list, false},
+      {"tag_list", templates->tag_list, false},
+      {"tag_feed", templates->tag_feed, false},
+      {"commit", templates->commit, false},
+      {"commit_list", templates->commit_list, false},
+      {"commit_feed", templates->commit_feed, false},
+      {"release", templates->release, true},
+      {"release_list", templates->release_list, true},
+      {"release_project", templates->release_project, true},
+      {"release_feed", templates->release_feed, true},
+      {"not_found", templates->not_found, false},
+  };
+  _Static_assert(sizeof(keys) / sizeof(keys[0]) == SURGE_TEMPLATE_KEY_COUNT,
+                 "every field of SurgeTemplates is a key");
+  for (ptrdiff_t i = 0; i < SURGE_TEMPLATE_KEY_COUNT; i++) {
+    keys_out[i] = keys[i];
+  }
 }
 
 static int site_config_load_fields(struct SiteConfig* site_config,
@@ -458,7 +523,10 @@ static int site_config_load_fields(struct SiteConfig* site_config,
   if (toml_copy_bool(table, S(""), "headers_file", &site_config->has_headers_file, log) != 0) {
     return -1;
   }
-  return site_config_load_fields_limits(&site_config->limits, table, log);
+  if (site_config_load_fields_limits(&site_config->limits, table, log) != 0) {
+    return -1;
+  }
+  return site_config_load_fields_templates(&site_config->templates, table, perm, log);
 }
 
 static int site_config_load_fields_limits(struct SurgeLimits* limits,
@@ -527,6 +595,56 @@ static int site_config_load_fields_limits(struct SurgeLimits* limits,
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(keys) / sizeof(keys[0])); i++) {
     if (toml_copy_size(value, key_prefix, &keys[i], log) != 0) {
+      return -1;
+    }
+  }
+  return 0;
+}
+
+static int site_config_load_fields_templates(struct SurgeTemplates* templates,
+                                             toml_datum_t table,
+                                             struct Arena* perm,
+                                             struct Log* log) {
+  const toml_datum_t value = toml_get(table, "templates");
+  if (value.type == TOML_UNKNOWN) {
+    return 0;
+  }
+  if (value.type != TOML_TABLE) {
+    return log_error(log, "config key 'templates' must be a table");
+  }
+  // The keys in the order the table lists them, each with the field it fills.
+  const struct {
+    const char* key;
+    struct Str* name;
+  } keys[] = {
+      {"index", &templates->index},
+      {"tree", &templates->tree},
+      {"blob", &templates->blob},
+      {"branch_list", &templates->branch_list},
+      {"tag_list", &templates->tag_list},
+      {"tag_feed", &templates->tag_feed},
+      {"commit", &templates->commit},
+      {"commit_list", &templates->commit_list},
+      {"commit_feed", &templates->commit_feed},
+      {"release", &templates->release},
+      {"release_list", &templates->release_list},
+      {"release_project", &templates->release_project},
+      {"release_feed", &templates->release_feed},
+      {"not_found", &templates->not_found},
+  };
+  _Static_assert(sizeof(keys) / sizeof(keys[0]) == SURGE_TEMPLATE_KEY_COUNT,
+                 "every field of SurgeTemplates is a key");
+  struct Str known_keys[SURGE_TEMPLATE_KEY_COUNT];
+  for (ptrdiff_t i = 0; i < SURGE_TEMPLATE_KEY_COUNT; i++) {
+    known_keys[i] = str_from_cstr(keys[i].key);
+  }
+  const struct Str key_prefix = S("templates.");
+  if (toml_require_known_keys(value, known_keys, SURGE_TEMPLATE_KEY_COUNT, S("config"), key_prefix,
+                              (struct Str){0}, log) != 0) {
+    return -1;
+  }
+  for (ptrdiff_t i = 0; i < SURGE_TEMPLATE_KEY_COUNT; i++) {
+    if (toml_copy_template_name(value, key_prefix, keys[i].key, perm, keys[i].name, log) != 0) {
       return -1;
     }
   }

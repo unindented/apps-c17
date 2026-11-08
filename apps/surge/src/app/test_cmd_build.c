@@ -1,4 +1,5 @@
 #include <acutest.h>
+#include <errno.h>
 #include <ftw.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -58,13 +59,14 @@ static void remove_site(const char* site_dir) {
 
 /**
  * @brief Makes a site below the temporary directory: the golden site's templates, and a config of
- *        `config_extra` and one repo, the fixture repository `showcase`.
+ *        `config_extra` and one repo, the fixture repository `showcase`, with `repo_extra`.
  *
  * @param config_extra Terminated keys that lead the config, or `NULL` for none.
+ * @param repo_extra   Terminated keys that end the repo's table, or `NULL` for none.
  * @param arena        Arena that owns the returned path. Must not be `NULL`.
  * @return The site's directory.
  */
-static struct Str make_site(const char* config_extra, struct Arena* arena) {
+static struct Str make_site(const char* config_extra, const char* repo_extra, struct Arena* arena) {
   const char* repos_dir = getenv("SURGE_FIXTURE_REPOS_DIR");
   TEST_ASSERT(repos_dir != NULL);
   const char* tmp_dir = getenv("TMPDIR");
@@ -104,8 +106,9 @@ static struct Str make_site(const char* config_extra, struct Arena* arena) {
              "\n"
              "[[repo]]\n"
              "name = \"showcase\"\n"
-             "path = \"%s/showcase\"\n",
-             repos_dir);
+             "path = \"%s/showcase\"\n"
+             "%s",
+             repos_dir, repo_extra != NULL ? repo_extra : "");
   TEST_ASSERT(os_write(os, path_join(site, S("surge.toml"), arena),
                        (struct OsSource){.bytes = buf_str(&config)}, S("failed to write config"),
                        &log) == 0);
@@ -164,10 +167,79 @@ static struct Str mask_ids(struct Str attributes, struct Arena* arena) {
   return buf_str(&masked);
 }
 
+/**
+ * @brief Writes `text` to `name` below `site_dir`, creating its parent directories.
+ *
+ * @param site_dir Directory of the site.
+ * @param name     Terminated path below it. Must not be `NULL`.
+ * @param text     Terminated contents. Must not be `NULL`.
+ */
+static void write_below(struct Str site_dir, const char* name, const char* text) {
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  TEST_ASSERT(os_write(os_posix(), path_join(site_dir, str_from_cstr(name), &arena),
+                       (struct OsSource){.bytes = str_from_cstr(text)}, S("failed to write"),
+                       &log) == 0);
+}
+
+/**
+ * @brief Reports whether `name` below `site_dir` holds exactly `expected`.
+ *
+ * @param site_dir Directory of the site.
+ * @param name     Terminated path below it. Must not be `NULL`.
+ * @param expected Terminated text the file must hold. Must not be `NULL`.
+ * @return `true` when the file is read and holds `expected`.
+ */
+static bool is_file_below(struct Str site_dir, const char* name, const char* expected) {
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  struct Str text = {0};
+  if (os_read(os_posix(), path_join(site_dir, str_from_cstr(name), &arena), 1024 * 1024,
+              OS_READ_TEXT, &arena, &text, S("failed to read"), &log) != 0) {
+    return false;
+  }
+  return test_text_is(text, "%s", expected);
+}
+
+/**
+ * @brief Returns the page recipe that the output cache of the site's last build records for every
+ *        page, or empty when two rows name different recipes.
+ *
+ * @param site_dir Directory of the site.
+ * @param arena    Arena that owns the recipe. Must not be `NULL`.
+ * @return The recipe's id, or empty.
+ */
+static struct Str cached_page_recipe(struct Str site_dir, struct Arena* arena) {
+  struct OutputCache cache = {0};
+  struct Str reason = {0};
+  TEST_ASSERT(output_cache_load(path_join(site_dir, S("public/_surge/output-cache.tsv"), arena),
+                                os_posix(), arena, test_arena(), &cache,
+                                &reason) == BUILD_CACHE_FILE_LOADED);
+  struct Str recipe = {0};
+  ptrdiff_t page_count = 0;
+  for (ptrdiff_t i = 0; i < cache.row_count; i++) {
+    // Every page and feed declares the recipe first, and no other output declares one.
+    const struct OutputCacheRow* row = &cache.rows[i];
+    if (!str_startswith(row->attributes, S("recipe="))) {
+      continue;
+    }
+    const struct Str id = str_cut(str_cut(row->attributes, ' ').head, '=').tail;
+    if (recipe.len > 0 && !str_eq(id, recipe)) {
+      TEST_MSG("page '%.*s' names another recipe: '%.*s'", STR_FMT(row->relative_path),
+               STR_FMT(row->attributes));
+      return (struct Str){0};
+    }
+    recipe = id;
+    page_count++;
+  }
+  TEST_CHECK(page_count > 0);
+  return recipe;
+}
+
 // A build of a site writes its pages and its output cache, and logs nothing.
 static void test_builds_the_site_and_its_output_cache(void) {
   struct Arena arena = test_arena();
-  const struct Str site = make_site(NULL, &arena);
+  const struct Str site = make_site(NULL, NULL, &arena);
   struct Log log = test_log();
   TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
@@ -179,10 +251,57 @@ static void test_builds_the_site_and_its_output_cache(void) {
   remove_site(str_cstr(site, &arena));
 }
 
+// Two keys may name one template, which renders each kind of page with that page's own data.
+static void test_renders_a_shared_template_with_each_page_s_data(void) {
+  struct Arena arena = test_arena();
+  const struct Str site =
+      make_site("templates.commit_list = \"shared.html\"\ntemplates.commit = \"shared.html\"\n",
+                NULL, &arena);
+  write_below(site, "templates/shared.html",
+              "{{#page}}list {{number}}{{/page}}{{^page}}commit {{commit.short_oid}}{{/page}}\n");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(is_file_below(site, "public/showcase/commits/main/index.html", "list 1\n"));
+  TEST_CHECK(is_file_below(
+      site, "public/showcase/commit/119edc43de569e78adf5af0a0608e005771ac3ca/index.html",
+      "commit 119edc4\n"));
+  remove_site(str_cstr(site, &arena));
+}
+
+// A key that names another template between two builds changes the page recipe that every page
+// declares, so the second build makes every page again, as a template edit does. Both templates are
+// below `templates_dir` for both builds, so only the key changes.
+static void test_changed_template_key_makes_every_page_again(void) {
+  struct Arena arena = test_arena();
+  const struct Str site = make_site(NULL, NULL, &arena);
+  write_below(site, "templates/home.html", "home\n");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  const struct Str recipe = cached_page_recipe(site, &arena);
+  TEST_CHECK(recipe.len > 0);
+
+  struct Arena config_arena = test_arena();
+  struct Str config = {0};
+  const struct Str config_path = path_join(site, S("surge.toml"), &config_arena);
+  TEST_ASSERT(os_read(os_posix(), config_path, 1024 * 1024, OS_READ_TEXT, &config_arena, &config,
+                      S("failed to read config"), &log) == 0);
+  write_below(site, "surge.toml",
+              str_cstr(str_concat(S("templates.tree = \"home.html\"\n"), config, &config_arena),
+                       &config_arena));
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  const struct Str changed = cached_page_recipe(site, &arena);
+  TEST_CHECK(changed.len > 0 && !str_eq(changed, recipe));
+  TEST_CHECK(is_file_below(site, "public/showcase/index.html", "home\n"));
+  remove_site(str_cstr(site, &arena));
+}
+
 // A dry run of a site that was never built creates nothing, not even `output_dir`.
 static void test_dry_run_creates_nothing(void) {
   struct Arena arena = test_arena();
-  const struct Str site = make_site(NULL, &arena);
+  const struct Str site = make_site(NULL, NULL, &arena);
   struct Log log = test_log();
   TEST_CHECK(execute_build(site, (struct BuildOptions){.is_dry_run = true}, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
@@ -195,7 +314,7 @@ static void test_dry_run_creates_nothing(void) {
 // An `output_dir` that exists as a file cannot be prepared, which the build reports with the path.
 static void test_reports_an_output_dir_that_is_a_file(void) {
   struct Arena arena = test_arena();
-  const struct Str site = make_site("output_dir = \"out\"\n", &arena);
+  const struct Str site = make_site("output_dir = \"out\"\n", NULL, &arena);
   const struct Str out = path_join(site, S("out"), &arena);
   struct Log write_log = test_log();
   TEST_ASSERT(os_write(os_posix(), out, (struct OsSource){.bytes = S("x")}, S("failed to write"),
@@ -213,7 +332,7 @@ static void test_reports_an_output_dir_that_is_a_file(void) {
 // page it wrote and none for the page that failed, so the next build keeps only what this one made.
 static void test_failed_build_records_what_it_wrote(void) {
   struct Arena arena = test_arena();
-  const struct Str site = make_site(NULL, &arena);
+  const struct Str site = make_site(NULL, NULL, &arena);
   struct Log log = test_log();
   TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
   struct Log write_log = test_log();
@@ -250,7 +369,7 @@ static void test_failed_build_records_what_it_wrote(void) {
 // written.
 static void test_stops_at_a_template_that_does_not_load(void) {
   struct Arena arena = test_arena();
-  const struct Str site = make_site(NULL, &arena);
+  const struct Str site = make_site(NULL, NULL, &arena);
   struct Log write_log = test_log();
   TEST_ASSERT(os_write(os_posix(), path_join(site, S("templates/tree.html"), &arena),
                        (struct OsSource){.bytes = S("{{#entries}}")}, S("failed to write"),
@@ -267,11 +386,59 @@ static void test_stops_at_a_template_that_does_not_load(void) {
   remove_site(str_cstr(site, &arena));
 }
 
+// A template that a key names and that is missing stops the build when the templates load, naming
+// the template and the key. A template that two keys name names the first in table order.
+static void test_reports_a_missing_template_with_its_key(void) {
+  static const struct {
+    const char* config;
+    const char* key;
+  } cases[] = {
+      {"templates.tree = \"missing.html\"\n", "templates.tree"},
+      {"templates.not_found = \"missing.html\"\ntemplates.blob = \"missing.html\"\n",
+       "templates.blob"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    struct Arena arena = test_arena();
+    const struct Str site = make_site(cases[i].config, NULL, &arena);
+    struct Log log = test_log();
+    TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == -1);
+    const struct Str missing = path_join(site, S("templates/missing.html"), &arena);
+    TEST_CHECK(test_log_is(&log, "failed to read template: %s ('%.*s') (for '%s')\n",
+                           strerror(ENOENT), STR_FMT(missing), cases[i].key));
+    bool is_found = true;
+    (void)stat_below(site, "public", &is_found);
+    TEST_CHECK(!is_found);
+    remove_site(str_cstr(site, &arena));
+  }
+}
+
+// A release template is needed only by a site with a release project: without one, a missing
+// `release.html` fails no build, and with a repo's `releases_dir`, it stops the build, named with
+// its key.
+static void test_needs_release_templates_only_with_a_release_project(void) {
+  struct Arena arena = test_arena();
+  const struct Str site = make_site(NULL, NULL, &arena);
+  TEST_ASSERT(remove(str_cstr(path_join(site, S("templates/release.html"), &arena), &arena)) == 0);
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  remove_site(str_cstr(site, &arena));
+
+  const struct Str release_site = make_site(NULL, "releases_dir = \"releases\"\n", &arena);
+  const struct Str release_path = path_join(release_site, S("templates/release.html"), &arena);
+  TEST_ASSERT(remove(str_cstr(release_path, &arena)) == 0);
+  log = test_log();
+  TEST_CHECK(execute_build(release_site, (struct BuildOptions){0}, &log) == -1);
+  TEST_CHECK(test_log_is(&log, "failed to read template: %s ('%.*s') (for 'templates.release')\n",
+                         strerror(ENOENT), STR_FMT(release_path)));
+  remove_site(str_cstr(release_site, &arena));
+}
+
 // A root that fails its check stops the build before the overlap check, so a `static_dir` that is a
 // file is the one error even with an `output_dir` inside `templates_dir`.
 static void test_stops_at_a_bad_root_before_the_overlap_check(void) {
   struct Arena arena = test_arena();
-  const struct Str site = make_site("output_dir = \"templates/public\"\n", &arena);
+  const struct Str site = make_site("output_dir = \"templates/public\"\n", NULL, &arena);
   const struct Str static_path = path_join(site, S("static"), &arena);
   struct Log write_log = test_log();
   TEST_ASSERT(os_write(os_posix(), static_path, (struct OsSource){.bytes = S("x")},
@@ -289,10 +456,17 @@ static void test_stops_at_a_bad_root_before_the_overlap_check(void) {
 
 TEST_LIST = {
     {"builds the site and its output cache", test_builds_the_site_and_its_output_cache},
+    {"renders a shared template with each page's data",
+     test_renders_a_shared_template_with_each_page_s_data},
+    {"changed template key makes every page again",
+     test_changed_template_key_makes_every_page_again},
     {"dry run creates nothing", test_dry_run_creates_nothing},
     {"reports an output dir that is a file", test_reports_an_output_dir_that_is_a_file},
     {"failed build records what it wrote", test_failed_build_records_what_it_wrote},
     {"stops at a template that does not load", test_stops_at_a_template_that_does_not_load},
+    {"reports a missing template with its key", test_reports_a_missing_template_with_its_key},
+    {"needs release templates only with a release project",
+     test_needs_release_templates_only_with_a_release_project},
     {"stops at a bad root before the overlap check",
      test_stops_at_a_bad_root_before_the_overlap_check},
     {NULL, NULL},

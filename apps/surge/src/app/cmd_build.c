@@ -7,9 +7,7 @@
 #include <stdint.h>
 
 #include "build/export_writer.h"
-#include "build/page_feed.h"
 #include "build/page_index.h"
-#include "build/page_release.h"
 #include "build/release_scan.h"
 #include "build/release_writer.h"
 #include "build/repo_pages.h"
@@ -64,12 +62,6 @@ _Static_assert(PTRDIFF_MAX > 0xffffffff, "the arenas below need a 64-bit address
 #define BUILD_SCRATCH_LEN (3 * 1024 * BUILD_MIB)
 _Static_assert(2 * SURGE_RAW_LEN_MAX_LIMIT + BUILD_MIB <= BUILD_SCRATCH_LEN,
                "the scratch must hold a raw copy's comparison");
-
-/** The page templates a build renders, the release templates last. */
-static const struct Str BUILD_PAGE_TEMPLATES[] = {
-    STR_INIT("index.html"), STR_INIT("404.html"),   REPO_PAGES_TEMPLATES,
-    PAGE_FEED_TEMPLATES,    PAGE_RELEASE_TEMPLATES, PAGE_FEED_RELEASE_TEMPLATES,
-};
 
 /** The files the build reads below a root, with what `os_stat` reported for each. */
 struct BuildInputs {
@@ -149,8 +141,12 @@ struct SitePageMake {
   /** Build state. */
   const struct BuildState* state;
 
-  /** Name of the page's template, and of its output below `output_dir`. */
-  struct Str name;
+  /** Name of the page's template. */
+  struct Str template_name;
+
+  /** Output path of the page below `output_dir`, `PAGE_INDEX_PAGE` or
+      `PAGE_INDEX_NOT_FOUND_PAGE`. */
+  struct Str page;
 };
 
 /**
@@ -272,6 +268,10 @@ static int run_build_phases(struct BuildState* state, struct Log* log)
  * @brief Reads and compiles every page template the site needs and every partial, and reports every
  *        one that cannot be read or does not compile.
  *
+ * The page templates are the names of the `[templates]` table, each compiled once however many keys
+ * name it, without the release templates when no repo has a release project. A template that cannot
+ * be read names the first key in table order that names it, as `templates.<key>`.
+ *
  * @param state Build state that receives the set. Must not be `NULL`.
  * @param log   Log that receives every error. Must not be `NULL`.
  * @return `0` on success, or `-1` when a template fails.
@@ -279,22 +279,12 @@ static int run_build_phases(struct BuildState* state, struct Log* log)
 static int load_templates(struct BuildState* state, struct Log* log) __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Returns how many of `BUILD_PAGE_TEMPLATES` a site needs: all of them, or without the
- *        release templates at their end when no repo has a release project.
- *
- * @param site_config Loaded configuration. Must not be `NULL`.
- * @return The number of templates, from the start of `BUILD_PAGE_TEMPLATES`.
- */
-static ptrdiff_t load_templates_count(const struct SiteConfig* site_config)
-    __attribute__((nonnull(1)));
-
-/**
  * @brief Returns the id of the page recipe: what every page depends on besides its own inputs.
  *
  * The recipe is the generator string with the version, the grammars the build links, the site keys
- * and the limits of the config but `pack_len_max`, and the path, size and modification time of
- * every file below `templates_dir`, each text with its `\`, tab and newline escaped, one
- * `name=value` line each.
+ * and the limits of the config but `pack_len_max`, every name of the `[templates]` table, and the
+ * path, size and modification time of every file below `templates_dir`, each text with its `\`, tab
+ * and newline escaped, one `name=value` line each.
  *
  * @param state Build state whose inputs are loaded. Must not be `NULL`.
  * @return The id, in the main thread's perm.
@@ -444,16 +434,19 @@ static int write_site_pages(const struct BuildState* state, struct Log* log)
 /**
  * @brief Makes one page of the root, or keeps it.
  *
- * @param state   Build state. Must not be `NULL`.
- * @param name    Name of the page's template, and of its output below `output_dir`.
- * @param scratch Arena for the page and its render.
- * @param log     Log that receives the failure. Must not be `NULL`.
+ * @param state         Build state. Must not be `NULL`.
+ * @param template_name Name of the page's template.
+ * @param page          Output path of the page below `output_dir`, `PAGE_INDEX_PAGE` or
+ *                      `PAGE_INDEX_NOT_FOUND_PAGE`.
+ * @param scratch       Arena for the page and its render.
+ * @param log           Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` when the render or the write fails.
  */
 static int write_site_page(const struct BuildState* state,
-                           struct Str name,
+                           struct Str template_name,
+                           struct Str page,
                            struct Arena scratch,
-                           struct Log* log) __attribute__((nonnull(1, 4)));
+                           struct Log* log) __attribute__((nonnull(1, 5)));
 
 /**
  * @brief Renders one page of the root into `perm`, its data tree first, as `OutputWriterMakeFn`.
@@ -721,18 +714,33 @@ static int run_build_phases(struct BuildState* state, struct Log* log) {
 
 static int load_templates(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "compiling templates");
-  return template_set_load(state->site_config.templates_dir, BUILD_PAGE_TEMPLATES, NULL,
-                           load_templates_count(&state->site_config), state->os, &state->perm,
-                           state->scratch, &state->template_set, log);
-}
-
-static ptrdiff_t load_templates_count(const struct SiteConfig* site_config) {
-  const ptrdiff_t count =
-      (ptrdiff_t)(sizeof(BUILD_PAGE_TEMPLATES) / sizeof(BUILD_PAGE_TEMPLATES[0]));
-  const ptrdiff_t release_count =
-      (ptrdiff_t)(sizeof((struct Str[]){PAGE_RELEASE_TEMPLATES, PAGE_FEED_RELEASE_TEMPLATES}) /
-                  sizeof(struct Str));
-  return has_release_projects(site_config) ? count : count - release_count;
+  const struct SiteConfig* site_config = &state->site_config;
+  struct SurgeTemplateKey keys[SURGE_TEMPLATE_KEY_COUNT];
+  site_config_template_keys(site_config, keys);
+  const bool has_releases = has_release_projects(site_config);
+  struct Arena scratch = state->scratch;
+  struct Str names[SURGE_TEMPLATE_KEY_COUNT];
+  struct Str owners[SURGE_TEMPLATE_KEY_COUNT];
+  ptrdiff_t name_count = 0;
+  // The keys go in table order, so a template that two keys name is compiled once, for the first.
+  for (ptrdiff_t i = 0; i < SURGE_TEMPLATE_KEY_COUNT; i++) {
+    if (keys[i].is_release && !has_releases) {
+      continue;
+    }
+    bool is_listed = false;
+    for (ptrdiff_t j = 0; j < name_count && !is_listed; j++) {
+      is_listed = str_eq(names[j], keys[i].name);
+    }
+    if (!is_listed) {
+      names[name_count] = keys[i].name;
+      struct Buf owner = {.arena = &scratch};
+      buf_printf(&owner, "templates.%s", keys[i].key);
+      owners[name_count] = buf_str(&owner);
+      name_count++;
+    }
+  }
+  return template_set_load(site_config->templates_dir, names, owners, name_count, state->os,
+                           &state->perm, scratch, &state->template_set, log);
 }
 
 static struct Str load_recipe_id(struct BuildState* state) {
@@ -764,6 +772,13 @@ static struct Str load_recipe_id(struct BuildState* state) {
              site_config->log_page_size, site_config->feed_count, limits->blob_len_max,
              limits->raw_len_max, limits->diff_file_count_max, limits->diff_line_count_max,
              limits->diff_len_max, limits->image_len_max);
+  struct SurgeTemplateKey keys[SURGE_TEMPLATE_KEY_COUNT];
+  site_config_template_keys(site_config, keys);
+  for (ptrdiff_t i = 0; i < SURGE_TEMPLATE_KEY_COUNT; i++) {
+    buf_printf(&text, "templates.%s=", keys[i].key);
+    tsv_escape_append(&text, keys[i].name);
+    buf_append_char(&text, '\n');
+  }
   for (ptrdiff_t i = 0; i < state->templates.paths.count; i++) {
     const struct OsStat* stat = &state->templates.stats[i];
     struct Str relative = {0};
@@ -891,15 +906,15 @@ static int populate_output_manifest_site_pages(const struct BuildState* state,
   const struct Str index_attributes = buf_str(&index);
   const struct Str not_found_attributes = str_concat(S("recipe="), state->recipe_id, &scratch);
   const struct {
-    struct Str name;
+    struct Str page;
     struct Str attributes;
   } pages[] = {
-      {PAGE_INDEX_TEMPLATE, index_attributes},
-      {PAGE_INDEX_NOT_FOUND_TEMPLATE, not_found_attributes},
+      {PAGE_INDEX_PAGE, index_attributes},
+      {PAGE_INDEX_NOT_FOUND_PAGE, not_found_attributes},
   };
   int rc = 0;
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(pages) / sizeof(pages[0])); i++) {
-    if (manifest_builder_add_output(builder, pages[i].name, pages[i].name, pages[i].attributes,
+    if (manifest_builder_add_output(builder, pages[i].page, pages[i].page, pages[i].attributes,
                                     scratch, log) != 0) {
       rc = -1;
     }
@@ -1039,24 +1054,27 @@ static int write_release_outputs(const struct BuildState* state, struct Log* log
 
 static int write_site_pages(const struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "rendering site index");
-  if (write_site_page(state, PAGE_INDEX_TEMPLATE, state->scratch, log) != 0) {
+  const struct SurgeTemplates* templates = &state->site_config.templates;
+  if (write_site_page(state, templates->index, PAGE_INDEX_PAGE, state->scratch, log) != 0) {
     return -1;
   }
-  return write_site_page(state, PAGE_INDEX_NOT_FOUND_TEMPLATE, state->scratch, log);
+  return write_site_page(state, templates->not_found, PAGE_INDEX_NOT_FOUND_PAGE, state->scratch,
+                         log);
 }
 
 static int write_site_page(const struct BuildState* state,
-                           struct Str name,
+                           struct Str template_name,
+                           struct Str page,
                            struct Arena scratch,
                            struct Log* log) {
-  oom_set_job(name, NULL);
-  const struct Str output_path = path_join(state->site_config.output_dir, name, &scratch);
+  oom_set_job(page, NULL);
+  const struct Str output_path = path_join(state->site_config.output_dir, page, &scratch);
   // The page grows in a perm of its own, after its data tree, which the render's scratch does not
   // overlap, so it grows in place. Each gets half of what is left, up to the region's limit, so a
   // halved reservation halves both, and the scratch holds the read of the page in the output too.
   const char* region_end = scratch.limit != NULL ? scratch.limit : scratch.end;
   struct Arena page_arena = arena_split(&scratch, (region_end - scratch.beg) / 2);
-  struct SitePageMake make = {.state = state, .name = name};
+  struct SitePageMake make = {.state = state, .template_name = template_name, .page = page};
   return output_writer_produce(&state->writer, output_path, &state->cache, write_site_page_make,
                                &make, page_arena, scratch, S("failed to write page"), log);
 }
@@ -1069,7 +1087,7 @@ static int write_site_page_make(struct Arena* perm,
   const struct SitePageMake* make = userdata;
   const struct BuildState* state = make->state;
   const struct TemplateValue* value = NULL;
-  if (str_eq(make->name, PAGE_INDEX_TEMPLATE)) {
+  if (str_eq(make->page, PAGE_INDEX_PAGE)) {
     struct RepoModel* models = arena_new(perm, state->site_config.repo_count, struct RepoModel);
     for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
       models[i] = state->scans[i].model;
@@ -1078,8 +1096,8 @@ static int write_site_page_make(struct Arena* perm,
   } else {
     value = page_index_not_found_value(&state->site_config, perm);
   }
-  return template_value_render(state->template_set, make->name, value, make->name, perm, scratch,
-                               bytes_out, log);
+  return template_value_render(state->template_set, make->template_name, value, make->page, perm,
+                               scratch, bytes_out, log);
 }
 
 static int copy_static_files(const struct BuildState* state, struct Log* log) {

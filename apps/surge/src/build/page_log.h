@@ -13,9 +13,6 @@ struct RepoModel;
 struct SiteConfig;
 struct TemplateValue;
 
-/** Name of a log page's template. */
-#define PAGE_LOG_TEMPLATE S("commits.html")
-
 /**
  * @brief Returns the number of log pages of a branch: its commits in pages of `page_size`, and one
  *        page for none.
@@ -44,7 +41,7 @@ struct Str page_log_path(struct Str repo_name,
 /**
  * @brief Returns the data tree of one log page.
  *
- * `apps/surge/README.md#data-trees` lists its keys, in the `commits.html` row.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `commit_list` row.
  *
  * @param site_config  Configuration of the build. Must not be `NULL`.
  * @param repo         What the scan found for the repo. Must not be `NULL`.
