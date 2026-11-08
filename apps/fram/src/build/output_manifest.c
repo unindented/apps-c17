@@ -136,8 +136,8 @@ int output_manifest_populate(struct Manifest* manifest,
     }
   }
   if (manifest_builder_add_template_list(
-          &builder, S("aggregate_templates"), site_config->aggregate_templates,
-          site_config->aggregate_template_count, scratch, log) != 0) {
+          &builder, S("templates.aggregates"), site_config->templates.aggregates,
+          site_config->templates.aggregate_template_count, scratch, log) != 0) {
     rc = -1;
   }
   if (manifest_builder_add_copies(&builder, static_paths, static_stats, site_config->static_dir,

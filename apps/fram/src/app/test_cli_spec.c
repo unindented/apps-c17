@@ -131,13 +131,15 @@ static void test_config_command_is_dispatched(void) {
       "output_dir = \"sub/public\"\n"
       "templates_dir = \"sub/../templates\"\n"
       "static_dir = \"sub/static\"\n"
-      "album_template = \"album.html\"\n"
-      "aggregate_templates = []\n"
       "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
       "m = { width = 520, height = 360, quality = 80, crop = true }, "
       "l = { width = 792, height = 594, quality = 85 } }\n"
       "sort = { albums = \"asc\", media = \"asc\" }\n"
-      "video_frame_seconds = 1\n"));
+      "video_frame_seconds = 1\n"
+      "\n"
+      "[templates]\n"
+      "album = \"album.html\"\n"
+      "aggregates = []\n"));
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
   // No page was written, which is what separates `config` from `build`.
   TEST_CHECK(!os_memory_has_path(os, "public/index.html"));

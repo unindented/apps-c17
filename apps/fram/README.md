@@ -98,7 +98,7 @@ description = "Photos and videos of the family"
 author = "Daniel Perez Alvarez"
 ```
 
-This table lists every key that the config file can contain. `fram` rejects any other key, also inside a derivative table or the `sort` table. For example, a misspelled `ouput_dir` makes the load fail. `fram` does not ignore the key and use the default `output_dir`.
+This table and the [Templates table](#templates-table) list every key that the config file can contain. `fram` rejects any other key, also inside a derivative table, the `sort` table or the `[templates]` table. For example, a misspelled `ouput_dir` makes the load fail. `fram` does not ignore the key and use the default `output_dir`.
 
 | Key | Default | Bounds | Meaning |
 | --- | --- | --- | --- |
@@ -110,17 +110,31 @@ This table lists every key that the config file can contain. `fram` rejects any 
 | `output_dir` | `"public"` | Not empty | The directory that the build writes to and controls. See [Output directory](#output-directory). |
 | `templates_dir` | `"templates"` | A directory | The directory of the templates and partials. |
 | `static_dir` | `"static"` | A directory, if it exists | The files that the build copies into `output_dir`. A build skips it when it does not exist. |
-| `album_template` | `"album.html"` | A safe template name | The template of each album page. |
-| `aggregate_templates` | `[]` | An array of safe template names | The templates that the build renders once, with the root album's context. |
 | `derivatives` | `s`, `m` and `l` | One to six of `xs`, `s`, `m`, `l`, `xl` and `xxl` | The named derivatives. See [Derivatives](#derivatives). |
 | `sort` | `{ albums = "asc", media = "asc" }` | `"asc"` or `"desc"` for each | The order of each album's child albums and of its direct media items, by source filename. |
 | `video_frame_seconds` | `1` | 0 to 86400 | The position of the video poster frame, in seconds. A video that is not longer than this uses its midpoint. |
+| `templates` | | A table | The `[templates]` table below. |
 
 `fram` resolves each directory, the defaults included, against the directory of the config file, so `-c sub/fram.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from each directory, and rejects a directory that is then empty, `/` included. A directory can be an absolute path, or a relative path that contains `..`. `fram config` prints each directory resolved, and leaves out an empty optional string.
 
 The load stops at the first bad key and reports it. The build then stops before it reads anything else.
 
-A template name in the configuration must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.` and `/`, and it cannot contain an empty segment or the segment `.` or `..`. The name of an aggregate template is both its source path below `templates_dir` and its output path below `output_dir`, so a name that contains `/` makes the same subdirectories in `output_dir`.
+#### Templates table
+
+The optional `[templates]` table names the template of each kind of page, relative to `templates_dir`. Each key that the table leaves out keeps its default. A diagnostic names a key with its table, such as `config key 'templates.album' must be a safe relative template name: '../x.html'`.
+
+```toml
+[templates]
+album = "album.html"
+aggregates = []
+```
+
+| Key | Default | Bounds | Meaning |
+| --- | --- | --- | --- |
+| `album` | `"album.html"` | A safe template name | The template of each album page. |
+| `aggregates` | `[]` | An array of safe template names | The templates that the build renders once, with the root album's context. |
+
+A template name must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.` and `/`, and it cannot contain an empty segment or the segment `.` or `..`. The name of an aggregate template is both its source path below `templates_dir` and its output path below `output_dir`, so a name that contains `/` makes the same subdirectories in `output_dir`. Every template that the build renders must exist. A missing one fails the build with an error that names the template and the key, such as `(for 'templates.album')`.
 
 ### Output directory
 
@@ -273,8 +287,8 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 
 | Kind | Configured by | Rendered |
 | --- | --- | --- |
-| Album | `album_template` | Once for each album, to the album's `index.html`, with the album's fields, direct media, child albums and breadcrumbs. |
-| Aggregate | `aggregate_templates` | Once, with the root album's context, to the same relative path below `output_dir`. |
+| Album | `templates.album` | Once for each album, to the album's `index.html`, with the album's fields, direct media, child albums and breadcrumbs. |
+| Aggregate | `templates.aggregates` | Once, with the root album's context, to the same relative path below `output_dir`. |
 
 `{{value}}` escapes its output for HTML. `{{{value}}}` and `{{& value}}` write it without escaping, and work only for a key that ends in `_html`. `fram` makes no HTML of its own, so it has no such key, and an unescaped tag of any key that the data holds fails the render. So a value such as a title cannot add markup to a page. A name that the data does not hold writes nothing, as with `{{value}}`.
 

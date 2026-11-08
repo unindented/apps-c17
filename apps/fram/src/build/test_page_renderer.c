@@ -59,7 +59,7 @@ static void test_renders_pages_by_index(void) {
                                       {.perm = test_arena(), .scratch = test_arena()}};
 
   struct TemplateSet* template_set =
-      load_templates(site_config.templates_dir, &site_config.album_template, 1, os);
+      load_templates(site_config.templates_dir, &site_config.templates.album, 1, os);
   TEST_CHECK(page_renderer_render_pages(&site_config, template_set, albums, 2, 2, worker_arenas,
                                         false, os, test_arena(), rendered, &log) == 0);
   template_set_release(template_set);
@@ -87,7 +87,7 @@ static void test_reports_render_failure_per_album(void) {
   struct Log log = {.buf = {.arena = &arena}};
   struct JobArenas worker_arenas = {.perm = test_arena(), .scratch = test_arena()};
   struct TemplateSet* template_set =
-      load_templates(site_config.templates_dir, &site_config.album_template, 1, os);
+      load_templates(site_config.templates_dir, &site_config.templates.album, 1, os);
 
   TEST_CHECK(page_renderer_render_pages(&site_config, template_set, albums, 2, 1, &worker_arenas,
                                         false, os, test_arena(), rendered, &log) == -1);

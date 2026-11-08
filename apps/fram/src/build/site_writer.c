@@ -147,9 +147,9 @@ int site_writer_write_aggregates(const struct OutputWriter* writer,
                                  struct Arena output,
                                  struct Arena scratch,
                                  struct Log* log) {
-  for (ptrdiff_t i = 0; i < site_config->aggregate_template_count; i++) {
+  for (ptrdiff_t i = 0; i < site_config->templates.aggregate_template_count; i++) {
     if (write_rendered_template(writer, cache, site_config, template_set, root_album,
-                                site_config->aggregate_templates[i], output, scratch, log) != 0) {
+                                site_config->templates.aggregates[i], output, scratch, log) != 0) {
       return -1;
     }
   }

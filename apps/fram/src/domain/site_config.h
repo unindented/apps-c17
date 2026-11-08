@@ -66,6 +66,25 @@ enum GallerySortOrder {
 };
 
 /**
+ * The `[templates]` table: the name of each template the build renders, relative to
+ * `templates_dir`. Each name is a safe relative template name.
+ */
+struct GalleryTemplates {
+  /** Template of every album page. Defaults to `album.html`. */
+  struct Str album;
+
+  /**
+   * Templates rendered once as aggregate outputs, each name also its output path. Defaults to `[]`.
+   * It is `const` as a thread-safety invariant. Render workers reach this config through
+   * `TemplateContext`, and the default arrays only land in read-only data while they are `const`.
+   */
+  const struct Str* aggregates;
+
+  /** Number of names in `aggregates`. */
+  ptrdiff_t aggregate_template_count;
+};
+
+/**
  * Gallery configuration loaded from a config file, `fram.toml` by default. Every string and array
  * it points at is either a default literal or a copy in the arena `site_config_load` was given.
  */
@@ -94,19 +113,6 @@ struct SiteConfig {
   /** Directory containing static files copied as-is into `output_dir`. Defaults to `static`. */
   struct Str static_dir;
 
-  /** Safe relative template name for every album page. Defaults to `album.html`. */
-  struct Str album_template;
-
-  /**
-   * Safe relative template names rendered as aggregate outputs. Defaults to `[]`. It is `const` as
-   * a thread-safety invariant. Render workers reach this config through `TemplateContext`, and the
-   * default arrays only land in read-only data while they are `const`.
-   */
-  const struct Str* aggregate_templates;
-
-  /** Number of names in `aggregate_templates`. */
-  ptrdiff_t aggregate_template_count;
-
   /** Named derivative recipes, in configuration order. */
   const struct GalleryDerivative* derivatives;
 
@@ -121,6 +127,9 @@ struct SiteConfig {
 
   /** Preferred video-frame timestamp in seconds. Defaults to `1`. */
   ptrdiff_t video_frame_seconds;
+
+  /** The `[templates]` table. */
+  struct GalleryTemplates templates;
 };
 
 /**

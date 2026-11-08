@@ -19,13 +19,15 @@
   "output_dir = \"public\"\n"                                                      \
   "templates_dir = \"templates\"\n"                                                \
   "static_dir = \"static\"\n"                                                      \
-  "album_template = \"album.html\"\n"                                              \
-  "aggregate_templates = []\n"                                                     \
   "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, " \
   "m = { width = 520, height = 360, quality = 80, crop = true }, "                 \
   "l = { width = 792, height = 594, quality = 85 } }\n"                            \
   "sort = { albums = \"asc\", media = \"asc\" }\n"                                 \
-  "video_frame_seconds = 1\n"
+  "video_frame_seconds = 1\n"                                                      \
+  "\n"                                                                             \
+  "[templates]\n"                                                                  \
+  "album = \"album.html\"\n"                                                       \
+  "aggregates = []\n"
 
 /**
  * @brief Runs `fram config -c <config_path>` with the app's own spec, as `main` does.
@@ -68,7 +70,7 @@ static void test_prints_empty_template_array(void) {
                   "title = \"Test Gallery\"\n"
                   "description = \"Test description\"\n"
                   "author = \"Author Name\"\n"
-                  "aggregate_templates = []\n");
+                  "templates.aggregates = []\n");
   TEST_CHECK(run_config(S("fram.toml"), os) == EXIT_CODE_OK);
   // Compared whole, and `stderr` empty, for the reasons at `test_prints_loaded_config`.
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
@@ -98,13 +100,15 @@ static void test_prints_paths_resolved_against_config_dir(void) {
       "output_dir = \"sub/public\"\n"
       "templates_dir = \"sub/layouts\"\n"
       "static_dir = \"/srv/static\"\n"
-      "album_template = \"album.html\"\n"
-      "aggregate_templates = []\n"
       "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
       "m = { width = 520, height = 360, quality = 80, crop = true }, "
       "l = { width = 792, height = 594, quality = 85 } }\n"
       "sort = { albums = \"asc\", media = \"asc\" }\n"
-      "video_frame_seconds = 1\n"));
+      "video_frame_seconds = 1\n"
+      "\n"
+      "[templates]\n"
+      "album = \"album.html\"\n"
+      "aggregates = []\n"));
 }
 
 // A missing config is reported with the read failure that caused it, naming the path that `-c`

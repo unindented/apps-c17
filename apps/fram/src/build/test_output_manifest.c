@@ -187,8 +187,8 @@ static void test_registers_complete_output_set(void) {
   os_memory_write(os, "gallery/templates/map.xml", "map");
   os_memory_write(os, "gallery/static/a.txt", "static");
   static const struct Str aggregates[] = {STR_INIT("map.xml")};
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct MediaDerivative derivatives[] = {
       {.name = S("s"), .path = S("gallery/public/_fram/r/s/x.jpg")},
       {.name = S("m"), .path = S("gallery/public/_fram/r/m/x.jpg")},
@@ -407,28 +407,29 @@ static void test_rejects_album_aggregate_collision(void) {
   struct Os* os = init_manifest_fixture(&site_config);
   os_memory_write(os, "gallery/templates/index.html", "aggregate");
   static const struct Str aggregates[] = {STR_INIT("index.html")};
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
   struct Log log = test_log();
 
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
-  TEST_CHECK(test_log_is(&log,
-                         "duplicate output path for 'gallery/photos' and 'aggregate_templates[0]': "
-                         "'gallery/public/index.html'\n"));
+  TEST_CHECK(
+      test_log_is(&log,
+                  "duplicate output path for 'gallery/photos' and 'templates.aggregates[0]': "
+                  "'gallery/public/index.html'\n"));
 }
 
-// One name listed twice in `aggregate_templates` is rejected with each entry named by its index
+// One name listed twice in `templates.aggregates` is rejected with each entry named by its index
 // rather than by its own name. A bare template name reports it as `for 'dup.html' and 'dup.html'`,
 // which reads as a value colliding with itself and says nothing about which entry to remove.
 static void test_rejects_duplicate_template(void) {
   struct SiteConfig site_config;
   struct Os* os = init_manifest_fixture(&site_config);
   static const struct Str aggregates[] = {STR_INIT("dup.html"), STR_INIT("dup.html")};
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 2;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 2;
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
@@ -436,8 +437,8 @@ static void test_rejects_duplicate_template(void) {
 
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "duplicate output path for 'aggregate_templates[0]' and "
-                         "'aggregate_templates[1]': 'gallery/public/dup.html'\n"));
+                         "duplicate output path for 'templates.aggregates[0]' and "
+                         "'templates.aggregates[1]': 'gallery/public/dup.html'\n"));
 }
 
 // `output_manifest_populate` rejects an output path that names one of the build's own input files,
@@ -536,8 +537,8 @@ static void test_rejects_config_overwrite(void) {
   struct Os* os = init_manifest_fixture(&site_config);
   static const struct Str aggregates[] = {STR_INIT("fram.toml")};
   site_config.output_dir = S("gallery");
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
@@ -545,7 +546,7 @@ static void test_rejects_config_overwrite(void) {
 
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "output path would overwrite build input for 'aggregate_templates[0]': "
+                         "output path would overwrite build input for 'templates.aggregates[0]': "
                          "'gallery/fram.toml'\n"));
 }
 
@@ -576,8 +577,8 @@ static void test_rejects_template_overwrite(void) {
 
   // Second case: an aggregate lands on a hard link to an unconfigured partial.
   static const struct Str aggregates[] = {STR_INIT("card.html")};
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct Album partial_album = {.source_dir = S(""), .output_path = S("gallery/public/page.html")};
   const struct Album* partial_albums[] = {&partial_album};
   struct Manifest partial_manifest = {0};
@@ -585,7 +586,7 @@ static void test_rejects_template_overwrite(void) {
   TEST_CHECK(populate(&partial_manifest, &site_config, NULL, NULL, partial_albums, 1, os,
                       &partial_log) == -1);
   TEST_CHECK(test_log_is(&partial_log,
-                         "output path would overwrite build input for 'aggregate_templates[0]': "
+                         "output path would overwrite build input for 'templates.aggregates[0]': "
                          "'gallery/public/card.html'\n"));
 }
 
@@ -689,8 +690,8 @@ static void test_rejects_output_in_templates_dir(void) {
 
   // A configured aggregate whose name leads into the template tree is rejected by its list entry.
   static const struct Str aggregates[] = {STR_INIT("templates/index.html")};
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
@@ -698,7 +699,7 @@ static void test_rejects_output_in_templates_dir(void) {
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
                          "output path would write inside 'templates_dir' for "
-                         "'aggregate_templates[0]': 'gallery/templates/index.html'\n"));
+                         "'templates.aggregates[0]': 'gallery/templates/index.html'\n"));
 }
 
 // An output that would land below `static_dir` is rejected, because the next build would copy it as
@@ -759,15 +760,15 @@ static void test_rejects_oversize_template_path(void) {
 
   struct SiteConfig site_config;
   struct Os* os = init_manifest_fixture(&site_config);
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
   struct Log log = test_log();
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "output path for 'aggregate_templates[0]' exceeds max output path length "
+                         "output path for 'templates.aggregates[0]' exceeds max output path length "
                          "(%d bytes) at %td bytes: '%.*s'\n",
                          OUTPUT_PATH_RELATIVE_LEN_MAX, aggregates[0].len, STR_FMT(aggregates[0])));
 }
@@ -782,8 +783,8 @@ static void test_rejects_oversize_template_segment(void) {
 
   struct SiteConfig site_config;
   struct Os* os = init_manifest_fixture(&site_config);
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
   const struct Album* albums[] = {&album};
   struct Manifest manifest = {0};
@@ -791,7 +792,7 @@ static void test_rejects_oversize_template_segment(void) {
 
   TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "output path segment for 'aggregate_templates[0]' exceeds max filename "
+                         "output path segment for 'templates.aggregates[0]' exceeds max filename "
                          "length (%d bytes) at %zu bytes: '%s'\n",
                          FILENAME_LEN_MAX, sizeof(name) - 1, name));
 }

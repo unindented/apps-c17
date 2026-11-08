@@ -296,6 +296,9 @@ static int run_build_phases(struct BuildState* state, struct Log* log)
  * @brief Reads and compiles the album template, every aggregate template and every partial, and
  *        reports every one that cannot be read or does not compile.
  *
+ * A template that cannot be read names the first key of `[templates]` in table order that names it,
+ * as `templates.<key>`.
+ *
  * @param state Build state that receives the set. Must not be `NULL`.
  * @param log   Log that receives every error. Must not be `NULL`.
  * @return `0` on success, or `-1` when a template fails.
@@ -303,16 +306,22 @@ static int run_build_phases(struct BuildState* state, struct Log* log)
 static int load_templates(struct BuildState* state, struct Log* log) __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Adds `name` to the template names of a load, unless it is there already, as when an
- *        aggregate is also the album template.
+ * @brief Adds `name` to the template names of a load, with the key that names it, unless it is
+ *        there already, as when an aggregate is also the album template.
  *
  * @param names      Names so far, with room for one more. Must not be `NULL`.
+ * @param owners     Key of each name so far, parallel to `names`, with room for one more. Must not
+ *                   be `NULL`.
  * @param name_count Number of entries in `names`, which this increments when it adds one. Must not
  *                   be `NULL`.
  * @param name       Template name to add.
+ * @param owner      Key that names it, which a failure to read the template names.
  */
-static void load_templates_add(struct Str* names, ptrdiff_t* name_count, struct Str name)
-    __attribute__((nonnull(1, 2)));
+static void load_templates_add(struct Str* names,
+                               struct Str* owners,
+                               ptrdiff_t* name_count,
+                               struct Str name,
+                               struct Str owner) __attribute__((nonnull(1, 2, 3)));
 
 /**
  * @brief Builds the album and media skeleton and allocates one result slot per media item and per
@@ -695,25 +704,34 @@ cleanup:
 static int load_templates(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "compiling templates");
   const struct SiteConfig* site_config = &state->site_config;
-  const ptrdiff_t name_count_max = 1 + site_config->aggregate_template_count;
+  const struct GalleryTemplates* templates = &site_config->templates;
+  const ptrdiff_t name_count_max = 1 + templates->aggregate_template_count;
   struct Arena scratch = state->scratch;
   struct Str* names = arena_new(&scratch, name_count_max, struct Str);
+  struct Str* owners = arena_new(&scratch, name_count_max, struct Str);
   ptrdiff_t name_count = 0;
-  load_templates_add(names, &name_count, site_config->album_template);
-  for (ptrdiff_t i = 0; i < site_config->aggregate_template_count; i++) {
-    load_templates_add(names, &name_count, site_config->aggregate_templates[i]);
+  // The keys go in table order, so a template that two keys name names the first.
+  load_templates_add(names, owners, &name_count, templates->album, S("templates.album"));
+  for (ptrdiff_t i = 0; i < templates->aggregate_template_count; i++) {
+    load_templates_add(names, owners, &name_count, templates->aggregates[i],
+                       S("templates.aggregates"));
   }
-  return template_set_load(site_config->templates_dir, names, NULL, name_count, state->os,
+  return template_set_load(site_config->templates_dir, names, owners, name_count, state->os,
                            &state->perm, scratch, &state->template_set, log);
 }
 
-static void load_templates_add(struct Str* names, ptrdiff_t* name_count, struct Str name) {
+static void load_templates_add(struct Str* names,
+                               struct Str* owners,
+                               ptrdiff_t* name_count,
+                               struct Str name,
+                               struct Str owner) {
   for (ptrdiff_t i = 0; i < *name_count; i++) {
     if (str_eq(names[i], name)) {
       return;
     }
   }
   names[*name_count] = name;
+  owners[*name_count] = owner;
   (*name_count)++;
 }
 

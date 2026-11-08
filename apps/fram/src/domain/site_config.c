@@ -42,11 +42,10 @@ static const struct Str config_keys[] = {
     STR_INIT("output_dir"),
     STR_INIT("templates_dir"),
     STR_INIT("static_dir"),
-    STR_INIT("album_template"),
-    STR_INIT("aggregate_templates"),
     STR_INIT("derivatives"),
     STR_INIT("sort"),
     STR_INIT("video_frame_seconds"),
+    STR_INIT("templates"),
     // clang-format on
 };
 
@@ -64,6 +63,9 @@ static const struct Str derivative_keys[] = {STR_INIT("width"), STR_INIT("height
 
 /** Every key the `sort` table may hold, each read by `copy_sort`. */
 static const struct Str sort_keys[] = {STR_INIT("albums"), STR_INIT("media")};
+
+/** Every key the `[templates]` table may hold, each read by `copy_templates`. */
+static const struct Str templates_keys[] = {STR_INIT("album"), STR_INIT("aggregates")};
 
 static const struct GalleryDerivative DERIVATIVES_DEFAULT[] = {
     {.name = STR_INIT("s"), .width_px = 120, .height_px = 120, .quality = 70, .is_crop = true},
@@ -83,11 +85,11 @@ enum {
  * @brief Copies recognized configuration keys into gallery config storage.
  *
  * Rejects a key outside `config_keys`, then applies required and optional string keys, the
- * directory keys, which resolve against `config_dir` as their defaults do, the template-name array,
- * the derivative tables, and `video_frame_seconds`. It copies every value into `perm` rather than
- * borrowing from `table`. `site_config_load` calls `toml_free` as soon as this returns, which
- * releases the pool every `toml_datum_t` string points into, while the config outlives the parse.
- * The `sort` table is applied just before `video_frame_seconds`. It stops at the first error.
+ * directory keys, which resolve against `config_dir` as their defaults do, the derivative tables,
+ * the `sort` table, `video_frame_seconds` and the `[templates]` table. It copies every value into
+ * `perm` rather than borrowing from `table`. `site_config_load` calls `toml_free` as soon as this
+ * returns, which releases the pool every `toml_datum_t` string points into, while the config
+ * outlives the parse. It stops at the first error.
  *
  * @param site_config Config that receives the values. Must not be `NULL`.
  * @param table       Parsed TOML top-level table.
@@ -177,6 +179,25 @@ static int copy_sort_order(toml_datum_t sort_table,
                            struct Log* log) __attribute__((nonnull(2, 3, 4)));
 
 /**
+ * @brief Copies and validates the optional `[templates]` table.
+ *
+ * When the key is absent, this leaves every name untouched and keeps the defaults from
+ * `site_config_init`. An empty table, and each key it leaves out, keeps them too. It stops at the
+ * first error.
+ *
+ * @param templates Templates that receive the names, holding their defaults. Must not be `NULL`.
+ * @param table     Parsed TOML top-level table.
+ * @param perm      Arena that owns the copied names. Must not be `NULL`.
+ * @param log       Log that receives the error. Must not be `NULL`.
+ * @return `0` on success or when the key is absent, or `-1` on a wrong type, an unknown key, or an
+ *         invalid name.
+ */
+static int copy_templates(struct GalleryTemplates* templates,
+                          toml_datum_t table,
+                          struct Arena* perm,
+                          struct Log* log) __attribute__((nonnull(1, 3, 4)));
+
+/**
  * @brief Rejects the first derivative whose bounding box exceeds `IMAGE_PIXEL_COUNT_MAX`.
  *
  * @param derivatives      Array of `derivative_count` derivatives to validate. Must not be `NULL`.
@@ -207,12 +228,15 @@ void site_config_init(struct SiteConfig* site_config) {
       .output_dir = OUTPUT_DIR_DEFAULT,
       .templates_dir = TEMPLATES_DIR_DEFAULT,
       .static_dir = STATIC_DIR_DEFAULT,
-      .album_template = ALBUM_TEMPLATE_DEFAULT,
-      .aggregate_templates = AGGREGATE_TEMPLATES_DEFAULT,
-      .aggregate_template_count = 0,
       .derivatives = DERIVATIVES_DEFAULT,
       .derivative_count = sizeof(DERIVATIVES_DEFAULT) / sizeof(DERIVATIVES_DEFAULT[0]),
       .video_frame_seconds = VIDEO_FRAME_SECONDS_DEFAULT,
+      .templates =
+          {
+              .album = ALBUM_TEMPLATE_DEFAULT,
+              .aggregates = AGGREGATE_TEMPLATES_DEFAULT,
+              .aggregate_template_count = 0,
+          },
   };
 }
 
@@ -249,9 +273,6 @@ int site_config_print(const struct SiteConfig* site_config, struct Os* os, struc
   toml_print_key_string(&text, "output_dir", site_config->output_dir);
   toml_print_key_string(&text, "templates_dir", site_config->templates_dir);
   toml_print_key_string(&text, "static_dir", site_config->static_dir);
-  toml_print_key_string(&text, "album_template", site_config->album_template);
-  toml_print_key_string_array(&text, "aggregate_templates", site_config->aggregate_templates,
-                              site_config->aggregate_template_count);
   buf_append(&text, S("derivatives = { "));
   for (ptrdiff_t i = 0; i < site_config->derivative_count; i++) {
     const struct GalleryDerivative* derivative = &site_config->derivatives[i];
@@ -269,6 +290,12 @@ int site_config_print(const struct SiteConfig* site_config, struct Os* os, struc
   buf_append(&text, S(" }\n"));
   site_config_print_sort(&text, site_config);
   buf_printf(&text, "video_frame_seconds = %td\n", site_config->video_frame_seconds);
+  // The table comes last, because every key after its header belongs to it.
+  const struct GalleryTemplates* templates = &site_config->templates;
+  buf_append(&text, S("\n[templates]\n"));
+  toml_print_key_string(&text, "album", templates->album);
+  toml_print_key_string_array(&text, "aggregates", templates->aggregates,
+                              templates->aggregate_template_count);
   return os_print(os, 1, buf_str(&text));
 }
 
@@ -313,18 +340,6 @@ static int site_config_load_fields(struct SiteConfig* site_config,
                     &site_config->templates_dir, log) != 0 ||
       toml_copy_dir(table, S(""), "static_dir", false, config_dir, perm, &site_config->static_dir,
                     log) != 0 ||
-      toml_copy_string(table, S(""), "album_template", false, perm, &site_config->album_template,
-                       log) != 0) {
-    return -1;
-  }
-  if (!path_is_safe_relative(site_config->album_template)) {
-    return log_error(log,
-                     "config key 'album_template' must be a safe relative template name: '%.*s'",
-                     STR_FMT(site_config->album_template));
-  }
-  if (toml_copy_strings(table, S(""), "aggregate_templates", true, perm,
-                        &site_config->aggregate_templates, &site_config->aggregate_template_count,
-                        log) != 0 ||
       copy_derivatives(site_config, table, perm, log) != 0 ||
       copy_sort(site_config, table, log) != 0) {
     return -1;
@@ -336,7 +351,10 @@ static int site_config_load_fields(struct SiteConfig* site_config,
       .value_max = VIDEO_FRAME_SECONDS_MAX,
       .limit_name = "video frame seconds",
   };
-  return toml_copy_size(table, S(""), &video_frame_seconds, log);
+  if (toml_copy_size(table, S(""), &video_frame_seconds, log) != 0) {
+    return -1;
+  }
+  return copy_templates(&site_config->templates, table, perm, log);
 }
 
 static int copy_derivatives(struct SiteConfig* site_config,
@@ -492,6 +510,28 @@ static int copy_sort_order(toml_datum_t sort_table,
   }
   return log_error(log, "config key 'sort.%s' must be 'asc' or 'desc': '%.*s'", key,
                    STR_FMT(order));
+}
+
+static int copy_templates(struct GalleryTemplates* templates,
+                          toml_datum_t table,
+                          struct Arena* perm,
+                          struct Log* log) {
+  const toml_datum_t value = toml_get(table, "templates");
+  if (value.type == TOML_UNKNOWN) {
+    return 0;
+  }
+  if (value.type != TOML_TABLE) {
+    return log_error(log, "config key 'templates' must be a table");
+  }
+  const struct Str key_prefix = S("templates.");
+  if (toml_require_known_keys(value, templates_keys,
+                              sizeof(templates_keys) / sizeof(templates_keys[0]), S("config"),
+                              key_prefix, (struct Str){0}, log) != 0 ||
+      toml_copy_template_name(value, key_prefix, "album", perm, &templates->album, log) != 0) {
+    return -1;
+  }
+  return toml_copy_strings(value, key_prefix, "aggregates", true, perm, &templates->aggregates,
+                           &templates->aggregate_template_count, log);
 }
 
 static int require_derivative_bounds(const struct GalleryDerivative* derivatives,

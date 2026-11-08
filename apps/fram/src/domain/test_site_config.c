@@ -146,9 +146,9 @@ static void test_load_applies_required_and_defaults(void) {
   TEST_CHECK(is_resolved(site_config.output_dir, "public"));
   TEST_CHECK(is_resolved(site_config.templates_dir, "templates"));
   TEST_CHECK(is_resolved(site_config.static_dir, "static"));
-  TEST_CHECK(str_eq(site_config.album_template, S("album.html")));
-  TEST_CHECK(site_config.aggregate_templates != NULL);
-  TEST_CHECK(site_config.aggregate_template_count == 0);
+  TEST_CHECK(str_eq(site_config.templates.album, S("album.html")));
+  TEST_CHECK(site_config.templates.aggregates != NULL);
+  TEST_CHECK(site_config.templates.aggregate_template_count == 0);
   TEST_ASSERT(site_config.derivative_count == 3);
   TEST_CHECK(str_eq(site_config.derivatives[0].name, S("s")));
   TEST_CHECK(site_config.derivatives[0].width_px == 120);
@@ -181,12 +181,14 @@ static void test_load_overrides_optional_keys(void) {
       "output_dir = \"dist\"\n"
       "templates_dir = \"layouts\"\n"
       "static_dir = \"files\"\n"
-      "album_template = \"pages/album.html\"\n"
-      "aggregate_templates = [\"sitemap.xml\", \"about/index.html\"]\n"
       "derivatives = { xs = { width = 200, height = 150, quality = 61, crop = true }, "
       "xl = { width = 1200, height = 900, quality = 93 } }\n"
       "sort = { albums = \"desc\", media = \"desc\" }\n"
-      "video_frame_seconds = 17\n";
+      "video_frame_seconds = 17\n"
+      "\n"
+      "[templates]\n"
+      "album = \"pages/album.html\"\n"
+      "aggregates = [\"sitemap.xml\", \"about/index.html\"]\n";
 
   struct SiteConfig site_config;
   site_config_init(&site_config);
@@ -198,10 +200,10 @@ static void test_load_overrides_optional_keys(void) {
   TEST_CHECK(is_resolved(site_config.output_dir, "dist"));
   TEST_CHECK(is_resolved(site_config.templates_dir, "layouts"));
   TEST_CHECK(is_resolved(site_config.static_dir, "files"));
-  TEST_CHECK(str_eq(site_config.album_template, S("pages/album.html")));
-  TEST_ASSERT(site_config.aggregate_template_count == 2);
-  TEST_CHECK(str_eq(site_config.aggregate_templates[0], S("sitemap.xml")));
-  TEST_CHECK(str_eq(site_config.aggregate_templates[1], S("about/index.html")));
+  TEST_CHECK(str_eq(site_config.templates.album, S("pages/album.html")));
+  TEST_ASSERT(site_config.templates.aggregate_template_count == 2);
+  TEST_CHECK(str_eq(site_config.templates.aggregates[0], S("sitemap.xml")));
+  TEST_CHECK(str_eq(site_config.templates.aggregates[1], S("about/index.html")));
   TEST_ASSERT(site_config.derivative_count == 2);
   TEST_CHECK(str_eq(site_config.derivatives[0].name, S("xs")));
   TEST_CHECK(site_config.derivatives[0].width_px == 200);
@@ -220,7 +222,37 @@ static void test_load_overrides_optional_keys(void) {
 
 // Directory keys have trailing separators trimmed at load. Left in place, a trailing slash defeats
 // the `<media_dir>/` prefix strip that places each media item in its album. The end-to-end
-// consequence is asserted in the `cmd_build` tests. An absolute directory survives normalization
+// consequence is asserted in the `cmd_build` tests. An absolute directory survives normalization An
+// empty `[templates]` table keeps every default, and a table that sets one key keeps the default of
+// the other.
+static void test_load_keeps_the_default_of_each_unset_template_key(void) {
+  static const char* const tables[] = {
+      "[templates]\n",
+      "[templates]\nalbum = \"gallery.html\"\n",
+      "[templates]\naggregates = [\"sitemap.xml\"]\n",
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(tables) / sizeof(tables[0])); i++) {
+    char toml[512];
+    const int n = snprintf(toml, sizeof(toml),
+                           "title = \"Example Gallery\"\n"
+                           "description = \"Example Description\"\n"
+                           "author = \"Example Author\"\n"
+                           "%s",
+                           tables[i]);
+    TEST_ASSERT(n > 0 && (size_t)n < sizeof(toml));
+    struct SiteConfig site_config;
+    site_config_init(&site_config);
+    struct Log log = test_log();
+    TEST_CHECK(load_text(&site_config, toml, &log) == 0);
+    TEST_CHECK(test_log_is_empty(&log));
+    const struct GalleryTemplates* templates = &site_config.templates;
+    TEST_CHECK(str_eq(templates->album, i == 1 ? S("gallery.html") : S("album.html")));
+    TEST_ASSERT(templates->aggregate_template_count == (i == 2 ? 1 : 0));
+    TEST_CHECK(i != 2 || str_eq(templates->aggregates[0], S("sitemap.xml")));
+    TEST_MSG("table '%s'", tables[i]);
+  }
+}
+
 // unchanged, and a relative one, parent-relative included, resolves against the config's directory.
 static void test_load_normalizes_directory_keys(void) {
   const char toml[] =
@@ -471,7 +503,7 @@ static void test_load_rejects_malformed_toml(void) {
 
 /**
  * A config that parses but holds a mistake for the unknown-key check, a string key's type,
- * `base_url`, a directory, `album_template`, a derivative, and `video_frame_seconds`.
+ * `base_url`, a directory, `templates.album`, a derivative, and `video_frame_seconds`.
  */
 static const char TOML_KEYS_INVALID[] =
     "title = 1\n"
@@ -480,7 +512,7 @@ static const char TOML_KEYS_INVALID[] =
     "media_dir = \"/\"\n"
     "base_url = \"ftp://example.com\"\n"
     "colour = \"blue\"\n"
-    "album_template = \"../album.html\"\n"
+    "templates.album = \"../album.html\"\n"
     "derivatives = { s = { width = 0, height = 120, quality = 70 } }\n"
     "video_frame_seconds = -1\n";
 
@@ -571,6 +603,19 @@ static void test_load_rejects_unknown_keys(void) {
 }
 
 // Only `derivatives` and `sort` hold a table, so a table under any other known key fails that key's
+// A `templates` key that is not a table is rejected, and so is a key inside the table that the
+// schema does not define, named with the table. The top-level keys that named templates before the
+// table are as unknown as any other key.
+static void test_load_rejects_unknown_template_keys(void) {
+  check_load_rejects("templates = \"album.html\"\n", "config key 'templates' must be a table");
+  check_load_rejects("[templates]\ncontent = \"content.html\"\n",
+                     "unknown config key 'templates.content'");
+  check_load_rejects("[templates]\nalbum_template = \"album.html\"\n",
+                     "unknown config key 'templates.album_template'");
+  check_load_rejects("album_template = \"album.html\"\n", "unknown config key 'album_template'");
+  check_load_rejects("aggregate_templates = []\n", "unknown config key 'aggregate_templates'");
+}
+
 // type check.
 static void test_load_rejects_table_values(void) {
   static const char* const cases[][2] = {
@@ -582,8 +627,8 @@ static void test_load_rejects_table_values(void) {
        "config key 'description' must be a string"},
       {"title = \"Example Gallery\"\ndescription = \"Example Description\"\n"
        "author = \"Example Author\"\n"
-       "[aggregate_templates]\nname = \"sitemap.xml\"\n",
-       "config key 'aggregate_templates' must be an array"},
+       "[templates.aggregates]\nname = \"sitemap.xml\"\n",
+       "config key 'templates.aggregates' must be an array"},
       {"title = \"Example Gallery\"\ndescription = \"Example Description\"\n"
        "author = \"Example Author\"\n"
        "[video_frame_seconds]\nseconds = 1\n",
@@ -629,8 +674,8 @@ static void test_load_rejects_nul_in_string_values(void) {
       {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\nmedia_dir = \"a\\u0000b\"\n",
        "config key 'media_dir' must not contain a NUL byte"},
       {"title = \"T\"\ndescription = \"D\"\nauthor = \"A\"\n"
-       "aggregate_templates = [\"a\\u0000b\"]\n",
-       "config key 'aggregate_templates' must not contain a NUL byte"},
+       "templates.aggregates = [\"a\\u0000b\"]\n",
+       "config key 'templates.aggregates' must not contain a NUL byte"},
   };
 
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
@@ -693,7 +738,7 @@ static void test_load_rejects_base_url_with_path_breaking_byte(void) {
                              "character: 'https://example.com/x?y=1'"));
 }
 
-// An unsafe `album_template` is rejected at load, in the singular wording that names the key,
+// An unsafe `templates.album` is rejected at load, in the singular wording that names the key,
 // rather than flowing through to the render and failing once per album. Parent-relative, absolute
 // and empty names are all unsafe.
 static void test_load_rejects_unsafe_album_template(void) {
@@ -702,12 +747,13 @@ static void test_load_rejects_unsafe_album_template(void) {
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(unsafe_names) / sizeof(unsafe_names[0])); i++) {
     char toml_extra[256];
     const int n =
-        snprintf(toml_extra, sizeof(toml_extra), "album_template = \"%s\"\n", unsafe_names[i]);
+        snprintf(toml_extra, sizeof(toml_extra), "templates.album = \"%s\"\n", unsafe_names[i]);
     TEST_CHECK(n > 0 && (size_t)n < sizeof(toml_extra));
     char expected[EXPECTED_SIZE];
-    const int expected_len = snprintf(
-        expected, sizeof(expected),
-        "config key 'album_template' must be a safe relative template name: '%s'", unsafe_names[i]);
+    const int expected_len =
+        snprintf(expected, sizeof(expected),
+                 "config key 'templates.album' must be a safe relative template name: '%s'",
+                 unsafe_names[i]);
     TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected));
     check_load_rejects(toml_extra, expected);
   }
@@ -716,12 +762,12 @@ static void test_load_rejects_unsafe_album_template(void) {
 // A non-array value, a non-string element, and an unsafe name for a template array key are each
 // rejected.
 static void test_load_rejects_invalid_template_arrays(void) {
-  check_load_rejects("aggregate_templates = \"sitemap.xml\"\n",
-                     "config key 'aggregate_templates' must be an array");
-  check_load_rejects("aggregate_templates = [1]\n",
-                     "config key 'aggregate_templates' must contain only strings");
-  check_load_rejects("aggregate_templates = [\"../evil.html\"]\n",
-                     "config key 'aggregate_templates' must contain only safe relative template "
+  check_load_rejects("templates.aggregates = \"sitemap.xml\"\n",
+                     "config key 'templates.aggregates' must be an array");
+  check_load_rejects("templates.aggregates = [1]\n",
+                     "config key 'templates.aggregates' must contain only strings");
+  check_load_rejects("templates.aggregates = [\"../evil.html\"]\n",
+                     "config key 'templates.aggregates' must contain only safe relative template "
                      "names: '../evil.html'");
 }
 
@@ -733,7 +779,7 @@ static void test_load_reports_every_invalid_template_name(void) {
       "title = \"Example Gallery\"\n"
       "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
-      "aggregate_templates = [\"../a.xml\", 1, \"a\\u0000b\", \"ok.xml\", \"/b.xml\", "
+      "templates.aggregates = [\"../a.xml\", 1, \"a\\u0000b\", \"ok.xml\", \"/b.xml\", "
       "2, \"c\\u0000d\"]\n";
 
   struct SiteConfig site_config;
@@ -741,11 +787,11 @@ static void test_load_reports_every_invalid_template_name(void) {
   struct Log log = test_log();
   TEST_CHECK(load_text(&site_config, toml, &log) == -1);
   TEST_CHECK(test_log_is(&log,
-                         "config key 'aggregate_templates' must contain only safe relative "
+                         "config key 'templates.aggregates' must contain only safe relative "
                          "template names: '../a.xml'\n"
-                         "config key 'aggregate_templates' must contain only strings\n"
-                         "config key 'aggregate_templates' must not contain a NUL byte\n"
-                         "config key 'aggregate_templates' must contain only safe relative "
+                         "config key 'templates.aggregates' must contain only strings\n"
+                         "config key 'templates.aggregates' must not contain a NUL byte\n"
+                         "config key 'templates.aggregates' must contain only safe relative "
                          "template names: '/b.xml'\n"));
   TEST_CHECK(log.errors == 4);
 }
@@ -844,13 +890,15 @@ static void test_print_defaults(void) {
       "output_dir = \"public\"\n"
       "templates_dir = \"templates\"\n"
       "static_dir = \"static\"\n"
-      "album_template = \"album.html\"\n"
-      "aggregate_templates = []\n"
       "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
       "m = { width = 520, height = 360, quality = 80, crop = true }, "
       "l = { width = 792, height = 594, quality = 85 } }\n"
       "sort = { albums = \"asc\", media = \"asc\" }\n"
-      "video_frame_seconds = 1\n"));
+      "video_frame_seconds = 1\n"
+      "\n"
+      "[templates]\n"
+      "album = \"album.html\"\n"
+      "aggregates = []\n"));
 }
 
 // Printing escapes quotes, backslashes, and every named control escape (\t \b \n \f \r). It uses
@@ -873,13 +921,15 @@ static void test_print_escapes_strings(void) {
       "output_dir = \"public\"\n"
       "templates_dir = \"templates\"\n"
       "static_dir = \"static\"\n"
-      "album_template = \"album.html\"\n"
-      "aggregate_templates = []\n"
       "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
       "m = { width = 520, height = 360, quality = 80, crop = true }, "
       "l = { width = 792, height = 594, quality = 85 } }\n"
       "sort = { albums = \"asc\", media = \"asc\" }\n"
-      "video_frame_seconds = 1\n"));
+      "video_frame_seconds = 1\n"
+      "\n"
+      "[templates]\n"
+      "album = \"album.html\"\n"
+      "aggregates = []\n"));
 }
 
 // Printing a config and loading the printed output back yields the same field values, exercising
@@ -906,9 +956,9 @@ static void test_print_load_round_trips(void) {
   site_config.output_dir = S("dist");
   site_config.templates_dir = S("layouts");
   site_config.static_dir = S("/srv/files");
-  site_config.album_template = S("pages/album.html");
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 2;
+  site_config.templates.album = S("pages/album.html");
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 2;
   site_config.derivatives = derivatives;
   site_config.derivative_count = 2;
   site_config.album_sort_order = GALLERY_SORT_DESC;
@@ -930,10 +980,10 @@ static void test_print_load_round_trips(void) {
   TEST_CHECK(is_resolved(reloaded.output_dir, "dist"));
   TEST_CHECK(is_resolved(reloaded.templates_dir, "layouts"));
   TEST_CHECK(str_eq(reloaded.static_dir, site_config.static_dir));
-  TEST_CHECK(str_eq(reloaded.album_template, site_config.album_template));
-  TEST_ASSERT(reloaded.aggregate_template_count == 2);
-  TEST_CHECK(str_eq(reloaded.aggregate_templates[0], S("sitemap.xml")));
-  TEST_CHECK(str_eq(reloaded.aggregate_templates[1], S("about/index.html")));
+  TEST_CHECK(str_eq(reloaded.templates.album, site_config.templates.album));
+  TEST_ASSERT(reloaded.templates.aggregate_template_count == 2);
+  TEST_CHECK(str_eq(reloaded.templates.aggregates[0], S("sitemap.xml")));
+  TEST_CHECK(str_eq(reloaded.templates.aggregates[1], S("about/index.html")));
   TEST_ASSERT(reloaded.derivative_count == 2);
   for (ptrdiff_t i = 0; i < 2; i++) {
     TEST_CHECK(str_eq(reloaded.derivatives[i].name, derivatives[i].name));
@@ -955,16 +1005,16 @@ static void test_print_empty_template_array(void) {
       "title = \"Example Gallery\"\n"
       "description = \"Example Description\"\n"
       "author = \"Example Author\"\n"
-      "aggregate_templates = []\n";
+      "templates.aggregates = []\n";
 
   struct SiteConfig site_config;
   site_config_init(&site_config);
   struct Log log = test_log();
   TEST_CHECK(load_text(&site_config, toml, &log) == 0);
   TEST_CHECK(log.errors == 0);
-  TEST_ASSERT(site_config.aggregate_template_count == 0);
+  TEST_ASSERT(site_config.templates.aggregate_template_count == 0);
   // The empty array is a distinct non-`NULL` pointer, which the `nonnull` consumers need.
-  TEST_CHECK(site_config.aggregate_templates != NULL);
+  TEST_CHECK(site_config.templates.aggregates != NULL);
 
   // Compared whole: an empty array must print as `[]` and must not disturb its neighbors. The
   // directories print resolved against `CONFIG_DIR`, which holds the config.
@@ -978,13 +1028,15 @@ static void test_print_empty_template_array(void) {
           "output_dir = \"" CONFIG_DIR "/public\"\n"
           "templates_dir = \"" CONFIG_DIR "/templates\"\n"
           "static_dir = \"" CONFIG_DIR "/static\"\n"
-          "album_template = \"album.html\"\n"
-          "aggregate_templates = []\n"
           "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
           "m = { width = 520, height = 360, quality = 80, crop = true }, "
           "l = { width = 792, height = 594, quality = 85 } }\n"
           "sort = { albums = \"asc\", media = \"asc\" }\n"
-          "video_frame_seconds = 1\n"));
+          "video_frame_seconds = 1\n"
+          "\n"
+          "[templates]\n"
+          "album = \"album.html\"\n"
+          "aggregates = []\n"));
 }
 
 // A standard output that refuses the write makes `site_config_print` report `-1` with the write's
@@ -1029,6 +1081,8 @@ static void test_derivative_recipe_encodes_output_values(void) {
 TEST_LIST = {
     {"load applies required and defaults", test_load_applies_required_and_defaults},
     {"load overrides optional keys", test_load_overrides_optional_keys},
+    {"load keeps the default of each unset template key",
+     test_load_keeps_the_default_of_each_unset_template_key},
     {"load normalizes directory keys", test_load_normalizes_directory_keys},
     {"load normalizes base url", test_load_normalizes_base_url},
     {"load accepts empty base url", test_load_accepts_empty_base_url},
@@ -1045,6 +1099,7 @@ TEST_LIST = {
     {"load rejects missing required key", test_load_rejects_missing_required_key},
     {"load rejects wrong key type", test_load_rejects_wrong_key_type},
     {"load rejects unknown keys", test_load_rejects_unknown_keys},
+    {"load rejects unknown template keys", test_load_rejects_unknown_template_keys},
     {"load rejects table values", test_load_rejects_table_values},
     {"load rejects invalid integer type and minimum",
      test_load_rejects_invalid_integer_type_and_minimum},

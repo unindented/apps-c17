@@ -94,7 +94,7 @@ static int render_album_page_job(ptrdiff_t index,
   // succeeds, so a failed render leaves nothing behind for the write phase.
   struct Arena perm = arenas->perm;
   // The page's path below `output_dir`, which a failure names, is its URL.
-  if (template_context_render(context->template_set, context->site_config->album_template,
+  if (template_context_render(context->template_set, context->site_config->templates.album,
                               &template_context, album->url_path, &perm, scratch, &page->html,
                               log) != 0) {
     return -1;

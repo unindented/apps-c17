@@ -85,8 +85,8 @@ static void test_writes_complete_output_layer(void) {
   site_config.output_dir = S("public");
   site_config.templates_dir = S("templates");
   site_config.static_dir = S("static");
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 2;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 2;
   struct Album root = {.source_dir = S(""),
                        .title = S("Root"),
                        .url_path = S("index.html"),
@@ -128,8 +128,8 @@ static void test_keeps_unchanged_pages_untouched(void) {
   site_config.title = S("Gallery");
   site_config.output_dir = S("public");
   site_config.templates_dir = S("templates");
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct Album root = {.source_dir = S(""),
                        .title = S("Root"),
                        .output_path = S("public/index.html"),
@@ -223,8 +223,8 @@ static void test_write_aggregates_reports_write_failure(void) {
   site_config_init(&site_config);
   site_config.output_dir = S("public");
   site_config.templates_dir = S("templates");
-  site_config.aggregate_templates = aggregates;
-  site_config.aggregate_template_count = 1;
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
   struct Album root = {.source_dir = S(""), .title = S("Root"), .path_to_root = S("")};
   static const char* const output_paths[] = {"public/map.xml"};
   struct Arena arena = test_arena();

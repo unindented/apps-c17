@@ -123,7 +123,7 @@ enum {
  */
 static struct Os* every_output_kind_fixture(void) {
   struct Os* os = os_memory();
-  write_gallery_fixture(os, "aggregate_templates = [\"sitemap.xml\"]\n");
+  write_gallery_fixture(os, "templates.aggregates = [\"sitemap.xml\"]\n");
   os_memory_write(os, "templates/sitemap.xml", "sitemap\n");
   write_jpeg(os, "photos/album/one.jpg");
   os_memory_write(os, "photos/album/notes.txt", "not media\n");
@@ -451,7 +451,7 @@ static void build_in_tiny_arena(void* userdata) {
 static void test_honors_configured_album_template(void) {
   struct Os* os = os_memory();
   struct Log log = test_log();
-  write_gallery_fixture(os, "album_template = \"album-page.html\"\n");
+  write_gallery_fixture(os, "templates.album = \"album-page.html\"\n");
   write_jpeg(os, "photos/one.jpg");
   os_memory_write(os, "templates/album-page.html", "<main>{{album.title}}</main>\n");
 
@@ -605,7 +605,7 @@ static void test_renders_configured_sort_orders(void) {
   struct Os* os = os_memory();
   struct Log log = test_log();
   write_gallery_fixture(os,
-                        "album_template = \"sorted.html\"\n"
+                        "templates.album = \"sorted.html\"\n"
                         "sort = { albums = \"desc\", media = \"desc\" }\n");
   write_jpeg(os, "photos/a.jpg");
   write_jpeg(os, "photos/b.jpg");
@@ -1636,7 +1636,7 @@ static void test_rejects_static_file_colliding_with_album_page(void) {
 static void test_reports_bad_template(void) {
   struct Os* os = os_memory();
   struct Log log = test_log();
-  write_gallery_fixture(os, "album_template = \"broken.html\"\n");
+  write_gallery_fixture(os, "templates.album = \"broken.html\"\n");
   // The section never closes, so the template is read but fails to compile.
   os_memory_write(os, "templates/broken.html", "{{#media}}unclosed");
   write_jpeg(os, "photos/one.jpg");
@@ -1649,12 +1649,39 @@ static void test_reports_bad_template(void) {
   TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
+// A missing template that a `[templates]` key names fails the build when the templates load, naming
+// the key, and a template that both keys name names the first in table order.
+static void test_reports_a_missing_configured_template_with_its_key(void) {
+  static const struct {
+    const char* config;
+    const char* missing;
+    const char* key;
+  } cases[] = {
+      {"templates.album = \"missing.html\"\n", "missing.html", "templates.album"},
+      {"templates.aggregates = [\"sitemap.xml\"]\n", "sitemap.xml", "templates.aggregates"},
+      {"templates.album = \"page.html\"\ntemplates.aggregates = [\"page.html\"]\n", "page.html",
+       "templates.album"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    TEST_CASE(cases[i].config);
+    struct Os* os = os_memory();
+    struct Log log = test_log();
+    write_gallery_fixture(os, cases[i].config);
+    write_jpeg(os, "photos/one.jpg");
+
+    TEST_CHECK(execute_build(os, &log) == -1);
+    TEST_CHECK(test_log_is(&log, "failed to read template: %s ('templates/%s') (for '%s')\n",
+                           strerror(ENOENT), cases[i].missing, cases[i].key));
+    TEST_CHECK(!os_memory_has_path(os, "public"));
+  }
+}
+
 // A dry run loads every template, so an album template that does not compile fails it with the
 // diagnostic a real build gives, and no listing is printed.
 static void test_dry_run_reports_bad_template(void) {
   struct Os* os = os_memory();
   struct Log log = test_log();
-  write_gallery_fixture(os, "album_template = \"broken.html\"\n");
+  write_gallery_fixture(os, "templates.album = \"broken.html\"\n");
   os_memory_write(os, "templates/broken.html", "{{#media}}unclosed");
   write_jpeg(os, "photos/one.jpg");
 
@@ -1720,7 +1747,7 @@ static void test_reports_stale_output_that_cannot_be_removed(void) {
 static void test_reports_a_shared_render_failure_once(void) {
   struct Os* os = os_memory();
   struct Log log = test_log();
-  write_gallery_fixture(os, "album_template = \"raw.html\"\n");
+  write_gallery_fixture(os, "templates.album = \"raw.html\"\n");
   // A triple mustache of `album.title` fails the page render of both albums.
   os_memory_write(os, "templates/raw.html", "{{{album.title}}}");
   write_jpeg(os, "photos/album/one.jpg");
@@ -1923,6 +1950,8 @@ TEST_LIST = {
     {"rejects static file colliding with album page",
      test_rejects_static_file_colliding_with_album_page},
     {"reports bad template", test_reports_bad_template},
+    {"reports a missing configured template with its key",
+     test_reports_a_missing_configured_template_with_its_key},
     {"dry run reports bad template", test_dry_run_reports_bad_template},
     {"dry run rejects colliding source names", test_dry_run_rejects_colliding_source_names},
     {"failed build removes no stale output", test_failed_build_removes_no_stale_output},
