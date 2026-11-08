@@ -301,6 +301,33 @@ int toml_copy_bool(toml_datum_t table,
                    struct Log* log) __attribute__((nonnull(3, 4, 5)));
 
 /**
+ * @brief Copies one optional key of a config table that names one template, and rejects a name that
+ *        is not a safe relative template name.
+ *
+ * This is the single-name check that `toml_copy_strings` applies to each element of a list of
+ * template names. A wrong type or a `NUL` byte is reported as `toml_copy_string` reports it. An
+ * empty or unsafe name is `config key '<key>' must be a safe relative template name: '<value>'`,
+ * with the key named as `toml_copy_string` names it. A rejected value is never stored.
+ *
+ * @param table      Parsed table that holds `key`. Must be a `TOML_TABLE` datum.
+ * @param key_prefix Dotted path of `table` with a trailing `.`, such as `templates.`, or empty for
+ *                   the top-level table.
+ * @param key        Terminated key to read. Must not be `NULL`.
+ * @param arena      Arena that owns the copied name. Must not be `NULL`.
+ * @param value_out  Receives the name when the key is present and valid, and keeps its value
+ *                   otherwise, so an absent key leaves the default in place. Must not be `NULL`.
+ * @param log        Log that receives the error. Must not be `NULL`.
+ * @return `0` when the key is accepted or absent, or `-1` on a wrong type, a `NUL` byte, or a name
+ *         that is empty or unsafe.
+ */
+int toml_copy_template_name(toml_datum_t table,
+                            struct Str key_prefix,
+                            const char* key,
+                            struct Arena* arena,
+                            struct Str* value_out,
+                            struct Log* log) __attribute__((nonnull(3, 4, 5, 6)));
+
+/**
  * @brief Copies one optional array-of-strings key of a config table, and validates each string as a
  *        safe relative template name when it names templates.
  *

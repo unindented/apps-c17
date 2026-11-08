@@ -511,6 +511,59 @@ static void test_copy_bool_copies_or_rejects(void) {
   TEST_CHECK(test_log_is(&log, "config key 't.flag' must be a boolean\n"));
 }
 
+// A safe relative template name is copied, nested in a directory or not, and an absent key keeps
+// the default.
+static void test_copy_template_name_copies_present_and_keeps_absent(void) {
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  toml_result_t result;
+  const toml_datum_t table =
+      parse_table("tree = \"tree.html\"\ncommit = \"pages/commit-page.html\"\n", &result);
+  struct Str tree = {0};
+  struct Str commit = {0};
+  struct Str absent = S("blob.html");
+  TEST_CHECK(toml_copy_template_name(table, S("templates."), "tree", &arena, &tree, &log) == 0);
+  TEST_CHECK(toml_copy_template_name(table, S("templates."), "commit", &arena, &commit, &log) == 0);
+  TEST_CHECK(toml_copy_template_name(table, S("templates."), "blob", &arena, &absent, &log) == 0);
+  toml_free(result);
+  TEST_CHECK(test_text_is(tree, "tree.html"));
+  TEST_CHECK(test_text_is(commit, "pages/commit-page.html"));
+  TEST_CHECK(test_text_is(absent, "blob.html"));
+  TEST_CHECK(test_log_is_empty(&log));
+}
+
+// An empty name, an unsafe name, a value of another type and a value with a `NUL` byte each fail
+// with one message that names the key after the table's prefix, and none stores a value.
+static void test_copy_template_name_rejects_empty_unsafe_and_mistyped(void) {
+  static const char* const cases[][3] = {
+      {"name = \"\"\n", "templates.",
+       "config key 'templates.name' must be a safe relative template name: ''\n"},
+      {"name = \"../x.html\"\n", "templates.",
+       "config key 'templates.name' must be a safe relative template name: '../x.html'\n"},
+      {"name = \"/x.html\"\n", "",
+       "config key 'name' must be a safe relative template name: '/x.html'\n"},
+      {"name = \"a b.html\"\n", "t.",
+       "config key 't.name' must be a safe relative template name: 'a b.html'\n"},
+      {"name = 7\n", "templates.", "config key 'templates.name' must be a string\n"},
+      {"name = [\"x.html\"]\n", "templates.", "config key 'templates.name' must be a string\n"},
+      {"name = \"a\\u0000b\"\n", "templates.",
+       "config key 'templates.name' must not contain a NUL byte\n"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    struct Arena arena = test_arena();
+    struct Log log = test_log();
+    toml_result_t result;
+    struct Str value = S("kept");
+    TEST_CHECK(toml_copy_template_name(parse_table(cases[i][0], &result),
+                                       str_from_cstr(cases[i][1]), "name", &arena, &value,
+                                       &log) == -1);
+    TEST_CHECK(test_log_is(&log, "%s", cases[i][2]));
+    TEST_CHECK(str_eq(value, S("kept")));
+    TEST_MSG("case %td", i);
+    toml_free(result);
+  }
+}
+
 // An array of strings is copied in order, empty included, an absent key keeps the list it had, and
 // a list of template names accepts only safe relative names.
 static void test_copy_strings_copies_each_string(void) {
@@ -790,6 +843,10 @@ TEST_LIST = {
     {"copy dir trims and resolves", test_copy_dir_trims_and_resolves},
     {"copy dir rejects empty and missing", test_copy_dir_rejects_empty_and_missing},
     {"copy bool copies or rejects", test_copy_bool_copies_or_rejects},
+    {"copy template name copies present and keeps absent",
+     test_copy_template_name_copies_present_and_keeps_absent},
+    {"copy template name rejects empty unsafe and mistyped",
+     test_copy_template_name_rejects_empty_unsafe_and_mistyped},
     {"copy strings copies each string", test_copy_strings_copies_each_string},
     {"copy strings rejects bad elements", test_copy_strings_rejects_bad_elements},
     {"copy base url trims and accepts an empty optional url",

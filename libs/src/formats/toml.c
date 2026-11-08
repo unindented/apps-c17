@@ -299,6 +299,29 @@ int toml_copy_bool(toml_datum_t table,
   return 0;
 }
 
+int toml_copy_template_name(toml_datum_t table,
+                            struct Str key_prefix,
+                            const char* key,
+                            struct Arena* arena,
+                            struct Str* value_out,
+                            struct Log* log) {
+  // A present key gives a copy whose `data` is never `NULL`, so a `NULL` one is an absent key.
+  struct Str name = {0};
+  if (toml_copy_string(table, key_prefix, key, false, arena, &name, log) != 0) {
+    return -1;
+  }
+  if (name.data == NULL) {
+    return 0;
+  }
+  // `path_is_safe_relative` rejects an empty name too, so an empty value gets the same message.
+  if (!path_is_safe_relative(name)) {
+    return log_error(log, "config key '%.*s%s' must be a safe relative template name: '%.*s'",
+                     STR_FMT(key_prefix), key, STR_FMT(name));
+  }
+  *value_out = name;
+  return 0;
+}
+
 int toml_copy_strings(toml_datum_t table,
                       struct Str key_prefix,
                       const char* key,
