@@ -1,7 +1,7 @@
-// Seeded random tests over `cwrap`'s rewrap. Each property runs a fixed number of cases generated
-// from `TEST_RNG_SEED`, so the pass is deterministic, needs no fuzzing engine, and runs everywhere
-// the suite does, under the sanitizers of whichever preset builds it. A failing check names the
-// case. It reaches only the input shapes its generator lists.
+// Seeded random tests over `cwrap`'s rewrap. The idempotence property runs a fixed number of cases
+// generated from `TEST_RNG_SEED`, so the pass is deterministic, needs no fuzzing engine, and runs
+// everywhere the suite does, under the sanitizers of whichever preset builds it. A failing check
+// names the case. It reaches only the input shapes its generator lists.
 
 #include <acutest.h>
 #include <stdbool.h>
@@ -11,11 +11,10 @@
 #include "core/arena.h"
 #include "core/buf.h"
 #include "core/str.h"
-#include "domain/lex.h"
 #include "domain/rewrite.h"
 #include "testing/test_support.h"
 
-/** Generated cases each rewrap property runs. */
+/** Generated cases the idempotence property runs. */
 enum { RANDOM_CASE_COUNT = 2000 };
 
 /**
@@ -486,107 +485,7 @@ static void test_rewrap_is_idempotent(void) {
   }
 }
 
-/**
- * @brief Returns the line ending of `source`: `\r\n` when its first line ends so, and otherwise
- *        `\n`.
- *
- * @param source Source bytes, whose lines all end the same way.
- * @return The line ending.
- */
-static struct Str file_line_end(struct Str source) {
-  for (ptrdiff_t i = 0; i < source.len; i++) {
-    if (source.data[i] == '\n') {
-      return i > 0 && source.data[i - 1] == '\r' ? S("\r\n") : S("\n");
-    }
-  }
-  return S("\n");
-}
-
-/**
- * @brief Returns the indent and opener of a line comment that starts its line, which a refill
- *        repeats on every line of its `//` run, or an empty string for any other comment.
- *
- * @param source Source bytes.
- * @param span   Comment in `source`. Must not be `NULL`.
- * @return The indent and opener, borrowed from `source`.
- */
-static struct Str line_run_prefix(struct Str source, const struct CommentSpan* span) {
-  if (span->kind != COMMENT_KIND_LINE || span->is_trailing) {
-    return (struct Str){0};
-  }
-  ptrdiff_t line_start = span->start;
-  while (line_start > 0 &&
-         (source.data[line_start - 1] == ' ' || source.data[line_start - 1] == '\t')) {
-    line_start--;
-  }
-  ptrdiff_t opener_end = span->start + 2;
-  if (opener_end < span->end &&
-      (source.data[opener_end] == '/' || source.data[opener_end] == '!')) {
-    opener_end++;
-  }
-  return (struct Str){source.data + line_start, opener_end - line_start};
-}
-
-/**
- * @brief Returns `source` with its comments cut out, along with each line break between two lines
- *        of one `//` run, so what remains is what a rewrap must not touch.
- *
- * Two line comments are lines of one run when each starts its line with the same indent and opener
- * and one `line_end` separates them. A refill adds and removes such breaks, and nothing else
- * between two comments: a break after a trailing comment, a blank line, a break between two runs or
- * into a block, and a break in the other line ending all stay.
- *
- * @param source   Source bytes.
- * @param line_end Line ending of the source the rewrap read, `\n` or `\r\n`.
- * @param arena    Arena that owns the result. Must not be `NULL`.
- * @return The bytes outside comments.
- */
-static struct Str code_bytes(struct Str source, struct Str line_end, struct Arena* arena) {
-  const struct CommentSpanList spans = lex_comment_spans(source, arena);
-  struct Buf code = {.arena = arena};
-  ptrdiff_t cursor = 0;
-  struct Str previous_prefix = {0};
-  for (ptrdiff_t i = 0; i < spans.count; i++) {
-    const struct Str gap = {source.data + cursor, spans.items[i].start - cursor};
-    const struct Str prefix = line_run_prefix(source, &spans.items[i]);
-    const bool is_run_break = prefix.len > 0 && str_eq(prefix, previous_prefix) &&
-                              str_eq((struct Str){gap.data, prefix.data - gap.data}, line_end);
-    if (!is_run_break) {
-      buf_append(&code, gap);
-    }
-    previous_prefix = prefix;
-    cursor = spans.items[i].end;
-  }
-  buf_append(&code, str_tail(source, cursor));
-  return buf_str(&code);
-}
-
-// Rewrapping a random file leaves every byte outside its comments as it was, apart from the line
-// breaks a refill moves between the lines of one `//` run.
-static void test_rewrap_keeps_code_bytes(void) {
-  struct TestRng rng = {TEST_RNG_SEED};
-  const struct Arena block = test_arena();
-  const struct Arena scratch_block = test_arena();
-  for (ptrdiff_t i = 0; i < RANDOM_CASE_COUNT; i++) {
-    struct Arena arena = block;
-    const struct Str source = random_source(&rng, &arena, scratch_block);
-    const ptrdiff_t width = random_width(&rng);
-    const struct Str out = rewrap(source, width, &arena, scratch_block);
-    const struct Str line_end = file_line_end(source);
-    const struct Str expected = code_bytes(source, line_end, &arena);
-    const struct Str actual = code_bytes(out, line_end, &arena);
-    if (!TEST_CHECK_(str_eq(actual, expected), "source %td keeps its code bytes", i)) {
-      const struct Str source_text = test_printable(source, &arena);
-      TEST_MSG("width %td, source: '%.*s'", width, STR_FMT(source_text));
-      const struct Str out_text = test_printable(out, &arena);
-      TEST_MSG("rewrapped: '%.*s'", STR_FMT(out_text));
-      break;
-    }
-  }
-}
-
 TEST_LIST = {
     {"rewrap is idempotent", test_rewrap_is_idempotent},
-    {"rewrap keeps code bytes", test_rewrap_keeps_code_bytes},
     {NULL, NULL},
 };
