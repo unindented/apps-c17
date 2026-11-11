@@ -14,6 +14,7 @@
 #include "domain/permalink.h"
 #include "formats/toml.h"
 #include "os/os.h"
+#include "output/output_path.h"
 
 const struct Str SITE_CONFIG_PATH_DEFAULT = STR_INIT("sosig.toml");
 
@@ -22,7 +23,9 @@ const struct Str SITE_CONFIG_PATH_DEFAULT = STR_INIT("sosig.toml");
 #define OUTPUT_DIR_DEFAULT S("public")
 #define TEMPLATES_DIR_DEFAULT S("templates")
 #define STATIC_DIR_DEFAULT S("static")
+#define NOT_FOUND_PATH_DEFAULT S("404.html")
 #define CONTENT_TEMPLATE_DEFAULT S("content.html")
+#define NOT_FOUND_TEMPLATE_DEFAULT S("404.html")
 static const struct Str AGGREGATE_TEMPLATES_DEFAULT[] = {STR_INIT("index.html")};
 static const struct Str FEED_TEMPLATES_DEFAULT[] = {STR_INIT("atom.xml")};
 
@@ -42,6 +45,7 @@ static const struct Str config_keys[] = {
     STR_INIT("output_dir"),
     STR_INIT("templates_dir"),
     STR_INIT("static_dir"),
+    STR_INIT("not_found_path"),
     STR_INIT("feed_count"),
     STR_INIT("frontmatter_ignored_keys"),
     STR_INIT("templates"),
@@ -54,6 +58,7 @@ static const struct Str templates_keys[] = {
     STR_INIT("content"),
     STR_INIT("aggregates"),
     STR_INIT("feeds"),
+    STR_INIT("not_found"),
     // clang-format on
 };
 
@@ -93,10 +98,10 @@ enum PermalinkVerdict {
  * @brief Copies recognized configuration keys into site config storage.
  *
  * Rejects a key outside `config_keys`, then applies required and optional string keys, the
- * directories, `feed_count`, `frontmatter_ignored_keys` and the `[templates]` table, and stops at
- * the first key that fails. It copies every value into `perm` rather than borrowing from `table`.
- * `site_config_load` calls `toml_free` as soon as this returns, which releases the pool every
- * `toml_datum_t` string points into, while the config outlives the parse.
+ * directories, `not_found_path`, `feed_count`, `frontmatter_ignored_keys` and the `[templates]`
+ * table, and stops at the first key that fails. It copies every value into `perm` rather than
+ * borrowing from `table`. `site_config_load` calls `toml_free` as soon as this returns, which
+ * releases the pool every `toml_datum_t` string points into, while the config outlives the parse.
  *
  * @param site_config Config that receives the values. Must not be `NULL`.
  * @param table       Parsed TOML top-level table.
@@ -177,6 +182,7 @@ void site_config_init(struct SiteConfig* site_config) {
       .output_dir = OUTPUT_DIR_DEFAULT,
       .templates_dir = TEMPLATES_DIR_DEFAULT,
       .static_dir = STATIC_DIR_DEFAULT,
+      .not_found_path = NOT_FOUND_PATH_DEFAULT,
       .feed_count = FEED_COUNT_DEFAULT,
       .templates =
           {
@@ -187,6 +193,7 @@ void site_config_init(struct SiteConfig* site_config) {
               .feeds = FEED_TEMPLATES_DEFAULT,
               .feed_template_count =
                   sizeof(FEED_TEMPLATES_DEFAULT) / sizeof(FEED_TEMPLATES_DEFAULT[0]),
+              .not_found = NOT_FOUND_TEMPLATE_DEFAULT,
           },
   };
 }
@@ -225,6 +232,7 @@ int site_config_print(const struct SiteConfig* site_config, struct Os* os, struc
   toml_print_key_string(&text, "output_dir", site_config->output_dir);
   toml_print_key_string(&text, "templates_dir", site_config->templates_dir);
   toml_print_key_string(&text, "static_dir", site_config->static_dir);
+  toml_print_key_string(&text, "not_found_path", site_config->not_found_path);
   buf_printf(&text, "feed_count = %td\n", site_config->feed_count);
   toml_print_key_string_array(&text, "frontmatter_ignored_keys",
                               site_config->frontmatter_ignored_keys,
@@ -236,6 +244,7 @@ int site_config_print(const struct SiteConfig* site_config, struct Os* os, struc
   toml_print_key_string_array(&text, "aggregates", templates->aggregates,
                               templates->aggregate_template_count);
   toml_print_key_string_array(&text, "feeds", templates->feeds, templates->feed_template_count);
+  toml_print_key_string(&text, "not_found", templates->not_found);
   return os_print(os, 1, buf_str(&text));
 }
 
@@ -269,7 +278,10 @@ static int site_config_load_fields(struct SiteConfig* site_config,
       toml_copy_dir(table, S(""), "templates_dir", false, config_dir, perm,
                     &site_config->templates_dir, log) != 0 ||
       toml_copy_dir(table, S(""), "static_dir", false, config_dir, perm, &site_config->static_dir,
-                    log) != 0) {
+                    log) != 0 ||
+      toml_copy_string(table, S(""), "not_found_path", false, perm, &site_config->not_found_path,
+                       log) != 0 ||
+      output_path_check_not_found(site_config->not_found_path, log) != 0) {
     return -1;
   }
   const struct TomlSizeKey feed_count = {
@@ -306,11 +318,12 @@ static int site_config_load_fields_templates(struct SiteTemplates* templates,
                               key_prefix, (struct Str){0}, log) != 0 ||
       toml_copy_template_name(value, key_prefix, "content", perm, &templates->content, log) != 0 ||
       toml_copy_strings(value, key_prefix, "aggregates", true, perm, &templates->aggregates,
-                        &templates->aggregate_template_count, log) != 0) {
+                        &templates->aggregate_template_count, log) != 0 ||
+      toml_copy_strings(value, key_prefix, "feeds", true, perm, &templates->feeds,
+                        &templates->feed_template_count, log) != 0) {
     return -1;
   }
-  return toml_copy_strings(value, key_prefix, "feeds", true, perm, &templates->feeds,
-                           &templates->feed_template_count, log);
+  return toml_copy_template_name(value, key_prefix, "not_found", perm, &templates->not_found, log);
 }
 
 static int require_valid_permalink(struct Str pattern, struct Arena scratch, struct Log* log) {

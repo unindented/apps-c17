@@ -71,6 +71,7 @@ templates/
   partials/
     header.html
     footer.html
+  404.html
   atom.xml
   content.html
   index.html
@@ -116,6 +117,7 @@ This table and the [Templates table](#templates-table) list every key that the c
 | `output_dir` | `"public"` | Not empty | The directory that the build writes to and controls. See [Output directory](#output-directory). |
 | `templates_dir` | `"templates"` | An existing directory | The directory of the templates and partials. |
 | `static_dir` | `"static"` | A directory, if it exists | The directory of files that the build copies without changes. The build skips it if it does not exist. |
+| `not_found_path` | `"404.html"` | A safe relative path that ends in `.html` | The output path of the not-found page below `output_dir`. See [Not-found page](#not-found-page). |
 | `feed_count` | `25` | 0 or more | The maximum number of entries in each feed. |
 | `frontmatter_ignored_keys` | `[]` | An array of strings | More keys that Markdown frontmatter can contain. `sosig` accepts any value for them and does not read it. For denote notes, set it to `["identifier", "signature"]`. |
 | `templates` | | A table | The `[templates]` table below. |
@@ -133,6 +135,7 @@ The optional `[templates]` table names the template of each kind of page, relati
 content = "content.html"
 aggregates = ["index.html"]
 feeds = ["atom.xml"]
+not_found = "404.html"
 ```
 
 | Key | Default | Bounds | Meaning |
@@ -140,6 +143,7 @@ feeds = ["atom.xml"]
 | `content` | `"content.html"` | A safe relative template name | The template for each entry. The `template` field of an entry overrides it. |
 | `aggregates` | `["index.html"]` | An array of safe relative template names | Templates that the build renders once, with every entry that is not a draft. |
 | `feeds` | `["atom.xml"]` | An array of safe relative template names | Templates that the build renders once, with the newest `feed_count` entries. |
+| `not_found` | `"404.html"` | A safe relative template name | The template of the not-found page, which the build renders to `not_found_path`. See [Not-found page](#not-found-page). |
 
 A template name, in the table or in the `template` field of an entry, must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.` and `/`. It cannot contain an empty segment, or the segment `.` or `..`. The name of an aggregate or feed template is its source path below `templates_dir` and also its output path below `output_dir`, so a name with `/` creates subdirectories in `output_dir`. If `aggregates` or `feeds` is an empty array, the build renders no template of that kind. Every template that the build renders must exist. A missing one fails the build with an error that names the template and the key, such as `(for 'templates.content')`.
 
@@ -159,7 +163,7 @@ Each search of an input directory skips `output_dir`, so a symlink into `output_
 
 Before it renders a page or writes a file, `sosig` rejects these conflicts:
 
-- Two outputs have the same path. For example, a static file or an asset has the same path as a content page, an aggregate, or a feed. An HTML file that Emacs exported next to its Org file is such an asset: `content/a.html` has the same path as the page of `content/a.org`. Delete the exported file or move it out of `content/`. Paths that differ only in ASCII letter case, such as `About/index.html` and `about/index.html`, are the same path, because a case-insensitive filesystem such as the macOS default stores them as one file.
+- Two outputs have the same path. For example, a static file or an asset has the same path as a content page, an aggregate, a feed, or the not-found page. An HTML file that Emacs exported next to its Org file is such an asset: `content/a.html` has the same path as the page of `content/a.org`. Delete the exported file or move it out of `content/`. Paths that differ only in ASCII letter case, such as `About/index.html` and `about/index.html`, are the same path, because a case-insensitive filesystem such as the macOS default stores them as one file.
 - One output path must be both a file and a directory. This check also ignores ASCII letter case.
 - An output is at or below `content_dir`, `templates_dir`, or `static_dir`, for example through a symlink inside `output_dir`. This check applies also when no file exists at that path yet.
 - An output overwrites the config file, a content file, a static file, an asset, or any file below `templates_dir`, partials included.
@@ -192,8 +196,9 @@ The `write` and `keep` lines come first, in this order:
 1. Content pages, newest first.
 2. Aggregates.
 3. Feeds.
-4. Static files, then assets.
-5. The output cache.
+4. The not-found page.
+5. Static files, then assets.
+6. The output cache.
 
 The `remove` lines come last, in sorted order. To get only the paths, for `sort`, `diff` or `comm`, use `cut -f2-`. A dry run reports a failure as a build does, on `stderr` and with the same exit status, and then prints no listing. With `-v`, the progress lines go to `stderr`, so `stdout` holds only the listing.
 
@@ -206,7 +211,7 @@ A dry run writes nothing, so a build can fail after a dry run succeeds. A dry ru
 
 ### What a build keeps
 
-A build renders every content page, aggregate and feed. It writes each one only when its bytes differ from the file in `output_dir`. An unchanged file keeps its modification time, so a deploy tool that compares times does not upload it again.
+A build renders every content page, aggregate and feed, and the not-found page. It writes each one only when its bytes differ from the file in `output_dir`. An unchanged file keeps its modification time, so a deploy tool that compares times does not upload it again.
 
 A build copies a static file or an asset only when its source changed. The output cache, `_sosig/output-cache.tsv` below `output_dir`, records the path, size and modification time of each source that the build copied. The next build keeps a copy if its source has the same path, size and modification time, and the copy has the size that the cache records. A tool that changes a file but keeps its size and modification time defeats this check. After such a change, run `sosig build --force` once.
 
@@ -457,13 +462,14 @@ A language name matches in any letter case, so `sosig` highlights a `Bash` code 
 
 ## Templates
 
-Templates use [Mustache](https://mustache.github.io/) syntax and are in `templates_dir`. There are three kinds:
+Templates use [Mustache](https://mustache.github.io/) syntax and are in `templates_dir`. There are four kinds:
 
 | Kind | Configured by | Rendered |
 | --- | --- | --- |
 | Content | `templates.content`, or the `template` field of an entry | Once for each entry, to the output path of the entry. The entry fields are at the top level. |
 | Aggregate | `templates.aggregates` | Once, to the same relative path below `output_dir`. No entry fields are at the top level. |
 | Feed | `templates.feeds` | As an aggregate, but with only the newest `feed_count` entries. |
+| Not-found | `templates.not_found` | Once, to `not_found_path`, with no entries. See [Not-found page](#not-found-page). |
 
 `{{value}}` escapes its output for HTML. `{{{value}}}` and `{{& value}}` write it without escaping, and work only for a key that ends in `_html`, which holds HTML that `sosig` made. Any other key that the data holds fails the render, so a value that `sosig` did not make, such as a title, cannot add markup to a page. A name that the data does not hold writes nothing. Use `{{{body_html}}}` to write the rendered body.
 
@@ -477,12 +483,12 @@ Every link in the data of an entry is relative to the page and already holds its
 | --- | --- | --- |
 | `site.title`, `site.description`, `site.author`, `site.base_url` | All | The values from the config. |
 | `feed` | Feed | `id` and `url`, the URL of the feed. `html_url`, the home of the site. `modified`, the newest change among the feed's entries, or `1970-01-01T00:00:00Z` for a feed without entries. |
-| `content_entries` | All | Every entry that is not a draft, newest first. Entries with the same date sort by output path. A feed gets only the newest `feed_count` entries. Iterate with `{{#content_entries}}`. |
+| `content_entries` | All but not-found | Every entry that is not a draft, newest first. Entries with the same date sort by output path. A feed gets only the newest `feed_count` entries. Iterate with `{{#content_entries}}`. |
 | `generator` | All | The name and version of `sosig`, for a tag such as `<meta name="generator" content="{{generator}}">`. |
-| `path_to_root` | All | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. |
-| `title`, `date`, `modified`, `description`, `slug`, `url`, `absolute_url`, `body_html`, `tags` | Content, and any template inside `{{#content_entries}}` | The entry fields. `url` links to the entry's page, relative to the current page, or absolute in a feed. `absolute_url` is always absolute, below `base_url`, for a canonical link or a page that a host serves at any depth, such as a 404 page. Iterate tags with `{{#tags}}{{.}}{{/tags}}`. |
+| `path_to_root` | All | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. On the not-found page, it is the path of `base_url` followed by `/`. |
+| `title`, `date`, `modified`, `description`, `slug`, `url`, `absolute_url`, `body_html`, `tags` | Content, and any template inside `{{#content_entries}}` | The entry fields. `url` links to the entry's page, relative to the current page, or absolute in a feed. `absolute_url` is always absolute, below `base_url`, for a canonical link. Iterate tags with `{{#tags}}{{.}}{{/tags}}`. |
 
-The output path of a content page comes from `permalink`. The output path of an aggregate or feed template is its name.
+The output path of a content page comes from `permalink`. The output path of an aggregate or feed template is its name, and the output path of the not-found page is `not_found_path`.
 
 A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_` and `-`. A reference to another name fails the build. `sosig` ignores the other files of `partials/` and its subdirectories. The feed templates also use the `.html` partials. Before it writes anything, the build compiles each template that it renders and each partial once. It reports every template that it cannot read or compile in one run.
 
@@ -520,6 +526,28 @@ An Atom feed template can use `feed.modified` for the `<updated>` element of the
 ```
 
 A link in `body_html` to another content file or an asset is relative to the entry's own page. So `body_html` works on that page, and in a feed whose `<content>` sets `xml:base` to the entry's `url`, as above, because a feed reader resolves the links against it. On a page at another depth, such as an aggregate in a subdirectory, these links do not resolve.
+
+### Not-found page
+
+Every site has a not-found page, which a static host serves for a path that does not exist. The build renders `templates.not_found`, `404.html` by default, to `not_found_path`, also `404.html` by default. The template must exist, or the build fails with an error that names it and `templates.not_found`. A host reads the page from a path of its own, as [Host notes](../../README.md#host-notes) lists. For bunny.net, set `not_found_path = "bunnycdn_errors/404.html"` and keep the template where it is.
+
+The page gets `site`, `generator` and `path_to_root`, and no entries. A host serves it at any depth, so its `path_to_root` is the path of `base_url` followed by `/`: `/` for `https://www.example.com`, and `/blog/` for `https://www.example.com/blog`. So `{{path_to_root}}style.css` loads at every depth, and the template can use the same partials as every other page. The prefix is root-relative, so the page also works on a preview host. A page opened from disk resolves it against the filesystem root, so preview the page through a server.
+
+```html
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Not found · {{site.title}}</title>
+  <link rel="stylesheet" href="{{path_to_root}}style.css">
+</head>
+<body>
+  {{> header}}
+  <p>Nothing is here. <a href="{{path_to_root}}index.html">{{site.title}}</a></p>
+</body>
+</html>
+```
+
+An aggregate at the path of the not-found page, such as an aggregate named `404.html` with the default `not_found_path`, fails the build with an error that names both keys.
 
 ## Development
 

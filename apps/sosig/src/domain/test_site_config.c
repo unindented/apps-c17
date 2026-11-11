@@ -155,6 +155,8 @@ static void test_load_applies_required_and_defaults(void) {
   TEST_CHECK(str_eq(config.templates.aggregates[0], S("index.html")));
   TEST_ASSERT(config.templates.feed_template_count == 1);
   TEST_CHECK(str_eq(config.templates.feeds[0], S("atom.xml")));
+  TEST_CHECK(str_eq(config.templates.not_found, S("404.html")));
+  TEST_CHECK(str_eq(config.not_found_path, S("404.html")));
   TEST_CHECK(config.feed_count == 25);
   TEST_CHECK(config.frontmatter_ignored_key_count == 0);
 }
@@ -171,13 +173,15 @@ static void test_load_overrides_optional_keys(void) {
       "output_dir = \"dist\"\n"
       "templates_dir = \"layouts\"\n"
       "static_dir = \"files\"\n"
+      "not_found_path = \"bunnycdn_errors/404.html\"\n"
       "feed_count = 5\n"
       "frontmatter_ignored_keys = [\"identifier\", \"signature\"]\n"
       "\n"
       "[templates]\n"
       "content = \"post.html\"\n"
       "aggregates = [\"index.html\", \"archive.html\"]\n"
-      "feeds = []\n";
+      "feeds = []\n"
+      "not_found = \"errors/missing.html\"\n";
   struct SiteConfig config;
   site_config_init(&config);
   struct Log log = test_log();
@@ -193,6 +197,8 @@ static void test_load_overrides_optional_keys(void) {
   TEST_CHECK(str_eq(config.templates.aggregates[0], S("index.html")));
   TEST_CHECK(str_eq(config.templates.aggregates[1], S("archive.html")));
   TEST_CHECK(config.templates.feed_template_count == 0);
+  TEST_CHECK(str_eq(config.templates.not_found, S("errors/missing.html")));
+  TEST_CHECK(str_eq(config.not_found_path, S("bunnycdn_errors/404.html")));
   TEST_CHECK(config.feed_count == 5);
   TEST_ASSERT(config.frontmatter_ignored_key_count == 2);
   TEST_CHECK(str_eq(config.frontmatter_ignored_keys[0], S("identifier")));
@@ -210,6 +216,7 @@ static void test_load_keeps_the_default_of_each_unset_template_key(void) {
       "[templates]\ncontent = \"post.html\"\n",
       "[templates]\naggregates = [\"archive.html\"]\n",
       "[templates]\nfeeds = [\"rss.xml\"]\n",
+      "[templates]\nnot_found = \"missing.html\"\n",
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(tables) / sizeof(tables[0])); i++) {
     char toml[512];
@@ -232,6 +239,7 @@ static void test_load_keeps_the_default_of_each_unset_template_key(void) {
     TEST_CHECK(str_eq(templates->aggregates[0], i == 2 ? S("archive.html") : S("index.html")));
     TEST_ASSERT(templates->feed_template_count == 1);
     TEST_CHECK(str_eq(templates->feeds[0], i == 3 ? S("rss.xml") : S("atom.xml")));
+    TEST_CHECK(str_eq(templates->not_found, i == 4 ? S("missing.html") : S("404.html")));
     TEST_MSG("table '%s'", tables[i]);
   }
 }
@@ -744,6 +752,35 @@ static void test_load_rejects_unsafe_content_template(void) {
   }
 }
 
+// An empty or unsafe `templates.not_found` is rejected at load with the key, as `templates.content`
+// is.
+static void test_load_rejects_unsafe_not_found_template(void) {
+  check_load_rejects("templates.not_found = \"\"\n",
+                     "config key 'templates.not_found' must be a safe relative template name: ''");
+  check_load_rejects("templates.not_found = \"../404.html\"\n",
+                     "config key 'templates.not_found' must be a safe relative template name: "
+                     "'../404.html'");
+}
+
+// An empty `not_found_path`, one that is not a safe relative path, and one that does not end in
+// `.html` are each rejected with the value, and a value of another type as a string key is.
+static void test_load_rejects_invalid_not_found_path(void) {
+  static const char* const values[] = {"", "../404.html", "/404.html", "errors//404.html", "404"};
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(values) / sizeof(values[0])); i++) {
+    char toml_extra[256];
+    const int n = snprintf(toml_extra, sizeof(toml_extra), "not_found_path = \"%s\"\n", values[i]);
+    TEST_CHECK(n > 0 && (size_t)n < sizeof(toml_extra));
+    char expected[EXPECTED_SIZE];
+    const int expected_len =
+        snprintf(expected, sizeof(expected),
+                 "config key 'not_found_path' must be a safe relative path ending in '.html': '%s'",
+                 values[i]);
+    TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected));
+    check_load_rejects(toml_extra, expected);
+  }
+  check_load_rejects("not_found_path = 404\n", "config key 'not_found_path' must be a string");
+}
+
 // A non-array value, a non-string element, and an unsafe name for a template array key are each
 // rejected.
 static void test_load_rejects_invalid_template_arrays(void) {
@@ -904,13 +941,15 @@ static void test_print_defaults(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
+                                  "not_found_path = \"404.html\"\n"
                                   "feed_count = 25\n"
                                   "frontmatter_ignored_keys = []\n"
                                   "\n"
                                   "[templates]\n"
                                   "content = \"content.html\"\n"
                                   "aggregates = [\"index.html\"]\n"
-                                  "feeds = [\"atom.xml\"]\n"));
+                                  "feeds = [\"atom.xml\"]\n"
+                                  "not_found = \"404.html\"\n"));
 }
 
 // Printing escapes quotes, backslashes, and every named control escape (\t \b \n \f \r). It uses
@@ -935,13 +974,15 @@ static void test_print_escapes_strings(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
+                                  "not_found_path = \"404.html\"\n"
                                   "feed_count = 25\n"
                                   "frontmatter_ignored_keys = []\n"
                                   "\n"
                                   "[templates]\n"
                                   "content = \"content.html\"\n"
                                   "aggregates = [\"index.html\"]\n"
-                                  "feeds = [\"atom.xml\"]\n"));
+                                  "feeds = [\"atom.xml\"]\n"
+                                  "not_found = \"404.html\"\n"));
 }
 
 // Printing a config and loading the printed output back from the working directory yields the same
@@ -965,11 +1006,13 @@ static void test_print_load_round_trips(void) {
   config.output_dir = S("dist");
   config.templates_dir = S("layouts");
   config.static_dir = S("files");
+  config.not_found_path = S("bunnycdn_errors/404.html");
   config.templates.content = S("post.html");
   config.templates.aggregates = aggregates;
   config.templates.aggregate_template_count = 2;
   config.templates.feeds = feeds;
   config.templates.feed_template_count = 1;
+  config.templates.not_found = S("errors/missing.html");
   config.feed_count = 7;
   config.frontmatter_ignored_keys = ignored_keys;
   config.frontmatter_ignored_key_count = 2;
@@ -992,7 +1035,9 @@ static void test_print_load_round_trips(void) {
   TEST_CHECK(str_eq(reloaded.output_dir, config.output_dir));
   TEST_CHECK(str_eq(reloaded.templates_dir, config.templates_dir));
   TEST_CHECK(str_eq(reloaded.static_dir, config.static_dir));
+  TEST_CHECK(str_eq(reloaded.not_found_path, config.not_found_path));
   TEST_CHECK(str_eq(reloaded.templates.content, config.templates.content));
+  TEST_CHECK(str_eq(reloaded.templates.not_found, config.templates.not_found));
   TEST_ASSERT(reloaded.templates.aggregate_template_count == 2);
   TEST_CHECK(str_eq(reloaded.templates.aggregates[0], S("index.html")));
   TEST_CHECK(str_eq(reloaded.templates.aggregates[1], S("archive.html")));
@@ -1040,13 +1085,15 @@ static void test_print_empty_template_arrays(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
+                                  "not_found_path = \"404.html\"\n"
                                   "feed_count = 25\n"
                                   "frontmatter_ignored_keys = []\n"
                                   "\n"
                                   "[templates]\n"
                                   "content = \"content.html\"\n"
                                   "aggregates = []\n"
-                                  "feeds = []\n"));
+                                  "feeds = []\n"
+                                  "not_found = \"404.html\"\n"));
 }
 
 // A standard output that refuses the write makes `site_config_print` report `-1` with the write's
@@ -1099,6 +1146,8 @@ TEST_LIST = {
     {"load rejects base url with path breaking byte",
      test_load_rejects_base_url_with_path_breaking_byte},
     {"load rejects unsafe content template", test_load_rejects_unsafe_content_template},
+    {"load rejects unsafe not found template", test_load_rejects_unsafe_not_found_template},
+    {"load rejects invalid not found path", test_load_rejects_invalid_not_found_path},
     {"load rejects invalid template arrays", test_load_rejects_invalid_template_arrays},
     {"load rejects invalid frontmatter ignored keys",
      test_load_rejects_invalid_frontmatter_ignored_keys},

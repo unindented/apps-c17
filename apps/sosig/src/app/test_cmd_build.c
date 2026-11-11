@@ -50,6 +50,9 @@ static const char* const SITE_CONFIG =
 /** Minimal content template, which renders a page as its body alone. */
 static const char* const CONTENT_TEMPLATE = "{{{body_html}}}\n";
 
+/** Not-found template every fixture has, which renders its `path_to_root`. */
+static const char* const NOT_FOUND_TEMPLATE = "not found {{path_to_root}}\n";
+
 /** One published content entry whose body renders as `<p>Body</p>`. */
 static const char* const HELLO_ENTRY =
     "+++\n"
@@ -63,11 +66,9 @@ static const char* const HELLO_PAGE = "<p>Body</p>\n\n";
 
 /** Files `every_output_kind_fixture` builds to, in byte order. */
 static const char* const EVERY_OUTPUT_KIND_FILES[] = {
-    "public/_sosig/output-cache.tsv",
-    "public/alpha.html",
-    "public/beta.html",
-    "public/feed.xml",
-    "public/index.html",
+    "public/404.html",   "public/_sosig/output-cache.tsv",
+    "public/alpha.html", "public/beta.html",
+    "public/feed.xml",   "public/index.html",
     "public/sosig.css",
 };
 
@@ -78,7 +79,7 @@ enum {
 };
 
 /**
- * @brief Returns a host holding `sosig.toml` and the content template.
+ * @brief Returns a host holding `sosig.toml`, the content template and the not-found template.
  *
  * @param config_extra Config lines placed before the shared body, or `NULL` for the body alone. It
  *                     must not repeat a key the body sets, because TOML rejects a duplicate key.
@@ -87,6 +88,7 @@ enum {
 static struct Os* site_fixture(const char* config_extra) {
   struct Os* os = os_memory();
   os_memory_write(os, "templates/content.html", CONTENT_TEMPLATE);
+  os_memory_write(os, "templates/404.html", NOT_FOUND_TEMPLATE);
   struct Arena arena = test_arena();
   struct Buf config = {.arena = &arena};
   if (config_extra != NULL) {
@@ -99,7 +101,8 @@ static struct Os* site_fixture(const char* config_extra) {
 
 /**
  * @brief Returns a host holding a site with one output of every kind: two content pages beside a
- *        draft, an aggregate, a feed, and a static file, which build to `EVERY_OUTPUT_KIND_FILES`.
+ *        draft, an aggregate, a feed, the not-found page and a static file, which build to
+ *        `EVERY_OUTPUT_KIND_FILES`.
  *
  * @return The host.
  */
@@ -123,6 +126,7 @@ static struct Os* every_output_kind_fixture(void) {
   os_memory_write(os, "templates/content.html", CONTENT_TEMPLATE);
   os_memory_write(os, "templates/index.html", "index\n");
   os_memory_write(os, "templates/feed.xml", "feed\n");
+  os_memory_write(os, "templates/404.html", NOT_FOUND_TEMPLATE);
   os_memory_write(os, "static/sosig.css", "body{}\n");
   return os;
 }
@@ -314,6 +318,7 @@ static const char* const EVERY_OUTPUT_KIND_WRITES =
     "write\tpublic/beta.html\n"
     "write\tpublic/index.html\n"
     "write\tpublic/feed.xml\n"
+    "write\tpublic/404.html\n"
     "write\tpublic/sosig.css\n"
     "write\tpublic/_sosig/output-cache.tsv\n";
 
@@ -421,8 +426,9 @@ static void test_tolerates_trailing_slash_on_content_dir(void) {
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  static const char* const expected[] = {"public/_sosig/output-cache.tsv", "public/post.html"};
-  TEST_CHECK(is_file_list(os, "public", expected, 2));
+  static const char* const expected[] = {"public/404.html", "public/_sosig/output-cache.tsv",
+                                         "public/post.html"};
+  TEST_CHECK(is_file_list(os, "public", expected, 3));
 }
 
 // A config that `-c` names in another directory reads and writes each directory next to it, its
@@ -432,6 +438,7 @@ static void test_builds_site_of_config_in_another_dir(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "sub/sosig.toml", SITE_CONFIG);
   os_memory_write(os, "sub/templates/content.html", CONTENT_TEMPLATE);
+  os_memory_write(os, "sub/templates/404.html", NOT_FOUND_TEMPLATE);
   os_memory_write(os, "sub/content/hello.md", HELLO_ENTRY);
   os_memory_write(os, "sub/static/robots.txt", "User-agent: *\n");
 
@@ -439,9 +446,10 @@ static void test_builds_site_of_config_in_another_dir(void) {
   struct Log log = test_log();
   TEST_CHECK(execute_build_with(&options, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  static const char* const expected[] = {"sub/public/_sosig/output-cache.tsv",
+  static const char* const expected[] = {"sub/public/404.html",
+                                         "sub/public/_sosig/output-cache.tsv",
                                          "sub/public/hello.html", "sub/public/robots.txt"};
-  TEST_CHECK(is_file_list(os, "sub/public", expected, 3));
+  TEST_CHECK(is_file_list(os, "sub/public", expected, 4));
   TEST_CHECK(os_memory_is_file(os, "sub/public/hello.html", HELLO_PAGE));
   TEST_CHECK(!os_memory_has_path(os, "public"));
 }
@@ -490,21 +498,32 @@ static void test_copies_assets_beside_content(void) {
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   static const char* const expected[] = {
-      "public/_sosig/output-cache.tsv",
-      "public/a.html",
-      "public/b.html",
-      "public/c.png",
-      "public/d.html",
-      "public/e.org~",
-      "public/f.html",
+      "public/404.html", "public/_sosig/output-cache.tsv",
+      "public/a.html",   "public/b.html",
+      "public/c.png",    "public/d.html",
+      "public/e.org~",   "public/f.html",
   };
-  TEST_CHECK(is_file_list(os, "public", expected, 7));
+  TEST_CHECK(is_file_list(os, "public", expected, 8));
   TEST_CHECK(os_memory_is_file(os, "public/a.html", HELLO_PAGE));
   TEST_CHECK(os_memory_is_file(os, "public/b.html", "<p>B body</p>\n\n"));
   TEST_CHECK(os_memory_is_file(os, "public/c.png", "png"));
   TEST_CHECK(os_memory_is_file(os, "public/d.html", HELLO_PAGE));
   TEST_CHECK(os_memory_is_file(os, "public/e.org~", "backup"));
   TEST_CHECK(os_memory_is_file(os, "public/f.html", "<p><strong>Bold</strong></p>\n\n"));
+}
+
+// A not-found page below a directory, as bunny.net serves it, gets the root-relative path of
+// `base_url` as its `path_to_root`, and nothing is written at the default `404.html`. The golden
+// test `site_nested_sections` asserts a `base_url` with a path end to end.
+static void test_renders_a_nested_not_found_page_from_the_root(void) {
+  struct Os* os = site_fixture("not_found_path = \"bunnycdn_errors/404.html\"\n");
+  os_memory_write(os, "content/hello.md", HELLO_ENTRY);
+
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_file(os, "public/bunnycdn_errors/404.html", "not found /\n"));
+  TEST_CHECK(!os_memory_has_path(os, "public/404.html"));
 }
 
 // A custom pretty permalink publishes `<slug>/index.html` instead of `<slug>.html`. The golden test
@@ -530,9 +549,9 @@ static void test_distinguishes_same_name_in_different_dirs(void) {
   struct Log log = test_log();
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  static const char* const expected[] = {"public/_sosig/output-cache.tsv", "public/a/post.html",
-                                         "public/b/post.html"};
-  TEST_CHECK(is_file_list(os, "public", expected, 3));
+  static const char* const expected[] = {"public/404.html", "public/_sosig/output-cache.tsv",
+                                         "public/a/post.html", "public/b/post.html"};
+  TEST_CHECK(is_file_list(os, "public", expected, 4));
 }
 
 // An Org note and a Markdown note in two sections link each other by path and by denote identifier,
@@ -675,8 +694,9 @@ static void test_rebuild_succeeds_and_repeats_its_outputs(void) {
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   // The one content page and the output cache: the second build adds nothing and removes nothing.
-  static const char* const expected[] = {"public/_sosig/output-cache.tsv", "public/hello.html"};
-  TEST_CHECK(is_file_list(os, "public", expected, 2));
+  static const char* const expected[] = {"public/404.html", "public/_sosig/output-cache.tsv",
+                                         "public/hello.html"};
+  TEST_CHECK(is_file_list(os, "public", expected, 3));
 }
 
 // A rebuild removes what the current inputs no longer produce: the page of a deleted entry, an old
@@ -695,13 +715,14 @@ static void test_rebuild_removes_stale_outputs(void) {
   os_memory_write(os, "public/old-section/deeper/page.html", "old");
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  static const char* const expected[] = {"public/_sosig/output-cache.tsv", "public/hello.html"};
-  TEST_CHECK(is_file_list(os, "public", expected, 2));
+  static const char* const expected[] = {"public/404.html", "public/_sosig/output-cache.tsv",
+                                         "public/hello.html"};
+  TEST_CHECK(is_file_list(os, "public", expected, 3));
   TEST_CHECK(!os_memory_has_path(os, "public/old-section"));
 
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  TEST_CHECK(is_file_list(os, "public", expected, 2));
+  TEST_CHECK(is_file_list(os, "public", expected, 3));
 }
 
 // A rebuild removes the copy of an asset that was deleted from `content_dir`.
@@ -716,8 +737,9 @@ static void test_rebuild_removes_deleted_asset(void) {
   TEST_CHECK(os_remove(os, S("content/c.png"), S("failed to remove fixture"), &log) == 0);
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  static const char* const expected[] = {"public/_sosig/output-cache.tsv", "public/a.html"};
-  TEST_CHECK(is_file_list(os, "public", expected, 2));
+  static const char* const expected[] = {"public/404.html", "public/_sosig/output-cache.tsv",
+                                         "public/a.html"};
+  TEST_CHECK(is_file_list(os, "public", expected, 3));
 }
 
 // An `output_dir` that a symlink inside `content_dir` reaches is left out of the content walk, so a
@@ -735,6 +757,7 @@ static void test_rebuild_skips_output_dir_linked_from_content_dir(void) {
                   "templates.feeds = []\n");
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);
   os_memory_write(os, "templates/content.html", CONTENT_TEMPLATE);
+  os_memory_write(os, "templates/404.html", NOT_FOUND_TEMPLATE);
   os_memory_write(os, "templates/notes.md", "notes\n");
   os_memory_symlink(os, "../public", "content/published");
 
@@ -744,9 +767,9 @@ static void test_rebuild_skips_output_dir_linked_from_content_dir(void) {
   TEST_CHECK(test_log_is_empty(&log));
   // The page, the aggregate and the output cache, and no page rendered from the aggregate's own
   // output.
-  static const char* const expected[] = {"public/_sosig/output-cache.tsv", "public/hello.html",
-                                         "public/notes.md"};
-  TEST_CHECK(is_file_list(os, "public", expected, 3));
+  static const char* const expected[] = {"public/404.html", "public/_sosig/output-cache.tsv",
+                                         "public/hello.html", "public/notes.md"};
+  TEST_CHECK(is_file_list(os, "public", expected, 4));
 }
 
 // A dry run of a site with every kind of output succeeds and creates nothing, not even
@@ -785,6 +808,7 @@ static void test_dry_run_lists_stale_outputs_and_keeps_them(void) {
   TEST_CHECK(test_log_is_empty(&log));
   TEST_CHECK(os_memory_is_printed(os, 1,
                                   "keep\tpublic/hello.html\n"
+                                  "keep\tpublic/404.html\n"
                                   "write\tpublic/_sosig/output-cache.tsv\n"
                                   "remove\tpublic/goodbye.html\n"
                                   "remove\tpublic/notes.txt\n"
@@ -871,6 +895,7 @@ static void test_dry_run_keeps_every_page_after_an_unchanged_build(void) {
                         "keep\tpublic/beta.html\n"
                         "keep\tpublic/index.html\n"
                         "keep\tpublic/feed.xml\n"
+                        "keep\tpublic/404.html\n"
                         "keep\tpublic/sosig.css\n"
                         "write\tpublic/_sosig/output-cache.tsv\n"));
   TEST_CHECK(os_memory_is_file(os, "public/_sosig/output-cache.tsv", str_cstr(cache, &arena)));
@@ -891,6 +916,7 @@ static void test_changed_static_file_is_copied_again(void) {
                         "keep\tpublic/beta.html\n"
                         "keep\tpublic/index.html\n"
                         "keep\tpublic/feed.xml\n"
+                        "keep\tpublic/404.html\n"
                         "write\tpublic/sosig.css\n"
                         "write\tpublic/_sosig/output-cache.tsv\n"));
   TEST_CHECK(execute_build(os, &log) == 0);
@@ -922,6 +948,7 @@ static void test_changed_source_rewrites_only_its_page(void) {
                         "keep\tpublic/beta.html\n"
                         "keep\tpublic/index.html\n"
                         "keep\tpublic/feed.xml\n"
+                        "keep\tpublic/404.html\n"
                         "keep\tpublic/sosig.css\n"
                         "write\tpublic/_sosig/output-cache.tsv\n"));
   TEST_CHECK(execute_build(os, &log) == 0);
@@ -954,6 +981,7 @@ static void test_page_reading_the_entry_list_follows_every_entry(void) {
                         "keep\tpublic/a.html\n"
                         "keep\tpublic/b.html\n"
                         "keep\tpublic/c.html\n"
+                        "keep\tpublic/404.html\n"
                         "write\tpublic/_sosig/output-cache.tsv\n"));
   os_memory_write(os, "content/b.md",
                   "+++\ntitle = \"Renamed\"\ndate = 2026-07-01T00:00:00Z\n+++\nBody\n");
@@ -962,6 +990,7 @@ static void test_page_reading_the_entry_list_follows_every_entry(void) {
                         "write\tpublic/a.html\n"
                         "write\tpublic/b.html\n"
                         "keep\tpublic/c.html\n"
+                        "keep\tpublic/404.html\n"
                         "write\tpublic/_sosig/output-cache.tsv\n"));
 }
 
@@ -981,6 +1010,7 @@ static void test_page_linking_an_entry_follows_it(void) {
   TEST_CHECK(is_listing(dry_run_listing(os, false, &arena),
                         "write\tpublic/bee.html\n"
                         "write\tpublic/a.html\n"
+                        "keep\tpublic/404.html\n"
                         "write\tpublic/_sosig/output-cache.tsv\n"
                         "remove\tpublic/b.html\n"));
   TEST_CHECK(execute_build(os, &log) == 0);
@@ -1014,6 +1044,7 @@ static void test_page_linking_an_asset_follows_its_rename(void) {
                         "keep\tpublic/gamma.html\n"
                         "keep\tpublic/index.html\n"
                         "keep\tpublic/feed.xml\n"
+                        "keep\tpublic/404.html\n"
                         "keep\tpublic/sosig.css\n"
                         "keep\tpublic/20240105T000000--paper.pdf\n"
                         "write\tpublic/_sosig/output-cache.tsv\n"));
@@ -1027,6 +1058,7 @@ static void test_page_linking_an_asset_follows_its_rename(void) {
                         "write\tpublic/gamma.html\n"
                         "keep\tpublic/index.html\n"
                         "keep\tpublic/feed.xml\n"
+                        "keep\tpublic/404.html\n"
                         "keep\tpublic/sosig.css\n"
                         "write\tpublic/20240105T000000--report.pdf\n"
                         "write\tpublic/_sosig/output-cache.tsv\n"
@@ -1052,6 +1084,7 @@ static void test_changed_partial_makes_every_page(void) {
   TEST_CHECK(is_listing(dry_run_listing(os, false, &arena),
                         "write\tpublic/a.html\n"
                         "write\tpublic/b.html\n"
+                        "keep\tpublic/404.html\n"
                         "write\tpublic/_sosig/output-cache.tsv\n"));
 }
 
@@ -1108,6 +1141,7 @@ static void test_failed_build_keeps_the_copies_it_made(void) {
                         "keep\tpublic/beta.html\n"
                         "keep\tpublic/index.html\n"
                         "keep\tpublic/feed.xml\n"
+                        "keep\tpublic/404.html\n"
                         "keep\tpublic/sosig.css\n"
                         "write\tpublic/paper.pdf\n"
                         "write\tpublic/_sosig/output-cache.tsv\n"));
@@ -1139,6 +1173,7 @@ static void test_ignores_output_cache_it_cannot_use(void) {
                                     "keep\tpublic/beta.html\n"
                                     "keep\tpublic/index.html\n"
                                     "keep\tpublic/feed.xml\n"
+                                    "keep\tpublic/404.html\n"
                                     "write\tpublic/sosig.css\n"
                                     "write\tpublic/_sosig/output-cache.tsv\n"));
     struct Buf line = {.arena = &arena};
@@ -1248,6 +1283,7 @@ static void test_skips_empty_phases_in_verbose_output(void) {
                                   "no output cache, copying every file\n"
                                   "rendering aggregate templates\n"
                                   "rendering feed templates\n"
+                                  "rendering not-found page\n"
                                   "copying static files\n"
                                   "writing output cache\n"
                                   "removing stale outputs\n"
@@ -1487,10 +1523,10 @@ static void test_rejects_output_dir_holding_content_dir(void) {
   TEST_CHECK(os_memory_is_printed(os, 2,
                                   "loading config\n"
                                   "output directory would hold 'content_dir': '.'\n"));
-  // The config, the template, and the source.
+  // The config, the templates, and the source.
   static const char* const expected[] = {"./content/hello.md", "./sosig.toml",
-                                         "./templates/content.html"};
-  TEST_CHECK(is_file_list(os, ".", expected, 3));
+                                         "./templates/404.html", "./templates/content.html"};
+  TEST_CHECK(is_file_list(os, ".", expected, 4));
 }
 
 // The config that `-c` names is the one the build protects: an `output_dir` that holds its
@@ -1506,6 +1542,7 @@ static void test_rejects_output_dir_holding_config_in_another_dir(void) {
                   "author = \"Author\"\n"
                   "base_url = \"https://example.com\"\n");
   os_memory_write(os, "templates/content.html", CONTENT_TEMPLATE);
+  os_memory_write(os, "templates/404.html", NOT_FOUND_TEMPLATE);
   os_memory_write(os, "content/hello.md", HELLO_ENTRY);
 
   const struct BuildOptions options = {.config_path = S("site/sosig.toml")};
@@ -1682,6 +1719,8 @@ static void test_reports_a_missing_configured_template_with_its_key(void) {
        "templates.content"},
       {"aggregates = [\"index.html\"]\nfeeds = []\n", "index.html", "templates.aggregates"},
       {"aggregates = []\nfeeds = [\"atom.xml\"]\n", "atom.xml", "templates.feeds"},
+      {"aggregates = []\nfeeds = []\nnot_found = \"missing.html\"\n", "missing.html",
+       "templates.not_found"},
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
     TEST_CASE(cases[i].templates);
@@ -1698,6 +1737,7 @@ static void test_reports_a_missing_configured_template_with_its_key(void) {
                cases[i].templates);
     os_memory_write(os, "sosig.toml", buf_cstr(&config));
     os_memory_write(os, "templates/content.html", CONTENT_TEMPLATE);
+    os_memory_write(os, "templates/404.html", NOT_FOUND_TEMPLATE);
     os_memory_write(os, "content/hello.md", HELLO_ENTRY);
 
     struct Log log = test_log();
@@ -1777,6 +1817,7 @@ static void test_stops_after_config_error(void) {
     os_memory_write(os, "sosig.toml", config);
     os_memory_write(os, "content/index.md", HELLO_ENTRY);
     os_memory_write(os, "templates/content.html", CONTENT_TEMPLATE);
+    os_memory_write(os, "templates/404.html", NOT_FOUND_TEMPLATE);
     os_memory_write(os, "templates/index.html", "index\n");
 
     struct Log log = test_log();
@@ -1873,6 +1914,20 @@ static void test_rejects_oversize_source_at_read(void) {
   TEST_CHECK(test_log_is(&log, "%s\n", expected));
 }
 
+// A content page at the not-found page's path is refused before anything is written, and the
+// message names `not_found_path`.
+static void test_rejects_content_page_at_not_found_path(void) {
+  struct Os* os = site_fixture(NULL);
+  os_memory_write(os, "content/404.md", HELLO_ENTRY);
+
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "duplicate output path for 'content/404.md' and 'not_found_path': "
+                         "'public/404.html'\n"));
+  TEST_CHECK(!os_memory_has_path(os, "public"));
+}
+
 // A configured aggregate output that collides with a content entry output is rejected, with the
 // collision described in the returned diagnostic. The refused build creates no `output_dir`,
 // because nothing is written before the manifest passes.
@@ -1888,6 +1943,7 @@ static void test_rejects_duplicate_output(void) {
                   "templates.feeds = []\n");
   os_memory_write(os, "content/index.md", HELLO_ENTRY);
   os_memory_write(os, "templates/content.html", CONTENT_TEMPLATE);
+  os_memory_write(os, "templates/404.html", NOT_FOUND_TEMPLATE);
   os_memory_write(os, "templates/index.html", "index\n");
 
   struct Log log = test_log();
@@ -1973,6 +2029,8 @@ TEST_LIST = {
     {"builds with no static dir", test_builds_with_no_static_dir},
     {"copies static files when present", test_copies_static_files_when_present},
     {"copies assets beside content", test_copies_assets_beside_content},
+    {"renders a nested not found page from the root",
+     test_renders_a_nested_not_found_page_from_the_root},
     {"honors custom permalink", test_honors_custom_permalink},
     {"distinguishes same name in different dirs", test_distinguishes_same_name_in_different_dirs},
     {"links notes to each others pages", test_links_notes_to_each_others_pages},
@@ -2048,6 +2106,7 @@ TEST_LIST = {
     {"reports only the parse error of a linked note",
      test_reports_only_the_parse_error_of_a_linked_note},
     {"rejects oversize source at read", test_rejects_oversize_source_at_read},
+    {"rejects content page at not found path", test_rejects_content_page_at_not_found_path},
     {"rejects duplicate output", test_rejects_duplicate_output},
     {"reports every independent error", test_reports_every_independent_error},
     {"reports static dir that is a file", test_reports_static_dir_that_is_a_file},

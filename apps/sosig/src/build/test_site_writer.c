@@ -224,6 +224,37 @@ static void test_write_templates_renders_path_to_root_per_template(void) {
   template_set_release(feeds_set);
 }
 
+// The not-found page renders `templates.not_found` to `not_found_path`, with the root-relative path
+// of `base_url` as `path_to_root` however deep the page is, and with no entries.
+static void test_write_not_found_renders_from_the_root(void) {
+  struct Os* os = os_memory();
+  os_memory_write(
+      os, "templates/errors/missing.html",
+      "{{site.title}}|{{path_to_root}}style.css|{{#content_entries}}x{{/content_entries}}"
+      "{{^content_entries}}none{{/content_entries}}");
+  static const struct Str names[] = {STR_INIT("errors/missing.html")};
+  struct SiteConfig site_config;
+  init_config(&site_config);
+  site_config.title = S("Site");
+  site_config.base_url = S("https://example.com/blog");
+  site_config.not_found_path = S("bunnycdn_errors/404.html");
+  site_config.templates.not_found = names[0];
+  static const char* const output_paths[] = {"public/bunnycdn_errors/404.html"};
+  struct Arena arena = test_arena();
+  struct Manifest manifest = {0};
+  struct OutputWriter writer;
+  init_writer(&writer, &manifest, output_paths, 1, os, &arena);
+
+  struct Log log = test_log();
+  struct TemplateSet* set = load_templates(os, names, 1);
+  TEST_CHECK(site_writer_write_not_found(&writer, &EMPTY_CACHE, &site_config, set, test_arena(),
+                                         test_arena(), &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_file(os, "public/bunnycdn_errors/404.html", "Site|/blog/style.css|none"));
+  TEST_CHECK(!os_memory_has_path(os, "public/errors"));
+  template_set_release(set);
+}
+
 // An output whose file already holds the rendered bytes is kept, left as it was, and one whose file
 // holds other bytes is written.
 static void test_write_templates_keeps_an_unchanged_output(void) {
@@ -290,6 +321,7 @@ TEST_LIST = {
     {"write templates gives feed data", test_write_templates_gives_feed_data},
     {"write templates renders path to root per template",
      test_write_templates_renders_path_to_root_per_template},
+    {"write not found renders from the root", test_write_not_found_renders_from_the_root},
     {"write templates keeps an unchanged output", test_write_templates_keeps_an_unchanged_output},
     {"write templates reports write failure", test_write_templates_reports_write_failure},
     {NULL, NULL},

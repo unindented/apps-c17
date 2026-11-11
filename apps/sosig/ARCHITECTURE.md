@@ -36,7 +36,7 @@ Each header documents the interface of its module.
 - [build/entry_renderer](src/build/entry_renderer.h): The parse and convert phases, and the rules for links between content files.
 - [build/output_manifest](src/build/output_manifest.h): The check of `output_dir` against the input roots, and the output plan with its conflict checks.
 - [build/page_renderer](src/build/page_renderer.h): The page phase. It renders each entry through its content template.
-- [build/site_writer](src/build/site_writer.h): Renders the aggregate and feed templates, and stops at the first one that fails.
+- [build/site_writer](src/build/site_writer.h): Renders the aggregate and feed templates and the not-found page, and stops at the first one that fails.
 - [build/template_context](src/build/template_context.h): The template data. It resolves each name when a render asks for it, and marks only `body_html` as HTML that a template can write unescaped.
 - [domain/content_entry](src/domain/content_entry.h): The `ContentEntry` struct, the newest-first sort, and the newest change for `feed.modified`.
 - [domain/frontmatter](src/domain/frontmatter.h): Splits a Markdown file at its `+++` fences, parses the TOML frontmatter, and reads the keywords at the top of an Org file.
@@ -57,7 +57,7 @@ Each header documents the interface of its module.
 7. **Convert bodies** (`convert_content_bodies`): In parallel, convert each body to HTML and resolve its links to other content files. If the log then holds an error, the build stops.
 8. **Prepare output** (`prepare_output_dir`): Create `output_dir`. This is the first write.
 9. **Render pages** (`render_content_pages`): In parallel, render each content page, and keep or write it.
-10. **Write the site** (`write_generated_site`): On the main thread, render each aggregate and feed, then copy each static file and each asset.
+10. **Write the site** (`write_generated_site`): On the main thread, render each aggregate and feed and the not-found page, then copy each static file and each asset.
 11. **Write the output cache** (`write_output_cache`): Write the cache, also when phase 9 or 10 failed.
 12. **Remove stale outputs** (`prune_stale_outputs`): Remove every path below `output_dir` that the build did not write. This phase runs only when every write succeeded.
 13. **Report the dry run** (`report_dry_run`): In a dry run only, print the `write`, `keep` and `remove` lines.
@@ -109,4 +109,4 @@ Read a decision before you change its design, and make sure that the change deal
 
 ### Out of memory exits the process
 
-**Decision.** `os_oom` in [main.c](src/app/main.c) calls `cli_oom_exit` with the name `sosig`. The report names the file of the thread that ran out. A parse, convert or page job names its source. A main-thread phase names each aggregate or feed template, each static file and asset that it copies, and the output cache. **Why.** It is easy to make the output again, no call site checks for allocation failure, and the user needs the file name to find the input that failed. **Cost.** Under a low `ulimit -v`, a large input ends in the out-of-memory report and not in a sized refusal.
+**Decision.** `os_oom` in [main.c](src/app/main.c) calls `cli_oom_exit` with the name `sosig`. The report names the file of the thread that ran out. A parse, convert or page job names its source. A main-thread phase names each aggregate or feed template, the not-found page, each static file and asset that it copies, and the output cache. **Why.** It is easy to make the output again, no call site checks for allocation failure, and the user needs the file name to find the input that failed. **Cost.** Under a low `ulimit -v`, a large input ends in the out-of-memory report and not in a sized refusal.

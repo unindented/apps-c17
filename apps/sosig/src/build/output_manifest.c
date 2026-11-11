@@ -112,6 +112,10 @@ int output_manifest_populate(struct Manifest* manifest,
                                          templates->feed_template_count, scratch, log) != 0) {
     rc = -1;
   }
+  if (manifest_builder_add(&builder, site_config->not_found_path, S("not_found_path"), scratch,
+                           log) != 0) {
+    rc = -1;
+  }
   if (manifest_builder_add_copies(&builder, static_paths, static_stats, site_config->static_dir,
                                   NULL, scratch, log) != 0) {
     rc = -1;

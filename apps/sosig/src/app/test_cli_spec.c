@@ -62,6 +62,7 @@ static struct Os* site_host(const char* site_dir) {
       {"content/hello.md", entry},
       {"content/world.md", entry},
       {"templates/content.html", "{{{body_html}}}\n"},
+      {"templates/404.html", "not found\n"},
   };
   struct Os* os = os_memory();
   struct Arena arena = test_arena();
@@ -145,13 +146,15 @@ static void test_config_command_is_dispatched(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
+                                  "not_found_path = \"404.html\"\n"
                                   "feed_count = 25\n"
                                   "frontmatter_ignored_keys = []\n"
                                   "\n"
                                   "[templates]\n"
                                   "content = \"content.html\"\n"
                                   "aggregates = []\n"
-                                  "feeds = []\n"));
+                                  "feeds = []\n"
+                                  "not_found = \"404.html\"\n"));
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
   // No page was written, which is what separates `config` from `build`.
   TEST_CHECK(!os_memory_has_path(os, "public/hello.html"));
@@ -172,6 +175,7 @@ static void test_build_command_receives_parsed_options(void) {
   TEST_CHECK(os_memory_is_printed(dry_run_os, 1,
                                   "write\tpublic/hello.html\n"
                                   "write\tpublic/world.html\n"
+                                  "write\tpublic/404.html\n"
                                   "write\tpublic/_sosig/output-cache.tsv\n"));
   TEST_CHECK(os_memory_is_printed(dry_run_os, 2, ""));
   TEST_CHECK(!os_memory_has_path(dry_run_os, "public"));
@@ -196,6 +200,7 @@ static void test_build_command_receives_parsed_options(void) {
                                   "\rrendering content 1/2\rrendering content 2/2\n"
                                   "rendering aggregate templates\n"
                                   "rendering feed templates\n"
+                                  "rendering not-found page\n"
                                   "copying static files\n"
                                   "writing output cache\n"
                                   "removing stale outputs\n"
@@ -221,13 +226,15 @@ static void test_config_option_reaches_both_commands(void) {
                                   "output_dir = \"sub/public\"\n"
                                   "templates_dir = \"sub/templates\"\n"
                                   "static_dir = \"sub/static\"\n"
+                                  "not_found_path = \"404.html\"\n"
                                   "feed_count = 25\n"
                                   "frontmatter_ignored_keys = []\n"
                                   "\n"
                                   "[templates]\n"
                                   "content = \"content.html\"\n"
                                   "aggregates = []\n"
-                                  "feeds = []\n"));
+                                  "feeds = []\n"
+                                  "not_found = \"404.html\"\n"));
   TEST_CHECK(os_memory_is_printed(config_os, 2, ""));
 
   struct Os* build_os = site_host("sub/");

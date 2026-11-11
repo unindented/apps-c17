@@ -10,3 +10,4 @@ frontmatter_ignored_keys = ["identifier", "signature"]
 
 [templates]
 feeds = ["atom.xml", "rss.xml"]
+not_found = "errors/missing.html"

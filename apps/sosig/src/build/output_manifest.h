@@ -59,12 +59,12 @@ int output_manifest_check_output_dir(const struct SiteConfig* site_config,
  * @brief Records every intended output path in the build manifest, rejecting duplicates and any
  *        output that would land inside a build input tree or overwrite a build input file.
  *
- * Registers content entry, template, and static file output paths before writing any file, and the
- * output cache's path last, so it catches a collision between two producers up front. A static file
- * at the output cache's path is a duplicate rather than a silent overwrite, and being recorded is
- * what keeps the output cache through the stale-output prune. Each static file and asset is a copy
- * whose attributes are its source's size and modification time, so the output writer keeps a copy
- * whose source is unchanged. It rejects four kinds of collision:
+ * Registers content entry, template, not-found page and static file output paths before writing any
+ * file, and the output cache's path last, so it catches a collision between two producers up front.
+ * A static file at the output cache's path is a duplicate rather than a silent overwrite, and being
+ * recorded is what keeps the output cache through the stale-output prune. Each static file and
+ * asset is a copy whose attributes are its source's size and modification time, so the output
+ * writer keeps a copy whose source is unchanged. It rejects four kinds of collision:
  * - an output path at or below `content_dir`, `templates_dir`, or `static_dir`
  * - an output path that names a build input
  * - two producers that claim one output path, compared after folding ASCII case

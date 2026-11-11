@@ -197,7 +197,8 @@ static struct ContentEntry entry_at(const char* output_path, const char* source_
                                .source_path = str_from_cstr(source_path)};
 }
 
-// Every content entry, aggregate, feed, and static file output is registered exactly once.
+// Every content entry, aggregate, feed, not-found page and static file output is registered exactly
+// once.
 static void test_registers_complete_output_set(void) {
   struct SiteConfig site_config;
   struct Os* os = init_manifest_fixture(&site_config);
@@ -227,8 +228,8 @@ static void test_registers_complete_output_set(void) {
   TEST_CHECK(
       populate(&manifest, &site_config, &sources, &static_paths, NULL, entries, 2, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  // The five outputs of the site, and the output cache.
-  TEST_CHECK(manifest.count == 5 + 1);
+  // The five outputs of the site, the not-found page, and the output cache.
+  TEST_CHECK(manifest.count == 5 + 1 + 1);
 }
 
 // A static file and an asset are copies of their sources, whose attributes are the source's size
@@ -360,8 +361,8 @@ static void test_reports_every_collision(void) {
                          "duplicate output path for 'site/content/c.md' and 'site/content/d.md': "
                          "'site/public/two/index.html'\n"));
   TEST_CHECK(log.errors == 2);
-  // The two outputs that were accepted, and the output cache.
-  TEST_CHECK(manifest.count == 3);
+  // The two outputs that were accepted, the not-found page, and the output cache.
+  TEST_CHECK(manifest.count == 4);
 }
 
 // Two entries whose output paths differ only in ASCII case claim one file on a case-insensitive
@@ -443,6 +444,34 @@ static void test_rejects_entry_aggregate_collision(void) {
   TEST_CHECK(test_log_is(&log,
                          "duplicate output path for 'site/content/index.md' and "
                          "'templates.aggregates[0]': 'site/public/index.html'\n"));
+}
+
+// The not-found page is recorded under `not_found_path`, so a collision with a content page or an
+// aggregate names that key, and each collision is reported.
+static void test_rejects_not_found_collisions(void) {
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
+  os_memory_write(os, "site/templates/errors/404.html", "aggregate");
+  static const struct Str aggregates[] = {STR_INIT("errors/404.html")};
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
+  const struct ContentEntry entry = entry_at("site/public/404.html", "site/content/404.md");
+  const struct ContentEntry* entries[] = {&entry};
+  struct Manifest manifest = {0};
+  struct Log log = test_log();
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, NULL, entries, 1, os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "duplicate output path for 'site/content/404.md' and 'not_found_path': "
+                         "'site/public/404.html'\n"));
+
+  site_config.not_found_path = S("errors/404.html");
+  struct Manifest nested_manifest = {0};
+  struct Log nested_log = test_log();
+  TEST_CHECK(populate(&nested_manifest, &site_config, NULL, NULL, NULL, NULL, 0, os, &nested_log) ==
+             -1);
+  TEST_CHECK(test_log_is(&nested_log,
+                         "duplicate output path for 'templates.aggregates[0]' and "
+                         "'not_found_path': 'site/public/errors/404.html'\n"));
 }
 
 // `output_manifest_populate` rejects two configured templates that claim one output path. It names
@@ -891,6 +920,7 @@ TEST_LIST = {
     {"rejects prefix collision", test_rejects_prefix_collision},
     {"rejects every prefix collision", test_rejects_every_prefix_collision},
     {"rejects entry aggregate collision", test_rejects_entry_aggregate_collision},
+    {"rejects not found collisions", test_rejects_not_found_collisions},
     {"rejects duplicate template", test_rejects_duplicate_template},
     {"rejects input overwrite", test_rejects_input_overwrite},
     {"rejects input overwrite among many inputs", test_rejects_input_overwrite_among_many_inputs},

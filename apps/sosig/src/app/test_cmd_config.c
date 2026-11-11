@@ -56,13 +56,15 @@ static void test_prints_loaded_config(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
+                                  "not_found_path = \"404.html\"\n"
                                   "feed_count = 25\n"
                                   "frontmatter_ignored_keys = [\"identifier\", \"signature\"]\n"
                                   "\n"
                                   "[templates]\n"
                                   "content = \"content.html\"\n"
                                   "aggregates = [\"index.html\"]\n"
-                                  "feeds = [\"atom.xml\"]\n"));
+                                  "feeds = [\"atom.xml\"]\n"
+                                  "not_found = \"404.html\"\n"));
 }
 
 // A config whose template arrays are empty prints and reports success. A loader that accepted `[]`
@@ -92,13 +94,15 @@ static void test_prints_empty_template_arrays(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
+                                  "not_found_path = \"404.html\"\n"
                                   "feed_count = 25\n"
                                   "frontmatter_ignored_keys = []\n"
                                   "\n"
                                   "[templates]\n"
                                   "content = \"content.html\"\n"
                                   "aggregates = []\n"
-                                  "feeds = []\n"));
+                                  "feeds = []\n"
+                                  "not_found = \"404.html\"\n"));
 }
 
 // `config -c sub/sosig.toml` prints every directory resolved against `sub`, a default as well as a
@@ -126,13 +130,15 @@ static void test_prints_directories_resolved_against_config_dir(void) {
                                   "output_dir = \"sub/public\"\n"
                                   "templates_dir = \"sub/layouts\"\n"
                                   "static_dir = \"/srv/static\"\n"
+                                  "not_found_path = \"404.html\"\n"
                                   "feed_count = 25\n"
                                   "frontmatter_ignored_keys = []\n"
                                   "\n"
                                   "[templates]\n"
                                   "content = \"content.html\"\n"
                                   "aggregates = [\"index.html\"]\n"
-                                  "feeds = [\"atom.xml\"]\n"));
+                                  "feeds = [\"atom.xml\"]\n"
+                                  "not_found = \"404.html\"\n"));
 }
 
 // A missing config is reported with the read failure that caused it, naming the path, so this

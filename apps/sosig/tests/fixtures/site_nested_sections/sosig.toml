@@ -2,6 +2,8 @@ title = "Field Notes & Static"
 description = "Signals, static & sections."
 author = "Sosig Tests"
 base_url = "https://www.example.com/notes"
+# bunny.net serves a custom not-found page only from this path.
+not_found_path = "bunnycdn_errors/404.html"
 feed_count = 4
 
 [templates]

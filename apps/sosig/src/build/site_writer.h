@@ -60,4 +60,35 @@ int site_writer_write_templates(const struct OutputWriter* writer,
                                 struct Arena scratch,
                                 struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 12)));
 
+/**
+ * @brief Renders `templates.not_found` and hands it to `output_writer_produce` for `not_found_path`
+ *        under `output_dir`.
+ *
+ * The page sees `site`, `generator` and a `path_to_root` that is the root-relative path of
+ * `base_url`, from `output_path_not_found_root`, because a host serves it at every depth. It sees
+ * no entries. Like every other output, it is rendered, and an existing file of the same bytes is
+ * kept.
+ *
+ * @param writer       Writer the page is written through. Must not be `NULL`.
+ * @param cache        Output cache of the previous build, which `output_writer_produce` reads. Must
+ *                     not be `NULL`.
+ * @param site_config  Configuration supplying `output_dir`, `base_url`, `not_found_path` and the
+ *                     template. Must not be `NULL`.
+ * @param template_set Templates the page renders from. Must not be `NULL`.
+ * @param output       Arena whose free space holds the page until it is written. Nothing in it
+ *                     outlives the call. Must not overlap `scratch`.
+ * @param scratch      Arena for the render's temporaries, and then for the read of the existing
+ *                     output it is compared with.
+ * @param log          Log that receives the failure. Its arena must be none of the others. Must not
+ *                     be `NULL`.
+ * @return `0` on success, or `-1` when the page fails to render or write.
+ */
+int site_writer_write_not_found(const struct OutputWriter* writer,
+                                const struct OutputCache* cache,
+                                const struct SiteConfig* site_config,
+                                const struct TemplateSet* template_set,
+                                struct Arena output,
+                                struct Arena scratch,
+                                struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 7)));
+
 #endif

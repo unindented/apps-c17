@@ -317,9 +317,9 @@ static void collect_content_entries_compact(struct BuildState* state) __attribut
  *        one that cannot be read or does not compile.
  *
  * The templates are the content template when an entry uses it, the aggregate and feed templates,
- * and each entry's `template`. A template that a key of `[templates]` names names the first such
- * key in table order, as `templates.<key>`, when it cannot be read. A template that only entries
- * name names the first of them, in source order.
+ * the not-found template, and each entry's `template`. A template that a key of `[templates]` names
+ * names the first such key in table order, as `templates.<key>`, when it cannot be read. A template
+ * that only entries name names the first of them, in source order.
  *
  * @param state Build state holding the parsed entries, which receives the set. Must not be `NULL`.
  * @param log   Log that receives every error. Must not be `NULL`.
@@ -413,8 +413,8 @@ static int render_content_pages(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Renders the configured aggregate and feed templates, writing each one that changed, and
- *        copies the static files and the assets whose sources changed.
+ * @brief Renders the configured aggregate and feed templates and the not-found page, writing each
+ *        one that changed, and copies the static files and the assets whose sources changed.
  *
  * @param state Build state holding the collected entries, the static file paths, and the asset
  *              paths. Must not be `NULL`.
@@ -723,7 +723,7 @@ static int load_templates(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "compiling templates");
   const struct SiteConfig* site_config = &state->site_config;
   const struct SiteTemplates* templates = &site_config->templates;
-  const ptrdiff_t name_count_max = 1 + templates->aggregate_template_count +
+  const ptrdiff_t name_count_max = 2 + templates->aggregate_template_count +
                                    templates->feed_template_count + state->content_entry_count;
   struct Arena scratch = state->scratch;
   struct Str* names = arena_new(&scratch, name_count_max, struct Str);
@@ -746,6 +746,7 @@ static int load_templates(struct BuildState* state, struct Log* log) {
   for (ptrdiff_t i = 0; i < templates->feed_template_count; i++) {
     load_templates_add(names, owners, &name_count, templates->feeds[i], S("templates.feeds"));
   }
+  load_templates_add(names, owners, &name_count, templates->not_found, S("templates.not_found"));
   // The entries go in source order, so a template that only entries name names the first of them.
   for (ptrdiff_t i = 0; i < state->source_paths.count; i++) {
     const struct ContentEntry* entry = state->source_entries[i];
@@ -863,6 +864,11 @@ static int write_generated_site(struct BuildState* state, struct Log* log) {
                                   site_config->templates.feeds,
                                   site_config->templates.feed_template_count, entries,
                                   feed_entry_count, true, state->perm, state->scratch, log) != 0) {
+    return -1;
+  }
+  verbose_printf(&state->verbose, "rendering not-found page");
+  if (site_writer_write_not_found(&state->writer, &state->cache, site_config, state->template_set,
+                                  state->perm, state->scratch, log) != 0) {
     return -1;
   }
   verbose_printf(&state->verbose, "copying static files");

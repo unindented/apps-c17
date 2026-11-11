@@ -28,13 +28,16 @@ struct TemplateContext {
   /** Number of entries in `content_entries`. */
   ptrdiff_t content_entry_count;
 
-  /** Current entry for content templates, or `NULL` for aggregate and feed templates. */
+  /**
+   * Current entry for content templates, or `NULL` for aggregate, feed and not-found templates.
+   */
   const struct ContentEntry* content_entry_current;
 
   /**
-   * Relative prefix from the page being rendered to `output_dir`, exposed as `path_to_root`: one
-   * `../` for each directory the page's output path is below, and empty for a page at the top of
-   * `output_dir`.
+   * Prefix from the page being rendered to `output_dir`, exposed as `path_to_root`: one `../` for
+   * each directory the page's output path is below, and empty for a page at the top of
+   * `output_dir`. The not-found page, which a host serves at every depth, has the root-relative
+   * path of `base_url` instead.
    */
   struct Str path_to_root;
 
