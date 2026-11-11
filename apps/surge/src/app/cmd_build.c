@@ -144,8 +144,7 @@ struct SitePageMake {
   /** Name of the page's template. */
   struct Str template_name;
 
-  /** Output path of the page below `output_dir`, `PAGE_INDEX_PAGE` or
-      `PAGE_INDEX_NOT_FOUND_PAGE`. */
+  /** Output path of the page below `output_dir`, `PAGE_INDEX_PAGE` or `not_found_path`. */
   struct Str page;
 };
 
@@ -330,8 +329,8 @@ static struct PathList populate_output_manifest_inputs(struct BuildState* state)
     __attribute__((nonnull(1)));
 
 /**
- * @brief Records `index.html` and `404.html`: the site index declares the page recipe and every
- *        repo and ref, and the not-found page the recipe.
+ * @brief Records `index.html` and the not-found page, labelled `not_found_path`: the site index
+ *        declares the page recipe and every repo and ref, and the not-found page the recipe.
  *
  * @param state   Build state whose repos are scanned. Must not be `NULL`.
  * @param builder Prepared manifest builder. Must not be `NULL`.
@@ -437,7 +436,7 @@ static int write_site_pages(const struct BuildState* state, struct Log* log)
  * @param state         Build state. Must not be `NULL`.
  * @param template_name Name of the page's template.
  * @param page          Output path of the page below `output_dir`, `PAGE_INDEX_PAGE` or
- *                      `PAGE_INDEX_NOT_FOUND_PAGE`.
+ *                      `not_found_path`.
  * @param scratch       Arena for the page and its render.
  * @param log           Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` when the render or the write fails.
@@ -907,14 +906,15 @@ static int populate_output_manifest_site_pages(const struct BuildState* state,
   const struct Str not_found_attributes = str_concat(S("recipe="), state->recipe_id, &scratch);
   const struct {
     struct Str page;
+    struct Str label;
     struct Str attributes;
   } pages[] = {
-      {PAGE_INDEX_PAGE, index_attributes},
-      {PAGE_INDEX_NOT_FOUND_PAGE, not_found_attributes},
+      {PAGE_INDEX_PAGE, PAGE_INDEX_PAGE, index_attributes},
+      {state->site_config.not_found_path, S("not_found_path"), not_found_attributes},
   };
   int rc = 0;
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(pages) / sizeof(pages[0])); i++) {
-    if (manifest_builder_add_output(builder, pages[i].page, pages[i].page, pages[i].attributes,
+    if (manifest_builder_add_output(builder, pages[i].page, pages[i].label, pages[i].attributes,
                                     scratch, log) != 0) {
       rc = -1;
     }
@@ -1058,8 +1058,8 @@ static int write_site_pages(const struct BuildState* state, struct Log* log) {
   if (write_site_page(state, templates->index, PAGE_INDEX_PAGE, state->scratch, log) != 0) {
     return -1;
   }
-  return write_site_page(state, templates->not_found, PAGE_INDEX_NOT_FOUND_PAGE, state->scratch,
-                         log);
+  return write_site_page(state, templates->not_found, state->site_config.not_found_path,
+                         state->scratch, log);
 }
 
 static int write_site_page(const struct BuildState* state,

@@ -11,9 +11,6 @@ struct TemplateValue;
 /** Output path of the site index below `output_dir`. */
 #define PAGE_INDEX_PAGE S("index.html")
 
-/** Output path of the not-found page below `output_dir`. */
-#define PAGE_INDEX_NOT_FOUND_PAGE S("404.html")
-
 /**
  * @brief Returns the data tree of the site index, `index.html`.
  *
@@ -32,9 +29,11 @@ struct TemplateValue* page_index_value(const struct SiteConfig* site_config,
     __attribute__((nonnull(1, 2, 4), returns_nonnull));
 
 /**
- * @brief Returns the data tree of the not-found page, `404.html`.
+ * @brief Returns the data tree of the not-found page, at `not_found_path`.
  *
- * `apps/surge/README.md#data-trees` lists its keys, in the `not_found` row.
+ * `apps/surge/README.md#data-trees` lists its keys, in the `not_found` row. A host serves the page
+ * at every depth, so its `path_to_root` is the root-relative path of `base_url`, from
+ * `output_path_not_found_root`.
  *
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param arena       Arena that owns the tree. Must not be `NULL`.

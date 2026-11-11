@@ -129,10 +129,11 @@ Top-level keys:
 | `title` | Required | A string | The site title, `site.title` in templates. |
 | `description` | Required | A string | The site description, `site.description`. |
 | `author` | Required | A string | The site author, `site.author`. |
-| `base_url` | Required | An `http://` or `https://` URL with a host, in any letter case, without `?`, `#`, a space or a control character | The absolute URL of the site. `surge` removes any trailing `/`. The clone URLs, the feeds, the mise examples and the links of `404.html` use it. Every other link is relative. |
+| `base_url` | Required | An `http://` or `https://` URL with a host, in any letter case, without `?`, `#`, a space or a control character | The absolute URL of the site. `surge` removes any trailing `/`. The clone URLs, the feeds and the mise examples use it, and its path is the not-found page's `path_to_root`. Every other link is relative. |
 | `output_dir` | `"public"` | Not empty | The directory that the build writes to and controls. See [Output directory](#output-directory). |
 | `templates_dir` | `"templates"` | A directory | The templates and partials. |
 | `static_dir` | `"static"` | A directory, if it exists | The files that the build copies into `output_dir`. |
+| `not_found_path` | `"404.html"` | A safe relative path that ends in `.html` | The output path of the not-found page below `output_dir`. A host serves its not-found page from a path of its own, as [Host notes](../../README.md#host-notes) lists. For bunny.net, set `"bunnycdn_errors/404.html"`. |
 | `log_page_size` | `100` | 1 to 10000 | The commits on each commit list page. |
 | `feed_count` | `25` | 0 or more | The most entries in each commit, tag and release feed. |
 | `headers_file` | `false` | A boolean | Whether the build writes `_headers`. See [Cache headers](#cache-headers). |
@@ -198,7 +199,7 @@ These rules apply to repository and project names:
 - A name contains only ASCII letters, digits, `.`, `_` and `-`, and is at most 251 bytes long, so that `<name>.git` fits in one path segment.
 - A name cannot start with `.` or end in `.git`, in any letter case.
 - Two repositories, or two projects of one repository, cannot have names that differ only in ASCII letter case.
-- A repository cannot be named `index.html`, `404.html`, `_surge` or `_headers`, and a project cannot be named `tag`, `download` or `index.html`, in any letter case.
+- A repository cannot be named `index.html`, `_surge` or `_headers`, or the first segment of `not_found_path`, which is `404.html` by default, and a project cannot be named `tag`, `download` or `index.html`, in any letter case.
 - The build fails when a top-level entry of `static_dir` has the name of a repository or of its `<name>.git`, after ASCII case folding.
 
 `surge` resolves each directory in the config, the defaults included, against the directory of the config file. So `-c sub/surge.toml` without `output_dir` writes `sub/public`. It removes trailing `/` characters from each directory value, and rejects a value that is then empty, such as `/`. A directory can be absolute, or relative with `..`. `surge config` prints every directory resolved. It leaves out an empty optional string, but it prints a repository `description` set to `""`.
@@ -211,7 +212,7 @@ The build writes this tree to `output_dir`. `<r>` is a repository name, `<ref>` 
 
 ```text
 index.html                                     site index
-404.html                                       not-found page
+<not_found_path>                               not-found page, 404.html by default
 _headers                                       with headers_file = true
 _surge/output-cache.tsv                        output cache
 <static files>
@@ -242,7 +243,7 @@ _surge/output-cache.tsv                        output cache
 
 The paths follow GitHub's URL scheme, with each page as the `index.html` of its directory. A branch name or a tree path keeps its `/` characters as nested directories, so the branch `feature/x` has its tree pages below `tree/feature/x/`. Only branches get `tree/`, `blob/`, `raw/` and `commits/` pages. A tag has a row on the tag list, a link to its commit page, and a release page when it has a release.
 
-Every link on a page is relative, so the site works below any path prefix. Each link names the `index.html` of a page, so the links work on a host that does not redirect `/x` to `/x/`. A link percent-encodes each byte of a branch or tree name outside RFC 3986's unreserved set, `+` included. The feeds and the mise examples use absolute links below `base_url`.
+Every link on a page is relative, so the site works below any path prefix. The not-found page is the exception: its `path_to_root` is the path of `base_url`, because a host serves it at any depth. Each link names the `index.html` of a page, so the links work on a host that does not redirect `/x` to `/x/`. A link percent-encodes each byte of a branch or tree name outside RFC 3986's unreserved set, `+` included. The feeds and the mise examples use absolute links below `base_url`.
 
 ### Output directory
 
@@ -293,7 +294,7 @@ The `write` and `keep` lines come first, in this order:
 2. The pages of each repository: the home, the branch and tag lists, the tag feed and the release feed, then for each branch its tree, blob and raw outputs, its commit list pages and its commit feed, and then the commit pages.
 3. `_headers`.
 4. The release outputs of each repository.
-5. `index.html` and `404.html`.
+5. `index.html` and the not-found page.
 6. The static files.
 7. The output cache.
 
@@ -569,7 +570,7 @@ Templates use [Mustache](https://mustache.github.io/) syntax and are in `templat
 | `release_list` | With a release project | Each release list, `<r>/releases/index.html`. |
 | `release_project` | With a release project | Each release project page, `<r>/releases/<project>/index.html`. |
 | `release_feed` | With a release project | Each release feed. |
-| `not_found` | Always | The not-found page, `404.html`. A host serves it at any depth, so it links with `{{site.base_url}}`, not `{{path_to_root}}`. |
+| `not_found` | Always | The not-found page, at `not_found_path`. |
 
 A site has a release project when a repository has a `releases_dir`, or a project with a `tag_prefix`. A site without one needs none of the four release templates. Every required template must exist. A missing one fails the build with an error that names the template and the first key in table order that names it, such as `(for 'templates.tree')`.
 
@@ -589,7 +590,7 @@ A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A p
 - A size is a number of bytes.
 - Every link is relative to the page and already holds its `path_to_root`. In the feeds, every link is absolute.
 
-Every template gets `site`, with `title`, `description`, `author` and `base_url` from the config (`base_url` without a trailing `/`). It also gets `generator`, the name and version of `surge`, for a tag such as `<meta name="generator" content="{{generator}}">`, and `path_to_root`, the `../` prefix from the page to `output_dir`, empty at the top. A link to a static file is `{{path_to_root}}style.css`.
+Every template gets `site`, with `title`, `description`, `author` and `base_url` from the config (`base_url` without a trailing `/`). It also gets `generator`, the name and version of `surge`, for a tag such as `<meta name="generator" content="{{generator}}">`, and `path_to_root`, the `../` prefix from the page to `output_dir`, empty at the top. A link to a static file is `{{path_to_root}}style.css`. A host serves the not-found page at any depth, so its `path_to_root` is the path of `base_url` followed by `/`, such as `/` for `https://git.example.org` and `/code/` for `https://git.example.org/code`. It is root-relative, so the not-found template can use the same partials as every other page, and it also works on a preview host.
 
 The templates share these maps:
 
@@ -608,7 +609,7 @@ Each kind of page also gets these keys, by the key of its template:
 | Key | Keys |
 | --- | --- |
 | `index` | `repos`, one map for each repository in config order: `name`, `description`, `url` (its home), `clone_url`, `default_branch`, `modified` (the committer date of the default branch's newest commit, empty for an empty repository) and `projects`. A project, in config order, has `name`, `description`, `url` (its directory's tree page on the default branch), `has_releases` (whether it has a `tag_prefix`) and `releases_url` (its project page, or empty). |
-| `not_found` | None. |
+| `not_found` | None: the not-found page gets only `site`, `generator` and `path_to_root`. |
 | `tree` | `repo`; `ref` (for an empty repository, the default branch with empty links); `is_home` (whether the page is `<r>/index.html`); `is_empty` (whether the default branch has no commit, so the home has no tree page); `commit` (the branch's newest commit summary on the root's page, `false` elsewhere); `path` (empty for the root); `is_root`; `breadcrumbs` (to the directory); `tree_entries` (directories first, then files, each group in byte order); and `documents`. |
 | `tree` `documents` | One map for each document, in [Documents](#documents) order: `kind`, the five kind flags (true for this one's kind), `is_main` (whether the page shows it first: the README, or else the first document), `path`, `url` (its blob page) and `rendered_html`. |
 | `blob` | `repo`; `ref`; `path`; `name` (the file name); `breadcrumbs` (to the file); `mode` (`100644` or `100755`); `is_executable`; `size`; `raw_url` and `has_raw` (empty and `false` over `raw_len_max`); `is_too_large` (over `blob_len_max`, so the page has no contents); `is_binary` (libgit2's check, false when too large); `is_image` (an [image extension](#files)); `is_markup` (Markdown or Org); `rendered_html` (the rendered view, or empty); `source_html` (the lines, empty when binary or too large); and `line_count`. |
@@ -681,11 +682,11 @@ A diff highlights the whole old blob and the whole new blob of a file once each.
 
 ## Host notes
 
-`surge` writes plain files that any static host serves. A few host settings decide whether every page and every clone works.
+`surge` writes plain files that any static host serves. A few host settings decide whether every page and every clone works. [Host notes](../../README.md#host-notes) in the repository's README lists the path that each host serves its not-found page from.
 
 ### 404 handling
 
-A dumb-HTTP clone asks for paths that do not exist. git first asks for each object as a loose object, and only then reads the pack. So a host must answer a missing path with a 404. `surge` always writes `404.html`, and a static host serves it for a missing path with status 404. Cloudflare Pages treats a project without a top-level `404.html` as a single-page application, and answers every missing path with 200 and the index page. Against such a host, git 2.56 reports the page as a corrupt object (`inflate: data stream error`) for each loose object that it asks for, then finds the objects in the pack and finishes the clone.
+A dumb-HTTP clone asks for paths that do not exist. git first asks for each object as a loose object, and only then reads the pack. So a host must answer a missing path with a 404. `surge` always writes a not-found page, at `not_found_path`, and a static host that reads it from that path serves it for a missing path with status 404. Set `not_found_path` to the path that the host reads, such as `bunnycdn_errors/404.html` on bunny.net. Cloudflare Pages treats a project without a top-level `404.html` as a single-page application, and answers every missing path with 200 and the index page. Against such a host, git 2.56 reports the page as a corrupt object (`inflate: data stream error`) for each loose object that it asks for, then finds the objects in the pack and finishes the clone.
 
 ### Single-page-app fallback
 

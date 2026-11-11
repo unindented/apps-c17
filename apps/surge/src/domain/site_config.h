@@ -209,6 +209,12 @@ struct SiteConfig {
    */
   struct Str static_dir;
 
+  /**
+   * Path of the not-found page below `output_dir`, a safe relative path ending in `.html`. Defaults
+   * to `404.html`. Its first segment is reserved, so no repo has that name.
+   */
+  struct Str not_found_path;
+
   /** Commits on one log page. Defaults to `100`. */
   ptrdiff_t log_page_size;
 

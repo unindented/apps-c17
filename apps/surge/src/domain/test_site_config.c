@@ -68,6 +68,7 @@ static void test_load_applies_defaults(void) {
   TEST_CHECK(str_eq(site_config.output_dir, S("public")));
   TEST_CHECK(str_eq(site_config.templates_dir, S("templates")));
   TEST_CHECK(str_eq(site_config.static_dir, S("static")));
+  TEST_CHECK(str_eq(site_config.not_found_path, S("404.html")));
   TEST_CHECK(site_config.log_page_size == 100);
   TEST_CHECK(site_config.feed_count == 25);
   TEST_CHECK(!site_config.has_headers_file);
@@ -94,6 +95,7 @@ static void test_load_reads_every_key(void) {
   TEST_CHECK(load_text(SITE_KEYS "output_dir = \"out/\"\n"
                                  "templates_dir = \"tpl\"\n"
                                  "static_dir = \"/srv/static\"\n"
+                                 "not_found_path = \"bunnycdn_errors/404.html\"\n"
                                  "log_page_size = 2\n"
                                  "feed_count = 0\n"
                                  "headers_file = true\n"
@@ -125,6 +127,7 @@ static void test_load_reads_every_key(void) {
   TEST_CHECK(str_eq(site_config.output_dir, S("out")));
   TEST_CHECK(str_eq(site_config.templates_dir, S("tpl")));
   TEST_CHECK(str_eq(site_config.static_dir, S("/srv/static")));
+  TEST_CHECK(str_eq(site_config.not_found_path, S("bunnycdn_errors/404.html")));
   TEST_CHECK(site_config.log_page_size == 2);
   TEST_CHECK(site_config.feed_count == 0);
   TEST_CHECK(site_config.has_headers_file);
@@ -401,6 +404,9 @@ static void test_load_rejects_invalid_template_keys(void) {
                           "unknown config key 'templates.branches'\n"));
   TEST_CHECK(is_logged_as(SITE_KEYS "[templates]\ntree = 1\n" REPO_TABLE,
                           "config key 'templates.tree' must be a string\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "[templates]\nnot_found = \"\"\n" REPO_TABLE,
+                          "config key 'templates.not_found' must be a safe relative template "
+                          "name: ''\n"));
   static const char* const names[] = {"", "../tree.html", "/tree.html", "a//b.html", "a b.html"};
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(names) / sizeof(names[0])); i++) {
     struct Arena text_arena = test_arena();
@@ -524,7 +530,6 @@ static void test_load_rejects_reserved_names(void) {
     const char* reserved;
   } repo_cases[] = {
       {"Index.HTML", "index.html"},
-      {"404.html", "404.html"},
       {"_Headers", "_headers"},
       {"_SURGE", "_surge"},
   };
@@ -560,6 +565,63 @@ static void test_load_rejects_reserved_names(void) {
     TEST_CHECK(is_logged_as(buf_cstr(&text), buf_cstr(&expected)));
     TEST_MSG("project name '%s'", project_cases[i].name);
   }
+}
+
+// A repo may not take the first segment of `not_found_path`, in any case, whether that segment is
+// the page itself or its directory. The default reserves `404.html`, and a nested path frees it.
+static void test_load_rejects_repo_named_as_not_found_segment(void) {
+  static const struct {
+    const char* not_found_path;
+    const char* name;
+  } cases[] = {
+      {NULL, "404.HTML"},
+      {"missing.html", "Missing.html"},
+      {"bunnycdn_errors/404.html", "BunnyCDN_errors"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    struct Arena text_arena = test_arena();
+    struct Buf text = {.arena = &text_arena};
+    buf_append(&text, S(SITE_KEYS));
+    if (cases[i].not_found_path != NULL) {
+      buf_printf(&text, "not_found_path = \"%s\"\n", cases[i].not_found_path);
+    }
+    buf_printf(&text, "[[repo]]\nname = \"%s\"\npath = \"a\"\n", cases[i].name);
+    struct Arena expected_arena = test_arena();
+    struct Buf expected = {.arena = &expected_arena};
+    buf_printf(&expected,
+               "config key 'repo[0].name' must not be the first segment of 'not_found_path' in "
+               "any case: '%s'\n",
+               cases[i].name);
+    TEST_CHECK(is_logged_as(buf_cstr(&text), buf_cstr(&expected)));
+    TEST_MSG("case %td", i);
+  }
+  struct SiteConfig site_config;
+  struct Log log = test_log();
+  TEST_CHECK(load_text(SITE_KEYS "not_found_path = \"bunnycdn_errors/404.html\"\n"
+                                 "[[repo]]\nname = \"404.html\"\npath = \"a\"\n",
+                       &site_config, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+}
+
+// An empty `not_found_path`, one that is not a safe relative path, and one that does not end in
+// `.html` are each rejected with the value.
+static void test_load_rejects_invalid_not_found_paths(void) {
+  static const char* const values[] = {"", "../404.html", "/404.html", "errors//404.html", "404"};
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(values) / sizeof(values[0])); i++) {
+    struct Arena text_arena = test_arena();
+    struct Buf text = {.arena = &text_arena};
+    buf_printf(&text, SITE_KEYS "not_found_path = \"%s\"\n" REPO_TABLE, values[i]);
+    struct Arena expected_arena = test_arena();
+    struct Buf expected = {.arena = &expected_arena};
+    buf_printf(&expected,
+               "config key 'not_found_path' must be a safe relative path ending in '.html': "
+               "'%s'\n",
+               values[i]);
+    TEST_CHECK(is_logged_as(buf_cstr(&text), buf_cstr(&expected)));
+    TEST_MSG("value '%s'", values[i]);
+  }
+  TEST_CHECK(is_logged_as(SITE_KEYS "not_found_path = 404\n" REPO_TABLE,
+                          "config key 'not_found_path' must be a string\n"));
 }
 
 // Two repos, or two projects of one repo, whose names differ only in case refuse the load, and the
@@ -649,6 +711,7 @@ static void test_load_reports_missing_file(void) {
 // TOML has one, and as `\uXXXX` otherwise.
 static void test_print_round_trips(void) {
   static const char text[] = SITE_KEYS
+      "not_found_path = \"bunnycdn_errors/404.html\"\n"
       "headers_file = true\n"
       "[templates]\n"
       "tree = \"pages/tree.html\"\n"
@@ -676,6 +739,7 @@ static void test_print_round_trips(void) {
       "output_dir = \"public\"\n"
       "templates_dir = \"templates\"\n"
       "static_dir = \"static\"\n"
+      "not_found_path = \"bunnycdn_errors/404.html\"\n"
       "log_page_size = 100\n"
       "feed_count = 25\n"
       "headers_file = true\n"
@@ -729,6 +793,7 @@ static void test_print_round_trips(void) {
   TEST_CHECK(str_eq(reloaded.repos[0].projects[0].tag_prefix, S("sosig-v")));
   TEST_CHECK(reloaded.repos[0].projects[0].is_mise);
   TEST_CHECK(reloaded.has_headers_file);
+  TEST_CHECK(test_text_is(reloaded.not_found_path, "bunnycdn_errors/404.html"));
   TEST_CHECK(test_text_is(reloaded.templates.tree, "pages/tree.html"));
   TEST_CHECK(test_text_is(reloaded.templates.not_found, "errors/missing.html"));
   TEST_CHECK(test_text_is(reloaded.templates.commit, "commit.html"));
@@ -758,6 +823,7 @@ static void test_empty_repo_description_is_set(void) {
                                   "output_dir = \"public\"\n"
                                   "templates_dir = \"templates\"\n"
                                   "static_dir = \"static\"\n"
+                                  "not_found_path = \"404.html\"\n"
                                   "log_page_size = 100\n"
                                   "feed_count = 25\n"
                                   "headers_file = false\n"
@@ -818,6 +884,9 @@ TEST_LIST = {
     {"load rejects empty names", test_load_rejects_empty_names},
     {"load rejects long names", test_load_rejects_long_names},
     {"load rejects reserved names", test_load_rejects_reserved_names},
+    {"load rejects repo named as not found segment",
+     test_load_rejects_repo_named_as_not_found_segment},
+    {"load rejects invalid not found paths", test_load_rejects_invalid_not_found_paths},
     {"load rejects colliding names", test_load_rejects_colliding_names},
     {"load rejects overlapping tag prefixes", test_load_rejects_overlapping_tag_prefixes},
     {"load rejects mise without releases", test_load_rejects_mise_without_releases},

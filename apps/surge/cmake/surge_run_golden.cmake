@@ -10,11 +10,11 @@
 # byte too: libgit2 writes the same pack for the same objects on one thread. Each pack is also
 # checked with `git verify-pack` and a strict `git index-pack`, and each `info/refs` against
 # `git for-each-ref` of its source. Before the comparison, a dry run must keep every output. After
-# it, a config that renames two templates in a `[templates]` table must make every page again and
-# give the same output. Then a commit moves a branch: a dry run must write only what the move decides, and after a build
+# it, a config that renames three templates in a `[templates]` table, the not-found page's into a
+# directory, must make every page again and give the same output. Then a commit moves a branch: a dry run must write only what the move decides, and after a build
 # that fails at a page, the next two builds must keep the previous pack one build. Then limits that
 # give a blob a raw copy but no shown page, and a `base_url` with a path, check that copy and the
-# paths of `_headers`, and last a changed blob must make only what it decides again. The first
+# paths of `_headers` and of the not-found page's links, and last a changed blob must make only what it decides again. The first
 # build's `stderr` must be the warnings in `<expected>.warnings.txt`, or empty without that file.
 #
 # An expected file's `@PROJECT_VERSION@` stands for `SURGE_VERSION`, as in fram's golden test.
@@ -167,17 +167,21 @@ apps_golden_compare_trees(
   EXCLUDE "_surge/output-cache.tsv"
 )
 
-# A second config renames `tree.html` and `commit.html` and names them in a `[templates]` table. The
-# page recipe holds every template name, so a dry run makes every page again, and the build after it
-# writes the same pages. The templates and the config are put back afterwards, and a build settles
+# A second config renames `tree.html`, `commit.html` and `404.html`, the last into a directory, and
+# names them in a `[templates]` table. The page recipe holds every template name, so a dry run makes
+# every page again, and the build after it writes the same pages, the not-found page still at
+# `not_found_path`. The templates and the config are put back afterwards, and a build settles
 # the output cache on the first config's recipe for the steps below.
 set(templates_config_file "${SURGE_SCRATCH_DIR}/surge.toml")
 file(READ "${templates_config_file}" templates_config_text)
 set(templates_dir "${SURGE_SCRATCH_DIR}/templates")
 file(RENAME "${templates_dir}/tree.html" "${templates_dir}/repo-tree.html")
 file(RENAME "${templates_dir}/commit.html" "${templates_dir}/commit-page.html")
+file(MAKE_DIRECTORY "${templates_dir}/errors")
+file(RENAME "${templates_dir}/404.html" "${templates_dir}/errors/missing.html")
 file(APPEND "${templates_config_file}"
      "\n[templates]\ntree = \"repo-tree.html\"\ncommit = \"commit-page.html\"\n"
+     "not_found = \"errors/missing.html\"\n"
 )
 apps_golden_run_build(
   EXECUTABLE "${SURGE_EXECUTABLE}"
@@ -210,6 +214,8 @@ apps_golden_compare_trees(
 )
 file(RENAME "${templates_dir}/repo-tree.html" "${templates_dir}/tree.html")
 file(RENAME "${templates_dir}/commit-page.html" "${templates_dir}/commit.html")
+file(RENAME "${templates_dir}/errors/missing.html" "${templates_dir}/404.html")
+file(REMOVE_RECURSE "${templates_dir}/errors")
 file(WRITE "${templates_config_file}" "${templates_config_text}")
 apps_golden_run_build(
   EXECUTABLE "${SURGE_EXECUTABLE}"
@@ -554,7 +560,8 @@ endforeach()
 # its page says it is too large, and its raw copy still holds its bytes, though nothing else of the
 # build reads them. The copy is checked after a build that makes every output, and again after it is
 # removed, when the build keeps the blob's page and reads the blob for the copy alone. A `base_url`
-# with a path puts that path before every rule of `_headers`.
+# with a path puts that path before every rule of `_headers`, and makes it the not-found page's
+# `path_to_root`, which the page is served at every depth with.
 set(config_file "${SURGE_SCRATCH_DIR}/surge.toml")
 file(READ "${config_file}" config_text)
 set(limits_text "blob_len_max = 1200\nraw_len_max = 1000\n")
@@ -618,6 +625,13 @@ file(READ "${actual_dir}/_headers" actual_headers)
 if(NOT actual_headers STREQUAL expected_headers)
   message(FATAL_ERROR "'_headers' of a 'base_url' with a path differs from expected:\n"
                       "${actual_headers}")
+endif()
+set(not_found_page "${actual_dir}/bunnycdn_errors/404.html")
+file(READ "${not_found_page}" not_found_html)
+string(FIND "${not_found_html}" "<link rel=\"stylesheet\" href=\"/code/style.css\">" not_found_link)
+if(not_found_link EQUAL -1)
+  message(FATAL_ERROR "the not-found page of a 'base_url' with a path does not link "
+                      "'/code/style.css': '${not_found_page}'")
 endif()
 
 # Last, a commit that changes one blob of showcase's `main`: a dry run writes that file's blob page

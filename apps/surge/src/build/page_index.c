@@ -12,6 +12,7 @@
 #include "core/str.h"
 #include "domain/repo_model.h"
 #include "domain/site_config.h"
+#include "output/output_path.h"
 
 /**
  * @brief Returns the map of one repo in the site index.
@@ -54,7 +55,8 @@ struct TemplateValue* page_index_value(const struct SiteConfig* site_config,
 
 struct TemplateValue* page_index_not_found_value(const struct SiteConfig* site_config,
                                                  struct Arena* arena) {
-  return page_context_new(site_config, PAGE_INDEX_NOT_FOUND_PAGE, arena);
+  return page_context_new_with_path_to_root(
+      site_config, output_path_not_found_root(site_config->base_url, arena), arena);
 }
 
 static struct TemplateValue* page_index_value_repo(const struct SiteConfig* site_config,

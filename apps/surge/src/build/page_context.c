@@ -45,6 +45,13 @@ static struct TemplateValue* branch_map(struct Str branch_name,
 struct TemplateValue* page_context_new(const struct SiteConfig* site_config,
                                        struct Str relative_path,
                                        struct Arena* arena) {
+  return page_context_new_with_path_to_root(site_config, output_path_to_root(relative_path, arena),
+                                            arena);
+}
+
+struct TemplateValue* page_context_new_with_path_to_root(const struct SiteConfig* site_config,
+                                                         struct Str path_to_root,
+                                                         struct Arena* arena) {
   struct TemplateValue* site = template_value_map(arena);
   template_value_set_text(site, S("title"), site_config->title, arena);
   template_value_set_text(site, S("description"), site_config->description, arena);
@@ -53,8 +60,7 @@ struct TemplateValue* page_context_new(const struct SiteConfig* site_config,
   struct TemplateValue* root = template_value_map(arena);
   template_value_set(root, S("site"), site, arena);
   template_value_set_text(root, S("generator"), surge_generator_string(), arena);
-  template_value_set_text(root, S("path_to_root"), output_path_to_root(relative_path, arena),
-                          arena);
+  template_value_set_text(root, S("path_to_root"), path_to_root, arena);
   return root;
 }
 

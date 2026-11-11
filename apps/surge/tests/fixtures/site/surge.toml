@@ -2,6 +2,8 @@ title = "Fixture code"
 description = "The repositories of surge's golden test"
 author = "Fixture author"
 base_url = "https://git.example.org/"
+# bunny.net serves a custom not-found page only from this path.
+not_found_path = "bunnycdn_errors/404.html"
 log_page_size = 2
 feed_count = 3
 headers_file = true

@@ -26,6 +26,21 @@ struct TemplateValue* page_context_new(const struct SiteConfig* site_config,
     __attribute__((nonnull(1, 3), returns_nonnull));
 
 /**
+ * @brief Returns the root map of `page_context_new` with a `path_to_root` that the caller gives,
+ *        for a page whose way back to the output root is not its own output path's, as for the
+ *        not-found page.
+ *
+ * @param site_config  Configuration of the build. Must not be `NULL`.
+ * @param path_to_root Prefix from the page back to the output root.
+ * @param arena        Arena that owns the map. Must not be `NULL`.
+ * @return The map, to which the page adds its own keys.
+ */
+struct TemplateValue* page_context_new_with_path_to_root(const struct SiteConfig* site_config,
+                                                         struct Str path_to_root,
+                                                         struct Arena* arena)
+    __attribute__((nonnull(1, 3), returns_nonnull));
+
+/**
  * @brief Returns the `repo` map of a repo's pages.
  *
  * `apps/surge/README.md#data-trees` lists its keys. Besides the repo's name and the page recipe, it

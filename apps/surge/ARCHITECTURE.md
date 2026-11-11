@@ -39,7 +39,7 @@ A module can skip a layer, and modules in one directory can depend on each other
 8. **Pages** (`write_repo_pages`): On the worker pool, make or keep every page, feed and raw copy of every repo.
 9. **Clone exports** (`write_clone_exports`): Copy each new pack and idx, then make `HEAD`, `info/refs` and `objects/info/packs`, and `_headers` when `headers_file` is set.
 10. **Releases** (`write_release_outputs`): Make or keep the release pages, version lists and assets of each repo.
-11. **Site pages** (`write_site_pages`): Make or keep the site index, `index.html`, and the not-found page, `404.html`.
+11. **Site pages** (`write_site_pages`): Make or keep the site index, `index.html`, and the not-found page, at `not_found_path`.
 12. **Static files** (`copy_static_files`): Copy or keep each static file.
 13. **Write the output cache** (`write_output_cache`): Write a row for each output that the build wrote or kept, also when an earlier write phase failed.
 14. **Remove stale outputs** (`prune_stale_outputs`): Remove every entry below `output_dir` that is not an output, only when every write succeeded.

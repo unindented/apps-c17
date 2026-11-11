@@ -298,6 +298,25 @@ static void test_changed_template_key_makes_every_page_again(void) {
   remove_site(str_cstr(site, &arena));
 }
 
+// A not-found page below a directory gets the root-relative `path_to_root` of `base_url`, which has
+// no path here, so a link to a static file works at every depth, and nothing is written at the
+// default `404.html`.
+static void test_renders_a_nested_not_found_page_from_the_root(void) {
+  struct Arena arena = test_arena();
+  const struct Str site = make_site(
+      "not_found_path = \"bunnycdn_errors/404.html\"\ntemplates.not_found = \"missing.html\"\n",
+      NULL, &arena);
+  write_below(site, "templates/missing.html", "{{path_to_root}}style.css\n");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(is_file_below(site, "public/bunnycdn_errors/404.html", "/style.css\n"));
+  bool is_found = true;
+  (void)stat_below(site, "public/404.html", &is_found);
+  TEST_CHECK(!is_found);
+  remove_site(str_cstr(site, &arena));
+}
+
 // A dry run of a site that was never built creates nothing, not even `output_dir`.
 static void test_dry_run_creates_nothing(void) {
   struct Arena arena = test_arena();
@@ -394,6 +413,7 @@ static void test_reports_a_missing_template_with_its_key(void) {
     const char* key;
   } cases[] = {
       {"templates.tree = \"missing.html\"\n", "templates.tree"},
+      {"templates.not_found = \"missing.html\"\n", "templates.not_found"},
       {"templates.not_found = \"missing.html\"\ntemplates.blob = \"missing.html\"\n",
        "templates.blob"},
   };
@@ -410,6 +430,23 @@ static void test_reports_a_missing_template_with_its_key(void) {
     TEST_CHECK(!is_found);
     remove_site(str_cstr(site, &arena));
   }
+}
+
+// A not-found page at the path of another output is refused before anything is written, and the
+// message names `not_found_path`.
+static void test_refuses_a_not_found_page_at_another_output(void) {
+  struct Arena arena = test_arena();
+  const struct Str site = make_site("not_found_path = \"index.html\"\n", NULL, &arena);
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == -1);
+  const struct Str index_path = path_join(site, S("public/index.html"), &arena);
+  TEST_CHECK(test_log_is(&log,
+                         "duplicate output path for 'index.html' and 'not_found_path': '%.*s'\n",
+                         STR_FMT(index_path)));
+  bool is_found = true;
+  (void)stat_below(site, "public", &is_found);
+  TEST_CHECK(!is_found);
+  remove_site(str_cstr(site, &arena));
 }
 
 // A release template is needed only by a site with a release project: without one, a missing
@@ -460,11 +497,14 @@ TEST_LIST = {
      test_renders_a_shared_template_with_each_page_s_data},
     {"changed template key makes every page again",
      test_changed_template_key_makes_every_page_again},
+    {"renders a nested not found page from the root",
+     test_renders_a_nested_not_found_page_from_the_root},
     {"dry run creates nothing", test_dry_run_creates_nothing},
     {"reports an output dir that is a file", test_reports_an_output_dir_that_is_a_file},
     {"failed build records what it wrote", test_failed_build_records_what_it_wrote},
     {"stops at a template that does not load", test_stops_at_a_template_that_does_not_load},
     {"reports a missing template with its key", test_reports_a_missing_template_with_its_key},
+    {"refuses a not found page at another output", test_refuses_a_not_found_page_at_another_output},
     {"needs release templates only with a release project",
      test_needs_release_templates_only_with_a_release_project},
     {"stops at a bad root before the overlap check",

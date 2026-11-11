@@ -14,6 +14,7 @@
 #include "core/text.h"
 #include "formats/toml.h"
 #include "os/os.h"
+#include "output/output_path.h"
 
 /** A parsed table and the key prefix that its diagnostics put before a key. */
 struct SiteConfigTable {
@@ -29,6 +30,7 @@ const struct Str SITE_CONFIG_PATH_DEFAULT = STR_INIT("surge.toml");
 #define OUTPUT_DIR_DEFAULT S("public")
 #define TEMPLATES_DIR_DEFAULT S("templates")
 #define STATIC_DIR_DEFAULT S("static")
+#define NOT_FOUND_PATH_DEFAULT S("404.html")
 
 /** Commits on one log page when `log_page_size` is unset, as many as GitHub shows. */
 enum { LOG_PAGE_SIZE_DEFAULT = 100 };
@@ -81,6 +83,7 @@ static const struct Str config_keys[] = {
     STR_INIT("output_dir"),
     STR_INIT("templates_dir"),
     STR_INIT("static_dir"),
+    STR_INIT("not_found_path"),
     STR_INIT("log_page_size"),
     STR_INIT("feed_count"),
     STR_INIT("headers_file"),
@@ -129,11 +132,11 @@ static const struct Str project_keys[] = {
 
 /**
  * Names a repo may not have, compared after ASCII case folding, because the output root holds a
- * file or directory of that name.
+ * file or directory of that name. The first segment of `not_found_path` is reserved too, by
+ * `site_config_load_repos`.
  */
 static const struct Str REPO_NAMES_RESERVED[] = {
     STR_INIT("index.html"),
-    STR_INIT("404.html"),
     STR_INIT("_surge"),
     STR_INIT("_headers"),
 };
@@ -192,9 +195,11 @@ static int site_config_load_fields_templates(struct SurgeTemplates* templates,
                                              struct Log* log) __attribute__((nonnull(1, 3, 4)));
 
 /**
- * @brief Copies every `[[repo]]` table into `site_config`, and checks the names across repos.
+ * @brief Copies every `[[repo]]` table into `site_config`, and checks the names across repos and
+ *        against the first segment of `not_found_path`.
  *
- * @param site_config Config that receives the repos. Must not be `NULL`.
+ * @param site_config Config that receives the repos, with its `not_found_path` loaded. Must not be
+ *                    `NULL`.
  * @param table       Parsed top-level table.
  * @param config_dir  Directory the relative paths resolve against, or empty for the working one.
  * @param perm        Arena that owns the copied values. Must not be `NULL`.
@@ -328,6 +333,7 @@ void site_config_init(struct SiteConfig* site_config) {
       .output_dir = OUTPUT_DIR_DEFAULT,
       .templates_dir = TEMPLATES_DIR_DEFAULT,
       .static_dir = STATIC_DIR_DEFAULT,
+      .not_found_path = NOT_FOUND_PATH_DEFAULT,
       .log_page_size = LOG_PAGE_SIZE_DEFAULT,
       .feed_count = FEED_COUNT_DEFAULT,
       .limits =
@@ -393,6 +399,7 @@ int site_config_print(const struct SiteConfig* site_config, struct Os* os, struc
   toml_print_key_string(&text, "output_dir", site_config->output_dir);
   toml_print_key_string(&text, "templates_dir", site_config->templates_dir);
   toml_print_key_string(&text, "static_dir", site_config->static_dir);
+  toml_print_key_string(&text, "not_found_path", site_config->not_found_path);
   buf_printf(&text, "log_page_size = %td\n", site_config->log_page_size);
   buf_printf(&text, "feed_count = %td\n", site_config->feed_count);
   buf_printf(&text, "headers_file = %s\n", site_config->has_headers_file ? "true" : "false");
@@ -496,7 +503,10 @@ static int site_config_load_fields(struct SiteConfig* site_config,
       toml_copy_dir(table, S(""), "templates_dir", false, config_dir, perm,
                     &site_config->templates_dir, log) != 0 ||
       toml_copy_dir(table, S(""), "static_dir", false, config_dir, perm, &site_config->static_dir,
-                    log) != 0) {
+                    log) != 0 ||
+      toml_copy_string(table, S(""), "not_found_path", false, perm, &site_config->not_found_path,
+                       log) != 0 ||
+      output_path_check_not_found(site_config->not_found_path, log) != 0) {
     return -1;
   }
 
@@ -669,9 +679,18 @@ static int site_config_load_repos(struct SiteConfig* site_config,
       return -1;
     }
   }
+  // The not-found page's first segment is a file or a directory at the output root, as a repo's
+  // directory is, so a repo of that name in any case would share it.
+  const struct Str not_found_segment = str_cut(site_config->not_found_path, '/').head;
   // Two repos whose names differ only in case would share one directory on a case-insensitive host,
   // so both names are refused, and the message names both.
   for (ptrdiff_t i = 0; i < table_count; i++) {
+    if (str_eq_folded(repos[i].name, not_found_segment)) {
+      return log_error(log,
+                       "config key '%.*sname' must not be the first segment of 'not_found_path' in "
+                       "any case: '%.*s'",
+                       STR_FMT(tables[i].key_prefix), STR_FMT(repos[i].name));
+    }
     for (ptrdiff_t j = 0; j < i; j++) {
       if (str_eq_folded(repos[i].name, repos[j].name)) {
         return log_error(log,
