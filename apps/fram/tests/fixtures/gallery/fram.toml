@@ -2,3 +2,8 @@ title = "Fram Test Gallery"
 description = "Fixture gallery for the golden test"
 author = "Fram Tests"
 base_url = "https://example.com/gallery"
+# bunny.net serves a custom not-found page only from this path.
+not_found_path = "bunnycdn_errors/404.html"
+
+[templates]
+not_found = "errors/missing.html"

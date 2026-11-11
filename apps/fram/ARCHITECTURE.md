@@ -31,7 +31,7 @@ A module can skip layers, and modules in the same directory can depend on each o
 `cmd_build_run` gives the arena sizes to `build_run` from the `runtime` library. `build_run` reserves the memory, calls `cmd_build_execute`, prints the log, and releases the memory. `cmd_build_execute` runs the first phase, and `run_build_phases` runs the other phases, in this order:
 
 1. **Load inputs** (`load_build_inputs`): Load the config, check the input directories and `output_dir`, walk the media, template and static trees, and check for `ffmpeg` and `ffprobe` when the gallery has an MP4.
-2. **Load templates** (`load_templates`): Compile the album template, each aggregate template and each partial once.
+2. **Load templates** (`load_templates`): Compile the album template, each aggregate template, the not-found template and each partial once.
 3. **Build album skeleton** (`build_album_skeleton`): On the main thread, make the albums, the media records, their output paths, covers and counts, and one frame slot for each video.
 4. **Load the output cache** (`load_output_cache`): Read `_fram/output-cache.tsv`, unless `--force` is set. A missing or unusable cache is empty, not an error.
 5. **Probe media** (`probe_media`): In parallel, take each source's dimensions, orientation and duration from its probe fact, or probe the source and extract a video's poster frame.
@@ -40,7 +40,7 @@ A module can skip layers, and modules in the same directory can depend on each o
 8. **Copy static files** (`copy_static_files`): Copy each static file that is not current.
 9. **Generate derivatives** (`generate_derivatives`): In parallel, make each derivative that is not current, and copy each original that is not current.
 10. **Render pages** (`render_album_pages`): In parallel, render each album page into an arena of the worker that renders it.
-11. **Write** (`write_generated_site`): Write the album pages, then render and write the aggregates. A file whose bytes did not change stays.
+11. **Write** (`write_generated_site`): Write the album pages, then render and write the aggregates and the not-found page. A file whose bytes did not change stays.
 12. **Write the output cache** (`write_output_cache`): Write a row for each output that the build wrote or kept, and a probe fact for each media item. This phase runs after a failed phase too.
 13. **Remove stale outputs** (`prune_stale_outputs`): Remove each entry below `output_dir` that the build did not write. The prune compares device and inode values, so on a case-insensitive filesystem it does not remove a current output whose name changed only in case.
 14. **Report the dry run** (`report_dry_run`): Print the `write`, `keep` and `remove` listing. Only a dry run has this phase.
@@ -70,7 +70,7 @@ Each header documents its module's interface.
 - [derivative_renderer](src/build/derivative_renderer.h): Makes the derivatives and copies the originals through the output writer.
 - [output_manifest](src/build/output_manifest.h): Checks `output_dir` against the input directories, and records every output path with its attributes.
 - [page_renderer](src/build/page_renderer.h): Renders each album page in a worker.
-- [site_writer](src/build/site_writer.h): Writes the album pages, and renders and writes the aggregates.
+- [site_writer](src/build/site_writer.h): Writes the album pages, and renders and writes the aggregates and the not-found page.
 - [template_context](src/build/template_context.h): Resolves each template key when a render asks for it, so a new derivative name needs no change to the C model.
 - [album](src/domain/album.h): `Album`, one generated page and its contents.
 - [site_config](src/domain/site_config.h): `SiteConfig`, its load, its print, and the derivative recipe.
@@ -127,7 +127,7 @@ Each decision says what the code does, why, and what it costs. Read the decision
 
 ### Out of memory exits the process
 
-**Decision.** `os_oom` in [src/app/main.c](src/app/main.c) calls `cli_oom_exit` with the name `fram`, which prints the report and exits with status 1, as [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#os_oom) describes. The report names the file that the thread works on. A probe or derivative job names its source, and a page job names its album's source directory. The main thread names each static file, album page, aggregate and the output cache when it writes them. **Why.** `fram` is a CLI tool, and a user can make the output again. No call site checks for allocation failure, and a failed pixel allocation ends the build like any other allocation. **Cost.** The exit skips the removal of temporary video frames and does not stop a running `ffmpeg` child.
+**Decision.** `os_oom` in [src/app/main.c](src/app/main.c) calls `cli_oom_exit` with the name `fram`, which prints the report and exits with status 1, as [libs/ARCHITECTURE.md](../../libs/ARCHITECTURE.md#os_oom) describes. The report names the file that the thread works on. A probe or derivative job names its source, and a page job names its album's source directory. The main thread names each static file, album page, aggregate, the not-found page and the output cache when it writes them. **Why.** `fram` is a CLI tool, and a user can make the output again. No call site checks for allocation failure, and a failed pixel allocation ends the build like any other allocation. **Cost.** The exit skips the removal of temporary video frames and does not stop a running `ffmpeg` child.
 
 ### Video tools run on the real host
 

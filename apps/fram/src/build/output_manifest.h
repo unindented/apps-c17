@@ -62,13 +62,13 @@ struct Str output_manifest_cache_path(struct Str output_dir, struct Arena* arena
  * @brief Records every intended output path in the build manifest, rejecting duplicates and any
  *        output that would land inside a build input tree or overwrite a build input file.
  *
- * Registers album page, derivative, original, aggregate, and static file output paths before
- * writing any file, and the output cache's path last, so it catches a collision between two
- * producers up front. A derivative declares its source's size and modification time as its
- * attributes, an original and a static file are copies of their sources, and a page, an aggregate
- * and the output cache declare none. A static file at the output cache's path is a duplicate rather
- * than a silent overwrite, and being recorded is what keeps the output cache through the
- * stale-output prune. It rejects four kinds of collision:
+ * Registers album page, derivative, original, aggregate, not-found page and static file output
+ * paths before writing any file, and the output cache's path last, so it catches a collision
+ * between two producers up front. A derivative declares its source's size and modification time as
+ * its attributes, an original and a static file are copies of their sources, and a page, an
+ * aggregate and the output cache declare none. A static file at the output cache's path is a
+ * duplicate rather than a silent overwrite, and being recorded is what keeps the output cache
+ * through the stale-output prune. It rejects four kinds of collision:
  * - an output path at or below `media_dir`, `templates_dir`, or `static_dir`
  * - an output path that names a build input
  * - two producers that claim one output path, compared after folding ASCII case

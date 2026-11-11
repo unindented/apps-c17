@@ -215,8 +215,8 @@ static void test_registers_complete_output_set(void) {
 
   TEST_CHECK(populate(&manifest, &site_config, &sources, &static_paths, albums, 1, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  // The seven outputs of the gallery, and the output cache.
-  TEST_CHECK(manifest.count == 7 + 1);
+  // The seven outputs of the gallery, the not-found page, and the output cache.
+  TEST_CHECK(manifest.count == 7 + 1 + 1);
   struct ManifestOutput output = {0};
   const struct Str derivative_attributes =
       str_concat(S("src=x.jpg len=6 mtime=12.000000005 "), image_codec_versions(&arena), &arena);
@@ -328,8 +328,8 @@ static void test_reports_every_collision(void) {
                          "duplicate output path for 'gallery/photos/c' and 'gallery/photos/d': "
                          "'gallery/public/two/index.html'\n"));
   TEST_CHECK(log.errors == 2);
-  // The two outputs that were accepted, and the output cache.
-  TEST_CHECK(manifest.count == 3);
+  // The two outputs that were accepted, the not-found page, and the output cache.
+  TEST_CHECK(manifest.count == 4);
 }
 
 // Two albums whose page paths differ only in ASCII case claim one file on a case-insensitive
@@ -419,6 +419,35 @@ static void test_rejects_album_aggregate_collision(void) {
       test_log_is(&log,
                   "duplicate output path for 'gallery/photos' and 'templates.aggregates[0]': "
                   "'gallery/public/index.html'\n"));
+}
+
+// The not-found page is recorded under `not_found_path`, so a collision with an album page or an
+// aggregate names that key.
+static void test_rejects_not_found_collisions(void) {
+  struct SiteConfig site_config;
+  struct Os* os = init_manifest_fixture(&site_config);
+  site_config.not_found_path = S("index.html");
+  struct Album album = {.source_dir = S(""), .output_path = S("gallery/public/index.html")};
+  const struct Album* albums[] = {&album};
+  struct Manifest manifest = {0};
+  struct Log log = test_log();
+  TEST_CHECK(populate(&manifest, &site_config, NULL, NULL, albums, 1, os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "duplicate output path for 'gallery/photos' and 'not_found_path': "
+                         "'gallery/public/index.html'\n"));
+
+  os_memory_write(os, "gallery/templates/404.html", "aggregate");
+  static const struct Str aggregates[] = {STR_INIT("404.html")};
+  site_config.templates.aggregates = aggregates;
+  site_config.templates.aggregate_template_count = 1;
+  site_config.not_found_path = S("404.html");
+  struct Manifest aggregate_manifest = {0};
+  struct Log aggregate_log = test_log();
+  TEST_CHECK(
+      populate(&aggregate_manifest, &site_config, NULL, NULL, albums, 1, os, &aggregate_log) == -1);
+  TEST_CHECK(test_log_is(&aggregate_log,
+                         "duplicate output path for 'templates.aggregates[0]' and "
+                         "'not_found_path': 'gallery/public/404.html'\n"));
 }
 
 // One name listed twice in `templates.aggregates` is rejected with each entry named by its index
@@ -812,6 +841,7 @@ TEST_LIST = {
     {"rejects prefix collision", test_rejects_prefix_collision},
     {"rejects every prefix collision", test_rejects_every_prefix_collision},
     {"rejects album aggregate collision", test_rejects_album_aggregate_collision},
+    {"rejects not found collisions", test_rejects_not_found_collisions},
     {"rejects duplicate template", test_rejects_duplicate_template},
     {"rejects input overwrite", test_rejects_input_overwrite},
     {"rejects input overwrite among many inputs", test_rejects_input_overwrite_among_many_inputs},

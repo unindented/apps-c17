@@ -51,6 +51,7 @@ static struct Os* gallery_fixture(void) {
                   "media_dir = \"../media\"\n"
                   "templates_dir = \"../templates\"\n");
   os_memory_write(os, "templates/album.html", "<title>{{album.title}}</title>\n");
+  os_memory_write(os, "templates/404.html", "not found\n");
   struct Arena arena = test_arena();
   struct Str jpeg = {0};
   if (TEST_CHECK(test_jpeg_encode(24, 12, &arena, &jpeg) == 0)) {
@@ -131,6 +132,7 @@ static void test_config_command_is_dispatched(void) {
       "output_dir = \"sub/public\"\n"
       "templates_dir = \"sub/../templates\"\n"
       "static_dir = \"sub/static\"\n"
+      "not_found_path = \"404.html\"\n"
       "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
       "m = { width = 520, height = 360, quality = 80, crop = true }, "
       "l = { width = 792, height = 594, quality = 85 } }\n"
@@ -139,7 +141,8 @@ static void test_config_command_is_dispatched(void) {
       "\n"
       "[templates]\n"
       "album = \"album.html\"\n"
-      "aggregates = []\n"));
+      "aggregates = []\n"
+      "not_found = \"404.html\"\n"));
   TEST_CHECK(os_memory_is_printed(os, 2, ""));
   // No page was written, which is what separates `config` from `build`.
   TEST_CHECK(!os_memory_has_path(os, "public/index.html"));
@@ -191,6 +194,7 @@ static void test_build_command_receives_parsed_options(void) {
                                   "\rrendering albums 1/1\n"
                                   "writing album pages\n"
                                   "rendering aggregate templates\n"
+                                  "rendering not-found page\n"
                                   "writing output cache\n"
                                   "removing stale outputs\n"
                                   "removed stale outputs: 0\n"

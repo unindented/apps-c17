@@ -49,9 +49,9 @@ int site_writer_write_album_pages(const struct OutputWriter* writer,
  * @brief Renders each configured aggregate template and produces it through `writer` below the
  *        output directory, leaving a file that holds the same bytes untouched.
  *
- * Each aggregate renders with the root album's data as `album_current`, but with `path_to_root`
- * rebased onto the aggregate's own output depth, so a page-relative URL resolves from the directory
- * the aggregate is written to.
+ * Each aggregate renders with the root album's data as `album_current`, but with the `path_to_root`
+ * of the aggregate's own output depth, so a page-relative URL resolves from the directory the
+ * aggregate is written to.
  *
  * @param writer       Writer every output is written through. Must not be `NULL`.
  * @param cache        Cache of the previous build. Must not be `NULL`.
@@ -76,5 +76,34 @@ int site_writer_write_aggregates(const struct OutputWriter* writer,
                                  struct Arena output,
                                  struct Arena scratch,
                                  struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 5, 8)));
+
+/**
+ * @brief Renders `templates.not_found` and produces it through `writer` at `not_found_path` below
+ *        the output directory, leaving a file that holds the same bytes untouched.
+ *
+ * The page sees `site`, `generator` and a `path_to_root` that is the root-relative path of
+ * `base_url`, from `output_path_not_found_root`, because a host serves it at every depth. It sees
+ * no album. A gallery without `base_url` gets `/`.
+ *
+ * @param writer       Writer the page is written through. Must not be `NULL`.
+ * @param cache        Cache of the previous build. Must not be `NULL`.
+ * @param site_config  Configuration supplying `output_dir`, `base_url`, `not_found_path` and the
+ *                     template. Must not be `NULL`.
+ * @param template_set Templates the page renders from. Must not be `NULL`.
+ * @param output       Arena whose free space holds the page until it is written. Nothing in it
+ *                     outlives the call. Must not overlap `scratch`.
+ * @param scratch      Arena for the render's temporaries, and then for the read of an existing
+ *                     page, so it must hold the page and 64 KiB more.
+ * @param log          Log that receives the failure. Its arena must be none of the others. Must not
+ *                     be `NULL`.
+ * @return `0` on success, or `-1` when the page fails to render or write.
+ */
+int site_writer_write_not_found(const struct OutputWriter* writer,
+                                const struct OutputCache* cache,
+                                const struct SiteConfig* site_config,
+                                const struct TemplateSet* template_set,
+                                struct Arena output,
+                                struct Arena scratch,
+                                struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 7)));
 
 #endif

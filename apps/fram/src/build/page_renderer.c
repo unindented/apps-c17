@@ -87,6 +87,7 @@ static int render_album_page_job(ptrdiff_t index,
   const struct TemplateContext template_context = {
       .site_config = context->site_config,
       .album_current = album,
+      .path_to_root = album->path_to_root,
       .is_album_page = true,
   };
   struct RenderedPage* page = &context->rendered_pages[index];

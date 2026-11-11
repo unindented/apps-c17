@@ -113,6 +113,48 @@ static void test_writes_complete_output_layer(void) {
   TEST_CHECK(os_memory_is_file(os, "public/nested/links.html", "../index.html"));
 }
 
+// The not-found page renders `templates.not_found` to `not_found_path`, with the root-relative path
+// of `base_url` as `path_to_root` however deep the page is, and `/` for a gallery without one. It
+// sees no album.
+static void test_write_not_found_renders_from_the_root(void) {
+  static const struct {
+    const char* base_url;
+    const char* expected;
+  } cases[] = {
+      {"https://example.com/gallery", "Gallery|/gallery/style.css|none"},
+      {"", "Gallery|/style.css|none"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
+    struct Os* os = os_memory();
+    os_memory_write(os, "templates/errors/missing.html",
+                    "{{site.title}}|{{path_to_root}}style.css|{{album.title}}"
+                    "{{^sub_albums}}none{{/sub_albums}}");
+    static const struct Str names[] = {STR_INIT("errors/missing.html")};
+    struct SiteConfig site_config;
+    site_config_init(&site_config);
+    site_config.title = S("Gallery");
+    site_config.base_url = str_from_cstr(cases[i].base_url);
+    site_config.output_dir = S("public");
+    site_config.templates_dir = S("templates");
+    site_config.not_found_path = S("bunnycdn_errors/404.html");
+    site_config.templates.not_found = names[0];
+    struct Arena paths = test_arena();
+    static const char* const output_paths[] = {"public/bunnycdn_errors/404.html"};
+    struct Manifest manifest = {0};
+    struct OutputWriter writer;
+    init_writer(&writer, &manifest, output_paths, 1, os, &paths);
+
+    struct Log log = test_log();
+    struct TemplateSet* template_set = load_templates(site_config.templates_dir, names, 1, os);
+    TEST_CHECK(site_writer_write_not_found(&writer, &NO_OUTPUT_CACHE, &site_config, template_set,
+                                           test_arena(), test_arena(), &log) == 0);
+    template_set_release(template_set);
+    TEST_CHECK(test_log_is_empty(&log));
+    TEST_CHECK(os_memory_is_file(os, "public/bunnycdn_errors/404.html", cases[i].expected));
+    TEST_MSG("base_url '%s'", cases[i].base_url);
+  }
+}
+
 // A page or an aggregate whose bytes did not change is kept and left untouched, while one whose
 // bytes changed is written.
 static void test_keeps_unchanged_pages_untouched(void) {
@@ -242,6 +284,7 @@ static void test_write_aggregates_reports_write_failure(void) {
 
 TEST_LIST = {
     {"writes complete output layer", test_writes_complete_output_layer},
+    {"write not found renders from the root", test_write_not_found_renders_from_the_root},
     {"keeps unchanged pages untouched", test_keeps_unchanged_pages_untouched},
     {"write album pages names root album in words",
      test_write_album_pages_names_root_album_in_words},

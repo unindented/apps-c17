@@ -72,6 +72,7 @@ templates/
   partials/
     header.html
     footer.html
+  404.html
   album.html
 fram.toml
 ```
@@ -105,11 +106,12 @@ This table and the [Templates table](#templates-table) list every key that the c
 | `title` | Required | A string | The gallery title, `site.title` in templates, and the root album's title. |
 | `description` | Required | A string | The gallery description, `site.description` in templates. |
 | `author` | Required | A string | The gallery author, `site.author` in templates. |
-| `base_url` | `""` | Empty, or an `http://` or `https://` URL, in any letter case, with a host, and without `?`, `#`, a space or a control character | The absolute URL of the deployed gallery. `fram` removes any trailing `/`. Empty is the same as absent, and a template reads it as an empty section. |
+| `base_url` | `""` | Empty, or an `http://` or `https://` URL, in any letter case, with a host, and without `?`, `#`, a space or a control character | The absolute URL of the deployed gallery. `fram` removes any trailing `/`. Empty is the same as absent, and a template reads it as an empty section. Its path is the not-found page's `path_to_root`, so a gallery below a path prefix needs it. |
 | `media_dir` | `"media"` | A directory | The directory of the media files. |
 | `output_dir` | `"public"` | Not empty | The directory that the build writes to and controls. See [Output directory](#output-directory). |
 | `templates_dir` | `"templates"` | A directory | The directory of the templates and partials. |
 | `static_dir` | `"static"` | A directory, if it exists | The files that the build copies into `output_dir`. A build skips it when it does not exist. |
+| `not_found_path` | `"404.html"` | A safe relative path that ends in `.html` | The output path of the not-found page below `output_dir`. See [Not-found page](#not-found-page). |
 | `derivatives` | `s`, `m` and `l` | One to six of `xs`, `s`, `m`, `l`, `xl` and `xxl` | The named derivatives. See [Derivatives](#derivatives). |
 | `sort` | `{ albums = "asc", media = "asc" }` | `"asc"` or `"desc"` for each | The order of each album's child albums and of its direct media items, by source filename. |
 | `video_frame_seconds` | `1` | 0 to 86400 | The position of the video poster frame, in seconds. A video that is not longer than this uses its midpoint. |
@@ -127,12 +129,14 @@ The optional `[templates]` table names the template of each kind of page, relati
 [templates]
 album = "album.html"
 aggregates = []
+not_found = "404.html"
 ```
 
 | Key | Default | Bounds | Meaning |
 | --- | --- | --- | --- |
 | `album` | `"album.html"` | A safe template name | The template of each album page. |
 | `aggregates` | `[]` | An array of safe template names | The templates that the build renders once, with the root album's context. |
+| `not_found` | `"404.html"` | A safe template name | The template of the not-found page, which the build renders to `not_found_path`. See [Not-found page](#not-found-page). |
 
 A template name must be a safe relative path. It can contain only letters, digits, `_`, `-`, `.` and `/`, and it cannot contain an empty segment or the segment `.` or `..`. The name of an aggregate template is both its source path below `templates_dir` and its output path below `output_dir`, so a name that contains `/` makes the same subdirectories in `output_dir`. Every template that the build renders must exist. A missing one fails the build with an error that names the template and the key, such as `(for 'templates.album')`.
 
@@ -185,8 +189,9 @@ The `write` and `keep` lines come first, in the order that the build plans them:
 
 1. The outputs of each album, in album order.
 2. Aggregates.
-3. Static files.
-4. The output cache.
+3. The not-found page.
+4. Static files.
+5. The output cache.
 
 The `remove` lines come after them, in sorted order. To get only the paths, for `sort`, `diff` or `comm`, use `cut -f2-`. A dry run reports a failure as a build does, on `stderr` with the same exit code, and prints no listing. With `-v`, the progress messages go to `stderr`, so `stdout` holds only the listing.
 
@@ -279,16 +284,17 @@ The directory segments of generated albums and the filenames of generated media 
 
 Derivatives are at `_fram/<recipe>/<album-slug>/<media-slug>-<derivative>.webp`. The media slug includes the source extension, so `foo.jpg` becomes `foo-jpg`, and all derivatives of one media item are in one album directory. The recipe holds the name, dimensions, crop policy and WebP quality of each derivative, the poster-frame position, and the version of the derivative algorithm. So a build never reuses derivatives of an older recipe after you change a setting that affects the output. Originals are at `_fram/originals/<album-slug>/<media-slug>.<extension>`, where the extension is `.jpg`, `.jpeg` or `.mp4` in lowercase.
 
-Every `url` that `fram` makes is relative and uses the slugs of the output names. So the same output works through `file://`, or on a server below any URL prefix. Each `absolute_url` is the same path below `base_url`, and is empty when `base_url` is not set.
+Every `url` that `fram` makes is relative and uses the slugs of the output names. So the same output works through `file://`, or on a server below any URL prefix. The not-found page is the exception, as [Not-found page](#not-found-page) describes. Each `absolute_url` is the same path below `base_url`, and is empty when `base_url` is not set.
 
 ## Templates
 
-Templates use [Mustache](https://mustache.github.io/) syntax and are in `templates_dir`. There are two kinds of templates:
+Templates use [Mustache](https://mustache.github.io/) syntax and are in `templates_dir`. There are three kinds of templates:
 
 | Kind | Configured by | Rendered |
 | --- | --- | --- |
 | Album | `templates.album` | Once for each album, to the album's `index.html`, with the album's fields, direct media, child albums and breadcrumbs. |
 | Aggregate | `templates.aggregates` | Once, with the root album's context, to the same relative path below `output_dir`. |
+| Not-found | `templates.not_found` | Once, to `not_found_path`, with no album. See [Not-found page](#not-found-page). |
 
 `{{value}}` escapes its output for HTML. `{{{value}}}` and `{{& value}}` write it without escaping, and work only for a key that ends in `_html`. `fram` makes no HTML of its own, so it has no such key, and an unescaped tag of any key that the data holds fails the render. So a value such as a title cannot add markup to a page. A name that the data does not hold writes nothing, as with `{{value}}`.
 
@@ -296,7 +302,7 @@ Every page and aggregate that `fram` renders is valid UTF-8 without the characte
 
 Each album, media item and derivative sets each of its fields. An absent value or a false flag is empty, so a section over it is skipped, and the field never resolves from an enclosing album. A name that the album, item or derivative does not have resolves in the enclosing scopes, as in Mustache. A flag such as `is_last` is `true` when it holds and empty otherwise, so it works both as a section and as text.
 
-Every template gets these keys:
+Every album and aggregate template gets these keys. The not-found page gets only `site`, `generator` and `path_to_root`:
 
 | Key | Value |
 | --- | --- |
@@ -306,7 +312,7 @@ Every template gets these keys:
 | `breadcrumbs` | The albums from the root album to the current album, each with the album fields and `is_last`. `is_last` is true only for the current album on its own page. That crumb's `url` is empty, so the page does not link to itself, and its `absolute_url` still names the page. An aggregate is not an album's page, so none of its crumbs is last. |
 | `media` | The media items directly in the current album. Each item has `title`, `kind` (`image` or `video`), `is_image`, `is_video`, `url` (the copied original), `absolute_url`, and `duration`, the length of a video in milliseconds, empty for an image. Each configured derivative is a named child with `url`, `absolute_url`, `width` and `height`, so the defaults give `s.url`, `s.width`, `s.height`, `m.url`, and so on. |
 | `generator` | The name and version of `fram`, for a tag such as `<meta name="generator" content="{{generator}}">`. |
-| `path_to_root` | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. It stays the page's prefix inside `sub_albums`, `breadcrumbs` and `parent`. |
+| `path_to_root` | The `../` prefix from the page to `output_dir`, empty for a page at the top. A link to a static file is `{{path_to_root}}style.css`. It stays the page's prefix inside `sub_albums`, `breadcrumbs` and `parent`. On the not-found page, it is the path of `base_url` followed by `/`. |
 
 A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A partial name can contain only letters, digits, `_` and `-`. A reference to another name fails the build. `fram` ignores the other files of `partials/` and its subdirectories. The build compiles every template that it renders and every partial once, before it writes anything, and reports in one run every template that it cannot read or compile. The aggregate templates use the same partials.
 
@@ -323,9 +329,17 @@ A partial reference `{{> name}}` loads `templates_dir/partials/<name>.html`. A p
 {{> footer}}
 ```
 
+### Not-found page
+
+Every gallery has a not-found page, which a static host serves for a path that does not exist. The build renders `templates.not_found`, `404.html` by default, to `not_found_path`, also `404.html` by default. The template must exist, or the build fails with an error that names it and `templates.not_found`. For bunny.net, set `not_found_path = "bunnycdn_errors/404.html"` and keep the template where it is. An aggregate at the same path fails the build with an error that names both keys.
+
+The page gets `site`, `generator` and `path_to_root`, and no album. A host serves it at any depth, so its `path_to_root` is the path of `base_url` followed by `/`: `/` for `https://example.com`, and `/gallery/` for `https://example.com/gallery`. So `{{path_to_root}}style.css` loads at every depth, and the template can use the same partials as the album template. The prefix is root-relative, so the page also works on a preview host. A page opened from disk resolves it against the filesystem root, so preview it through a server.
+
+Without `base_url`, the prefix is `/`. A gallery below a path prefix, such as `https://example.com/gallery`, needs `base_url` for its not-found page to load its styles and links.
+
 ## Host notes
 
-`fram` writes plain files that any static host serves.
+`fram` writes plain files that any static host serves. [Host notes](../../README.md#host-notes) in the repository's README lists the path that each host serves its not-found page from, which `not_found_path` sets.
 
 GitHub Pages runs Jekyll when it publishes from a branch, and Jekyll drops every file or directory whose name starts with `_`, `.` or `#`. `fram` writes every derivative and every copied original below `_fram/`, so the album pages then show no images and play no videos. Publish the gallery with a GitHub Actions workflow that uploads `output_dir`, or put an empty `.nojekyll` file in `static_dir`. The build removes any file that it did not write, so a `.nojekyll` that you add to `output_dir` by hand does not survive the next build.
 

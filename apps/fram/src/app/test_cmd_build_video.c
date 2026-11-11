@@ -41,13 +41,14 @@ static const char* const ALBUM_TEMPLATE =
     "{{#has_media}}<ul>{{#media}}<li>{{title}}</li>{{/media}}</ul>{{/has_media}}";
 
 /**
- * @brief Writes `fram.toml` and the album template below a fixture root.
+ * @brief Writes `fram.toml`, the album template and the not-found template below a fixture root.
  *
  * @param root_dir Fixture root directory. Must not be `NULL`.
  * @return `0` on success, or `-1` on test-plumbing failure.
  */
 static int write_gallery_fixture(const char* root_dir) {
-  if (write_fixture_file(root_dir, "templates/album.html", ALBUM_TEMPLATE) != 0) {
+  if (write_fixture_file(root_dir, "templates/album.html", ALBUM_TEMPLATE) != 0 ||
+      write_fixture_file(root_dir, "templates/404.html", "not found\n") != 0) {
     return -1;
   }
   return write_fixture_file(root_dir, "fram.toml", SITE_CONFIG);

@@ -149,6 +149,8 @@ static void test_load_applies_required_and_defaults(void) {
   TEST_CHECK(str_eq(site_config.templates.album, S("album.html")));
   TEST_CHECK(site_config.templates.aggregates != NULL);
   TEST_CHECK(site_config.templates.aggregate_template_count == 0);
+  TEST_CHECK(str_eq(site_config.templates.not_found, S("404.html")));
+  TEST_CHECK(str_eq(site_config.not_found_path, S("404.html")));
   TEST_ASSERT(site_config.derivative_count == 3);
   TEST_CHECK(str_eq(site_config.derivatives[0].name, S("s")));
   TEST_CHECK(site_config.derivatives[0].width_px == 120);
@@ -181,6 +183,7 @@ static void test_load_overrides_optional_keys(void) {
       "output_dir = \"dist\"\n"
       "templates_dir = \"layouts\"\n"
       "static_dir = \"files\"\n"
+      "not_found_path = \"bunnycdn_errors/404.html\"\n"
       "derivatives = { xs = { width = 200, height = 150, quality = 61, crop = true }, "
       "xl = { width = 1200, height = 900, quality = 93 } }\n"
       "sort = { albums = \"desc\", media = \"desc\" }\n"
@@ -188,7 +191,8 @@ static void test_load_overrides_optional_keys(void) {
       "\n"
       "[templates]\n"
       "album = \"pages/album.html\"\n"
-      "aggregates = [\"sitemap.xml\", \"about/index.html\"]\n";
+      "aggregates = [\"sitemap.xml\", \"about/index.html\"]\n"
+      "not_found = \"errors/missing.html\"\n";
 
   struct SiteConfig site_config;
   site_config_init(&site_config);
@@ -204,6 +208,8 @@ static void test_load_overrides_optional_keys(void) {
   TEST_ASSERT(site_config.templates.aggregate_template_count == 2);
   TEST_CHECK(str_eq(site_config.templates.aggregates[0], S("sitemap.xml")));
   TEST_CHECK(str_eq(site_config.templates.aggregates[1], S("about/index.html")));
+  TEST_CHECK(str_eq(site_config.templates.not_found, S("errors/missing.html")));
+  TEST_CHECK(str_eq(site_config.not_found_path, S("bunnycdn_errors/404.html")));
   TEST_ASSERT(site_config.derivative_count == 2);
   TEST_CHECK(str_eq(site_config.derivatives[0].name, S("xs")));
   TEST_CHECK(site_config.derivatives[0].width_px == 200);
@@ -230,6 +236,7 @@ static void test_load_keeps_the_default_of_each_unset_template_key(void) {
       "[templates]\n",
       "[templates]\nalbum = \"gallery.html\"\n",
       "[templates]\naggregates = [\"sitemap.xml\"]\n",
+      "[templates]\nnot_found = \"missing.html\"\n",
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(tables) / sizeof(tables[0])); i++) {
     char toml[512];
@@ -249,6 +256,7 @@ static void test_load_keeps_the_default_of_each_unset_template_key(void) {
     TEST_CHECK(str_eq(templates->album, i == 1 ? S("gallery.html") : S("album.html")));
     TEST_ASSERT(templates->aggregate_template_count == (i == 2 ? 1 : 0));
     TEST_CHECK(i != 2 || str_eq(templates->aggregates[0], S("sitemap.xml")));
+    TEST_CHECK(str_eq(templates->not_found, i == 3 ? S("missing.html") : S("404.html")));
     TEST_MSG("table '%s'", tables[i]);
   }
 }
@@ -759,6 +767,35 @@ static void test_load_rejects_unsafe_album_template(void) {
   }
 }
 
+// An empty or unsafe `templates.not_found` is rejected at load with the key, as `templates.album`
+// is.
+static void test_load_rejects_unsafe_not_found_template(void) {
+  check_load_rejects("templates.not_found = \"\"\n",
+                     "config key 'templates.not_found' must be a safe relative template name: ''");
+  check_load_rejects("templates.not_found = \"../404.html\"\n",
+                     "config key 'templates.not_found' must be a safe relative template name: "
+                     "'../404.html'");
+}
+
+// An empty `not_found_path`, one that is not a safe relative path, and one that does not end in
+// `.html` are each rejected with the value, and a value of another type as a string key is.
+static void test_load_rejects_invalid_not_found_path(void) {
+  static const char* const values[] = {"", "../404.html", "/404.html", "errors//404.html", "404"};
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(values) / sizeof(values[0])); i++) {
+    char toml_extra[256];
+    const int n = snprintf(toml_extra, sizeof(toml_extra), "not_found_path = \"%s\"\n", values[i]);
+    TEST_CHECK(n > 0 && (size_t)n < sizeof(toml_extra));
+    char expected[EXPECTED_SIZE];
+    const int expected_len =
+        snprintf(expected, sizeof(expected),
+                 "config key 'not_found_path' must be a safe relative path ending in '.html': '%s'",
+                 values[i]);
+    TEST_CHECK(expected_len > 0 && (size_t)expected_len < sizeof(expected));
+    check_load_rejects(toml_extra, expected);
+  }
+  check_load_rejects("not_found_path = 404\n", "config key 'not_found_path' must be a string");
+}
+
 // A non-array value, a non-string element, and an unsafe name for a template array key are each
 // rejected.
 static void test_load_rejects_invalid_template_arrays(void) {
@@ -890,6 +927,7 @@ static void test_print_defaults(void) {
       "output_dir = \"public\"\n"
       "templates_dir = \"templates\"\n"
       "static_dir = \"static\"\n"
+      "not_found_path = \"404.html\"\n"
       "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
       "m = { width = 520, height = 360, quality = 80, crop = true }, "
       "l = { width = 792, height = 594, quality = 85 } }\n"
@@ -898,7 +936,8 @@ static void test_print_defaults(void) {
       "\n"
       "[templates]\n"
       "album = \"album.html\"\n"
-      "aggregates = []\n"));
+      "aggregates = []\n"
+      "not_found = \"404.html\"\n"));
 }
 
 // Printing escapes quotes, backslashes, and every named control escape (\t \b \n \f \r). It uses
@@ -921,6 +960,7 @@ static void test_print_escapes_strings(void) {
       "output_dir = \"public\"\n"
       "templates_dir = \"templates\"\n"
       "static_dir = \"static\"\n"
+      "not_found_path = \"404.html\"\n"
       "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
       "m = { width = 520, height = 360, quality = 80, crop = true }, "
       "l = { width = 792, height = 594, quality = 85 } }\n"
@@ -929,7 +969,8 @@ static void test_print_escapes_strings(void) {
       "\n"
       "[templates]\n"
       "album = \"album.html\"\n"
-      "aggregates = []\n"));
+      "aggregates = []\n"
+      "not_found = \"404.html\"\n"));
 }
 
 // Printing a config and loading the printed output back yields the same field values, exercising
@@ -956,7 +997,9 @@ static void test_print_load_round_trips(void) {
   site_config.output_dir = S("dist");
   site_config.templates_dir = S("layouts");
   site_config.static_dir = S("/srv/files");
+  site_config.not_found_path = S("bunnycdn_errors/404.html");
   site_config.templates.album = S("pages/album.html");
+  site_config.templates.not_found = S("errors/missing.html");
   site_config.templates.aggregates = aggregates;
   site_config.templates.aggregate_template_count = 2;
   site_config.derivatives = derivatives;
@@ -980,7 +1023,9 @@ static void test_print_load_round_trips(void) {
   TEST_CHECK(is_resolved(reloaded.output_dir, "dist"));
   TEST_CHECK(is_resolved(reloaded.templates_dir, "layouts"));
   TEST_CHECK(str_eq(reloaded.static_dir, site_config.static_dir));
+  TEST_CHECK(str_eq(reloaded.not_found_path, site_config.not_found_path));
   TEST_CHECK(str_eq(reloaded.templates.album, site_config.templates.album));
+  TEST_CHECK(str_eq(reloaded.templates.not_found, site_config.templates.not_found));
   TEST_ASSERT(reloaded.templates.aggregate_template_count == 2);
   TEST_CHECK(str_eq(reloaded.templates.aggregates[0], S("sitemap.xml")));
   TEST_CHECK(str_eq(reloaded.templates.aggregates[1], S("about/index.html")));
@@ -1028,6 +1073,7 @@ static void test_print_empty_template_array(void) {
           "output_dir = \"" CONFIG_DIR "/public\"\n"
           "templates_dir = \"" CONFIG_DIR "/templates\"\n"
           "static_dir = \"" CONFIG_DIR "/static\"\n"
+          "not_found_path = \"404.html\"\n"
           "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
           "m = { width = 520, height = 360, quality = 80, crop = true }, "
           "l = { width = 792, height = 594, quality = 85 } }\n"
@@ -1036,7 +1082,8 @@ static void test_print_empty_template_array(void) {
           "\n"
           "[templates]\n"
           "album = \"album.html\"\n"
-          "aggregates = []\n"));
+          "aggregates = []\n"
+          "not_found = \"404.html\"\n"));
 }
 
 // A standard output that refuses the write makes `site_config_print` report `-1` with the write's
@@ -1109,6 +1156,8 @@ TEST_LIST = {
     {"load rejects base url with path breaking byte",
      test_load_rejects_base_url_with_path_breaking_byte},
     {"load rejects unsafe album template", test_load_rejects_unsafe_album_template},
+    {"load rejects unsafe not found template", test_load_rejects_unsafe_not_found_template},
+    {"load rejects invalid not found path", test_load_rejects_invalid_not_found_path},
     {"load rejects invalid template arrays", test_load_rejects_invalid_template_arrays},
     {"load reports every invalid template name", test_load_reports_every_invalid_template_name},
     {"load rejects integer upper bounds", test_load_rejects_integer_upper_bounds},

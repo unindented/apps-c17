@@ -150,8 +150,10 @@ static void test_renders_gallery_tree_with_page_relative_urls(void) {
                         .media_count = 1,
                         .parent = &root,
                         .depth = 1};
-  const struct TemplateContext context = {
-      .site_config = &site_config, .album_current = &child, .is_album_page = true};
+  const struct TemplateContext context = {.site_config = &site_config,
+                                          .album_current = &child,
+                                          .path_to_root = child.path_to_root,
+                                          .is_album_page = true};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html,
@@ -174,7 +176,8 @@ static void test_renders_site_fields(void) {
   site_config.description = S("Photos <& videos>");
   site_config.base_url = S("https://example.com/gallery");
   struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &root, .path_to_root = root.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html,
@@ -203,7 +206,8 @@ static void test_renders_absolute_urls_below_base_url(void) {
                        .media = media_items,
                        .media_count = 1,
                        .depth = 1};
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &trip};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &trip, .path_to_root = trip.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "|||local") == 0);
@@ -243,7 +247,8 @@ static void test_renders_sub_album_cover(void) {
                        .sub_albums = children,
                        .sub_album_count = 1};
   child.parent = &root;
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &root, .path_to_root = root.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "Trip=trip/index.html=_fram/r/s/trip/x.jpg=120x120=3;") == 0);
@@ -271,7 +276,8 @@ static void test_marks_a_media_count_total_of_one(void) {
                        .sub_album_count = 2};
   one.parent = &root;
   three.parent = &root;
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &root, .path_to_root = root.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "1 item;3 items;") == 0);
@@ -310,7 +316,8 @@ static void test_path_to_root_is_the_page_prefix_in_every_context(void) {
                       .parent = &trip,
                       .depth = 2};
   dawn.parent = &day;
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &day};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &day, .path_to_root = day.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "../../|[../../]|[../../][../../][../../]|[../../]") == 0);
@@ -342,11 +349,14 @@ static void test_breadcrumbs_mark_the_current_album_last(void) {
                       .parent = &trip,
                       .depth = 2};
   dawn.parent = &day;
-  const struct TemplateContext context = {
-      .site_config = &site_config, .album_current = &day, .is_album_page = true};
+  const struct TemplateContext context = {.site_config = &site_config,
+                                          .album_current = &day,
+                                          .path_to_root = day.path_to_root,
+                                          .is_album_page = true};
   // An aggregate renders against the root album without being its page, so its one crumb is not
   // last and keeps its link.
-  const struct TemplateContext aggregate = {.site_config = &site_config, .album_current = &root};
+  const struct TemplateContext aggregate = {
+      .site_config = &site_config, .album_current = &root, .path_to_root = root.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html,
@@ -357,6 +367,26 @@ static void test_breadcrumbs_mark_the_current_album_last(void) {
   TEST_ASSERT(render(os, "album.html", &aggregate, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[Root:index.html:]|") == 0);
   TEST_MSG("rendered: '%s'", rendered_html);
+}
+
+// Without a current album, as on the not-found page, the render sees `site` and `path_to_root`, and
+// every album name, a field or a list, is absent, so a section over it is skipped and an inverted
+// section fires.
+static void test_renders_only_site_data_without_an_album(void) {
+  struct Arena perm = test_arena();
+  struct Os* os = os_memory();
+  os_memory_write(os, TEMPLATES_DIR "/404.html",
+                  "{{site.title}}|{{path_to_root}}style.css|{{album.title}}{{title}}{{url}}|"
+                  "{{#sub_albums}}x{{/sub_albums}}{{^media}}none{{/media}}|"
+                  "{{#site}}{{title}}{{has_media}}{{/site}}");
+  struct SiteConfig site_config;
+  init_test_site_config(&site_config);
+  site_config.templates_dir = S(TEMPLATES_DIR);
+  const struct TemplateContext context = {.site_config = &site_config,
+                                          .path_to_root = S("/gallery/")};
+  char* html = NULL;
+  TEST_CHECK(render(os, "404.html", &context, &perm, &html, NULL) == 0);
+  TEST_CHECK(html != NULL && strcmp(html, "Gallery|/gallery/style.css||none|Gallery") == 0);
 }
 
 // `generator` names the tool and its version, at the root and inside a section.
@@ -375,7 +405,8 @@ static void test_renders_generator(void) {
                        .path_to_root = S(""),
                        .media = media,
                        .media_count = 1};
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &root, .path_to_root = root.path_to_root};
   char* rendered_html = NULL;
   const int render_rc = render(os, "album.html", &context, &perm, &rendered_html, NULL);
   const struct Str version = fram_version_string();
@@ -397,7 +428,8 @@ static void test_unknown_variable_renders_empty(void) {
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
   struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &root, .path_to_root = root.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[|]\n") == 0);
@@ -413,8 +445,8 @@ static void test_inverted_section_renders_when_list_empty(void) {
   init_test_site_config(&site_config);
 
   struct Album empty = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
-  const struct TemplateContext context_empty = {.site_config = &site_config,
-                                                .album_current = &empty};
+  const struct TemplateContext context_empty = {
+      .site_config = &site_config, .album_current = &empty, .path_to_root = empty.path_to_root};
   struct MediaItem item = {.title = S("x.jpg")};
   struct MediaItem* media[] = {&item};
   struct Album full = {.title = S("Root"),
@@ -422,7 +454,8 @@ static void test_inverted_section_renders_when_list_empty(void) {
                        .path_to_root = S(""),
                        .media = media,
                        .media_count = 1};
-  const struct TemplateContext context_full = {.site_config = &site_config, .album_current = &full};
+  const struct TemplateContext context_full = {
+      .site_config = &site_config, .album_current = &full, .path_to_root = full.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context_empty, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "none") == 0);
@@ -452,7 +485,8 @@ static void test_empty_field_is_falsey_as_section(void) {
                        .path_to_root = S(""),
                        .media = media,
                        .media_count = 2};
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &root, .path_to_root = root.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[NONE][U:_fram/originals/b.jpg]") == 0);
@@ -498,7 +532,8 @@ static void test_absent_value_does_not_resolve_from_enclosing_album(void) {
                        .parent = &root,
                        .depth = 1};
   empty.parent = &trip;
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &trip};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &trip, .path_to_root = trip.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html,
@@ -519,7 +554,8 @@ static void test_unknown_name_resolves_from_enclosing_album(void) {
   struct MediaItem* media[] = {&photo};
   struct Album root = {
       .title = S("Root"), .url_path = S("index.html"), .media = media, .media_count = 1};
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &root, .path_to_root = root.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[true|_fram/originals/a.jpg]") == 0);
@@ -540,7 +576,8 @@ static void test_media_names_its_kind(void) {
   struct MediaItem* media[] = {&image, &video};
   struct Album root = {
       .title = S("Root"), .url_path = S("index.html"), .media = media, .media_count = 2};
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &root, .path_to_root = root.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[image:I][video:V]") == 0);
@@ -561,7 +598,8 @@ static void test_duration_is_empty_for_an_image(void) {
   struct MediaItem* media[] = {&image, &video};
   struct Album root = {
       .title = S("Root"), .url_path = S("index.html"), .media = media, .media_count = 2};
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &root, .path_to_root = root.path_to_root};
   char* rendered_html = NULL;
   TEST_ASSERT(render(os, "album.html", &context, &perm, &rendered_html, NULL) == 0);
   TEST_CHECK(strcmp(rendered_html, "[][D0]") == 0);
@@ -578,7 +616,8 @@ static void test_rejects_unescaped_interpolation(void) {
   struct SiteConfig site_config;
   init_test_site_config(&site_config);
   struct Album root = {.title = S("Root"), .url_path = S("index.html"), .path_to_root = S("")};
-  const struct TemplateContext context = {.site_config = &site_config, .album_current = &root};
+  const struct TemplateContext context = {
+      .site_config = &site_config, .album_current = &root, .path_to_root = root.path_to_root};
 
   static const struct {
     const char* template_name;
@@ -634,6 +673,7 @@ TEST_LIST = {
     {"marks a media count total of one", test_marks_a_media_count_total_of_one},
     {"path to root is the page prefix in every context",
      test_path_to_root_is_the_page_prefix_in_every_context},
+    {"renders only site data without an album", test_renders_only_site_data_without_an_album},
     {"renders generator", test_renders_generator},
     {"unknown variable renders empty", test_unknown_variable_renders_empty},
     {"inverted section renders when list empty", test_inverted_section_renders_when_list_empty},

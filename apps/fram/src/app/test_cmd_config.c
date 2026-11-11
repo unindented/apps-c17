@@ -19,6 +19,7 @@
   "output_dir = \"public\"\n"                                                      \
   "templates_dir = \"templates\"\n"                                                \
   "static_dir = \"static\"\n"                                                      \
+  "not_found_path = \"404.html\"\n"                                                \
   "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, " \
   "m = { width = 520, height = 360, quality = 80, crop = true }, "                 \
   "l = { width = 792, height = 594, quality = 85 } }\n"                            \
@@ -27,7 +28,8 @@
   "\n"                                                                             \
   "[templates]\n"                                                                  \
   "album = \"album.html\"\n"                                                       \
-  "aggregates = []\n"
+  "aggregates = []\n"                                                              \
+  "not_found = \"404.html\"\n"
 
 /**
  * @brief Runs `fram config -c <config_path>` with the app's own spec, as `main` does.
@@ -100,6 +102,7 @@ static void test_prints_paths_resolved_against_config_dir(void) {
       "output_dir = \"sub/public\"\n"
       "templates_dir = \"sub/layouts\"\n"
       "static_dir = \"/srv/static\"\n"
+      "not_found_path = \"404.html\"\n"
       "derivatives = { s = { width = 120, height = 120, quality = 70, crop = true }, "
       "m = { width = 520, height = 360, quality = 80, crop = true }, "
       "l = { width = 792, height = 594, quality = 85 } }\n"
@@ -108,7 +111,8 @@ static void test_prints_paths_resolved_against_config_dir(void) {
       "\n"
       "[templates]\n"
       "album = \"album.html\"\n"
-      "aggregates = []\n"));
+      "aggregates = []\n"
+      "not_found = \"404.html\"\n"));
 }
 
 // A missing config is reported with the read failure that caused it, naming the path that `-c`

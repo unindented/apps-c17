@@ -82,6 +82,9 @@ struct GalleryTemplates {
 
   /** Number of names in `aggregates`. */
   ptrdiff_t aggregate_template_count;
+
+  /** Template of the not-found page. Defaults to `404.html`. */
+  struct Str not_found;
 };
 
 /**
@@ -112,6 +115,12 @@ struct SiteConfig {
 
   /** Directory containing static files copied as-is into `output_dir`. Defaults to `static`. */
   struct Str static_dir;
+
+  /**
+   * Path of the not-found page below `output_dir`, a safe relative path ending in `.html`. Defaults
+   * to `404.html`.
+   */
+  struct Str not_found_path;
 
   /** Named derivative recipes, in configuration order. */
   const struct GalleryDerivative* derivatives;

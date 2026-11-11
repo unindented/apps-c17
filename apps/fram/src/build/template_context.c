@@ -102,7 +102,8 @@ static const void* template_context_render_root(struct Arena* arena, void* userd
  *
  * At the root a name selects the `site.*` subtree, the current `album`, the `sub_albums`, `media`
  * and `breadcrumbs` lists, the `generator` string that names this tool and its version, the page's
- * `path_to_root`, or otherwise a field of the current album.
+ * `path_to_root`, or otherwise a field of the current album. Without a current album, as on the
+ * not-found page, only the `site.*` subtree, `generator` and `path_to_root` resolve.
  *
  * @param node     Parent `struct Node`.
  * @param name     Requested child name.
@@ -180,10 +181,10 @@ static struct Node* node_scalar_number(struct Arena* arena, ptrdiff_t value)
 /**
  * @brief Returns a scalar node holding an output-root-relative URL rebased onto the current page.
  *
- * Joins the URL behind the rendered album's `path_to_root`, so a link resolves from the page's own
+ * Joins the URL behind the render's `path_to_root`, so a link resolves from the page's own
  * directory rather than only from the output root.
  *
- * @param render            Render supplying the rendered album. Must not be `NULL`.
+ * @param render            Render supplying the `path_to_root`. Must not be `NULL`.
  * @param root_relative_url Output-root-relative URL, already URL-safe because it is built from
  *                          slugs.
  * @param arena             Arena that owns the node and the URL. Must not be `NULL`.
@@ -331,6 +332,15 @@ static const void* template_context_render_child_by_name(const void* node,
       if (str_eq(name, S("site"))) {
         return node_alloc(arena, NODE_SITE);
       }
+      if (str_eq(name, S("generator"))) {
+        return node_scalar(arena, fram_generator_string());
+      }
+      if (str_eq(name, S("path_to_root"))) {
+        return node_scalar(arena, render->context->path_to_root);
+      }
+      if (render->context->album_current == NULL) {
+        return NULL;
+      }
       if (str_eq(name, S("album"))) {
         struct Node* child = node_alloc(arena, NODE_ALBUM);
         child->album = render->context->album_current;
@@ -344,12 +354,6 @@ static const void* template_context_render_child_by_name(const void* node,
       }
       if (str_eq(name, S("breadcrumbs"))) {
         return node_alloc(arena, NODE_BREADCRUMB_LIST);
-      }
-      if (str_eq(name, S("generator"))) {
-        return node_scalar(arena, fram_generator_string());
-      }
-      if (str_eq(name, S("path_to_root"))) {
-        return node_scalar(arena, render->context->album_current->path_to_root);
       }
       return resolve_album(render, render->context->album_current, name, arena);
     case NODE_SITE:
@@ -459,8 +463,7 @@ static struct Node* node_scalar_number(struct Arena* arena, ptrdiff_t value) {
 static struct Node* node_scalar_url(const struct ContextRender* render,
                                     struct Str root_relative_url,
                                     struct Arena* arena) {
-  return node_scalar(
-      arena, path_join(render->context->album_current->path_to_root, root_relative_url, arena));
+  return node_scalar(arena, path_join(render->context->path_to_root, root_relative_url, arena));
 }
 
 static struct Node* node_scalar_url_absolute(const struct ContextRender* render,

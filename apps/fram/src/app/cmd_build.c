@@ -293,8 +293,8 @@ static int run_build_phases(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Reads and compiles the album template, every aggregate template and every partial, and
- *        reports every one that cannot be read or does not compile.
+ * @brief Reads and compiles the album template, every aggregate template, the not-found template
+ *        and every partial, and reports every one that cannot be read or does not compile.
  *
  * A template that cannot be read names the first key of `[templates]` in table order that names it,
  * as `templates.<key>`.
@@ -426,8 +426,8 @@ static int render_album_pages(struct BuildState* state, struct Log* log)
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Produces the album pages and the aggregate template outputs, each written only when its
- *        bytes changed.
+ * @brief Produces the album pages, the aggregate template outputs and the not-found page, each
+ *        written only when its bytes changed.
  *
  * @param state Build state holding the rendered pages and the scanned albums. Must not be `NULL`.
  * @param log   Log that receives the failure. Must not be `NULL`.
@@ -705,7 +705,7 @@ static int load_templates(struct BuildState* state, struct Log* log) {
   verbose_printf(&state->verbose, "compiling templates");
   const struct SiteConfig* site_config = &state->site_config;
   const struct GalleryTemplates* templates = &site_config->templates;
-  const ptrdiff_t name_count_max = 1 + templates->aggregate_template_count;
+  const ptrdiff_t name_count_max = 2 + templates->aggregate_template_count;
   struct Arena scratch = state->scratch;
   struct Str* names = arena_new(&scratch, name_count_max, struct Str);
   struct Str* owners = arena_new(&scratch, name_count_max, struct Str);
@@ -716,6 +716,7 @@ static int load_templates(struct BuildState* state, struct Log* log) {
     load_templates_add(names, owners, &name_count, templates->aggregates[i],
                        S("templates.aggregates"));
   }
+  load_templates_add(names, owners, &name_count, templates->not_found, S("templates.not_found"));
   return template_set_load(site_config->templates_dir, names, owners, name_count, state->os,
                            &state->perm, scratch, &state->template_set, log);
 }
@@ -860,9 +861,14 @@ static int write_generated_site(struct BuildState* state, struct Log* log) {
     return -1;
   }
   verbose_printf(&state->verbose, "rendering aggregate templates");
-  return site_writer_write_aggregates(&state->writer, &state->output_cache, &state->site_config,
-                                      state->template_set, state->albums[0], state->perm,
-                                      state->scratch, log);
+  if (site_writer_write_aggregates(&state->writer, &state->output_cache, &state->site_config,
+                                   state->template_set, state->albums[0], state->perm,
+                                   state->scratch, log) != 0) {
+    return -1;
+  }
+  verbose_printf(&state->verbose, "rendering not-found page");
+  return site_writer_write_not_found(&state->writer, &state->output_cache, &state->site_config,
+                                     state->template_set, state->perm, state->scratch, log);
 }
 
 static int write_output_cache(struct BuildState* state, struct Log* log) {

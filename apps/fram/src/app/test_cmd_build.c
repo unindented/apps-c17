@@ -49,6 +49,9 @@ static const char* const ALBUM_TEMPLATE =
     "<!doctype html><title>{{album.title}} - {{site.title}}</title>"
     "{{#has_media}}<ul>{{#media}}<li>{{title}}</li>{{/media}}</ul>{{/has_media}}";
 
+/** Not-found template every fixture has, which renders its `path_to_root`. */
+static const char* const NOT_FOUND_TEMPLATE = "not found {{path_to_root}}\n";
+
 /**
  * Album template for the large album, which lists each item the way a real gallery's template does:
  * its links, its derivatives' URLs and dimensions, and its title.
@@ -79,7 +82,7 @@ static void write_jpeg(struct Os* os, const char* file_path) {
 }
 
 /**
- * @brief Writes `fram.toml` and the album template.
+ * @brief Writes `fram.toml`, the album template and the not-found template.
  *
  * @param os           Host to write to. Must not be `NULL`.
  * @param config_extra Config lines placed before the shared body, or `NULL` for the body alone. It
@@ -87,6 +90,7 @@ static void write_jpeg(struct Os* os, const char* file_path) {
  */
 static void write_gallery_fixture(struct Os* os, const char* config_extra) {
   os_memory_write(os, "templates/album.html", ALBUM_TEMPLATE);
+  os_memory_write(os, "templates/404.html", NOT_FOUND_TEMPLATE);
   struct Arena arena = test_arena();
   struct Buf config = {.arena = &arena};
   if (config_extra != NULL) {
@@ -98,6 +102,7 @@ static void write_gallery_fixture(struct Os* os, const char* config_extra) {
 
 /** Files `every_output_kind_fixture` builds to, in byte order. */
 static const char* const EVERY_OUTPUT_KIND_FILES[] = {
+    "public/404.html",
     "public/_fram/originals/album/one-jpg.jpg",
     "public/_fram/output-cache.tsv",
     "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp",
@@ -116,8 +121,8 @@ enum {
 
 /**
  * @brief Returns a host holding a gallery with one output of every kind: album pages, derivatives,
- *        an original, an aggregate and a static file, beside a file in `media_dir` that is not
- *        media, which build to `EVERY_OUTPUT_KIND_FILES`.
+ *        an original, an aggregate, the not-found page and a static file, beside a file in
+ *        `media_dir` that is not media, which build to `EVERY_OUTPUT_KIND_FILES`.
  *
  * @return The host.
  */
@@ -487,6 +492,7 @@ static void test_tolerates_trailing_slash_on_media_dir(void) {
                   "[derivatives.s]\nwidth = 8\nheight = 8\nquality = 70\ncrop = true\n"
                   "[derivatives.m]\nwidth = 16\nheight = 16\nquality = 75\n");
   os_memory_write(os, "templates/album.html", ALBUM_TEMPLATE);
+  os_memory_write(os, "templates/404.html", NOT_FOUND_TEMPLATE);
   write_jpeg(os, "photos/album/one.jpg");
   struct Log log = test_log();
 
@@ -494,6 +500,7 @@ static void test_tolerates_trailing_slash_on_media_dir(void) {
   TEST_CHECK(test_log_is_empty(&log));
   // No output, page, derivative or original, carries the name of `media_dir`.
   static const char* const expected[] = {
+      "public/404.html",
       "public/_fram/originals/album/one-jpg.jpg",
       "public/_fram/output-cache.tsv",
       "public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp",
@@ -511,6 +518,7 @@ static void test_builds_from_config_in_a_subdirectory(void) {
   struct Os* os = os_memory();
   os_memory_write(os, "sub/fram.toml", SITE_CONFIG);
   os_memory_write(os, "sub/templates/album.html", ALBUM_TEMPLATE);
+  os_memory_write(os, "sub/templates/404.html", NOT_FOUND_TEMPLATE);
   os_memory_write(os, "sub/static/fram.css", "body{}\n");
   write_jpeg(os, "sub/photos/album/one.jpg");
   struct Log log = test_log();
@@ -519,6 +527,7 @@ static void test_builds_from_config_in_a_subdirectory(void) {
   TEST_CHECK(execute_build_with_options(&options, os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
   static const char* const expected[] = {
+      "sub/public/404.html",
       "sub/public/_fram/originals/album/one-jpg.jpg",
       "sub/public/_fram/output-cache.tsv",
       "sub/public/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp",
@@ -529,6 +538,21 @@ static void test_builds_from_config_in_a_subdirectory(void) {
   };
   TEST_CHECK(is_file_list(os, "sub/public", expected, sizeof(expected) / sizeof(expected[0])));
   TEST_CHECK(!os_memory_has_path(os, "public"));
+}
+
+// A not-found page below a directory, as bunny.net serves it, gets `/` as its `path_to_root` in a
+// gallery without `base_url`, and nothing is written at the default `404.html`. The golden test
+// asserts a `base_url` with a path end to end.
+static void test_renders_a_nested_not_found_page_from_the_root(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, "not_found_path = \"bunnycdn_errors/404.html\"\n");
+  write_jpeg(os, "photos/album/one.jpg");
+
+  TEST_CHECK(execute_build(os, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(os_memory_is_file(os, "public/bunnycdn_errors/404.html", "not found /\n"));
+  TEST_CHECK(!os_memory_has_path(os, "public/404.html"));
 }
 
 // A gallery that ships no `static` directory builds. `static_dir` is optional with a default, so an
@@ -635,9 +659,9 @@ static void test_rebuild_succeeds_and_repeats_its_outputs(void) {
   const ptrdiff_t public_count_built = os_memory_files(os, "public").count;
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  // The album page, the root page, both derivatives, the copied original and the output cache: the
-  // second build adds nothing and removes nothing.
-  TEST_CHECK(public_count_built == 6);
+  // The album page, the root page, the not-found page, both derivatives, the copied original and
+  // the output cache: the second build adds nothing and removes nothing.
+  TEST_CHECK(public_count_built == 7);
   TEST_CHECK(os_memory_files(os, "public").count == public_count_built);
 }
 
@@ -658,9 +682,9 @@ static void test_rebuild_removes_stale_outputs(void) {
   os_memory_write(os, "public/_fram/v1-old/album/one-jpg-s.jpg", "old");
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  // The album page, the root page, both derivatives and the copied original of the one source left,
-  // and the output cache.
-  TEST_CHECK(os_memory_files(os, "public").count == 6);
+  // The album page, the root page, the not-found page, both derivatives and the copied original of
+  // the one source left, and the output cache.
+  TEST_CHECK(os_memory_files(os, "public").count == 7);
   TEST_CHECK(os_memory_has_path(os, "public/_fram/originals/album/one-jpg.jpg"));
   TEST_CHECK(!os_memory_has_path(os, "public/_fram/originals/album/two-jpg.jpg"));
   TEST_CHECK(!os_memory_has_path(os, "public/notes.txt"));
@@ -668,7 +692,7 @@ static void test_rebuild_removes_stale_outputs(void) {
 
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  TEST_CHECK(os_memory_files(os, "public").count == 6);
+  TEST_CHECK(os_memory_files(os, "public").count == 7);
 }
 
 // An `output_dir` that a symlink inside `media_dir` reaches is left out of the media walk, so a
@@ -684,9 +708,9 @@ static void test_rebuild_skips_output_dir_linked_from_media_dir(void) {
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
-  // The album page, the root page, both derivatives, the copied original and the output cache, and
-  // no album for the linked output tree.
-  TEST_CHECK(os_memory_files(os, "public").count == 6);
+  // The album page, the root page, the not-found page, both derivatives, the copied original and
+  // the output cache, and no album for the linked output tree.
+  TEST_CHECK(os_memory_files(os, "public").count == 7);
   TEST_CHECK(!os_memory_has_path(os, "public/published"));
 }
 
@@ -724,6 +748,7 @@ static void test_dry_run_keeps_unchanged_outputs(void) {
       "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp\n"
       "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
       "keep\tpublic/_fram/originals/album/one-jpg.jpg\n"
+      "keep\tpublic/404.html\n"
       "write\tpublic/_fram/output-cache.tsv\n"));
 }
 
@@ -753,6 +778,7 @@ static void test_dry_run_lists_stale_recipe_and_keeps_it(void) {
       "write\tpublic/_fram/v2-s-4x4c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp\n"
       "write\tpublic/_fram/v2-s-4x4c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
       "keep\tpublic/_fram/originals/album/one-jpg.jpg\n"
+      "keep\tpublic/404.html\n"
       "write\tpublic/_fram/output-cache.tsv\n"
       "remove\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000\n"
       "remove\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album\n"
@@ -782,6 +808,7 @@ static void test_dry_run_keeps_unchanged_static_files(void) {
       "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
       "keep\tpublic/_fram/originals/album/one-jpg.jpg\n"
       "keep\tpublic/sitemap.xml\n"
+      "keep\tpublic/404.html\n"
       "keep\tpublic/fram.css\n"
       "write\tpublic/robots.txt\n"
       "write\tpublic/_fram/output-cache.tsv\n"));
@@ -1106,6 +1133,7 @@ static void test_deleted_derivative_is_made_again(void) {
       "keep\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-s.webp\n"
       "write\tpublic/_fram/v2-s-8x8c-q70-m-16x16-q75-f1000/album/one-jpg-m.webp\n"
       "keep\tpublic/_fram/originals/album/one-jpg.jpg\n"
+      "keep\tpublic/404.html\n"
       "write\tpublic/_fram/output-cache.tsv\n"));
   TEST_CHECK(execute_build(os, &log) == 0);
   TEST_CHECK(test_log_is_empty(&log));
@@ -1312,6 +1340,7 @@ static void test_skips_empty_phases_in_verbose_output(void) {
                                   "\rrendering albums 1/1\n"
                                   "writing album pages\n"
                                   "rendering aggregate templates\n"
+                                  "rendering not-found page\n"
                                   "writing output cache\n"
                                   "removing stale outputs\n"
                                   "removed stale outputs: 0\n"
@@ -1563,8 +1592,8 @@ static void test_rejects_output_dir_holding_media_dir(void) {
   TEST_CHECK(os_memory_is_printed(os, 2,
                                   "loading config\n"
                                   "output directory would hold 'media_dir': '.'\n"));
-  // The config, the template, and the source.
-  TEST_CHECK(os_memory_files(os, ".").count == 3);
+  // The config, the templates, and the source.
+  TEST_CHECK(os_memory_files(os, ".").count == 4);
 }
 
 // An `output_dir` that holds the directory of the config that `-c` names is refused, although it
@@ -1580,14 +1609,15 @@ static void test_rejects_output_dir_holding_config_named_by_path(void) {
                   "templates_dir = \"../templates\"\n"
                   "output_dir = \".\"\n");
   os_memory_write(os, "templates/album.html", ALBUM_TEMPLATE);
+  os_memory_write(os, "templates/404.html", NOT_FOUND_TEMPLATE);
   write_jpeg(os, "photos/album/one.jpg");
   struct Log log = test_log();
   const struct BuildOptions options = {.config_path = S("sub/fram.toml")};
 
   TEST_CHECK(execute_build_with_options(&options, os, &log) == -1);
   TEST_CHECK(test_log_is(&log, "output directory would hold the config: 'sub'\n"));
-  // The config, the template, and the source.
-  TEST_CHECK(os_memory_files(os, ".").count == 3);
+  // The config, the templates, and the source.
+  TEST_CHECK(os_memory_files(os, ".").count == 4);
 }
 
 // Slugging is lossy, so two different source names can claim one output path. The manifest reports
@@ -1631,6 +1661,21 @@ static void test_rejects_static_file_colliding_with_album_page(void) {
   TEST_CHECK(!os_memory_has_path(os, "public"));
 }
 
+// An aggregate at the not-found page's path is refused before anything is written, and the message
+// names `not_found_path`.
+static void test_rejects_aggregate_at_not_found_path(void) {
+  struct Os* os = os_memory();
+  struct Log log = test_log();
+  write_gallery_fixture(os, "templates.aggregates = [\"404.html\"]\n");
+  write_jpeg(os, "photos/album/one.jpg");
+
+  TEST_CHECK(execute_build(os, &log) == -1);
+  TEST_CHECK(test_log_is(&log,
+                         "duplicate output path for 'templates.aggregates[0]' and "
+                         "'not_found_path': 'public/404.html'\n"));
+  TEST_CHECK(!os_memory_has_path(os, "public"));
+}
+
 // An album template that fails to parse fails the build when the templates load, before anything is
 // written. The diagnostic carries the parser's cause, its position and the template name.
 static void test_reports_bad_template(void) {
@@ -1661,6 +1706,7 @@ static void test_reports_a_missing_configured_template_with_its_key(void) {
       {"templates.aggregates = [\"sitemap.xml\"]\n", "sitemap.xml", "templates.aggregates"},
       {"templates.album = \"page.html\"\ntemplates.aggregates = [\"page.html\"]\n", "page.html",
        "templates.album"},
+      {"templates.not_found = \"missing.html\"\n", "missing.html", "templates.not_found"},
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(cases) / sizeof(cases[0])); i++) {
     TEST_CASE(cases[i].config);
@@ -1895,6 +1941,8 @@ TEST_LIST = {
     {"writes exactly manifest outputs", test_writes_exactly_manifest_outputs},
     {"tolerates trailing slash on media_dir", test_tolerates_trailing_slash_on_media_dir},
     {"builds from config in a subdirectory", test_builds_from_config_in_a_subdirectory},
+    {"renders a nested not found page from the root",
+     test_renders_a_nested_not_found_page_from_the_root},
     {"builds with no static dir", test_builds_with_no_static_dir},
     {"copies static files when present", test_copies_static_files_when_present},
     {"distinguishes same name in different dirs", test_distinguishes_same_name_in_different_dirs},
@@ -1949,6 +1997,7 @@ TEST_LIST = {
     {"rejects colliding source names", test_rejects_colliding_source_names},
     {"rejects static file colliding with album page",
      test_rejects_static_file_colliding_with_album_page},
+    {"rejects aggregate at not found path", test_rejects_aggregate_at_not_found_path},
     {"reports bad template", test_reports_bad_template},
     {"reports a missing configured template with its key",
      test_reports_a_missing_configured_template_with_its_key},

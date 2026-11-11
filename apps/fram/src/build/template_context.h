@@ -22,8 +22,19 @@ struct TemplateContext {
   /** Gallery metadata and configured paths. Must not be `NULL`. */
   const struct SiteConfig* site_config;
 
-  /** Album whose page-relative URL prefix applies to this render. Must not be `NULL`. */
+  /**
+   * Album the render shows: its own page's album, or the root album for an aggregate. It is `NULL`
+   * for the not-found page, which sees only `site`, `generator` and `path_to_root`.
+   */
   const struct Album* album_current;
+
+  /**
+   * Prefix from the page being rendered to `output_dir`, exposed as `path_to_root` and put before
+   * every page-relative URL: one `../` for each directory the page's output path is below, and
+   * empty for a page at the top of `output_dir`. The not-found page, which a host serves at every
+   * depth, has the root-relative path of `base_url` instead.
+   */
+  struct Str path_to_root;
 
   /**
    * Whether this render is `album_current`'s own page, whose last breadcrumb is the album itself,
@@ -38,7 +49,8 @@ struct TemplateContext {
  * The render is `template_set_render`'s, under `TEMPLATE_RENDER_OUTPUT_LEN_MAX`, and resolves its
  * names lazily against `context`: `site.*`, `album`, `sub_albums`, `media`, `breadcrumbs`,
  * `generator`, `path_to_root`, and the fields of the current album and of each listed album, media
- * item and derivative. fram makes no HTML, so an unescaped tag of any value fails the render.
+ * item and derivative. Without a current album, only `site.*`, `generator` and `path_to_root`
+ * resolve. fram makes no HTML, so an unescaped tag of any value fails the render.
  *
  * @param set           Loaded templates. Must not be `NULL`.
  * @param template_name Name of a page template of `set`.
