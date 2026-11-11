@@ -27,6 +27,17 @@ Each app and `libs` is its own CMake project, with its own presets. To build one
 
 Each app has its own version and its own releases. A release tag has the app's name, for example `sosig-v0.3.0`, and starts [release.yml](.github/workflows/release.yml) for that app.
 
+## Host notes
+
+`sosig`, `fram` and `surge` each write a not-found page, which a static host serves for a path that does not exist. Its template is `templates.not_found`, and its output path below `output_dir` is `not_found_path`. Both default to `404.html`. A host reads the page from a path of its own, so set `not_found_path` to that path:
+
+| Host | `not_found_path` | Without the page |
+| --- | --- | --- |
+| bunny.net | `"bunnycdn_errors/404.html"` | The host answers with its own page. |
+| Cloudflare Pages | `"404.html"`, the default | The host treats the project as a single-page application, and answers every missing path with status 200 and the index page. |
+
+GitHub Pages and Netlify also read a top-level `404.html`. Moving a site to another host changes only `not_found_path`, and the template stays where it is. The page's `path_to_root` is the path of `base_url`, so the page loads its styles at every depth below the site. Each app's README describes its page, and [surge's README](apps/surge/README.md#404-handling) why a clone needs the status 404.
+
 ## License
 
 All projects use the MIT License, as [LICENSE.txt](LICENSE.txt) states.
