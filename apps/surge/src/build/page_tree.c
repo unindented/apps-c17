@@ -12,6 +12,7 @@
 #include "core/str.h"
 #include "domain/repo_model.h"
 #include "domain/site_config.h"
+#include "domain/tree_path.h"
 #include "vcs/filetree.h"
 
 /** Name of each entry kind as a template sees it, indexed by `enum TreeEntryKind`. */
@@ -85,6 +86,28 @@ static struct TemplateValue* page_tree_entries_one(const struct RepoModel* repo,
                                                    struct Str path_to_root,
                                                    struct Arena* arena)
     __attribute__((nonnull(1, 2, 3, 5), returns_nonnull));
+
+/**
+ * @brief Returns the link of a symlink's row to its target: the blob page of a file, the tree page
+ *        of a directory, or for a symlink the tree page of the directory that holds it.
+ *
+ * The target is a raw path relative to the symlink's directory, with no `%XX` escape, query or
+ * fragment, and no `.md` added.
+ *
+ * @param repo         What the scan found for the repo. Must not be `NULL`.
+ * @param tree         Tree of the branch. Must not be `NULL`.
+ * @param entry        Entry of the row. Must not be `NULL`.
+ * @param path_to_root Prefix from the page back to the output root.
+ * @param arena        Arena that owns the link. Must not be `NULL`.
+ * @return The link, or empty for an entry that is no symlink, and for a target that starts with
+ *         `/`, was cut short, leaves the root, or names no such path of the branch.
+ */
+static struct Str page_tree_entries_one_link_url(const struct RepoModel* repo,
+                                                 const struct BranchTree* tree,
+                                                 const struct TreeEntry* entry,
+                                                 struct Str path_to_root,
+                                                 struct Arena* arena)
+    __attribute__((nonnull(1, 2, 3, 5)));
 
 /**
  * @brief Returns the map of one breadcrumb.
@@ -253,6 +276,9 @@ static struct TemplateValue* page_tree_entries_one(const struct RepoModel* repo,
   template_value_set_text(map, S("url"), url, arena);
   template_value_set_bool(map, S("is_linked"), url.len > 0, arena);
   template_value_set_text(map, S("link_target"), entry->link_target, arena);
+  template_value_set_text(map, S("link_url"),
+                          page_tree_entries_one_link_url(repo, tree, entry, path_to_root, arena),
+                          arena);
   template_value_set_text(map, S("oid"), entry->oid, arena);
   struct Buf size = {.arena = arena};
   if (entry->kind != TREE_ENTRY_DIR && entry->kind != TREE_ENTRY_GITLINK) {
@@ -260,6 +286,36 @@ static struct TemplateValue* page_tree_entries_one(const struct RepoModel* repo,
   }
   template_value_set_text(map, S("size"), buf_str(&size), arena);
   return map;
+}
+
+static struct Str page_tree_entries_one_link_url(const struct RepoModel* repo,
+                                                 const struct BranchTree* tree,
+                                                 const struct TreeEntry* entry,
+                                                 struct Str path_to_root,
+                                                 struct Arena* arena) {
+  const struct Str target = entry->link_target;
+  // A target shorter than its blob was cut, so the path it names is not the symlink's.
+  if (entry->kind != TREE_ENTRY_SYMLINK || target.len == 0 || target.len < entry->len ||
+      str_startswith(target, S("/"))) {
+    return (struct Str){0};
+  }
+  struct Str path = {0};
+  if (!tree_path_resolve(tree_path_dir(entry->path), target, arena, &path)) {
+    return (struct Str){0};
+  }
+  enum PagePathKind kind = PAGE_PATH_TREE;
+  if (path.len > 0 && tree_path_find_file(tree, path) != NULL) {
+    kind = PAGE_PATH_BLOB;
+  } else if (tree_path_has_dir(tree, path)) {
+    kind = PAGE_PATH_TREE;
+  } else if (tree_path_find_symlink(tree, path) != NULL) {
+    // A symlink has no page, so the link goes one hop, to the listing that shows its row.
+    path = tree_path_dir(path);
+  } else {
+    return (struct Str){0};
+  }
+  return page_path_link(path_to_root, kind, repo->config->name, tree->branch->short_name, path,
+                        arena);
 }
 
 static struct TemplateValue* page_tree_breadcrumbs_one(struct Str name,

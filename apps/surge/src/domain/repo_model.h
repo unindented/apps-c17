@@ -174,7 +174,7 @@ enum TreeEntryKind {
   /** An executable file, which gets a blob page and a raw copy. */
   TREE_ENTRY_EXECUTABLE,
 
-  /** A symlink, a row with its target text, which gets no page. */
+  /** A symlink, a row with its target text and a link to its target, which gets no page. */
   TREE_ENTRY_SYMLINK,
 
   /** A gitlink, a submodule's commit, a row that links nowhere. */
@@ -240,6 +240,13 @@ struct BranchTree {
 
   /** Number of entries in `files`. */
   ptrdiff_t file_count;
+
+  /** Every symlink of a directory with a tree page, sorted bytewise by path, for link
+      resolution. */
+  const struct TreeEntry** symlinks;
+
+  /** Number of entries in `symlinks`. */
+  ptrdiff_t symlink_count;
 
   /** Path of every linked directory but the root, sorted bytewise, for link resolution. */
   struct Str* dir_paths;

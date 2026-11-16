@@ -4,9 +4,16 @@
 <title>links: commits on main</title>
 <link rel="self" href="https://git.example.org/links/commits/main.atom"/>
 <link rel="alternate" type="text/html" href="https://git.example.org/links/commits/main/index.html"/>
-<updated>2026-01-07T13:00:00+01:00</updated>
+<updated>2026-01-08T13:00:00+01:00</updated>
 <generator>surge @PROJECT_VERSION@</generator>
 <author><name>Fixture author</name></author>
+<entry>
+<id>https://git.example.org/links/commit/fcc3542f2ff5cf6a8bff5e66b6e71be8458fec56/index.html</id>
+<title>Add symlinks in and out of the tree</title>
+<link href="https://git.example.org/links/commit/fcc3542f2ff5cf6a8bff5e66b6e71be8458fec56/index.html"/>
+<updated>2026-01-08T13:00:00+01:00</updated>
+<author><name>Grace Hopper</name></author>
+</entry>
 <entry>
 <id>https://git.example.org/links/commit/53a964e55ab5d6d98e2cd8694a5b85c958a2bdbb/index.html</id>
 <title>Start with a statement on accessibility</title>

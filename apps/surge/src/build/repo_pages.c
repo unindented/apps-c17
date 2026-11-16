@@ -821,9 +821,9 @@ static struct Str key_id(struct Str text, struct Arena* perm, struct Arena scrat
 
 /**
  * @brief Returns the attributes of what a tree page reads: `tree=` its tree, `root=` the branch's
- *        root tree when one of its documents is Markdown or Org, whose links resolve against every
- *        path of the branch, and for the root's page `commit=` the branch's commit, whose summary
- *        it shows.
+ *        root tree when one of its documents is Markdown or Org or one of its entries is a symlink,
+ *        whose links resolve against every path of the branch, and for the root's page `commit=`
+ *        the branch's commit, whose summary it shows.
  *
  * @param tree         Tree of the branch. Must not be `NULL`.
  * @param dir          The directory. Must not be `NULL`.
@@ -1931,13 +1931,16 @@ static struct Str tree_attributes(const struct BranchTree* tree,
                                   struct Arena* arena) {
   const struct TreeEntry* documents[DOCUMENT_KIND_COUNT] = {0};
   (void)readme_find_documents(tree, dir, blob_len_max, documents);
-  bool has_markup = false;
+  bool has_links = false;
   for (ptrdiff_t i = 0; i < DOCUMENT_KIND_COUNT; i++) {
-    has_markup = has_markup || (documents[i] != NULL && readme_is_markup(documents[i]->name));
+    has_links = has_links || (documents[i] != NULL && readme_is_markup(documents[i]->name));
+  }
+  for (ptrdiff_t i = 0; i < dir->entry_count; i++) {
+    has_links = has_links || dir->entries[i].kind == TREE_ENTRY_SYMLINK;
   }
   struct Buf attributes = {.arena = arena};
   buf_printf(&attributes, "tree=%.*s", STR_FMT(dir->oid));
-  if (has_markup) {
+  if (has_links) {
     buf_printf(&attributes, " root=%.*s", STR_FMT(tree->dirs[0].oid));
   }
   if (dir == &tree->dirs[0]) {

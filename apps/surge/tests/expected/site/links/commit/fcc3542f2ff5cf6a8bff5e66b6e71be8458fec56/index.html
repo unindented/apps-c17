@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="generator" content="surge @PROJECT_VERSION@">
+<link rel="stylesheet" href="../../../style.css">
+<title>Add symlinks in and out of the tree &middot; links &middot; Fixture code</title>
+</head>
+<body>
+<header><a href="../../../index.html">Fixture code</a> / <a href="../../../links/index.html">links</a> &middot; <a href="../../../links/branches/index.html">branches</a> &middot; <a href="../../../links/tags/index.html">tags</a> &middot; <a href="../../../links/commits/main/index.html">commits</a></header>
+<h1>Add symlinks in and out of the tree</h1>
+
+<p>Grace Hopper authored <time>2026-01-08T13:00:00+01:00</time>; Grace Hopper committed <time>2026-01-08T13:00:00+01:00</time></p>
+<p>commit <code>fcc3542f2ff5cf6a8bff5e66b6e71be8458fec56</code> &middot; parent <a href="../../../links/commit/53a964e55ab5d6d98e2cd8694a5b85c958a2bdbb/index.html">53a964e</a></p>
+<p>9 files changed, +11 -0</p>
+<details open><summary>Changed files</summary>
+<ul>
+<li><details open><summary>src/</summary><ul>
+<li><a class="added" href="#diff-0">main.c</a> +3 -0</li>
+<li><a class="added" href="#diff-1">root</a> +1 -0</li>
+<li><a class="added" href="#diff-2">up</a> +1 -0</li>
+</ul>
+</details></li>
+<li><a class="added" href="#diff-3">absolute</a> +1 -0</li>
+<li><a class="added" href="#diff-4">missing</a> +1 -0</li>
+<li><a class="added" href="#diff-5">outside</a> +1 -0</li>
+<li><a class="added" href="#diff-6">to-dir</a> +1 -0</li>
+<li><a class="added" href="#diff-7">to-file</a> +1 -0</li>
+<li><a class="added" href="#diff-8">to-link</a> +1 -0</li>
+</ul>
+
+</details>
+<section id="diff-0">
+<h2>src/main.c <span class="added">added</span></h2>
+
+
+
+<pre class="surge-diff"><code><span class="code-line surge-hunk"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text">@@ -0,0 +1,3 @@
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R1" href="#diff-0-hunk-0-R1">1</a></span><span class="code-line-text">+<span class="tok-type-builtin">int</span> <span class="tok-function">main</span>(<span class="tok-type-builtin">void</span>) {
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R2" href="#diff-0-hunk-0-R2">2</a></span><span class="code-line-text">+  <span class="tok-keyword">return</span> <span class="tok-number">0</span><span class="tok-delimiter">;</span>
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-0-hunk-0-R3" href="#diff-0-hunk-0-R3">3</a></span><span class="code-line-text">+}
+</span></span></code></pre>
+
+
+</section>
+<section id="diff-1">
+<h2>src/root <span class="added">added</span></h2>
+
+
+
+<pre class="surge-diff"><code><span class="code-line surge-hunk"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text">@@ -0,0 +1 @@
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-1-hunk-0-R1" href="#diff-1-hunk-0-R1">1</a></span><span class="code-line-text">+..
+</span></span><span class="code-line surge-no-newline"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text"> No newline at end of file
+</span></span></code></pre>
+
+
+</section>
+<section id="diff-2">
+<h2>src/up <span class="added">added</span></h2>
+
+
+
+<pre class="surge-diff"><code><span class="code-line surge-hunk"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text">@@ -0,0 +1 @@
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-2-hunk-0-R1" href="#diff-2-hunk-0-R1">1</a></span><span class="code-line-text">+../README.md
+</span></span><span class="code-line surge-no-newline"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text"> No newline at end of file
+</span></span></code></pre>
+
+
+</section>
+<section id="diff-3">
+<h2>absolute <span class="added">added</span></h2>
+
+
+
+<pre class="surge-diff"><code><span class="code-line surge-hunk"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text">@@ -0,0 +1 @@
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-3-hunk-0-R1" href="#diff-3-hunk-0-R1">1</a></span><span class="code-line-text">+/etc/passwd
+</span></span><span class="code-line surge-no-newline"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text"> No newline at end of file
+</span></span></code></pre>
+
+
+</section>
+<section id="diff-4">
+<h2>missing <span class="added">added</span></h2>
+
+
+
+<pre class="surge-diff"><code><span class="code-line surge-hunk"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text">@@ -0,0 +1 @@
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-4-hunk-0-R1" href="#diff-4-hunk-0-R1">1</a></span><span class="code-line-text">+src/missing.c
+</span></span><span class="code-line surge-no-newline"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text"> No newline at end of file
+</span></span></code></pre>
+
+
+</section>
+<section id="diff-5">
+<h2>outside <span class="added">added</span></h2>
+
+
+
+<pre class="surge-diff"><code><span class="code-line surge-hunk"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text">@@ -0,0 +1 @@
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-5-hunk-0-R1" href="#diff-5-hunk-0-R1">1</a></span><span class="code-line-text">+../outside
+</span></span><span class="code-line surge-no-newline"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text"> No newline at end of file
+</span></span></code></pre>
+
+
+</section>
+<section id="diff-6">
+<h2>to-dir <span class="added">added</span></h2>
+
+
+
+<pre class="surge-diff"><code><span class="code-line surge-hunk"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text">@@ -0,0 +1 @@
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-6-hunk-0-R1" href="#diff-6-hunk-0-R1">1</a></span><span class="code-line-text">+src
+</span></span><span class="code-line surge-no-newline"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text"> No newline at end of file
+</span></span></code></pre>
+
+
+</section>
+<section id="diff-7">
+<h2>to-file <span class="added">added</span></h2>
+
+
+
+<pre class="surge-diff"><code><span class="code-line surge-hunk"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text">@@ -0,0 +1 @@
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-7-hunk-0-R1" href="#diff-7-hunk-0-R1">1</a></span><span class="code-line-text">+src/main.c
+</span></span><span class="code-line surge-no-newline"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text"> No newline at end of file
+</span></span></code></pre>
+
+
+</section>
+<section id="diff-8">
+<h2>to-link <span class="added">added</span></h2>
+
+
+
+<pre class="surge-diff"><code><span class="code-line surge-hunk"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text">@@ -0,0 +1 @@
+</span></span><span class="code-line surge-add"><span class="code-line-numbers"><span class="code-line-number"></span><a class="code-line-number" id="diff-8-hunk-0-R1" href="#diff-8-hunk-0-R1">1</a></span><span class="code-line-text">+src/up
+</span></span><span class="code-line surge-no-newline"><span class="code-line-numbers"><span class="code-line-number"></span><span class="code-line-number"></span></span><span class="code-line-text"> No newline at end of file
+</span></span></code></pre>
+
+
+</section>
+</body>
+</html>

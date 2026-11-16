@@ -74,6 +74,7 @@ The header of each module documents its interface.
 - [semver](src/domain/semver.h): Parses and orders Semantic Versioning versions.
 - [timestamp](src/domain/timestamp.h): Formats a git time as RFC 3339, and gives its local day and that day's date.
 - [trailer](src/domain/trailer.h): The names in a commit's trailers, its co-authors, and the LLM tools that its trailers name.
+- [tree_path](src/domain/tree_path.h): Resolves a path against a directory of a branch's tree, and finds the file, symlink or directory at a path, for the links of documents and symlinks.
 - [url_segment](src/domain/url_segment.h): Percent-encodes a path segment.
 - [surge_version](src/domain/surge_version.h): The tool name and version, which CMake sets.
 - [repository](src/vcs/repository.h): The libgit2 setup, opening a repository, reading a blob, object ids, and `repository_fail`.

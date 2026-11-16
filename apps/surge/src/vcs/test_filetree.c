@@ -175,7 +175,8 @@ static void test_load_reads_executable_files(void) {
   TEST_CHECK(test_text_is(script->path, "apps/alpha/build.sh"));
 }
 
-// The paths a link resolves to are every linked file and every directory but the root, sorted.
+// The paths a link resolves to are every linked file, every linked symlink and every directory but
+// the root, sorted.
 static void test_load_sorts_the_paths_links_resolve_to(void) {
   struct Arena arena = test_arena();
   struct Log log = test_log();
@@ -187,6 +188,8 @@ static void test_load_sorts_the_paths_links_resolve_to(void) {
   for (ptrdiff_t i = 1; i < tree.file_count; i++) {
     TEST_CHECK(str_compare(tree.files[i - 1]->path, tree.files[i]->path) < 0);
   }
+  TEST_ASSERT(tree.symlink_count == 1);
+  TEST_CHECK(test_text_is(tree.symlinks[0]->path, "link-to-readme"));
 }
 
 /**

@@ -51,7 +51,7 @@ struct FiletreeWalk {
 
 /**
  * @brief Fills `tree` from a finished walk: its directories, and the sorted paths of every linked
- *        file and every directory but the root, which links resolve to.
+ *        file, every linked symlink and every directory but the root, which links resolve to.
  *
  * @param tree Tree to fill. Must not be `NULL`.
  * @param walk The finished walk. Must not be `NULL`.
@@ -226,12 +226,15 @@ bool filetree_entry_has_pages(const struct TreeEntry* entry) {
 }
 
 static void filetree_load_index(struct BranchTree* tree, const struct FiletreeWalk* walk) {
-  // The paths a link resolves to: every linked file, and every linked directory but the root.
+  // The paths a link resolves to: every linked file and symlink, and every linked directory but the
+  // root.
   ptrdiff_t file_count = 0;
+  ptrdiff_t symlink_count = 0;
   for (ptrdiff_t i = 0; i < walk->dir_count; i++) {
     for (ptrdiff_t j = 0; j < walk->dirs[i].entry_count; j++) {
       const struct TreeEntry* entry = &walk->dirs[i].entries[j];
       file_count += filetree_entry_has_pages(entry);
+      symlink_count += entry->is_linked && entry->kind == TREE_ENTRY_SYMLINK;
     }
   }
   *tree = (struct BranchTree){
@@ -239,6 +242,7 @@ static void filetree_load_index(struct BranchTree* tree, const struct FiletreeWa
       .dirs = walk->dirs,
       .dir_count = walk->dir_count,
       .files = arena_new(walk->perm, file_count, const struct TreeEntry*),
+      .symlinks = arena_new(walk->perm, symlink_count, const struct TreeEntry*),
       .dir_paths = arena_new(walk->perm, walk->dir_count, struct Str),
   };
   for (ptrdiff_t i = 0; i < walk->dir_count; i++) {
@@ -249,11 +253,16 @@ static void filetree_load_index(struct BranchTree* tree, const struct FiletreeWa
       const struct TreeEntry* entry = &walk->dirs[i].entries[j];
       if (filetree_entry_has_pages(entry)) {
         tree->files[tree->file_count++] = entry;
+      } else if (entry->is_linked && entry->kind == TREE_ENTRY_SYMLINK) {
+        tree->symlinks[tree->symlink_count++] = entry;
       }
     }
   }
   if (tree->file_count > 0) {
     qsort(tree->files, (size_t)tree->file_count, sizeof(*tree->files), compare_file_paths);
+  }
+  if (tree->symlink_count > 0) {
+    qsort(tree->symlinks, (size_t)tree->symlink_count, sizeof(*tree->symlinks), compare_file_paths);
   }
   if (tree->dir_path_count > 0) {
     qsort(tree->dir_paths, (size_t)tree->dir_path_count, sizeof(*tree->dir_paths), compare_paths);

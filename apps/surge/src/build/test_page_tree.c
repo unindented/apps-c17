@@ -140,6 +140,47 @@ static struct Str text_of(const struct TemplateValue* page,
   return template_value_find(map, str_from_cstr(name))->text;
 }
 
+/**
+ * @brief Returns the `link_url` of the row of a symlink `lib/link` to `target`, whose blob is `len`
+ *        bytes, on a page whose way back to the output root is `../`. The fixture's tree also holds
+ *        the symlink `lib/inner`.
+ *
+ * @param target Terminated target text. Must not be `NULL`.
+ * @param len    Size of the symlink's blob, longer than `target` for a target cut short.
+ * @return The link.
+ */
+static struct Str symlink_link_url(const char* target, ptrdiff_t len) {
+  struct TreeFixture fixture;
+  tree_fixture_init(&fixture);
+  // The linked files and directories, and the symlinks, as the scan sorts them.
+  const struct TreeEntry* files[] = {&fixture.root_entries[1], &fixture.root_entries[2],
+                                     &fixture.lib_entries[0]};
+  struct Str dir_paths[] = {S("lib")};
+  const struct TreeEntry inner = {
+      .name = S("inner"), .path = S("lib/inner"), .kind = TREE_ENTRY_SYMLINK, .is_linked = true};
+  const struct TreeEntry* symlinks[] = {&inner};
+  fixture.tree.files = files;
+  fixture.tree.file_count = 3;
+  fixture.tree.dir_paths = dir_paths;
+  fixture.tree.dir_path_count = 1;
+  fixture.tree.symlinks = symlinks;
+  fixture.tree.symlink_count = 1;
+  struct TreeEntry link = {
+      .name = S("link"),
+      .path = S("lib/link"),
+      .kind = TREE_ENTRY_SYMLINK,
+      .len = len,
+      .link_target = str_from_cstr(target),
+      .is_linked = true,
+  };
+  const struct TreeDir dir = {.path = S("lib"), .entries = &link, .entry_count = 1};
+  struct Arena arena = test_arena();
+  const struct TemplateValue* entries =
+      page_tree_entries(&fixture.repo, &fixture.tree, &dir, S("../"), &arena);
+  TEST_CHECK(template_value_find(entries->items[0], S("url"))->text.len == 0);
+  return template_value_find(entries->items[0], S("link_url"))->text;
+}
+
 // The home shows the default branch's root: the README is its main document, rendered, the branch's
 // newest commit, and the repo's description, with links from `<r>/index.html`.
 static void test_value_makes_the_readme_main_on_the_home(void) {
@@ -242,6 +283,34 @@ static void test_value_makes_the_home_of_an_empty_repo(void) {
   TEST_CHECK(test_text_is(text_of(home, "ref", "name"), "main"));
 }
 
+// A symlink links the blob page of a file it names and the tree page of a directory, resolved
+// against its own directory, and has no `url` of its own.
+static void test_entries_link_a_symlink_to_its_target(void) {
+  TEST_CHECK(
+      test_text_is(symlink_link_url("README.md", 9), "../r/blob/main/lib/README.md/index.html"));
+  TEST_CHECK(test_text_is(symlink_link_url("../LICENSE", 10), "../r/blob/main/LICENSE/index.html"));
+  TEST_CHECK(test_text_is(symlink_link_url("./../lib/", 9), "../r/tree/main/lib/index.html"));
+  TEST_CHECK(test_text_is(symlink_link_url("..", 2), "../r/tree/main/index.html"));
+}
+
+// A symlink to a symlink links the tree page of the directory that holds the second one, one hop
+// only.
+static void test_entries_link_a_symlink_to_a_symlink_to_its_directory(void) {
+  TEST_CHECK(test_text_is(symlink_link_url("inner", 5), "../r/tree/main/lib/index.html"));
+}
+
+// A symlink out of the tree, to an absolute path, to a path the branch does not have, or whose
+// target was cut short has no link. Its target is a raw path, with no escape, query or `.md` added.
+static void test_entries_link_no_symlink_out_of_the_tree(void) {
+  TEST_CHECK(symlink_link_url("../../outside", 13).len == 0);
+  TEST_CHECK(symlink_link_url("/etc/passwd", 11).len == 0);
+  TEST_CHECK(symlink_link_url("missing.c", 9).len == 0);
+  TEST_CHECK(symlink_link_url("README.md", 4096 + 9).len == 0);
+  TEST_CHECK(symlink_link_url("READM%45.md", 11).len == 0);
+  TEST_CHECK(symlink_link_url("README.md?plain=1", 17).len == 0);
+  TEST_CHECK(symlink_link_url("README", 6).len == 0);
+}
+
 TEST_LIST = {
     {"value makes the readme main on the home", test_value_makes_the_readme_main_on_the_home},
     {"value holds the site keys", test_value_holds_the_site_keys},
@@ -249,5 +318,9 @@ TEST_LIST = {
      test_value_makes_the_first_document_main_without_a_readme},
     {"value shows no commit below the root", test_value_shows_no_commit_below_the_root},
     {"value makes the home of an empty repo", test_value_makes_the_home_of_an_empty_repo},
+    {"entries link a symlink to its target", test_entries_link_a_symlink_to_its_target},
+    {"entries link a symlink to a symlink to its directory",
+     test_entries_link_a_symlink_to_a_symlink_to_its_directory},
+    {"entries link no symlink out of the tree", test_entries_link_no_symlink_out_of_the_tree},
     {NULL, NULL},
 };

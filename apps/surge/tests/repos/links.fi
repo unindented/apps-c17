@@ -23,3 +23,60 @@ deleteall
 M 100644 :1 README.md
 M 100644 :2 docs/ACCESSIBILITY.md
 
+blob
+mark :4
+data 31
+int main(void) {
+  return 0;
+}
+
+blob
+mark :5
+data 10
+src/main.c
+blob
+mark :6
+data 3
+src
+blob
+mark :7
+data 12
+../README.md
+blob
+mark :8
+data 2
+..
+blob
+mark :9
+data 10
+../outside
+blob
+mark :10
+data 11
+/etc/passwd
+blob
+mark :11
+data 13
+src/missing.c
+blob
+mark :12
+data 6
+src/up
+commit refs/heads/main
+mark :13
+author Grace Hopper <grace@example.org> 1767873600 +0100
+committer Grace Hopper <grace@example.org> 1767873600 +0100
+data 36
+Add symlinks in and out of the tree
+
+from :3
+M 100644 :4 src/main.c
+M 120000 :5 to-file
+M 120000 :6 to-dir
+M 120000 :7 src/up
+M 120000 :8 src/root
+M 120000 :9 outside
+M 120000 :10 absolute
+M 120000 :11 missing
+M 120000 :12 to-link
+

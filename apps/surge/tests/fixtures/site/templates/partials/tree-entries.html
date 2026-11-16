@@ -1,5 +1,5 @@
 <table class="entries"><tbody>
 {{#tree_entries}}
-<tr class="{{kind}}"><td>{{#is_linked}}<a href="{{url}}">{{name}}</a>{{/is_linked}}{{^is_linked}}{{name}}{{/is_linked}}{{#is_dir}}/{{/is_dir}}{{#is_executable}}*{{/is_executable}}{{#is_symlink}} &rarr; {{link_target}}{{/is_symlink}}{{#is_gitlink}} @ {{oid}}{{/is_gitlink}}</td><td>{{size}}</td></tr>
+<tr class="{{kind}}"><td>{{#is_linked}}<a href="{{url}}">{{name}}</a>{{/is_linked}}{{^is_linked}}{{name}}{{/is_linked}}{{#is_dir}}/{{/is_dir}}{{#is_executable}}*{{/is_executable}}{{#is_symlink}} &rarr; {{#link_url}}<a href="{{link_url}}">{{link_target}}</a>{{/link_url}}{{^link_url}}{{link_target}}{{/link_url}}{{/is_symlink}}{{#is_gitlink}} @ {{oid}}{{/is_gitlink}}</td><td>{{size}}</td></tr>
 {{/tree_entries}}
 </tbody></table>

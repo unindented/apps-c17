@@ -2,7 +2,6 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdlib.h>
 
 #include "build/page_paths.h"
 #include "core/arena.h"
@@ -12,6 +11,7 @@
 #include "core/str.h"
 #include "core/text.h"
 #include "domain/repo_model.h"
+#include "domain/tree_path.h"
 #include "formats/frontmatter.h"
 #include "formats/html.h"
 #include "markup/body_html.h"
@@ -139,19 +139,13 @@ static bool is_type_file(struct Str type);
 static bool is_outside_target(struct Str target);
 
 /**
- * @brief Resolves a relative or `/`-rooted path against `dir_path`, with its `%XX` escapes decoded
- *        and its `.` and `..` segments applied.
+ * @brief Returns a link's path with its `%XX` escapes decoded.
  *
- * @param dir_path Directory the path is relative to, empty for the root.
- * @param path     Path as written, without its query and fragment.
- * @param arena    Arena that owns the result. Must not be `NULL`.
- * @param path_out Receives the path from the root, empty for the root itself. Must not be `NULL`.
- * @return `true` when the path stays inside the repo.
+ * @param path  Path as written, without its query and fragment.
+ * @param arena Arena that owns the result. Must not be `NULL`.
+ * @return The decoded path.
  */
-static bool resolve_path(struct Str dir_path,
-                         struct Str path,
-                         struct Arena* arena,
-                         struct Str* path_out) __attribute__((nonnull(3, 4)));
+static struct Str decode_escapes(struct Str path, struct Arena* arena) __attribute__((nonnull(2)));
 
 /**
  * @brief Returns the value of a hex digit.
@@ -160,44 +154,6 @@ static bool resolve_path(struct Str dir_path,
  * @return `0` to `15`, or `-1` when `c` is not a hex digit.
  */
 static int hex_value(unsigned char c);
-
-/**
- * @brief Finds the linked file at `path` of a branch's tree.
- *
- * @param tree Tree of the branch. Must not be `NULL`.
- * @param path Path from the root.
- * @return The file's entry, or `NULL` when the tree has no linked file there.
- */
-static const struct TreeEntry* find_file(const struct BranchTree* tree, struct Str path)
-    __attribute__((nonnull(1)));
-
-/**
- * @brief Orders a path and a file's entry bytewise by path, for `bsearch`.
- *
- * @param key   The `struct Str` path. Must not be `NULL`.
- * @param entry The `const struct TreeEntry*`. Must not be `NULL`.
- * @return Negative, zero or positive as the path sorts before, with, or after the entry's.
- */
-static int compare_file_path(const void* key, const void* entry) __attribute__((nonnull(1, 2)));
-
-/**
- * @brief Reports whether the sorted `paths` hold `path`.
- *
- * @param paths Sorted paths. Must not be `NULL` unless `count` is `0`.
- * @param count Number of entries in `paths`.
- * @param path  Path to look for.
- * @return `true` when one of `paths` is `path`.
- */
-static bool has_path(const struct Str* paths, ptrdiff_t count, struct Str path);
-
-/**
- * @brief Orders two paths bytewise, for `bsearch`.
- *
- * @param a First `struct Str`. Must not be `NULL`.
- * @param b Second `struct Str`. Must not be `NULL`.
- * @return Negative, zero or positive as `a` sorts before, with, or after `b`.
- */
-static int compare_paths(const void* a, const void* b) __attribute__((nonnull(1, 2)));
 
 struct Str document_kind_name(enum DocumentKind kind) {
   return document_specs[kind].name;
@@ -395,20 +351,22 @@ static int readme_write_link(struct Buf* buffer,
     return 0;
   }
   struct Str path = {0};
-  if (!resolve_path(place->dir_path, str_head(target, path_len), &arena, &path)) {
+  if (!tree_path_resolve(place->dir_path, decode_escapes(str_head(target, path_len), &arena),
+                         &arena, &path)) {
     return 0;
   }
   const struct BranchTree* tree = place->tree;
   enum PagePathKind kind = PAGE_PATH_TREE;
   const struct Str md_path = str_concat(path, S(".md"), &arena);
-  const struct TreeEntry* file = path.len > 0 ? find_file(tree, path) : NULL;
+  const struct TreeEntry* file = path.len > 0 ? tree_path_find_file(tree, path) : NULL;
   if (file != NULL) {
     // A file over the raw limit has no raw copy, so an image of it links its blob page.
     kind = is_image && file->len <= place->raw_len_max ? PAGE_PATH_RAW : PAGE_PATH_BLOB;
-  } else if (path.len == 0 || has_path(tree->dir_paths, tree->dir_path_count, path)) {
+  } else if (tree_path_has_dir(tree, path)) {
     // A directory wins over a Markdown file of its name, as `guide/` means the directory.
     kind = PAGE_PATH_TREE;
-  } else if (!text_has_suffix_folded(path, S(".md")) && find_file(tree, md_path) != NULL) {
+  } else if (!text_has_suffix_folded(path, S(".md")) &&
+             tree_path_find_file(tree, md_path) != NULL) {
     path = md_path;
     kind = PAGE_PATH_BLOB;
   } else {
@@ -449,10 +407,7 @@ static bool is_outside_target(struct Str target) {
   return false;
 }
 
-static bool resolve_path(struct Str dir_path,
-                         struct Str path,
-                         struct Arena* arena,
-                         struct Str* path_out) {
+static struct Str decode_escapes(struct Str path, struct Arena* arena) {
   struct Buf decoded = {.arena = arena};
   for (ptrdiff_t i = 0; i < path.len; i++) {
     const unsigned char c = (unsigned char)path.data[i];
@@ -467,43 +422,7 @@ static bool resolve_path(struct Str dir_path,
     }
     buf_append_char(&decoded, (char)c);
   }
-  const struct Str relative = buf_str(&decoded);
-  const bool is_rooted = str_startswith(relative, S("/"));
-  struct Str joined = is_rooted ? relative : str_concat(dir_path, S("/"), arena);
-  if (!is_rooted) {
-    joined = str_concat(joined, relative, arena);
-  }
-  // Each kept segment is a view into `joined`, and at most one per `/` of it.
-  ptrdiff_t capacity = 1;
-  for (ptrdiff_t i = 0; i < joined.len; i++) {
-    capacity += joined.data[i] == '/';
-  }
-  struct Str* segments = arena_new(arena, capacity, struct Str);
-  ptrdiff_t count = 0;
-  struct StrCut cut = {.tail = joined, .is_found = true};
-  while (cut.is_found) {
-    cut = str_cut(cut.tail, '/');
-    if (cut.head.len == 0 || str_eq(cut.head, S("."))) {
-      continue;
-    }
-    if (str_eq(cut.head, S(".."))) {
-      if (count == 0) {
-        return false;
-      }
-      count--;
-      continue;
-    }
-    segments[count++] = cut.head;
-  }
-  struct Buf resolved = {.arena = arena};
-  for (ptrdiff_t i = 0; i < count; i++) {
-    if (i > 0) {
-      buf_append_char(&resolved, '/');
-    }
-    buf_append(&resolved, segments[i]);
-  }
-  *path_out = buf_str(&resolved);
-  return true;
+  return buf_str(&decoded);
 }
 
 static int hex_value(unsigned char c) {
@@ -512,25 +431,4 @@ static int hex_value(unsigned char c) {
   }
   const unsigned char lower = ascii_to_lower(c);
   return lower >= 'a' && lower <= 'f' ? lower - 'a' + 10 : -1;
-}
-
-static const struct TreeEntry* find_file(const struct BranchTree* tree, struct Str path) {
-  if (tree->file_count == 0) {
-    return NULL;
-  }
-  const struct TreeEntry* const* found = bsearch(&path, tree->files, (size_t)tree->file_count,
-                                                 sizeof(*tree->files), compare_file_path);
-  return found != NULL ? *found : NULL;
-}
-
-static int compare_file_path(const void* key, const void* entry) {
-  return str_compare(*(const struct Str*)key, (*(const struct TreeEntry* const*)entry)->path);
-}
-
-static bool has_path(const struct Str* paths, ptrdiff_t count, struct Str path) {
-  return count > 0 && bsearch(&path, paths, (size_t)count, sizeof(*paths), compare_paths) != NULL;
-}
-
-static int compare_paths(const void* a, const void* b) {
-  return str_compare(*(const struct Str*)a, *(const struct Str*)b);
 }
