@@ -1474,8 +1474,8 @@ static int repo_pages_job_log_page_make(struct Arena* perm,
   struct Arena value_perm = make->arenas->perm;
   struct CommitSummary* commits = arena_new(&value_perm, end - begin, struct CommitSummary);
   for (ptrdiff_t i = begin; i < end; i++) {
-    if (revision_commit_summary(repository, branch_log->commits[i], &value_perm,
-                                &commits[i - begin], log) != 0) {
+    if (revision_commit_summary(repository, branch_log->commits[i], &site_config->llm_trailers,
+                                &value_perm, &commits[i - begin], log) != 0) {
       return -1;
     }
   }
@@ -1518,8 +1518,8 @@ static int repo_pages_job_log_feed_make(struct Arena* perm,
                               : site_config->feed_count;
   struct CommitDetail* commits = arena_new(&value_perm, count, struct CommitDetail);
   for (ptrdiff_t i = 0; i < count; i++) {
-    if (revision_commit_detail(repository, branch_log->commits[i], &value_perm, &commits[i], log) !=
-        0) {
+    if (revision_commit_detail(repository, branch_log->commits[i], &site_config->llm_trailers,
+                               &value_perm, &commits[i], log) != 0) {
       return -1;
     }
   }
@@ -1569,7 +1569,8 @@ static int repo_pages_job_commits_make(struct Arena* perm,
   const char* perm_beg = value_perm.beg;
   struct CommitDetail detail = {0};
   struct Changeset changeset = {0};
-  if (revision_commit_detail(repository, commit_oid, &value_perm, &detail, log) != 0 ||
+  if (revision_commit_detail(repository, commit_oid, &site_config->llm_trailers, &value_perm,
+                             &detail, log) != 0 ||
       changeset_load(&changeset, repository, commit_oid, &site_config->limits, &value_perm, log) !=
           0) {
     return -1;

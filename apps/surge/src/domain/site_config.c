@@ -87,10 +87,22 @@ static const struct Str config_keys[] = {
     STR_INIT("log_page_size"),
     STR_INIT("feed_count"),
     STR_INIT("headers_file"),
+    STR_INIT("llm_trailer_keys"),
+    STR_INIT("llm_trailer_values"),
     STR_INIT("limits"),
     STR_INIT("templates"),
     STR_INIT("repo"),
     // clang-format on
+};
+
+/**
+ * Default `llm_trailer_keys`: the trailers that name who wrote a commit with its author, as Claude
+ * Code, aider and the Linux kernel's convention write them.
+ */
+static const struct Str LLM_TRAILER_KEYS_DEFAULT[] = {
+    STR_INIT("Co-authored-by"),
+    STR_INIT("Assisted-by"),
+    STR_INIT("Generated-by"),
 };
 
 /** Every key the `[limits]` table may hold. */
@@ -167,6 +179,21 @@ static int site_config_load_fields(struct SiteConfig* site_config,
                                    struct Str config_dir,
                                    struct Arena* perm,
                                    struct Log* log) __attribute__((nonnull(1, 4, 5)));
+
+/**
+ * @brief Copies `llm_trailer_keys` and `llm_trailer_values` into `llm_trailers`, and requires each
+ *        of their strings to be non-empty, stopping at the first error.
+ *
+ * @param llm_trailers Match that receives the lists, holding their defaults. Must not be `NULL`.
+ * @param table        Parsed top-level table.
+ * @param perm         Arena that owns the copied strings. Must not be `NULL`.
+ * @param log          Log that receives the error. Must not be `NULL`.
+ * @return `0` on success or when the keys are absent, or `-1` after logging the first error.
+ */
+static int site_config_load_fields_llm_trailers(struct TrailerMatch* llm_trailers,
+                                                toml_datum_t table,
+                                                struct Arena* perm,
+                                                struct Log* log) __attribute__((nonnull(1, 3, 4)));
 
 /**
  * @brief Copies the `[limits]` table into `limits`, stopping at the first error.
@@ -336,6 +363,12 @@ void site_config_init(struct SiteConfig* site_config) {
       .not_found_path = NOT_FOUND_PATH_DEFAULT,
       .log_page_size = LOG_PAGE_SIZE_DEFAULT,
       .feed_count = FEED_COUNT_DEFAULT,
+      .llm_trailers =
+          {
+              .keys = LLM_TRAILER_KEYS_DEFAULT,
+              .key_count = (ptrdiff_t)(sizeof(LLM_TRAILER_KEYS_DEFAULT) /
+                                       sizeof(LLM_TRAILER_KEYS_DEFAULT[0])),
+          },
       .limits =
           {
               .blob_len_max = BLOB_LEN_MAX_DEFAULT,
@@ -403,6 +436,11 @@ int site_config_print(const struct SiteConfig* site_config, struct Os* os, struc
   buf_printf(&text, "log_page_size = %td\n", site_config->log_page_size);
   buf_printf(&text, "feed_count = %td\n", site_config->feed_count);
   buf_printf(&text, "headers_file = %s\n", site_config->has_headers_file ? "true" : "false");
+  const struct TrailerMatch* llm_trailers = &site_config->llm_trailers;
+  toml_print_key_string_array(&text, "llm_trailer_keys", llm_trailers->keys,
+                              llm_trailers->key_count);
+  toml_print_key_string_array(&text, "llm_trailer_values", llm_trailers->values,
+                              llm_trailers->value_count);
 
   const struct SurgeLimits* limits = &site_config->limits;
   buf_printf(&text,
@@ -530,13 +568,41 @@ static int site_config_load_fields(struct SiteConfig* site_config,
       return -1;
     }
   }
-  if (toml_copy_bool(table, S(""), "headers_file", &site_config->has_headers_file, log) != 0) {
+  if (toml_copy_bool(table, S(""), "headers_file", &site_config->has_headers_file, log) != 0 ||
+      site_config_load_fields_llm_trailers(&site_config->llm_trailers, table, perm, log) != 0) {
     return -1;
   }
   if (site_config_load_fields_limits(&site_config->limits, table, log) != 0) {
     return -1;
   }
   return site_config_load_fields_templates(&site_config->templates, table, perm, log);
+}
+
+static int site_config_load_fields_llm_trailers(struct TrailerMatch* llm_trailers,
+                                                toml_datum_t table,
+                                                struct Arena* perm,
+                                                struct Log* log) {
+  const struct {
+    const char* key;
+    const struct Str** items;
+    ptrdiff_t* count;
+  } lists[] = {
+      {"llm_trailer_keys", &llm_trailers->keys, &llm_trailers->key_count},
+      {"llm_trailer_values", &llm_trailers->values, &llm_trailers->value_count},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(lists) / sizeof(lists[0])); i++) {
+    if (toml_copy_strings(table, S(""), lists[i].key, false, perm, lists[i].items, lists[i].count,
+                          log) != 0) {
+      return -1;
+    }
+    // An empty key names no trailer, and an empty value is in every one.
+    for (ptrdiff_t j = 0; j < *lists[i].count; j++) {
+      if ((*lists[i].items)[j].len == 0) {
+        return log_error(log, "config key '%s' must not contain an empty string", lists[i].key);
+      }
+    }
+  }
+  return 0;
 }
 
 static int site_config_load_fields_limits(struct SurgeLimits* limits,

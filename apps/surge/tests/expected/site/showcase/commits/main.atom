@@ -26,6 +26,7 @@ Signed-off-by: Ada Lovelace &lt;ada@example.org&gt;</content>
 
 Assisted-by: Claude:claude-opus-5-5
   clang-format</content>
+<category term="llm-assisted"/>
 </entry>
 <entry>
 <id>https://git.example.org/showcase/commit/7040256583a8bd2313ea4c99c9c5a3c460627b56/index.html</id>
@@ -36,5 +37,6 @@ Assisted-by: Claude:claude-opus-5-5
 <content type="text">An empty commit, which only its message tells apart.
 
 Co-Authored-By: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;</content>
+<category term="llm-assisted"/>
 </entry>
 </feed>

@@ -80,6 +80,20 @@ struct TemplateValue* page_refs_commit(const struct RepoModel* repo,
     __attribute__((nonnull(1, 4), returns_nonnull));
 
 /**
+ * @brief Returns the `llm_tools` list of a commit summary or a feed entry: a map with `name` for
+ *        each tool.
+ *
+ * @param tools      The tools. Must not be `NULL` unless `tool_count` is `0`.
+ * @param tool_count Number of entries in `tools`.
+ * @param arena      Arena that owns the list. Must not be `NULL`.
+ * @return The list.
+ */
+struct TemplateValue* page_refs_llm_tools(const struct Str* tools,
+                                          ptrdiff_t tool_count,
+                                          struct Arena* arena)
+    __attribute__((nonnull(3), returns_nonnull));
+
+/**
  * @brief Returns a repo's tags newest first, as the tags page and the tag feed list them.
  *
  * A tag's time is its tagger's, else its commit's. A tie, and a tag with neither, which comes last,

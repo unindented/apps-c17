@@ -7,6 +7,7 @@
 #include "core/log.h"
 #include "core/str.h"
 #include "domain/repo_model.h"
+#include "domain/trailer.h"
 #include "testing/test_support.h"
 #include "vcs/refset.h"
 #include "vcs/repository.h"
@@ -23,6 +24,9 @@
 static int compare_cstrings(const void* a, const void* b) {
   return strcmp(*(const char* const*)a, *(const char* const*)b);
 }
+
+/** A match that marks no commit LLM-assisted, for the tests whose subject is elsewhere. */
+static const struct TrailerMatch NO_LLM_TRAILERS = {0};
 
 /** Config key the tests give for the default branch, which a failure names. */
 #define KEY S("repo[0].default_branch")
@@ -156,8 +160,8 @@ static void test_commit_summary_reads_subject_author_and_date(void) {
   TEST_ASSERT(main_branch != NULL);
   struct CommitSummary summary = {0};
   struct Log log = test_log();
-  TEST_CHECK(
-      revision_commit_summary(&repository, main_branch->commit_oid, &arena, &summary, &log) == 0);
+  TEST_CHECK(revision_commit_summary(&repository, main_branch->commit_oid, &NO_LLM_TRAILERS, &arena,
+                                     &summary, &log) == 0);
   TEST_CHECK(str_eq(summary.oid, main_branch->commit_oid));
   TEST_CHECK(test_text_is(summary.subject, "Sign off the greeting"));
   TEST_CHECK(test_text_is(summary.author, "Ada Lovelace"));
@@ -176,8 +180,8 @@ static void test_commit_detail_reads_the_committer_body_and_parents(void) {
   TEST_ASSERT(main_branch != NULL);
   struct CommitDetail detail = {0};
   struct Log log = test_log();
-  TEST_CHECK(revision_commit_detail(&repository, main_branch->commit_oid, &arena, &detail, &log) ==
-             0);
+  TEST_CHECK(revision_commit_detail(&repository, main_branch->commit_oid, &NO_LLM_TRAILERS, &arena,
+                                    &detail, &log) == 0);
   TEST_CHECK(test_text_is(detail.summary.author, "Ada Lovelace"));
   TEST_CHECK(test_text_is(detail.author_date, "2026-01-09T12:00:00+01:00"));
   TEST_CHECK(test_text_is(detail.committer, "Grace Hopper"));
@@ -185,6 +189,32 @@ static void test_commit_detail_reads_the_committer_body_and_parents(void) {
   TEST_CHECK(test_text_is(detail.body, "Each of them is a blob next to the stream's entries."));
   TEST_ASSERT(detail.parent_count == 1);
   TEST_CHECK(test_text_is(detail.parents[0], "c2914601eb8581519ca31d8a4672eda4d420f5e1"));
+  repository_close(&repository);
+}
+
+// A commit's summary lists the LLM tools its trailers name, for the match it is given.
+static void test_commit_summary_reads_the_llm_tools(void) {
+  struct Arena arena = test_arena();
+  struct Repository repository = {0};
+  TEST_ASSERT(open_fixture(&repository, "showcase", &arena) == 0);
+  const struct Str keys[] = {S("Co-authored-by"), S("Assisted-by")};
+  const struct Str values[] = {S("claude")};
+  const struct TrailerMatch match = {
+      .keys = keys, .key_count = 2, .values = values, .value_count = 1};
+  struct CommitSummary summary = {0};
+  struct Log log = test_log();
+  TEST_CHECK(revision_commit_summary(&repository, S("7040256583a8bd2313ea4c99c9c5a3c460627b56"),
+                                     &match, &arena, &summary, &log) == 0);
+  TEST_ASSERT(summary.llm_tool_count == 1);
+  TEST_CHECK(test_text_is(summary.llm_tools[0], "Claude Opus 5.5"));
+  TEST_CHECK(revision_commit_summary(&repository, S("0f9370311ea61a7719d764e70e44635013f92283"),
+                                     &match, &arena, &summary, &log) == 0);
+  TEST_ASSERT(summary.llm_tool_count == 1);
+  TEST_CHECK(test_text_is(summary.llm_tools[0], "Claude:claude-opus-5-5 clang-format"));
+  TEST_CHECK(revision_commit_summary(&repository, S("41fbd903fd4c50ffac2e0946a938d07f8c8e1457"),
+                                     &match, &arena, &summary, &log) == 0);
+  TEST_CHECK(summary.llm_tool_count == 0);
+  TEST_CHECK(test_log_is_empty(&log));
   repository_close(&repository);
 }
 
@@ -199,8 +229,8 @@ static void test_commit_detail_reads_the_trailers(void) {
   TEST_ASSERT(main_branch != NULL);
   struct CommitDetail detail = {0};
   struct Log log = test_log();
-  TEST_CHECK(revision_commit_detail(&repository, main_branch->commit_oid, &arena, &detail, &log) ==
-             0);
+  TEST_CHECK(revision_commit_detail(&repository, main_branch->commit_oid, &NO_LLM_TRAILERS, &arena,
+                                    &detail, &log) == 0);
   TEST_CHECK(test_text_is(detail.body,
                           "Co-authored-by: Grace Hopper <grace@example.org>\n"
                           "Signed-off-by: Ada Lovelace <ada@example.org>"));
@@ -293,15 +323,15 @@ static void test_commit_summary_reads_the_signature(void) {
   TEST_ASSERT(signed_tag != NULL);
   struct CommitSummary summary = {0};
   struct Log log = test_log();
-  TEST_CHECK(revision_commit_summary(&repository, signed_tag->commit_oid, &arena, &summary, &log) ==
-             0);
+  TEST_CHECK(revision_commit_summary(&repository, signed_tag->commit_oid, &NO_LLM_TRAILERS, &arena,
+                                     &summary, &log) == 0);
   TEST_CHECK(test_text_is(summary.subject, "Sign the names that git refuses"));
   TEST_CHECK(test_text_is(summary.signature,
                           "-----BEGIN SSH SIGNATURE-----\n"
                           "U1NIU0lHAAAAAQAAADMAAAALc3NoLWVkMjU1MTkAAAAgc3VyZ2UgZml4dHVyZQ==\n"
                           "-----END SSH SIGNATURE-----"));
   TEST_CHECK(revision_commit_summary(&repository, S("6d61f5cac1694bb8c8beb3179e620b7f10c9ac2d"),
-                                     &arena, &summary, &log) == 0);
+                                     &NO_LLM_TRAILERS, &arena, &summary, &log) == 0);
   TEST_CHECK(summary.signature.len == 0);
   TEST_CHECK(test_log_is_empty(&log));
   repository_close(&repository);
@@ -390,6 +420,28 @@ static void test_message_trailers_joins_continuation_lines(void) {
   TEST_CHECK(test_text_is(trailers[1].value, "https://example.org/1"));
 }
 
+// A tool that only the subject and the body name marks nothing, since only trailers are read, and
+// the same tool in a trailer does.
+static void test_message_trailers_mark_only_trailers(void) {
+  struct Arena arena = test_arena();
+  const struct Str values[] = {S("Claude")};
+  const struct Str keys[] = {S("Co-authored-by")};
+  const struct TrailerMatch match = {
+      .keys = keys, .key_count = 1, .values = values, .value_count = 1};
+  ptrdiff_t count = 0;
+  const struct Trailer* trailers = parse_trailers(
+      "Fix the Claude API client\n\nClaude said so.\n\nSigned-off-by: Ada\n", &arena, &count);
+  struct Str* tools = NULL;
+  ptrdiff_t tool_count = -1;
+  trailer_llm_tools(trailers, count, &match, &arena, &tools, &tool_count);
+  TEST_CHECK(tool_count == 0);
+  trailers = parse_trailers("Fix the client\n\nCo-authored-by: Claude <noreply@anthropic.com>\n",
+                            &arena, &count);
+  trailer_llm_tools(trailers, count, &match, &arena, &tools, &tool_count);
+  TEST_ASSERT(tool_count == 1);
+  TEST_CHECK(test_text_is(tools[0], "Claude"));
+}
+
 // A message of trailers alone has none, because its first paragraph is its subject.
 static void test_message_trailers_of_a_message_of_only_trailers(void) {
   struct Arena arena = test_arena();
@@ -409,6 +461,7 @@ TEST_LIST = {
      test_commit_summary_reads_subject_author_and_date},
     {"commit detail reads the committer body and parents",
      test_commit_detail_reads_the_committer_body_and_parents},
+    {"commit summary reads the llm tools", test_commit_summary_reads_the_llm_tools},
     {"commit detail reads the trailers", test_commit_detail_reads_the_trailers},
     {"tag note reads the message and the date", test_tag_note_reads_the_message_and_the_date},
     {"tag note keeps the signature apart", test_tag_note_keeps_the_signature_apart},
@@ -418,6 +471,7 @@ TEST_LIST = {
     {"message trailers of a message without any", test_message_trailers_of_a_message_without_any},
     {"message trailers reads the last paragraph", test_message_trailers_reads_the_last_paragraph},
     {"message trailers joins continuation lines", test_message_trailers_joins_continuation_lines},
+    {"message trailers mark only trailers", test_message_trailers_mark_only_trailers},
     {"message trailers of a message of only trailers",
      test_message_trailers_of_a_message_of_only_trailers},
     {NULL, NULL},

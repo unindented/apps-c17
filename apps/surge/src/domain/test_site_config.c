@@ -72,6 +72,11 @@ static void test_load_applies_defaults(void) {
   TEST_CHECK(site_config.log_page_size == 100);
   TEST_CHECK(site_config.feed_count == 25);
   TEST_CHECK(!site_config.has_headers_file);
+  TEST_ASSERT(site_config.llm_trailers.key_count == 3);
+  TEST_CHECK(test_text_is(site_config.llm_trailers.keys[0], "Co-authored-by"));
+  TEST_CHECK(test_text_is(site_config.llm_trailers.keys[1], "Assisted-by"));
+  TEST_CHECK(test_text_is(site_config.llm_trailers.keys[2], "Generated-by"));
+  TEST_CHECK(site_config.llm_trailers.value_count == 0);
   TEST_CHECK(site_config.limits.blob_len_max == 1024 * 1024);
   TEST_CHECK(site_config.limits.image_len_max == 2 * 1024 * 1024);
   TEST_CHECK(site_config.limits.raw_len_max == 100 * 1024 * 1024);
@@ -99,6 +104,8 @@ static void test_load_reads_every_key(void) {
                                  "log_page_size = 2\n"
                                  "feed_count = 0\n"
                                  "headers_file = true\n"
+                                 "llm_trailer_keys = [\"Co-developed-by\"]\n"
+                                 "llm_trailer_values = [\"Claude\", \"noreply@anthropic.com\"]\n"
                                  "[limits]\n"
                                  "blob_len_max = 10\n"
                                  "raw_len_max = 11\n"
@@ -131,6 +138,11 @@ static void test_load_reads_every_key(void) {
   TEST_CHECK(site_config.log_page_size == 2);
   TEST_CHECK(site_config.feed_count == 0);
   TEST_CHECK(site_config.has_headers_file);
+  TEST_ASSERT(site_config.llm_trailers.key_count == 1);
+  TEST_CHECK(test_text_is(site_config.llm_trailers.keys[0], "Co-developed-by"));
+  TEST_ASSERT(site_config.llm_trailers.value_count == 2);
+  TEST_CHECK(test_text_is(site_config.llm_trailers.values[0], "Claude"));
+  TEST_CHECK(test_text_is(site_config.llm_trailers.values[1], "noreply@anthropic.com"));
   TEST_CHECK(site_config.limits.blob_len_max == 10 && site_config.limits.raw_len_max == 11);
   TEST_CHECK(site_config.limits.diff_file_count_max == 12 &&
              site_config.limits.diff_line_count_max == 13);
@@ -374,6 +386,10 @@ static void test_load_reports_wrong_types(void) {
                           "config key 'log_page_size' must be an integer\n"));
   TEST_CHECK(is_logged_as(SITE_KEYS "headers_file = \"yes\"\n" REPO_TABLE,
                           "config key 'headers_file' must be a boolean\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "llm_trailer_keys = \"Assisted-by\"\n" REPO_TABLE,
+                          "config key 'llm_trailer_keys' must be an array\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "llm_trailer_values = [\"Claude\", 1]\n" REPO_TABLE,
+                          "config key 'llm_trailer_values' must contain only strings\n"));
   TEST_CHECK(
       is_logged_as(SITE_KEYS "limits = 3\n" REPO_TABLE, "config key 'limits' must be a table\n"));
   TEST_CHECK(
@@ -706,6 +722,15 @@ static void test_load_reports_missing_file(void) {
       test_log_is(&log, "failed to read config: No such file or directory ('surge.toml')\n"));
 }
 
+// An empty string in either list of LLM trailers is an error, because an empty key names no trailer
+// and an empty value is in every one.
+static void test_load_rejects_empty_llm_trailer_strings(void) {
+  TEST_CHECK(is_logged_as(SITE_KEYS "llm_trailer_keys = [\"Assisted-by\", \"\"]\n" REPO_TABLE,
+                          "config key 'llm_trailer_keys' must not contain an empty string\n"));
+  TEST_CHECK(is_logged_as(SITE_KEYS "llm_trailer_values = [\"\"]\n" REPO_TABLE,
+                          "config key 'llm_trailer_values' must not contain an empty string\n"));
+}
+
 // The printed config is TOML that loads back to the same values, and leaves out the optionals that
 // are empty and the `mise` keys that are `false`. A control byte prints as its short escape where
 // TOML has one, and as `\uXXXX` otherwise.
@@ -713,6 +738,7 @@ static void test_print_round_trips(void) {
   static const char text[] = SITE_KEYS
       "not_found_path = \"bunnycdn_errors/404.html\"\n"
       "headers_file = true\n"
+      "llm_trailer_values = [\"Claude\", \"a \\\"b\\\"\"]\n"
       "[templates]\n"
       "tree = \"pages/tree.html\"\n"
       "not_found = \"errors/missing.html\"\n"
@@ -743,6 +769,8 @@ static void test_print_round_trips(void) {
       "log_page_size = 100\n"
       "feed_count = 25\n"
       "headers_file = true\n"
+      "llm_trailer_keys = [\"Co-authored-by\", \"Assisted-by\", \"Generated-by\"]\n"
+      "llm_trailer_values = [\"Claude\", \"a \\\"b\\\"\"]\n"
       "\n"
       "[limits]\n"
       "blob_len_max = 1048576\n"
@@ -793,6 +821,9 @@ static void test_print_round_trips(void) {
   TEST_CHECK(str_eq(reloaded.repos[0].projects[0].tag_prefix, S("sosig-v")));
   TEST_CHECK(reloaded.repos[0].projects[0].is_mise);
   TEST_CHECK(reloaded.has_headers_file);
+  TEST_CHECK(reloaded.llm_trailers.key_count == 3);
+  TEST_ASSERT(reloaded.llm_trailers.value_count == 2);
+  TEST_CHECK(test_text_is(reloaded.llm_trailers.values[1], "a \"b\""));
   TEST_CHECK(test_text_is(reloaded.not_found_path, "bunnycdn_errors/404.html"));
   TEST_CHECK(test_text_is(reloaded.templates.tree, "pages/tree.html"));
   TEST_CHECK(test_text_is(reloaded.templates.not_found, "errors/missing.html"));
@@ -827,6 +858,9 @@ static void test_empty_repo_description_is_set(void) {
                                   "log_page_size = 100\n"
                                   "feed_count = 25\n"
                                   "headers_file = false\n"
+                                  "llm_trailer_keys = [\"Co-authored-by\", \"Assisted-by\", "
+                                  "\"Generated-by\"]\n"
+                                  "llm_trailer_values = []\n"
                                   "\n"
                                   "[limits]\n"
                                   "blob_len_max = 1048576\n"
@@ -891,6 +925,7 @@ TEST_LIST = {
     {"load rejects overlapping tag prefixes", test_load_rejects_overlapping_tag_prefixes},
     {"load rejects mise without releases", test_load_rejects_mise_without_releases},
     {"load rejects unsafe project paths", test_load_rejects_unsafe_project_paths},
+    {"load rejects empty llm trailer strings", test_load_rejects_empty_llm_trailer_strings},
     {"load reports missing file", test_load_reports_missing_file},
     {"print round trips", test_print_round_trips},
     {"empty repo description is set", test_empty_repo_description_is_set},

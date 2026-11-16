@@ -23,6 +23,7 @@
 #include "domain/repo_model.h"
 #include "domain/site_config.h"
 #include "domain/surge_version.h"
+#include "domain/trailer.h"
 #include "formats/tsv.h"
 #include "markup/highlight.h"
 #include "os/oom.h"
@@ -281,9 +282,10 @@ static int load_templates(struct BuildState* state, struct Log* log) __attribute
  * @brief Returns the id of the page recipe: what every page depends on besides its own inputs.
  *
  * The recipe is the generator string with the version, the grammars the build links, the site keys
- * and the limits of the config but `pack_len_max`, every name of the `[templates]` table, and the
- * path, size and modification time of every file below `templates_dir`, each text with its `\`, tab
- * and newline escaped, one `name=value` line each.
+ * and the limits of the config but `pack_len_max`, each string of `llm_trailer_keys` and
+ * `llm_trailer_values`, every name of the `[templates]` table, and the path, size and modification
+ * time of every file below `templates_dir`, each text with its `\`, tab and newline escaped, one
+ * `name=value` line each.
  *
  * @param state Build state whose inputs are loaded. Must not be `NULL`.
  * @return The id, in the main thread's perm.
@@ -771,6 +773,17 @@ static struct Str load_recipe_id(struct BuildState* state) {
              site_config->log_page_size, site_config->feed_count, limits->blob_len_max,
              limits->raw_len_max, limits->diff_file_count_max, limits->diff_line_count_max,
              limits->diff_len_max, limits->image_len_max);
+  const struct TrailerMatch* llm_trailers = &site_config->llm_trailers;
+  for (ptrdiff_t i = 0; i < llm_trailers->key_count; i++) {
+    buf_append(&text, S("llm_trailer_key="));
+    tsv_escape_append(&text, llm_trailers->keys[i]);
+    buf_append_char(&text, '\n');
+  }
+  for (ptrdiff_t i = 0; i < llm_trailers->value_count; i++) {
+    buf_append(&text, S("llm_trailer_value="));
+    tsv_escape_append(&text, llm_trailers->values[i]);
+    buf_append_char(&text, '\n');
+  }
   struct SurgeTemplateKey keys[SURGE_TEMPLATE_KEY_COUNT];
   site_config_template_keys(site_config, keys);
   for (ptrdiff_t i = 0; i < SURGE_TEMPLATE_KEY_COUNT; i++) {

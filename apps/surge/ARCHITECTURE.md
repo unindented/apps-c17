@@ -72,7 +72,7 @@ The header of each module documents its interface.
 - [grammar_path](src/domain/grammar_path.h): Maps a file path to a language name.
 - [semver](src/domain/semver.h): Parses and orders Semantic Versioning versions.
 - [timestamp](src/domain/timestamp.h): Formats a git time as RFC 3339.
-- [trailer](src/domain/trailer.h): The names in a commit's trailers, and its co-authors.
+- [trailer](src/domain/trailer.h): The names in a commit's trailers, its co-authors, and the LLM tools that its trailers name.
 - [url_segment](src/domain/url_segment.h): Percent-encodes a path segment.
 - [surge_version](src/domain/surge_version.h): The tool name and version, which CMake sets.
 - [repository](src/vcs/repository.h): The libgit2 setup, opening a repository, reading a blob, object ids, and `repository_fail`.
@@ -96,7 +96,7 @@ The header of each module documents its interface.
 `surge` adds these parts of its own:
 
 - Each output declares its inputs as attributes, such as `recipe=`, `map=`, `refs=`, `tree=`, `blob=`, `commit=` and `releases=`. [README.md](README.md#output-cache) lists what each output depends on.
-- The page recipe is the generator string, the grammars, the site keys, every limit but `pack_len_max`, every name of the `[templates]` table, and the path, size and modification time of every template. A code change to what a page holds needs a new version before a release, because the version is the only part of the recipe that a code change moves.
+- The page recipe is the generator string, the grammars, the site keys, `llm_trailer_keys` and `llm_trailer_values`, every limit but `pack_len_max`, every name of the `[templates]` table, and the path, size and modification time of every template. A code change to what a page holds needs a new version before a release, because the version is the only part of the recipe that a code change moves.
 - A failure inside libgit2 reads `<operation>: <libgit2 message> (in repo '<repo>')`, and only `repository_fail` writes it. A message about a branch ends with `(in repo '<repo>', branch '<branch>')`.
 
 ## Design decisions

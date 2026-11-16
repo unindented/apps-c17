@@ -12,6 +12,7 @@
 #include "core/str.h"
 #include "domain/repo_model.h"
 #include "domain/timestamp.h"
+#include "domain/trailer.h"
 #include "vcs/refset.h"
 #include "vcs/repository.h"
 
@@ -32,24 +33,31 @@ static int lookup_commit(const struct Repository* repository,
                          struct Log* log) __attribute__((nonnull(1, 3, 4)));
 
 /**
- * @brief Reads what the pages show of a commit: its subject, its author's name, its date and its
- *        signature.
+ * @brief Reads what the pages show of a commit: its subject, its author's name, its date, its
+ *        signature and the LLM tools its trailers name.
  *
- * @param repository  Open repository, which names a failure. Must not be `NULL`.
- * @param commit      The commit, which `lookup_commit` found. It carries no `nonnull`, which the
- *                    analyzer cannot prove through `lookup_commit`'s out parameter.
- * @param commit_oid  Its hex id, which the summary keeps.
- * @param perm        Arena that owns the texts. Must not be `NULL`.
- * @param summary_out Receives the summary. Must not be `NULL`.
- * @param log         Log that receives the failure. Must not be `NULL`.
+ * @param repository    Open repository, which names a failure. Must not be `NULL`.
+ * @param commit        The commit, which `lookup_commit` found. It carries no `nonnull`, which the
+ *                      analyzer cannot prove through `lookup_commit`'s out parameter.
+ * @param commit_oid    Its hex id, which the summary keeps.
+ * @param trailers      Its trailers, from `read_trailers`. Must not be `NULL` unless
+ *                      `trailer_count` is `0`.
+ * @param trailer_count Number of entries in `trailers`.
+ * @param llm_trailers  Which trailers mark the commit LLM-assisted. Must not be `NULL`.
+ * @param perm          Arena that owns the texts. Must not be `NULL`.
+ * @param summary_out   Receives the summary. Must not be `NULL`.
+ * @param log           Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` when the signature header cannot be read.
  */
 static int summarize(const struct Repository* repository,
                      const git_commit* commit,
                      struct Str commit_oid,
+                     const struct Trailer* trailers,
+                     ptrdiff_t trailer_count,
+                     const struct TrailerMatch* llm_trailers,
                      struct Arena* perm,
                      struct CommitSummary* summary_out,
-                     struct Log* log) __attribute__((nonnull(1, 4, 5, 6)));
+                     struct Log* log) __attribute__((nonnull(1, 6, 7, 8, 9)));
 
 /**
  * @brief Sets a tag note's date to the committer date of the commit `commit_oid`.
@@ -204,6 +212,7 @@ int revision_resolve_default_branch(const struct Repository* repository,
 
 int revision_commit_summary(const struct Repository* repository,
                             struct Str commit_oid,
+                            const struct TrailerMatch* llm_trailers,
                             struct Arena* perm,
                             struct CommitSummary* summary_out,
                             struct Log* log) {
@@ -211,13 +220,19 @@ int revision_commit_summary(const struct Repository* repository,
   if (lookup_commit(repository, commit_oid, &commit, log) != 0) {
     return -1;
   }
-  const int rc = summarize(repository, commit, commit_oid, perm, summary_out, log);
+  const char* message = git_commit_message(commit);
+  struct Trailer* trailers = NULL;
+  ptrdiff_t trailer_count = 0;
+  read_trailers(message != NULL ? message : "", perm, &trailers, &trailer_count);
+  const int rc = summarize(repository, commit, commit_oid, trailers, trailer_count, llm_trailers,
+                           perm, summary_out, log);
   git_commit_free(commit);
   return rc;
 }
 
 int revision_commit_detail(const struct Repository* repository,
                            struct Str commit_oid,
+                           const struct TrailerMatch* llm_trailers,
                            struct Arena* perm,
                            struct CommitDetail* detail_out,
                            struct Log* log) {
@@ -226,11 +241,14 @@ int revision_commit_detail(const struct Repository* repository,
   if (lookup_commit(repository, commit_oid, &commit, log) != 0) {
     return -1;
   }
-  if (summarize(repository, commit, commit_oid, perm, &detail_out->summary, log) != 0) {
+  const char* message = git_commit_message(commit);
+  read_trailers(message != NULL ? message : "", perm, &detail_out->trailers,
+                &detail_out->trailer_count);
+  if (summarize(repository, commit, commit_oid, detail_out->trailers, detail_out->trailer_count,
+                llm_trailers, perm, &detail_out->summary, log) != 0) {
     git_commit_free(commit);
     return -1;
   }
-  const char* message = git_commit_message(commit);
   struct Str body = str_cut(str_from_cstr(message != NULL ? message : ""), '\n').tail;
   while (body.len > 0 && (body.data[0] == '\n' || body.data[0] == '\r')) {
     body = str_tail(body, 1);
@@ -241,8 +259,6 @@ int revision_commit_detail(const struct Repository* repository,
   const git_signature* author = git_commit_author(commit);
   const git_signature* committer = git_commit_committer(commit);
   detail_out->body = str_clone(body, perm);
-  read_trailers(message != NULL ? message : "", perm, &detail_out->trailers,
-                &detail_out->trailer_count);
   detail_out->author_date =
       author != NULL ? timestamp_format_rfc3339(author->when.time, author->when.offset, perm)
                      : (struct Str){0};
@@ -355,6 +371,9 @@ static int lookup_commit(const struct Repository* repository,
 static int summarize(const struct Repository* repository,
                      const git_commit* commit,
                      struct Str commit_oid,
+                     const struct Trailer* trailers,
+                     ptrdiff_t trailer_count,
+                     const struct TrailerMatch* llm_trailers,
                      struct Arena* perm,
                      struct CommitSummary* summary_out,
                      struct Log* log) {
@@ -371,6 +390,8 @@ static int summarize(const struct Repository* repository,
       .date =
           timestamp_format_rfc3339(git_commit_time(commit), git_commit_time_offset(commit), perm),
   };
+  trailer_llm_tools(trailers, trailer_count, llm_trailers, perm, &summary_out->llm_tools,
+                    &summary_out->llm_tool_count);
   // libgit2 joins the header's continuation lines without their leading space. A SHA-1 commit keeps
   // its signature in `gpgsig`, whichever kind it is.
   git_buf signature = GIT_BUF_INIT;

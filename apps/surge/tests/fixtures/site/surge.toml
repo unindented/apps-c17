@@ -7,6 +7,8 @@ not_found_path = "bunnycdn_errors/404.html"
 log_page_size = 2
 feed_count = 3
 headers_file = true
+# Claude Code's `Co-Authored-By` and the kernel's `Assisted-by` both name it.
+llm_trailer_values = ["Claude"]
 
 [limits]
 # `big.txt` of the hostile fixture is over both, and `lib/table.c` of the showcase only over the raw

@@ -7,5 +7,6 @@
 {{#author}}<author><name>{{author}}</name></author>
 {{/author}}{{#content}}<content type="text">{{content}}</content>
 {{/content}}{{#content_html}}<content type="html" xml:base="{{url}}">{{content_html}}</content>
-{{/content_html}}</entry>
+{{/content_html}}{{#is_llm_assisted}}<category term="llm-assisted"/>
+{{/is_llm_assisted}}</entry>
 {{/feed_entries}}

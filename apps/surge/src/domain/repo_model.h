@@ -71,6 +71,16 @@ struct CommitSummary {
    * leading space removed, or empty. Nothing checks it.
    */
   struct Str signature;
+
+  /**
+   * The LLM tools that the message's trailers name, as `trailer_llm_tools` lists them for the
+   * config's `llm_trailer_keys` and `llm_trailer_values`. The commit is LLM-assisted when there is
+   * one.
+   */
+  struct Str* llm_tools;
+
+  /** Number of entries in `llm_tools`. */
+  ptrdiff_t llm_tool_count;
 };
 
 /** One trailer of a commit message, such as `Signed-off-by: Ada Lovelace <ada@example.org>`. */
@@ -87,7 +97,7 @@ struct Trailer {
 
 /** What a commit page shows of its commit. */
 struct CommitDetail {
-  /** Id, subject, author's name and committer date. */
+  /** Id, subject, author's name, committer date, signature and LLM tools. */
   struct CommitSummary summary;
 
   /** The message after its subject line and the blank lines after it, its trailers included. */

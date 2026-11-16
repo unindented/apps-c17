@@ -137,6 +137,8 @@ Top-level keys:
 | `log_page_size` | `100` | 1 to 10000 | The commits on each commit list page. |
 | `feed_count` | `25` | 0 or more | The most entries in each commit, tag and release feed. |
 | `headers_file` | `false` | A boolean | Whether the build writes `_headers`. See [Cache headers](#cache-headers). |
+| `llm_trailer_keys` | `["Co-authored-by", "Assisted-by", "Generated-by"]` | Non-empty strings | The keys of the trailers that can mark a commit LLM-assisted, in any ASCII letter case. See [LLM-assisted commits](#llm-assisted-commits). |
+| `llm_trailer_values` | `[]` | Non-empty strings | The texts that mark a commit LLM-assisted when one of those trailers holds one in its value, address included, in any ASCII letter case. With none, no commit is marked. |
 | `limits` | | A table | The `[limits]` table below. |
 | `templates` | | A table | The `[templates]` table below. |
 | `repo` | Required | At least one table | The `[[repo]]` tables below, in the order of the site index. |
@@ -313,7 +315,7 @@ A build writes the output cache to `_surge/output-cache.tsv` below `output_dir`.
 
 The inputs of each output are these:
 
-- Every page depends on the page recipe: the `surge` version, the grammars of the binary, `title`, `description`, `author`, `base_url`, `log_page_size`, `feed_count`, every limit but `pack_len_max`, every name of the `[templates]` table, and the path, size and modification time of every file below `templates_dir`. A change to any of them, a partial included, makes every page again.
+- Every page depends on the page recipe: the `surge` version, the grammars of the binary, `title`, `description`, `author`, `base_url`, `log_page_size`, `feed_count`, `llm_trailer_keys`, `llm_trailer_values`, every limit but `pack_len_max`, every name of the `[templates]` table, and the path, size and modification time of every file below `templates_dir`. A change to any of them, a partial included, makes every page again.
 - Every page of a repository depends on what its `repo` map shows: the default branch, whether the branch names a commit, the description, and whether the repository has a release project.
 - A commit page depends on its commit. A blob page depends on its blob and mode, and a tree page on its tree. Both also depend on the branch's root tree when they show Markdown or Org, because their links resolve against every path of the branch. The page of a branch's root also depends on the branch's newest commit. A commit list page depends on its commits and the refs that name them, and a feed on its entries.
 - The home, the branch and tag lists and the site index depend on every ref, and on the repository's place in the config, description, newest commit date and projects. The tag list and the release outputs also depend on the releases.
@@ -444,6 +446,28 @@ A file that changed type, such as a file that became a symlink, is one changed f
 2. The file whose lines would pass `diff_line_count_max` or `diff_len_max` is cut there, and every later file is listed without its diff.
 
 `diff_len_max` counts the bytes of the lines that the page shows, and the diffstat counts those lines.
+
+### LLM-assisted commits
+
+A commit is LLM-assisted when one of its trailers has a key in `llm_trailer_keys` and a value that holds a text of `llm_trailer_values`. Both compare in any ASCII letter case, as git compares trailer keys, so `Co-authored-by` and `Co-Authored-By` are one key. The value includes the address, so a text can name the tool or its address. Only the trailers count: a commit whose subject, body or author names a tool, such as `Fix the Claude API client`, is not marked. Every commit summary and every commit feed entry has `is_llm_assisted` and the tools that the trailers name, so a template can mark such a commit on the commit list, the commit page and the feed. The fixture's feeds give it `<category term="llm-assisted"/>`.
+
+These tools write these trailers:
+
+| Tool | What it writes |
+| --- | --- |
+| Claude Code | `Co-Authored-By: Claude <model> <noreply@anthropic.com>` |
+| Linux kernel convention | `Assisted-by: <agent>:<model> [tools]` |
+| aider | A `Co-authored-by:` trailer that names aider and the model, or an `(aider)` suffix on the author name |
+| GitHub Copilot coding agent | Commits by a `Copilot` identity at `users.noreply.github.com` |
+| Others | `Generated-by:`, free text |
+
+So a site that wants to mark them sets values such as these:
+
+```toml
+llm_trailer_values = ["Claude", "Cursor", "Copilot", "aider"]
+```
+
+A short value can match more than you mean. `"Claude"` also matches a human co-author named Claude, and an address such as `"noreply@anthropic.com"` narrows it. `surge` cannot see an LLM's help that no trailer discloses, such as a commit whose only sign of the tool is its author, like a commit of GitHub's Copilot agent or an `(aider)` author. Tools change their trailers, so add a key or a value when you see a new one.
 
 ### Names without pages
 
@@ -598,7 +622,7 @@ The templates share these maps:
 | --- | --- |
 | `repo` | Every page of a repository: `name`, `description`, `default_branch`, `url` (the home), `clone_url` (`<base_url>/<r>.git`), `branches_url`, `tags_url`, `tags_feed_url`, `commits_url` (the default branch's first commit list page, empty when it names no commit), `has_releases` (whether the repository has a [release project](#release-directories)), `releases_url` and `releases_feed_url` (each empty without one). |
 | `ref` | The pages of a branch: `name`, `tree_url` (its root's tree page), `commits_url` (its first commit list page) and `commits_feed_url`. |
-| Commit summary | `oid`, `short_oid` (7 hex digits), `subject`, `author` (a name), `date` (the committer date), `signature` (of a signed commit, or empty), `signature_kind` (`PGP`, `SSH` or `X.509`, from the line that opens the signature, or empty) and `url` (its commit page). It is `false` for a ref that names no commit, so `{{#commit}}…{{/commit}}` shows its contents only for a commit. |
+| Commit summary | `oid`, `short_oid` (7 hex digits), `subject`, `author` (a name), `date` (the committer date), `signature` (of a signed commit, or empty), `signature_kind` (`PGP`, `SSH` or `X.509`, from the line that opens the signature, or empty), `is_llm_assisted` (whether its trailers mark it, as [LLM-assisted commits](#llm-assisted-commits) describes), `llm_tools` (each with `name`: the value of each trailer that marks it, in message order, without the `<…>` at its end unless it is only that, once for each different value) and `url` (its commit page). It is `false` for a ref that names no commit, so `{{#commit}}…{{/commit}}` shows its contents only for a commit. |
 | Entry | One row of a directory: `name`, `kind` (`dir`, `file`, `executable`, `symlink` or `gitlink`), `is_dir`, `is_file`, `is_executable`, `is_symlink`, `is_gitlink`, `url` (empty without a page), `is_linked`, `link_target` (a symlink's target), `oid` and `size` (empty for a directory or a submodule). |
 | Breadcrumb | `name`, `url` and `is_last`. The last breadcrumb is the page's own directory or file, with an empty `url`. |
 | Project map | `name`, `url` (its page), `versions_url`, `versions_json_url`, `mise_toml` (the [mise example](#version-lists-and-mise), empty without `mise`), and `releases`: release maps of its listed releases newest first, then of its other releases in byte order of tag. |
@@ -622,7 +646,7 @@ Each kind of page also gets these keys, by the key of its template:
 | `release_list` | `repo`; `projects` (a project map for each release project, in config order); and `releases` (a release map for every release: each project's releases in project order, then the releases of no project in byte order of tag). |
 | `release_project` | `repo`, and `project`, the project map. |
 | `release` | `repo`; `release`, the release map; and `project`, the project map of its project, `false` for a release of no project. |
-| `tag_feed`, `commit_feed`, `release_feed` | `repo` with absolute links; in `commit_feed` only, `ref` with absolute links; `feed`; and `feed_entries`, newest first. `feed` has `id` and `url` (the feed's own URL), `html_url` (the first commit list page, the tag list or the release list) and `modified`. An entry has `id`, `title`, `url`, `modified`, `author`, `content` (text, empty for a release) and `content_html` (HTML, empty for a commit or a tag). A relative link in `content_html` is relative to the entry's page, so the fixture's feeds set `xml:base="{{url}}"` on `<content>`. |
+| `tag_feed`, `commit_feed`, `release_feed` | `repo` with absolute links; in `commit_feed` only, `ref` with absolute links; `feed`; and `feed_entries`, newest first. `feed` has `id` and `url` (the feed's own URL), `html_url` (the first commit list page, the tag list or the release list) and `modified`. An entry has `id`, `title`, `url`, `modified`, `author`, `content` (text, empty for a release), `content_html` (HTML, empty for a commit or a tag), and `is_llm_assisted` and `llm_tools` as a commit summary has them (`false` and empty for a tag or a release). A relative link in `content_html` is relative to the entry's page, so the fixture's feeds set `xml:base="{{url}}"` on `<content>`. |
 
 `source_html` is a `<pre class="surge-code"><code>` with a code line for each line of the blob. The line's number is an `<a id="L<n>" href="#L<n>">`.
 

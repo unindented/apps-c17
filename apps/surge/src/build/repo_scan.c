@@ -14,6 +14,7 @@
 #include "core/str.h"
 #include "domain/repo_model.h"
 #include "domain/site_config.h"
+#include "domain/trailer.h"
 #include "os/oom.h"
 #include "os/os.h"
 #include "output/manifest.h"
@@ -69,22 +70,24 @@ static int repo_scan_job(ptrdiff_t index, struct JobArenas* arenas, struct Log* 
  * @brief Reads what the repo's pages show of it besides its trees: its default branch, the commit
  *        of each ref, the date of its newest commit and its description.
  *
- * @param scan       Slot of the repo, whose refs are loaded. Must not be `NULL`.
- * @param repo_index Index of the repo in the config.
- * @param repository Open repository. Must not be `NULL`.
- * @param os         Host the `description` file is read on. Must not be `NULL`.
- * @param perm       Arena that owns what the job keeps. Must not be `NULL`.
- * @param scratch    Arena for the `description` file's path and bytes.
- * @param log        Log that receives the failure. Must not be `NULL`.
+ * @param scan         Slot of the repo, whose refs are loaded. Must not be `NULL`.
+ * @param repo_index   Index of the repo in the config.
+ * @param repository   Open repository. Must not be `NULL`.
+ * @param llm_trailers Which trailers mark a commit LLM-assisted. Must not be `NULL`.
+ * @param os           Host the `description` file is read on. Must not be `NULL`.
+ * @param perm         Arena that owns what the job keeps. Must not be `NULL`.
+ * @param scratch      Arena for the `description` file's path and bytes.
+ * @param log          Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` on failure.
  */
 static int repo_scan_job_model(struct RepoScan* scan,
                                ptrdiff_t repo_index,
                                const struct Repository* repository,
+                               const struct TrailerMatch* llm_trailers,
                                struct Os* os,
                                struct Arena* perm,
                                struct Arena scratch,
-                               struct Log* log) __attribute__((nonnull(1, 3, 4, 5, 7)));
+                               struct Log* log) __attribute__((nonnull(1, 3, 4, 5, 6, 8)));
 
 /**
  * @brief Reads the repository's `description` file, which may be missing, as the description to
@@ -325,7 +328,8 @@ static int repo_scan_job(ptrdiff_t index,
   }
   int rc = -1;
   if (refset_load(&scan->model.refset, &repository, &perm, log) != 0 ||
-      repo_scan_job_model(scan, index, &repository, jobs->os, &perm, arenas->scratch, log) != 0 ||
+      repo_scan_job_model(scan, index, &repository, &jobs->site_config->llm_trailers, jobs->os,
+                          &perm, arenas->scratch, log) != 0 ||
       release_scan_load(&scan->model, jobs->os, &perm, arenas->scratch, log) != 0 ||
       repo_scan_job_branches(scan, &repository, &perm, log) != 0 ||
       repo_scan_job_projects(scan, index, log) != 0 ||
@@ -355,6 +359,7 @@ cleanup:
 static int repo_scan_job_model(struct RepoScan* scan,
                                ptrdiff_t repo_index,
                                const struct Repository* repository,
+                               const struct TrailerMatch* llm_trailers,
                                struct Os* os,
                                struct Arena* perm,
                                struct Arena scratch,
@@ -375,8 +380,9 @@ static int repo_scan_job_model(struct RepoScan* scan,
   model->ref_notes = arena_new(perm, model->refset.count, struct TagNote);
   for (ptrdiff_t i = 0; i < model->refset.count; i++) {
     const struct Ref* ref = &model->refset.refs[i];
-    if (ref->commit_oid.len > 0 && revision_commit_summary(repository, ref->commit_oid, perm,
-                                                           &model->ref_commits[i], log) != 0) {
+    if (ref->commit_oid.len > 0 &&
+        revision_commit_summary(repository, ref->commit_oid, llm_trailers, perm,
+                                &model->ref_commits[i], log) != 0) {
       return -1;
     }
     if (ref->kind == REF_KIND_TAG &&

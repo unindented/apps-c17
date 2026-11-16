@@ -6,6 +6,7 @@
 
 #include "core/arena.h"
 #include "core/str.h"
+#include "domain/trailer.h"
 
 struct Log;
 struct Os;
@@ -226,6 +227,13 @@ struct SiteConfig {
    * headers of the clone exports. Defaults to `false`.
    */
   bool has_headers_file;
+
+  /**
+   * The trailers that mark a commit LLM-assisted: `llm_trailer_keys`, which defaults to
+   * `Co-authored-by`, `Assisted-by` and `Generated-by`, and `llm_trailer_values`, which defaults to
+   * none, so no commit is marked until the config names a value.
+   */
+  struct TrailerMatch llm_trailers;
 
   /** The `[limits]` table. */
   struct SurgeLimits limits;

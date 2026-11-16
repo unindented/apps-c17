@@ -14,7 +14,7 @@
 {{#co_authors}}<p class="co-author">Co-authored by {{name}}</p>
 {{/co_authors}}
 <p>{{author}} authored <time>{{author_date}}</time>{{#committer}}; {{committer}} committed <time>{{date}}</time>{{/committer}}</p>
-<p>commit <code>{{oid}}</code>{{>signed}}{{#is_root}} (root){{/is_root}}{{#is_merge}} (merge){{/is_merge}}{{#parents}} &middot; parent <a href="{{url}}">{{short_oid}}</a>{{/parents}}</p>
+<p>commit <code>{{oid}}</code>{{>signed}}{{>llm}}{{#is_root}} (root){{/is_root}}{{#is_merge}} (merge){{/is_merge}}{{#parents}} &middot; parent <a href="{{url}}">{{short_oid}}</a>{{/parents}}</p>
 {{/commit}}
 <p>{{stats.file_count}} files changed, +{{stats.additions}} -{{stats.deletions}}{{#is_truncated}} &middot; the diff is truncated{{/is_truncated}}</p>
 <details open><summary>Changed files</summary>

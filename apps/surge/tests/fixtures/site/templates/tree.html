@@ -16,7 +16,7 @@
 {{^is_empty}}
 <p>Branch <a href="{{ref.tree_url}}">{{ref.name}}</a> &middot; <a href="{{ref.commits_url}}">commits</a></p>
 {{>breadcrumbs}}
-{{#commit}}<p class="commit"><a href="{{url}}">{{short_oid}}</a> {{subject}} &mdash; {{author}}, <time>{{date}}</time></p>{{/commit}}
+{{#commit}}<p class="commit"><a href="{{url}}">{{short_oid}}</a> {{subject}} &mdash; {{author}}, <time>{{date}}</time>{{>llm}}</p>{{/commit}}
 {{>tree-entries}}
 <nav class="documents">{{#documents}}<a href="#document.{{kind}}">{{>document-title}}</a> {{/documents}}</nav>
 {{#documents}}

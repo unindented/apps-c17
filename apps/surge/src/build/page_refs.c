@@ -138,9 +138,24 @@ struct TemplateValue* page_refs_commit(const struct RepoModel* repo,
   template_value_set_text(map, S("signature"), commit.signature, arena);
   template_value_set_text(map, S("signature_kind"), page_refs_signature_kind(commit.signature),
                           arena);
+  template_value_set_bool(map, S("is_llm_assisted"), commit.llm_tool_count > 0, arena);
+  template_value_set(map, S("llm_tools"),
+                     page_refs_llm_tools(commit.llm_tools, commit.llm_tool_count, arena), arena);
   template_value_set_text(
       map, S("url"), page_commit_link(path_to_root, repo->config->name, commit.oid, arena), arena);
   return map;
+}
+
+struct TemplateValue* page_refs_llm_tools(const struct Str* tools,
+                                          ptrdiff_t tool_count,
+                                          struct Arena* arena) {
+  struct TemplateValue* list = template_value_list(tool_count, arena);
+  for (ptrdiff_t i = 0; i < tool_count; i++) {
+    struct TemplateValue* tool = template_value_map(arena);
+    template_value_set_text(tool, S("name"), tools[i], arena);
+    list->items[i] = tool;
+  }
+  return list;
 }
 
 struct PageRefsDated* page_refs_tags_newest(const struct RepoModel* repo,

@@ -41,6 +41,12 @@ struct FeedEntry {
 
   /** HTML of the entry, or empty. */
   struct Str content_html;
+
+  /** The LLM tools of a commit's entry, or `NULL` for none. */
+  const struct Str* llm_tools;
+
+  /** Number of entries in `llm_tools`. */
+  ptrdiff_t llm_tool_count;
 };
 
 /**
@@ -126,6 +132,8 @@ struct TemplateValue* page_feed_commits_value(const struct SiteConfig* site_conf
         .modified = commit->summary.date,
         .author = commit->summary.author,
         .content = commit->body,
+        .llm_tools = commit->summary.llm_tools,
+        .llm_tool_count = commit->summary.llm_tool_count,
     };
     feed_entries->items[i] = entry_map(&entry, arena);
   }
@@ -260,6 +268,9 @@ static struct TemplateValue* entry_map(const struct FeedEntry* entry, struct Are
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(fields) / sizeof(fields[0])); i++) {
     template_value_set_text(map, fields[i].key, fields[i].text, arena);
   }
+  template_value_set_bool(map, S("is_llm_assisted"), entry->llm_tool_count > 0, arena);
+  template_value_set(map, S("llm_tools"),
+                     page_refs_llm_tools(entry->llm_tools, entry->llm_tool_count, arena), arena);
   return map;
 }
 

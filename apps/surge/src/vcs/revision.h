@@ -14,6 +14,7 @@ struct Refset;
 struct Repository;
 struct TagNote;
 struct Trailer;
+struct TrailerMatch;
 
 /**
  * @brief Resolves the default branch of a repository: `configured` when it is not empty, else the
@@ -44,38 +45,42 @@ int revision_resolve_default_branch(const struct Repository* repository,
                                     struct Log* log) __attribute__((nonnull(1, 2, 5, 6, 7, 8)));
 
 /**
- * @brief Reads what the pages show of the commit `commit_oid`: its subject, its author's name and
- *        its committer date.
+ * @brief Reads what the pages show of the commit `commit_oid`: its subject, its author's name, its
+ *        committer date, its signature and the LLM tools its trailers name.
  *
- * @param repository  Open repository. Must not be `NULL`.
- * @param commit_oid  Hex id of a commit, which the summary's `oid` keeps.
- * @param perm        Arena that owns the texts. Must not be `NULL`.
- * @param summary_out Receives the summary. Must not be `NULL`.
- * @param log         Log that receives the failure. Must not be `NULL`.
+ * @param repository   Open repository. Must not be `NULL`.
+ * @param commit_oid   Hex id of a commit, which the summary's `oid` keeps.
+ * @param llm_trailers Which trailers mark the commit LLM-assisted. Must not be `NULL`.
+ * @param perm         Arena that owns the texts. Must not be `NULL`.
+ * @param summary_out  Receives the summary. Must not be `NULL`.
+ * @param log          Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` when the commit cannot be read.
  */
 int revision_commit_summary(const struct Repository* repository,
                             struct Str commit_oid,
+                            const struct TrailerMatch* llm_trailers,
                             struct Arena* perm,
                             struct CommitSummary* summary_out,
-                            struct Log* log) __attribute__((nonnull(1, 3, 4, 5)));
+                            struct Log* log) __attribute__((nonnull(1, 3, 4, 5, 6)));
 
 /**
  * @brief Reads what a commit page shows of the commit `commit_oid`: its summary, the rest of its
  *        message, its trailers, its author's date, its committer and its parents.
  *
- * @param repository Open repository. Must not be `NULL`.
- * @param commit_oid Hex id of a commit, which the summary's `oid` keeps.
- * @param perm       Arena that owns the texts. Must not be `NULL`.
- * @param detail_out Receives the commit. Must not be `NULL`.
- * @param log        Log that receives the failure. Must not be `NULL`.
+ * @param repository   Open repository. Must not be `NULL`.
+ * @param commit_oid   Hex id of a commit, which the summary's `oid` keeps.
+ * @param llm_trailers Which trailers mark the commit LLM-assisted. Must not be `NULL`.
+ * @param perm         Arena that owns the texts. Must not be `NULL`.
+ * @param detail_out   Receives the commit. Must not be `NULL`.
+ * @param log          Log that receives the failure. Must not be `NULL`.
  * @return `0` on success, or `-1` when the commit cannot be read.
  */
 int revision_commit_detail(const struct Repository* repository,
                            struct Str commit_oid,
+                           const struct TrailerMatch* llm_trailers,
                            struct Arena* perm,
                            struct CommitDetail* detail_out,
-                           struct Log* log) __attribute__((nonnull(1, 3, 4, 5)));
+                           struct Log* log) __attribute__((nonnull(1, 3, 4, 5, 6)));
 
 /**
  * @brief Parses the trailers of a commit message with git's rules, which `git_message_trailers`
