@@ -1,6 +1,7 @@
 target_sources(
   surge_app
-  PRIVATE export_writer.c
+  PRIVATE contributions.c
+          export_writer.c
           highlight_diff.c
           page_blob.c
           page_commit.c
@@ -20,7 +21,8 @@ target_sources(
           template_value.c
   PUBLIC FILE_SET HEADERS
          BASE_DIRS "${PROJECT_SOURCE_DIR}/src"
-         FILES export_writer.h
+         FILES contributions.h
+               export_writer.h
                highlight_diff.h
                page_blob.h
                page_commit.h
@@ -44,7 +46,8 @@ if(APPS_BUILD_TESTING)
   # These reach no host, so they link the POSIX one, as every app's host-free tests do.
   foreach(
     module IN
-    ITEMS highlight_diff
+    ITEMS contributions
+          highlight_diff
           page_blob
           page_commit
           page_feed

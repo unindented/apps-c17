@@ -1105,7 +1105,8 @@ static int write_site_page_make(struct Arena* perm,
     for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
       models[i] = state->scans[i].model;
     }
-    value = page_index_value(&state->site_config, models, state->site_config.repo_count, perm);
+    value =
+        page_index_value(&state->site_config, models, state->site_config.repo_count, perm, scratch);
   } else {
     value = page_index_not_found_value(&state->site_config, perm);
   }

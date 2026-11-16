@@ -127,6 +127,27 @@ static int repo_scan_job_branches(struct RepoScan* scan,
                                   struct Log* log) __attribute__((nonnull(1, 2, 3, 4)));
 
 /**
+ * @brief Reads what the contributions calendar counts of every commit the default branch reaches,
+ *        in the order of its log.
+ *
+ * A repository whose default branch has no log, such as an empty one, has none.
+ *
+ * @param scan         Slot of the repo, whose branches are walked. Must not be `NULL`.
+ * @param repository   Open repository. Must not be `NULL`.
+ * @param llm_trailers Which trailers mark a commit LLM-assisted. Must not be `NULL`.
+ * @param perm         Arena that owns the contributions. Must not be `NULL`.
+ * @param scratch      Arena for each commit's trailers.
+ * @param log          Log that receives the failure. Must not be `NULL`.
+ * @return `0` on success, or `-1` when a commit cannot be read.
+ */
+static int repo_scan_job_contributions(struct RepoScan* scan,
+                                       const struct Repository* repository,
+                                       const struct TrailerMatch* llm_trailers,
+                                       struct Arena* perm,
+                                       struct Arena scratch,
+                                       struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 6)));
+
+/**
  * @brief Requires each project's `path` to be a directory of the default branch with a tree page.
  *
  * An empty repository has no default branch yet, so nothing is checked.
@@ -332,6 +353,8 @@ static int repo_scan_job(ptrdiff_t index,
                           &perm, arenas->scratch, log) != 0 ||
       release_scan_load(&scan->model, jobs->os, &perm, arenas->scratch, log) != 0 ||
       repo_scan_job_branches(scan, &repository, &perm, log) != 0 ||
+      repo_scan_job_contributions(scan, &repository, &jobs->site_config->llm_trailers, &perm,
+                                  arenas->scratch, log) != 0 ||
       repo_scan_job_projects(scan, index, log) != 0 ||
       repo_scan_job_export(scan, &repository, jobs, &perm, log) != 0) {
     goto cleanup;
@@ -462,6 +485,33 @@ static int repo_scan_job_branches(struct RepoScan* scan,
   // Every commit a ref reaches gets a page, a tag's as well as a branch's.
   return revision_list_commits(repository, &model->refset, perm, &model->commits,
                                &model->commit_count, log);
+}
+
+static int repo_scan_job_contributions(struct RepoScan* scan,
+                                       const struct Repository* repository,
+                                       const struct TrailerMatch* llm_trailers,
+                                       struct Arena* perm,
+                                       struct Arena scratch,
+                                       struct Log* log) {
+  struct RepoModel* model = &scan->model;
+  const struct BranchLog* branch_log = NULL;
+  for (ptrdiff_t i = 0; i < model->log_count && branch_log == NULL; i++) {
+    if (model->logs[i].branch == model->default_ref) {
+      branch_log = &model->logs[i];
+    }
+  }
+  if (branch_log == NULL) {
+    return 0;
+  }
+  model->contributions = arena_new(perm, branch_log->commit_count, struct Contribution);
+  for (ptrdiff_t i = 0; i < branch_log->commit_count; i++) {
+    if (revision_commit_contribution(repository, branch_log->commits[i], llm_trailers, scratch,
+                                     &model->contributions[i], log) != 0) {
+      return -1;
+    }
+  }
+  model->contribution_count = branch_log->commit_count;
+  return 0;
 }
 
 static int repo_scan_job_projects(const struct RepoScan* scan,

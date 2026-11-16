@@ -273,6 +273,36 @@ int revision_commit_detail(const struct Repository* repository,
   return 0;
 }
 
+int revision_commit_contribution(const struct Repository* repository,
+                                 struct Str commit_oid,
+                                 const struct TrailerMatch* llm_trailers,
+                                 struct Arena scratch,
+                                 struct Contribution* contribution_out,
+                                 struct Log* log) {
+  git_commit* commit = NULL;
+  if (lookup_commit(repository, commit_oid, &commit, log) != 0) {
+    return -1;
+  }
+  const git_signature* author = git_commit_author(commit);
+  *contribution_out = (struct Contribution){
+      .oid = commit_oid,
+      .time = author != NULL ? author->when.time : git_commit_time(commit),
+      .offset_minutes = author != NULL ? author->when.offset : git_commit_time_offset(commit),
+  };
+  if (llm_trailers->value_count > 0) {
+    const char* message = git_commit_message(commit);
+    struct Trailer* trailers = NULL;
+    ptrdiff_t trailer_count = 0;
+    read_trailers(message != NULL ? message : "", &scratch, &trailers, &trailer_count);
+    struct Str* tools = NULL;
+    ptrdiff_t tool_count = 0;
+    trailer_llm_tools(trailers, trailer_count, llm_trailers, &scratch, &tools, &tool_count);
+    contribution_out->is_llm_assisted = tool_count > 0;
+  }
+  git_commit_free(commit);
+  return 0;
+}
+
 void revision_message_trailers(struct Str message,
                                struct Arena* perm,
                                struct Arena scratch,

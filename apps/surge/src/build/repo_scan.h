@@ -108,7 +108,8 @@ int repo_scan_locate(const struct SiteConfig* site_config,
 
 /**
  * @brief Scans every repo, one job each on the worker pool: its refs, its default branch and the
- *        date of its newest commit, its description, and its clone export.
+ *        date of its newest commit, its description, the author time and LLM flag of every commit
+ *        of its default branch, and its clone export.
  *
  * The clone export keeps the pack in the output when the output cache's fact for the export records
  * the same `info/refs`, and the cache records the pack and the idx, which are there with their

@@ -32,7 +32,7 @@ A module can skip a layer, and modules in one directory can depend on each other
 1. **Load inputs** (`load_build_inputs`): Load the config, check the input directories, set up libgit2, open each repository to find its git directory, reject an `output_dir` that overlaps an input, and list and stat the templates and static files.
 2. **Load templates** (`load_templates`): Read and compile every template that the `[templates]` table names, each once, and every partial, without the release templates when no repo has a release project.
 3. **Load the output cache** (`load_recipe_id`, `load_output_cache`): Make the page recipe's id, and read `_surge/output-cache.tsv` unless `--force` is set.
-4. **Scan** (`scan_repos`): On the worker pool, read each repository into a `RepoScan`, and write a changed clone pack below `TMPDIR`.
+4. **Scan** (`scan_repos`): On the worker pool, read each repository into a `RepoScan`, with the author time and LLM flag of every commit of its default branch, and write a changed clone pack below `TMPDIR`.
 5. **Manifest** (`populate_output_manifest`): Record every output path with its attributes, and reject every conflict.
 6. **Prepare output** (`prepare_output_dir`): Create `output_dir`, the first write.
 7. **Keep previous packs** (`keep_previous_packs`): Keep the pack that a changed clone export replaces, for one more build.
@@ -59,6 +59,7 @@ The header of each module documents its interface.
 - [cmd_config](src/app/cmd_config.h): Loads the config and prints it resolved.
 - [repo_scan](src/build/repo_scan.h): The scan phase.
 - [repo_pages](src/build/repo_pages.h): The pages phase.
+- [contributions](src/build/contributions.h): Counts the commits of every default branch into the site index's contributions calendar, each commit once.
 - [export_writer](src/build/export_writer.h): The outputs of the clone export, and `_headers`.
 - [release_scan](src/build/release_scan.h): The release projects, releases and assets of a repo, and their warnings.
 - [release_writer](src/build/release_writer.h): The release outputs of a repo.
@@ -71,13 +72,13 @@ The header of each module documents its interface.
 - [repo_model](src/domain/repo_model.h): The types that the scan fills and the pages read.
 - [grammar_path](src/domain/grammar_path.h): Maps a file path to a language name.
 - [semver](src/domain/semver.h): Parses and orders Semantic Versioning versions.
-- [timestamp](src/domain/timestamp.h): Formats a git time as RFC 3339.
+- [timestamp](src/domain/timestamp.h): Formats a git time as RFC 3339, and gives its local day and that day's date.
 - [trailer](src/domain/trailer.h): The names in a commit's trailers, its co-authors, and the LLM tools that its trailers name.
 - [url_segment](src/domain/url_segment.h): Percent-encodes a path segment.
 - [surge_version](src/domain/surge_version.h): The tool name and version, which CMake sets.
 - [repository](src/vcs/repository.h): The libgit2 setup, opening a repository, reading a blob, object ids, and `repository_fail`.
 - [refset](src/vcs/refset.h): Loads and checks every branch and tag, and formats `info/refs`.
-- [revision](src/vcs/revision.h): The default branch, commits and their trailers, tag notes, a branch's log, and every commit that a ref reaches.
+- [revision](src/vcs/revision.h): The default branch, commits and their trailers, what the contributions calendar reads of a commit, tag notes, a branch's log, and every commit that a ref reaches.
 - [filetree](src/vcs/filetree.h): Walks and checks a branch's tree.
 - [changeset](src/vcs/changeset.h): Diffs a commit against its first parent, with the caps.
 - [pack_export](src/vcs/pack_export.h): Writes the clone pack and its idx, and formats `objects/info/packs`.
@@ -106,6 +107,10 @@ Read a decision before you change its design, and make sure that the change deal
 ### The phases are in this order
 
 The templates load before the scan, so a template that does not compile stops the build before it reads a repository. The output cache loads before the scan, because the scan decides whether a pack is current, and writes a new pack before the manifest needs its name. The scan walks every log and every reachable commit, because the manifest needs every page path before the first write. The release pages run on the main thread after the clone exports, because they read no git object. The cost is that the scan holds every repository's trees, logs and notes in memory until the build ends.
+
+### The scan reads every commit of each default branch
+
+The contributions calendar needs the author time and the trailers of every commit that a default branch reaches. Each scan job reads them on the worker pool, into a `Contribution` per commit of `RepoModel`, and `contributions_tally` merges the repos only when the site index is made. So the index is a render of what the scan found, like every other page, and no repository opens on the main thread. The revwalk of a log reads only commit headers, so the cost is one commit lookup for each commit of each default branch on every build, also one that keeps the index, and a parse of its trailers when `llm_trailer_values` names a value. On a synthetic repository of 100,000 commits, the scan took 0.69 s with no value and 0.75 s with one, against 0.59 s without the calendar, in a build of about 10 s that kept every page.
 
 ### A perm and a scratch for each worker
 

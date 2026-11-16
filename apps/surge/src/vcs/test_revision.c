@@ -218,6 +218,31 @@ static void test_commit_summary_reads_the_llm_tools(void) {
   repository_close(&repository);
 }
 
+// A commit's contribution is its author time and recorded offset, and whether its trailers mark it
+// for the match it is given, which with no values marks nothing.
+static void test_commit_contribution_reads_the_author_time_and_flag(void) {
+  struct Arena arena = test_arena();
+  struct Repository repository = {0};
+  TEST_ASSERT(open_fixture(&repository, "showcase", &arena) == 0);
+  const struct Str keys[] = {S("Assisted-by")};
+  const struct Str values[] = {S("Claude")};
+  const struct TrailerMatch match = {
+      .keys = keys, .key_count = 1, .values = values, .value_count = 1};
+  const struct Str oid = S("0f9370311ea61a7719d764e70e44635013f92283");
+  struct Contribution contribution = {0};
+  struct Log log = test_log();
+  TEST_CHECK(revision_commit_contribution(&repository, oid, &match, test_arena(), &contribution,
+                                          &log) == 0);
+  TEST_CHECK(str_eq(contribution.oid, oid));
+  TEST_CHECK(contribution.time == 1768375800 && contribution.offset_minutes == -480);
+  TEST_CHECK(contribution.is_llm_assisted);
+  TEST_CHECK(revision_commit_contribution(&repository, oid, &NO_LLM_TRAILERS, test_arena(),
+                                          &contribution, &log) == 0);
+  TEST_CHECK(!contribution.is_llm_assisted);
+  TEST_CHECK(test_log_is_empty(&log));
+  repository_close(&repository);
+}
+
 // A commit's detail holds the trailers of its message, keys as written and values with their
 // addresses, while its body keeps them too.
 static void test_commit_detail_reads_the_trailers(void) {
@@ -463,6 +488,8 @@ TEST_LIST = {
      test_commit_detail_reads_the_committer_body_and_parents},
     {"commit summary reads the llm tools", test_commit_summary_reads_the_llm_tools},
     {"commit detail reads the trailers", test_commit_detail_reads_the_trailers},
+    {"commit contribution reads the author time and flag",
+     test_commit_contribution_reads_the_author_time_and_flag},
     {"tag note reads the message and the date", test_tag_note_reads_the_message_and_the_date},
     {"tag note keeps the signature apart", test_tag_note_keeps_the_signature_apart},
     {"commit summary reads the signature", test_commit_summary_reads_the_signature},

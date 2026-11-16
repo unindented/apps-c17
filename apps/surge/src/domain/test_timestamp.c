@@ -75,6 +75,36 @@ static void test_format_writes_out_of_range_offsets_as_utc(void) {
       str_eq(timestamp_format_rfc3339(1767956400, INT_MIN, &arena), S("2026-01-09T11:00:00Z")));
 }
 
+// A local day is the date in the recorded offset, so an offset can move a time across midnight,
+// either way, and a time before the epoch falls on a negative day.
+static void test_local_day_is_the_date_in_the_offset(void) {
+  // 2026-01-14T07:30:00Z.
+  TEST_CHECK(timestamp_local_day(1768375800, 0) == 20467);
+  TEST_CHECK(timestamp_local_day(1768375800, -480) == 20466);
+  TEST_CHECK(timestamp_local_day(1768375800, 17 * 60) == 20468);
+  TEST_CHECK(timestamp_local_day(-1, 0) == -1);
+  TEST_CHECK(timestamp_local_day(0, -1) == -1);
+}
+
+// A time is writable while both it and its local time are in the years 0000 to 9999, whatever its
+// offset.
+static void test_is_writable_bounds_the_local_time(void) {
+  TEST_CHECK(timestamp_is_writable(1768375800, 99 * 60));
+  TEST_CHECK(timestamp_is_writable(INT64_C(-62167219200), 0));
+  TEST_CHECK(!timestamp_is_writable(INT64_C(-62167219200), -1));
+  TEST_CHECK(timestamp_is_writable(INT64_C(253402300799), 0));
+  TEST_CHECK(!timestamp_is_writable(INT64_C(253402300799), 1));
+  TEST_CHECK(!timestamp_is_writable(INT64_MAX, INT_MIN));
+}
+
+// A day number names its calendar date, a leap day and a day before the epoch included.
+static void test_civil_date_names_the_date(void) {
+  const struct CivilDate leap = timestamp_civil_date(11016);
+  TEST_CHECK(leap.year == 2000 && leap.month == 2 && leap.day == 29);
+  const struct CivilDate before = timestamp_civil_date(-1);
+  TEST_CHECK(before.year == 1969 && before.month == 12 && before.day == 31);
+}
+
 TEST_LIST = {
     {"format writes local time and offset", test_format_writes_local_time_and_offset},
     {"format writes utc offset", test_format_writes_utc_offset},
@@ -84,5 +114,8 @@ TEST_LIST = {
     {"format writes out of range times as the epoch",
      test_format_writes_out_of_range_times_as_the_epoch},
     {"format writes out of range offsets as utc", test_format_writes_out_of_range_offsets_as_utc},
+    {"local day is the date in the offset", test_local_day_is_the_date_in_the_offset},
+    {"is writable bounds the local time", test_is_writable_bounds_the_local_time},
+    {"civil date names the date", test_civil_date_names_the_date},
     {NULL, NULL},
 };

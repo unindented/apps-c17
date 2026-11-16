@@ -3,7 +3,8 @@
 
 #include <stddef.h>
 
-struct Arena;
+#include "core/arena.h"
+
 struct RepoModel;
 struct SiteConfig;
 struct TemplateValue;
@@ -19,13 +20,15 @@ struct TemplateValue;
  * @param site_config Configuration of the build. Must not be `NULL`.
  * @param repos       What the scan found, one per repo of `site_config`. Must not be `NULL`.
  * @param repo_count  Number of entries in `repos`.
- * @param arena       Arena that owns the tree. Must not be `NULL`.
+ * @param perm        Arena that owns the tree. Must not be `NULL`.
+ * @param scratch     Arena for the commits the contributions calendar merges.
  * @return The tree.
  */
 struct TemplateValue* page_index_value(const struct SiteConfig* site_config,
                                        const struct RepoModel* repos,
                                        ptrdiff_t repo_count,
-                                       struct Arena* arena)
+                                       struct Arena* perm,
+                                       struct Arena scratch)
     __attribute__((nonnull(1, 2, 4), returns_nonnull));
 
 /**

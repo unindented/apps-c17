@@ -95,6 +95,21 @@ struct Trailer {
   struct Str value;
 };
 
+/** What the site index's contributions calendar reads of one commit of a default branch. */
+struct Contribution {
+  /** Hex id of the commit, which counts it once across repos. */
+  struct Str oid;
+
+  /** Author time in seconds since the Unix epoch. */
+  int64_t time;
+
+  /** Offset of the author time from UTC, in minutes, as git recorded it. */
+  int offset_minutes;
+
+  /** Whether its trailers mark it LLM-assisted. */
+  bool is_llm_assisted;
+};
+
 /** What a commit page shows of its commit. */
 struct CommitDetail {
   /** Id, subject, author's name, committer date, signature and LLM tools. */
@@ -487,6 +502,15 @@ struct RepoModel {
 
   /** Number of entries in `logs`, which is `tree_count`. */
   ptrdiff_t log_count;
+
+  /**
+   * Every commit the default branch reaches, in the order of its log, for the contributions
+   * calendar.
+   */
+  struct Contribution* contributions;
+
+  /** Number of entries in `contributions`. */
+  ptrdiff_t contribution_count;
 
   /** Hex id of every commit a branch or a tag reaches, sorted bytewise, each once. */
   struct Str* commits;

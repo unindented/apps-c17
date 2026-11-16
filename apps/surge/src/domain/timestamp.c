@@ -20,28 +20,14 @@ enum { TIMESTAMP_OFFSET_MINUTES_MAX = 23 * 60 + 59 };
 /** Latest local time RFC 3339 writes, `9999-12-31T23:59:59`, in seconds since the Unix epoch. */
 #define TIMESTAMP_SECONDS_MAX INT64_C(253402300799)
 
-/** A calendar date in the proleptic Gregorian calendar. */
-struct CivilDate {
-  /** Year, such as `2026`. */
-  int64_t year;
-
-  /** Month, `1` to `12`. */
-  int month;
-
-  /** Day of the month, `1` to `31`. */
-  int day;
-};
-
 /**
- * @brief Returns the calendar date of a day number, counted from 1970-01-01.
+ * @brief Returns the day number of a local time and the second within that day.
  *
- * This is Howard Hinnant's `civil_from_days`, which works in 400-year eras, so it is exact for
- * every day an `int64_t` time can name and needs no table.
- *
- * @param days Days since 1970-01-01, negative before it.
- * @return The date.
+ * @param local             Local time in seconds since the Unix epoch.
+ * @param second_of_day_out Receives the second within the day, `0` to `86399`. Must not be `NULL`.
+ * @return The day number, negative before 1970-01-01.
  */
-static struct CivilDate civil_from_days(int64_t days);
+static int64_t split_day(int64_t local, int64_t* second_of_day_out) __attribute__((nonnull(2)));
 
 struct Str timestamp_format_rfc3339(int64_t seconds, int offset_minutes, struct Arena* arena) {
   // libgit2 parses a time and an offset with no range check, so either can be out of range.
@@ -59,14 +45,8 @@ struct Str timestamp_format_rfc3339(int64_t seconds, int offset_minutes, struct 
     offset_minutes = 0;
   }
   const int64_t local = is_in_range ? seconds + offset_seconds : 0;
-  // Floor division, so a time before the epoch falls on the day before, not the day after.
-  int64_t days = local / TIMESTAMP_DAY_SECONDS;
-  int64_t second_of_day = local % TIMESTAMP_DAY_SECONDS;
-  if (second_of_day < 0) {
-    second_of_day += TIMESTAMP_DAY_SECONDS;
-    days--;
-  }
-  const struct CivilDate date = civil_from_days(days);
+  int64_t second_of_day = 0;
+  const struct CivilDate date = timestamp_civil_date(split_day(local, &second_of_day));
   struct Buf text = {.arena = arena};
   buf_printf(&text, "%04" PRId64 "-%02d-%02dT%02d:%02d:%02d", date.year, date.month, date.day,
              (int)(second_of_day / 3600), (int)(second_of_day / 60 % 60),
@@ -82,7 +62,21 @@ struct Str timestamp_format_rfc3339(int64_t seconds, int offset_minutes, struct 
   return buf_str(&text);
 }
 
-static struct CivilDate civil_from_days(int64_t days) {
+bool timestamp_is_writable(int64_t seconds, int offset_minutes) {
+  // The time is bounded before the offset is added, so the sum cannot overflow.
+  if (seconds < TIMESTAMP_SECONDS_MIN || seconds > TIMESTAMP_SECONDS_MAX) {
+    return false;
+  }
+  const int64_t local = seconds + (int64_t)offset_minutes * 60;
+  return local >= TIMESTAMP_SECONDS_MIN && local <= TIMESTAMP_SECONDS_MAX;
+}
+
+int64_t timestamp_local_day(int64_t seconds, int offset_minutes) {
+  int64_t second_of_day = 0;
+  return split_day(seconds + (int64_t)offset_minutes * 60, &second_of_day);
+}
+
+struct CivilDate timestamp_civil_date(int64_t days) {
   const int64_t z = days + 719468;
   const int64_t era = (z >= 0 ? z : z - 146096) / 146097;
   const int64_t day_of_era = z - era * 146097;
@@ -95,4 +89,16 @@ static struct CivilDate civil_from_days(int64_t days) {
   const int month = (int)(month_index < 10 ? month_index + 3 : month_index - 9);
   const int64_t year = year_of_era + era * 400 + (month <= 2 ? 1 : 0);
   return (struct CivilDate){.year = year, .month = month, .day = day};
+}
+
+static int64_t split_day(int64_t local, int64_t* second_of_day_out) {
+  // Floor division, so a time before the epoch falls on the day before, not the day after.
+  int64_t days = local / TIMESTAMP_DAY_SECONDS;
+  int64_t second_of_day = local % TIMESTAMP_DAY_SECONDS;
+  if (second_of_day < 0) {
+    second_of_day += TIMESTAMP_DAY_SECONDS;
+    days--;
+  }
+  *second_of_day_out = second_of_day;
+  return days;
 }
