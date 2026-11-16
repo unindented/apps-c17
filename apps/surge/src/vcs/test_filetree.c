@@ -9,6 +9,7 @@
 #include "core/log.h"
 #include "core/path.h"
 #include "core/str.h"
+#include "core/text.h"
 #include "domain/repo_model.h"
 #include "testing/test_support.h"
 #include "vcs/filetree.h"
@@ -55,48 +56,59 @@ static const struct TreeEntry* find_entry(const struct TreeDir* dir, struct Str 
   return NULL;
 }
 
+/** One entry of the root tree that `write_repo` writes. */
+struct RootEntry {
+  /** Terminated name. */
+  const char* name;
+
+  /** Mode: a blob, a symlink or a gitlink. */
+  git_filemode_t mode;
+
+  /** The bytes of a blob or a symlink, or a gitlink's commit as hex. */
+  struct Str content;
+};
+
 /**
- * @brief Makes a bare repository at `r.git` below `root_dir` with one commit, whose tree holds a
- *        symlink `exact` to `exact_target` and a symlink `long` to `long_target`. libgit2 must be
- *        set up.
+ * @brief Makes a bare repository at `r.git` below `root_dir` with one commit, whose root tree holds
+ *        `entries`. libgit2 must be set up.
  *
- * @param root_dir     Terminated path of the fixture root. Must not be `NULL`.
- * @param exact_target Target of `exact`.
- * @param long_target  Target of `long`.
- * @param arena        Arena that owns the commit's id. Must not be `NULL`.
- * @param branch_out   Receives a branch `main` that names the commit. Must not be `NULL`.
+ * @param root_dir    Terminated path of the fixture root. Must not be `NULL`.
+ * @param entries     Entries of the root tree. Must not be `NULL`.
+ * @param entry_count Number of entries in `entries`.
+ * @param arena       Arena that owns the commit's id. Must not be `NULL`.
+ * @param branch_out  Receives a branch `main` that names the commit. Must not be `NULL`.
  * @return `0` on success, or `-1` after recording a test-plumbing failure.
  */
-static int write_symlink_repo(const char* root_dir,
-                              struct Str exact_target,
-                              struct Str long_target,
-                              struct Arena* arena,
-                              struct Ref* branch_out) {
+static int write_repo(const char* root_dir,
+                      const struct RootEntry* entries,
+                      ptrdiff_t entry_count,
+                      struct Arena* arena,
+                      struct Ref* branch_out) {
   const struct Str path = path_join(str_from_cstr(root_dir), S("r.git"), arena);
   git_repository* git = NULL;
   git_treebuilder* builder = NULL;
   git_tree* tree = NULL;
   git_signature* signature = NULL;
-  git_oid exact_oid;
-  git_oid long_oid;
   git_oid tree_oid;
   git_oid commit_oid;
-  const bool is_written =
-      TEST_CHECK(git_repository_init(&git, str_cstr(path, arena), 1) == 0) &&
-      TEST_CHECK(git_blob_create_from_buffer(&exact_oid, git, exact_target.data,
-                                             (size_t)exact_target.len) == 0) &&
-      TEST_CHECK(git_blob_create_from_buffer(&long_oid, git, long_target.data,
-                                             (size_t)long_target.len) == 0) &&
-      TEST_CHECK(git_treebuilder_new(&builder, git, NULL) == 0) &&
-      TEST_CHECK(git_treebuilder_insert(NULL, builder, "exact", &exact_oid, GIT_FILEMODE_LINK) ==
-                 0) &&
-      TEST_CHECK(git_treebuilder_insert(NULL, builder, "long", &long_oid, GIT_FILEMODE_LINK) ==
-                 0) &&
-      TEST_CHECK(git_treebuilder_write(&tree_oid, builder) == 0) &&
-      TEST_CHECK(git_tree_lookup(&tree, git, &tree_oid) == 0) &&
-      TEST_CHECK(git_signature_new(&signature, "A", "a@example.org", 0, 0) == 0) &&
-      TEST_CHECK(git_commit_create(&commit_oid, git, NULL, signature, signature, NULL, "m", tree, 0,
-                                   NULL) == 0);
+  bool is_written = TEST_CHECK(git_repository_init(&git, str_cstr(path, arena), 1) == 0) &&
+                    TEST_CHECK(git_treebuilder_new(&builder, git, NULL) == 0);
+  for (ptrdiff_t i = 0; is_written && i < entry_count; i++) {
+    const struct RootEntry* entry = &entries[i];
+    git_oid oid;
+    is_written = entry->mode == GIT_FILEMODE_COMMIT
+                     ? TEST_CHECK(git_oid_fromstrn(&oid, entry->content.data,
+                                                   (size_t)entry->content.len) == 0)
+                     : TEST_CHECK(git_blob_create_from_buffer(&oid, git, entry->content.data,
+                                                              (size_t)entry->content.len) == 0);
+    is_written = is_written && TEST_CHECK(git_treebuilder_insert(NULL, builder, entry->name, &oid,
+                                                                 entry->mode) == 0);
+  }
+  is_written = is_written && TEST_CHECK(git_treebuilder_write(&tree_oid, builder) == 0) &&
+               TEST_CHECK(git_tree_lookup(&tree, git, &tree_oid) == 0) &&
+               TEST_CHECK(git_signature_new(&signature, "A", "a@example.org", 0, 0) == 0) &&
+               TEST_CHECK(git_commit_create(&commit_oid, git, NULL, signature, signature, NULL, "m",
+                                            tree, 0, NULL) == 0);
   git_signature_free(signature);
   git_tree_free(tree);
   git_treebuilder_free(builder);
@@ -111,6 +123,41 @@ static int write_symlink_repo(const char* root_dir,
       .commit_oid = repository_oid_text(&commit_oid, arena),
   };
   return 0;
+}
+
+/**
+ * @brief Loads the tree of a repository whose root holds `.gitmodules` with `text`, and the
+ *        gitlinks `a` and `b`.
+ *
+ * @param text     Terminated text of `.gitmodules`. Must not be `NULL`.
+ * @param arena    Arena that owns the tree. Must not be `NULL`.
+ * @param tree_out Receives the tree. Must not be `NULL`.
+ * @param log      Log that receives the warnings. Must not be `NULL`.
+ * @return `0` when the tree loaded, or `-1` otherwise.
+ */
+static int load_gitmodules_repo(const char* text,
+                                struct Arena* arena,
+                                struct BranchTree* tree_out,
+                                struct Log* log) {
+  char root_template[] = "/tmp/surge-filetree.XXXXXX";
+  if (init_fixture_dir(root_template) != 0) {
+    return -1;
+  }
+  const struct RootEntry entries[] = {
+      {".gitmodules", GIT_FILEMODE_BLOB, str_from_cstr(text)},
+      {"a", GIT_FILEMODE_COMMIT, S("1111111111111111111111111111111111111111")},
+      {"b", GIT_FILEMODE_COMMIT, S("2222222222222222222222222222222222222222")},
+  };
+  struct Ref branch = {0};
+  struct Repository repository = {0};
+  const struct Str path = path_join(str_from_cstr(root_template), S("r.git"), arena);
+  const bool is_loaded = TEST_CHECK(repository_setup(log) == 0) &&
+                         write_repo(root_template, entries, 3, arena, &branch) == 0 &&
+                         TEST_CHECK(repository_open(&repository, path, S("r"), arena, log) == 0) &&
+                         TEST_CHECK(filetree_load(tree_out, &repository, &branch, arena, log) == 0);
+  repository_close(&repository);
+  remove_fixture_tree(root_template);
+  return is_loaded ? 0 : -1;
 }
 
 // A directory lists its directories first and then the rest, each group in byte order, and the
@@ -273,13 +320,17 @@ static void test_load_cuts_long_link_targets_with_a_warning(void) {
                                             S("\xC3\xA9"
                                               "b"),
                                             &arena);
+  const struct RootEntry entries[] = {
+      {"exact", GIT_FILEMODE_LINK, exact_target},
+      {"long", GIT_FILEMODE_LINK, long_target},
+  };
   struct Ref branch = {0};
   struct Repository repository = {0};
   struct BranchTree tree = {0};
   const struct Str path = path_join(str_from_cstr(root_template), S("r.git"), &arena);
   const bool is_loaded =
       TEST_CHECK(repository_setup(&log) == 0) &&
-      write_symlink_repo(root_template, exact_target, long_target, &arena, &branch) == 0 &&
+      write_repo(root_template, entries, 2, &arena, &branch) == 0 &&
       TEST_CHECK(repository_open(&repository, path, S("r"), &arena, &log) == 0) &&
       TEST_CHECK(filetree_load(&tree, &repository, &branch, &arena, &log) == 0);
   repository_close(&repository);
@@ -297,6 +348,58 @@ static void test_load_cuts_long_link_targets_with_a_warning(void) {
   TEST_CHECK(cut->len == 4098 && str_eq(cut->link_target, str_head(long_target, 4095)));
 }
 
+// Each gitlink gets the URL of the submodule of its path in the root's `.gitmodules`, and one that
+// no submodule names, or whose submodule has no `url`, gets none.
+static void test_load_gives_gitlinks_their_submodule_urls(void) {
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  struct BranchTree tree = {0};
+  TEST_ASSERT(load_gitmodules_repo("[submodule \"a\"]\n\tpath = a\n\turl = ../a.git\n"
+                                   "[submodule \"c\"]\n\tpath = c\n\turl = ../c.git\n",
+                                   &arena, &tree, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log) && log.warning_buf.len == 0);
+  const struct TreeEntry* a = find_entry(&tree.dirs[0], S("a"));
+  const struct TreeEntry* b = find_entry(&tree.dirs[0], S("b"));
+  TEST_ASSERT(a != NULL && b != NULL);
+  TEST_CHECK(test_text_is(a->submodule_url, "../a.git"));
+  TEST_CHECK(b->submodule_url.len == 0);
+}
+
+// Two submodules of one path give its gitlink no URL, with one warning, and leave the others.
+static void test_load_warns_of_submodules_that_share_a_path(void) {
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  struct BranchTree tree = {0};
+  TEST_ASSERT(load_gitmodules_repo("[submodule \"a\"]\n\tpath = a\n\turl = ../a.git\n"
+                                   "[submodule \"a2\"]\n\tpath = a\n\turl = ../a2.git\n"
+                                   "[submodule \"b\"]\n\tpath = b\n\turl = ../b.git\n",
+                                   &arena, &tree, &log) == 0);
+  TEST_CHECK(test_text_is(buf_str(&log.warning_buf),
+                          "warning: submodules of '.gitmodules' share a path, so none of them has "
+                          "a link: 'a' (in repo 'r', branch 'main')\n"));
+  const struct TreeEntry* a = find_entry(&tree.dirs[0], S("a"));
+  const struct TreeEntry* b = find_entry(&tree.dirs[0], S("b"));
+  TEST_ASSERT(a != NULL && b != NULL);
+  TEST_CHECK(a->submodule_url.len == 0 && test_text_is(b->submodule_url, "../b.git"));
+}
+
+// A `.gitmodules` that does not parse gives no gitlink a URL, with one warning.
+static void test_load_warns_of_gitmodules_that_does_not_parse(void) {
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  struct BranchTree tree = {0};
+  TEST_ASSERT(load_gitmodules_repo("[submodule \"a\"]\n\tpath = a\n\turl = ../a.git\n[broken\n",
+                                   &arena, &tree, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  const struct Str warnings = buf_str(&log.warning_buf);
+  TEST_CHECK(str_startswith(warnings, S("warning: failed to parse '.gitmodules', so no submodule "
+                                        "has a link: ")));
+  TEST_CHECK(text_has_suffix_folded(warnings, S(" (in repo 'r', branch 'main')\n")));
+  const struct TreeEntry* a = find_entry(&tree.dirs[0], S("a"));
+  TEST_ASSERT(a != NULL);
+  TEST_CHECK(a->submodule_url.len == 0);
+}
+
 TEST_LIST = {
     {"load lists directories first in byte order", test_load_lists_directories_first_in_byte_order},
     {"load reads kinds sizes and link targets", test_load_reads_kinds_sizes_and_link_targets},
@@ -304,5 +407,9 @@ TEST_LIST = {
     {"load sorts the paths links resolve to", test_load_sorts_the_paths_links_resolve_to},
     {"load unlinks unusable names with warnings", test_load_unlinks_unusable_names_with_warnings},
     {"load cuts long link targets with a warning", test_load_cuts_long_link_targets_with_a_warning},
+    {"load gives gitlinks their submodule urls", test_load_gives_gitlinks_their_submodule_urls},
+    {"load warns of submodules that share a path", test_load_warns_of_submodules_that_share_a_path},
+    {"load warns of gitmodules that does not parse",
+     test_load_warns_of_gitmodules_that_does_not_parse},
     {NULL, NULL},
 };

@@ -18,6 +18,7 @@ target_sources(
           release_writer.c
           repo_pages.c
           repo_scan.c
+          submodule_link.c
           template_value.c
   PUBLIC FILE_SET HEADERS
          BASE_DIRS "${PROJECT_SOURCE_DIR}/src"
@@ -39,6 +40,7 @@ target_sources(
                release_writer.h
                repo_pages.h
                repo_scan.h
+               submodule_link.h
                template_value.h
 )
 
@@ -57,6 +59,7 @@ if(APPS_BUILD_TESTING)
           page_release
           page_tree
           readme
+          submodule_link
   )
     apps_add_unit_test(${module})
   endforeach()

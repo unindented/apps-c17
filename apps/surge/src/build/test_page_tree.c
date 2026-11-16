@@ -176,7 +176,7 @@ static struct Str symlink_link_url(const char* target, ptrdiff_t len) {
   const struct TreeDir dir = {.path = S("lib"), .entries = &link, .entry_count = 1};
   struct Arena arena = test_arena();
   const struct TemplateValue* entries =
-      page_tree_entries(&fixture.repo, &fixture.tree, &dir, S("../"), &arena);
+      page_tree_entries(&fixture.site_config, &fixture.repo, &fixture.tree, &dir, S("../"), &arena);
   TEST_CHECK(template_value_find(entries->items[0], S("url"))->text.len == 0);
   return template_value_find(entries->items[0], S("link_url"))->text;
 }

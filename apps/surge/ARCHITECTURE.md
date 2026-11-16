@@ -64,6 +64,7 @@ The header of each module documents its interface.
 - [release_scan](src/build/release_scan.h): The release projects, releases and assets of a repo, and their warnings.
 - [release_writer](src/build/release_writer.h): The release outputs of a repo.
 - [readme](src/build/readme.h): Finds and renders the documents of a directory, and resolves their links.
+- [submodule_link](src/build/submodule_link.h): Shows a submodule's URL without its credentials, and links its commit in a repo of the site or on a known forge.
 - [highlight_diff](src/build/highlight_diff.h): Highlights the two sides of a changed file for its diff.
 - [page_context](src/build/page_context.h), [page_paths](src/build/page_paths.h): The maps that every page shares, and the output paths and links of the pages of a branch.
 - [page_index](src/build/page_index.h), [page_tree](src/build/page_tree.h), [page_blob](src/build/page_blob.h), [page_log](src/build/page_log.h), [page_commit](src/build/page_commit.h), [page_refs](src/build/page_refs.h), [page_release](src/build/page_release.h), [page_feed](src/build/page_feed.h): The data tree of each kind of page. [README.md](README.md#data-trees) lists their keys.
@@ -80,7 +81,8 @@ The header of each module documents its interface.
 - [repository](src/vcs/repository.h): The libgit2 setup, opening a repository, reading a blob, object ids, and `repository_fail`.
 - [refset](src/vcs/refset.h): Loads and checks every branch and tag, and formats `info/refs`.
 - [revision](src/vcs/revision.h): The default branch, commits and their trailers, what the contributions calendar reads of a commit, tag notes, a branch's log, and every commit that a ref reaches.
-- [filetree](src/vcs/filetree.h): Walks and checks a branch's tree.
+- [filetree](src/vcs/filetree.h): Walks and checks a branch's tree, and gives each gitlink its URL from the root's `.gitmodules`.
+- [gitmodules](src/vcs/gitmodules.h): Parses the text of a `.gitmodules` file with libgit2's config parser, from memory, so each branch reads its own and no work tree is needed.
 - [changeset](src/vcs/changeset.h): Diffs a commit against its first parent, with the caps.
 - [pack_export](src/vcs/pack_export.h): Writes the clone pack and its idx, and formats `objects/info/packs`.
 
@@ -165,7 +167,7 @@ mustache4c looks up a name that a map does not hold in the enclosing scopes. So 
 
 [BUILD.md](../../BUILD.md#surge-tests) describes how CTest runs the tests.
 
-- **Unit tests.** Most modules have an acutest file. The six `vcs/` suites and `cmd_build` read real fixture repositories through libgit2, so they run on the POSIX host. `page_context`, `page_index`, `release_scan`, `release_writer`, `repo_pages` and `repo_scan` have no suite of their own, and the golden tests run them.
+- **Unit tests.** Most modules have an acutest file. Six of the seven `vcs/` suites and `cmd_build` read real fixture repositories through libgit2, so they run on the POSIX host. `page_context`, `page_index`, `release_scan`, `release_writer`, `repo_pages` and `repo_scan` have no suite of their own, and the golden tests run them.
 - **Fixture repositories.** [tests/repos/](tests/repos/) holds hand-written `git fast-import` streams with fixed dates, so their object ids never change. [cmake/surge_make_fixture_repos.cmake](cmake/surge_make_fixture_repos.cmake) replays them and adds what `git fast-import` refuses, such as nested tags, hostile tree names, an empty repository, and refs that collide in case or by prefix.
 - **Golden tests.** [cmake/surge_run_golden.cmake](cmake/surge_run_golden.cmake) builds [tests/fixtures/site/](tests/fixtures/site/) with one, two and eight workers, compares the output with [tests/expected/site/](tests/expected/site/) byte for byte, and checks what dry runs write, keep and remove after it changes the inputs. Each `tests/fixtures/refuse-*` site must fail with the exact `stderr` in `tests/expected/refuse-*/stderr.txt`. The refusals are case-colliding branches, a ref prefix, a project `path` that names no directory, a `releases_dir` that is a file, static entries named like a repo, and an empty `templates_dir`.
 - **Clone and mise tests.** [tests/clone_test.py](tests/clone_test.py) clones every `<r>.git` over dumb HTTP from a host that answers a missing path with 404. It then checks the corrupt-object errors of a clone from a host that answers with 200. [tests/mise_test.py](tests/mise_test.py) installs the fixture's `alpha` project with mise, and checks that a tampered `SHA256SUMS` or archive fails.

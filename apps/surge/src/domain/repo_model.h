@@ -177,7 +177,7 @@ enum TreeEntryKind {
   /** A symlink, a row with its target text and a link to its target, which gets no page. */
   TREE_ENTRY_SYMLINK,
 
-  /** A gitlink, a submodule's commit, a row that links nowhere. */
+  /** A gitlink, a submodule's commit, a row that links its commit when its URL allows. */
   TREE_ENTRY_GITLINK,
 };
 
@@ -200,6 +200,12 @@ struct TreeEntry {
 
   /** A symlink's target, or empty for another kind. */
   struct Str link_target;
+
+  /**
+   * A gitlink's URL as the branch's `.gitmodules` writes it, or empty for another kind, and for a
+   * gitlink that no submodule, or more than one, names.
+   */
+  struct Str submodule_url;
 
   /**
    * Whether the entry gets pages. A name a page cannot use, one that collides with another in its

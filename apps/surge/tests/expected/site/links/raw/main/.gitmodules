@@ -1,0 +1,9 @@
+[submodule "three.js"]
+	path = vendor/three.js
+	url = https://github.com/mrdoob/three.js.git
+[submodule "showcase"]
+	path = vendor/showcase
+	url = ../showcase.git
+[submodule "elsewhere"]
+	path = vendor/elsewhere
+	url = ssh://git@git.example.com/elsewhere.git

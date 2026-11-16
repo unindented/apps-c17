@@ -2,14 +2,17 @@
 # outside `os/os.h`, so its tests run on the POSIX host.
 target_sources(
   surge_app
-  PRIVATE changeset.c filetree.c pack_export.c refset.c repository.c revision.c
+  PRIVATE changeset.c filetree.c gitmodules.c pack_export.c refset.c repository.c revision.c
   PUBLIC FILE_SET HEADERS
          BASE_DIRS "${PROJECT_SOURCE_DIR}/src"
-         FILES changeset.h filetree.h pack_export.h refset.h repository.h revision.h
+         FILES changeset.h filetree.h gitmodules.h pack_export.h refset.h repository.h revision.h
 )
 target_link_libraries(surge_app PRIVATE vendor_libgit2)
 
 if(APPS_BUILD_TESTING)
+  # The parse of `.gitmodules` reads text, so its test needs no repository.
+  apps_add_unit_test(gitmodules)
+  target_link_libraries(surge_unit_gitmodules PRIVATE vendor_libgit2)
   # The tests that read a repository share the fixture repositories, which one setup test makes
   # from their streams before them, so they need git.
   find_program(SURGE_GIT git)

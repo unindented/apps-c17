@@ -69,6 +69,20 @@ function(apps_golden_check_dry_run_keeps)
   endforeach()
 endfunction()
 
+# git refuses a tree that holds a `.gitmodules` entry other than a file, at any depth, so a push of
+# an expected tree with a `.gitmodules` directory fails, as with surge's blob page of a repository's
+# `.gitmodules`. Such an expected output is stored below `.gitmodules.dir` instead, and these map a
+# relative name between the expected tree and the output.
+function(apps_golden_actual_name stored out_var)
+  string(REGEX REPLACE "(^|/)\\.gitmodules\\.dir/" "\\1.gitmodules/" name "${stored}")
+  set(${out_var} "${name}" PARENT_SCOPE)
+endfunction()
+
+function(apps_golden_stored_name actual out_var)
+  string(REGEX REPLACE "(^|/)\\.gitmodules/" "\\1.gitmodules.dir/" name "${actual}")
+  set(${out_var} "${name}" PARENT_SCOPE)
+endfunction()
+
 # Compares the tree `ACTUAL_DIR` with `EXPECTED_DIR`, leaving out the files of `ACTUAL_DIR` that
 # `EXCLUDE` lists. Each side's names are looked up on the other side's filesystem rather than
 # compared as strings: a sync tool may rewrite a checked-out name's Unicode normalization, which
@@ -76,6 +90,7 @@ endfunction()
 # matches `VERSIONED` has `@PROJECT_VERSION@` in its expected copy stand for `VERSION`. A file whose
 # path matches `SIZE_ONLY` need only be non-empty, for bytes that vary with a codec's version. Every
 # other file is compared byte for byte. `SCRATCH_DIR` holds the expected copy of a versioned file.
+# An expected name with a `.gitmodules.dir` directory stands for `.gitmodules`, as above.
 function(apps_golden_compare_trees)
   cmake_parse_arguments(
     PARSE_ARGV 0 arg "" "EXPECTED_DIR;ACTUAL_DIR;SCRATCH_DIR;VERSION;VERSIONED;SIZE_ONLY" "EXCLUDE"
@@ -90,8 +105,9 @@ function(apps_golden_compare_trees)
 
   set(missing_files)
   foreach(file IN LISTS expected_files)
-    if(NOT EXISTS "${arg_ACTUAL_DIR}/${file}")
-      list(APPEND missing_files "${file}")
+    apps_golden_actual_name("${file}" actual_name)
+    if(NOT EXISTS "${arg_ACTUAL_DIR}/${actual_name}")
+      list(APPEND missing_files "${actual_name}")
     endif()
   endforeach()
   if(missing_files)
@@ -100,7 +116,8 @@ function(apps_golden_compare_trees)
   endif()
   set(extra_files)
   foreach(file IN LISTS actual_files)
-    if(NOT EXISTS "${arg_EXPECTED_DIR}/${file}")
+    apps_golden_stored_name("${file}" stored_name)
+    if(NOT EXISTS "${arg_EXPECTED_DIR}/${stored_name}")
       list(APPEND extra_files "${file}")
     endif()
   endforeach()
@@ -110,10 +127,11 @@ function(apps_golden_compare_trees)
   endif()
 
   foreach(file IN LISTS expected_files)
+    apps_golden_actual_name("${file}" actual_name)
     if(arg_SIZE_ONLY AND file MATCHES "${arg_SIZE_ONLY}")
-      file(SIZE "${arg_ACTUAL_DIR}/${file}" actual_len)
+      file(SIZE "${arg_ACTUAL_DIR}/${actual_name}" actual_len)
       if(actual_len EQUAL 0)
-        message(FATAL_ERROR "generated output is empty: '${file}'")
+        message(FATAL_ERROR "generated output is empty: '${actual_name}'")
       endif()
       continue()
     endif()
@@ -125,12 +143,12 @@ function(apps_golden_compare_trees)
       file(WRITE "${expected_path}" "${expected_text}")
     endif()
     execute_process(
-      COMMAND "${CMAKE_COMMAND}" -E compare_files "${expected_path}" "${arg_ACTUAL_DIR}/${file}"
+      COMMAND "${CMAKE_COMMAND}" -E compare_files "${expected_path}" "${arg_ACTUAL_DIR}/${actual_name}"
       RESULT_VARIABLE compare_result
       OUTPUT_QUIET ERROR_QUIET
     )
     if(NOT compare_result EQUAL 0)
-      message(FATAL_ERROR "output differs from expected: '${file}'")
+      message(FATAL_ERROR "output differs from expected: '${actual_name}'")
     endif()
   endforeach()
 endfunction()

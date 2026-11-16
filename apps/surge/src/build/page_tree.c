@@ -6,6 +6,7 @@
 #include "build/page_context.h"
 #include "build/page_paths.h"
 #include "build/page_refs.h"
+#include "build/submodule_link.h"
 #include "build/template_value.h"
 #include "core/arena.h"
 #include "core/buf.h"
@@ -73,6 +74,7 @@ static struct TemplateValue* page_tree_value_documents(const struct RepoModel* r
 /**
  * @brief Returns the map of one entry of a listing.
  *
+ * @param site_config  Configuration of the build. Must not be `NULL`.
  * @param repo         What the scan found for the repo. Must not be `NULL`.
  * @param tree         Tree of the branch. Must not be `NULL`.
  * @param entry        Entry to show. Must not be `NULL`.
@@ -80,12 +82,13 @@ static struct TemplateValue* page_tree_value_documents(const struct RepoModel* r
  * @param arena        Arena that owns the map. Must not be `NULL`.
  * @return The map.
  */
-static struct TemplateValue* page_tree_entries_one(const struct RepoModel* repo,
+static struct TemplateValue* page_tree_entries_one(const struct SiteConfig* site_config,
+                                                   const struct RepoModel* repo,
                                                    const struct BranchTree* tree,
                                                    const struct TreeEntry* entry,
                                                    struct Str path_to_root,
                                                    struct Arena* arena)
-    __attribute__((nonnull(1, 2, 3, 5), returns_nonnull));
+    __attribute__((nonnull(1, 2, 3, 4, 6), returns_nonnull));
 
 /**
  * @brief Returns the link of a symlink's row to its target: the blob page of a file, the tree page
@@ -159,7 +162,7 @@ struct TemplateValue* page_tree_value(const struct SiteConfig* site_config,
     template_value_set(value, S("breadcrumbs"),
                        page_tree_breadcrumbs(repo, tree, dir->path, path_to_root, arena), arena);
     template_value_set(value, S("tree_entries"),
-                       page_tree_entries(repo, tree, dir, path_to_root, arena), arena);
+                       page_tree_entries(site_config, repo, tree, dir, path_to_root, arena), arena);
     template_value_set(
         value, S("documents"),
         page_tree_value_documents(repo, tree, documents, document_count, path_to_root, arena),
@@ -178,14 +181,16 @@ struct Str page_tree_home_path(struct Str repo_name, struct Arena* arena) {
   return str_concat(str_concat(repo_name, S("/"), arena), PAGE_TREE_HOME_PAGE, arena);
 }
 
-struct TemplateValue* page_tree_entries(const struct RepoModel* repo,
+struct TemplateValue* page_tree_entries(const struct SiteConfig* site_config,
+                                        const struct RepoModel* repo,
                                         const struct BranchTree* tree,
                                         const struct TreeDir* dir,
                                         struct Str path_to_root,
                                         struct Arena* arena) {
   struct TemplateValue* list = template_value_list(dir->entry_count, arena);
   for (ptrdiff_t i = 0; i < dir->entry_count; i++) {
-    list->items[i] = page_tree_entries_one(repo, tree, &dir->entries[i], path_to_root, arena);
+    list->items[i] =
+        page_tree_entries_one(site_config, repo, tree, &dir->entries[i], path_to_root, arena);
   }
   return list;
 }
@@ -254,7 +259,8 @@ static struct TemplateValue* page_tree_value_documents(const struct RepoModel* r
   return list;
 }
 
-static struct TemplateValue* page_tree_entries_one(const struct RepoModel* repo,
+static struct TemplateValue* page_tree_entries_one(const struct SiteConfig* site_config,
+                                                   const struct RepoModel* repo,
                                                    const struct BranchTree* tree,
                                                    const struct TreeEntry* entry,
                                                    struct Str path_to_root,
@@ -279,6 +285,15 @@ static struct TemplateValue* page_tree_entries_one(const struct RepoModel* repo,
   template_value_set_text(map, S("link_url"),
                           page_tree_entries_one_link_url(repo, tree, entry, path_to_root, arena),
                           arena);
+  template_value_set_text(map, S("submodule_url"),
+                          submodule_link_shown_url(entry->submodule_url, arena), arena);
+  template_value_set_text(
+      map, S("submodule_commit_url"),
+      entry->submodule_url.len > 0
+          ? submodule_link_commit_url(entry->submodule_url, entry->oid, site_config, repo_name,
+                                      path_to_root, arena)
+          : (struct Str){0},
+      arena);
   template_value_set_text(map, S("oid"), entry->oid, arena);
   struct Buf size = {.arena = arena};
   if (entry->kind != TREE_ENTRY_DIR && entry->kind != TREE_ENTRY_GITLINK) {

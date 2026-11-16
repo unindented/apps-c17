@@ -14,6 +14,7 @@
 #include "core/text.h"
 #include "core/utf8.h"
 #include "domain/repo_model.h"
+#include "vcs/gitmodules.h"
 #include "vcs/repository.h"
 
 /**
@@ -58,6 +59,41 @@ struct FiletreeWalk {
  */
 static void filetree_load_index(struct BranchTree* tree, const struct FiletreeWalk* walk)
     __attribute__((nonnull(1, 2)));
+
+/**
+ * @brief Gives each gitlink of a finished walk the URL of the submodule of its path in the root's
+ *        `.gitmodules`, when the root has that file as a regular or executable file.
+ *
+ * A file that does not parse gives no gitlink a URL, and a path that more than one submodule names
+ * gives none to its gitlink, each with one warning.
+ *
+ * @param walk The finished walk. Must not be `NULL`.
+ * @return `0` on success, or `-1` when the file cannot be read.
+ */
+static int filetree_load_gitmodules(struct FiletreeWalk* walk) __attribute__((nonnull(1)));
+
+/**
+ * @brief Warns once for each path that more than one submodule names.
+ *
+ * @param walk       The finished walk. Must not be `NULL`.
+ * @param gitmodules Submodules sorted by path. Must not be `NULL` unless `count` is `0`.
+ * @param count      Number of entries in `gitmodules`.
+ */
+static void filetree_load_gitmodules_warn_shared(const struct FiletreeWalk* walk,
+                                                 const struct Gitmodule* gitmodules,
+                                                 ptrdiff_t count) __attribute__((nonnull(1)));
+
+/**
+ * @brief Returns the URL of the one submodule of `path`.
+ *
+ * @param gitmodules Submodules sorted by path. Must not be `NULL` unless `count` is `0`.
+ * @param count      Number of entries in `gitmodules`.
+ * @param path       Path of a gitlink.
+ * @return The URL, or empty when no submodule, or more than one, names the path.
+ */
+static struct Str filetree_load_gitmodules_url(const struct Gitmodule* gitmodules,
+                                               ptrdiff_t count,
+                                               struct Str path);
 
 /**
  * @brief Reads one directory's entries, checks their names, sorts them, and queues the linked
@@ -212,6 +248,9 @@ int filetree_load(struct BranchTree* tree,
   for (ptrdiff_t i = 0; rc == 0 && i < walk.dir_count; i++) {
     rc = filetree_load_dir(&walk, i);
   }
+  if (rc == 0) {
+    rc = filetree_load_gitmodules(&walk);
+  }
   git_odb_free(odb);
   if (rc != 0) {
     return -1;
@@ -267,6 +306,93 @@ static void filetree_load_index(struct BranchTree* tree, const struct FiletreeWa
   if (tree->dir_path_count > 0) {
     qsort(tree->dir_paths, (size_t)tree->dir_path_count, sizeof(*tree->dir_paths), compare_paths);
   }
+}
+
+static int filetree_load_gitmodules(struct FiletreeWalk* walk) {
+  // git reads `.gitmodules` only as a file, never through a symlink.
+  const struct TreeEntry* file = NULL;
+  for (ptrdiff_t i = 0; i < walk->dirs[0].entry_count; i++) {
+    const struct TreeEntry* entry = &walk->dirs[0].entries[i];
+    if (str_eq(entry->name, S(".gitmodules")) &&
+        (entry->kind == TREE_ENTRY_FILE || entry->kind == TREE_ENTRY_EXECUTABLE)) {
+      file = entry;
+    }
+  }
+  if (file == NULL) {
+    return 0;
+  }
+  git_oid oid;
+  git_blob* blob = NULL;
+  if (git_oid_fromstrn(&oid, file->oid.data, (size_t)file->oid.len) != 0 ||
+      git_blob_lookup(&blob, walk->repository->git, &oid) != 0) {
+    return repository_fail(walk->repository, S("failed to read '.gitmodules'"), walk->log);
+  }
+  const struct Str text = {git_blob_rawcontent(blob), (ptrdiff_t)git_blob_rawsize(blob)};
+  struct Gitmodule* gitmodules = NULL;
+  ptrdiff_t count = 0;
+  struct Str reason = {0};
+  const int rc = gitmodules_parse(text, walk->perm, &gitmodules, &count, &reason);
+  git_blob_free(blob);
+  if (rc != 0) {
+    log_warn(walk->log,
+             "failed to parse '.gitmodules', so no submodule has a link: %.*s (in repo '%.*s', "
+             "branch '%.*s')",
+             STR_FMT(reason), STR_FMT(walk->repository->name), STR_FMT(walk->branch->short_name));
+    return 0;
+  }
+  filetree_load_gitmodules_warn_shared(walk, gitmodules, count);
+  for (ptrdiff_t i = 0; i < walk->dir_count; i++) {
+    for (ptrdiff_t j = 0; j < walk->dirs[i].entry_count; j++) {
+      struct TreeEntry* entry = &walk->dirs[i].entries[j];
+      if (entry->kind == TREE_ENTRY_GITLINK) {
+        entry->submodule_url = filetree_load_gitmodules_url(gitmodules, count, entry->path);
+      }
+    }
+  }
+  return 0;
+}
+
+static void filetree_load_gitmodules_warn_shared(const struct FiletreeWalk* walk,
+                                                 const struct Gitmodule* gitmodules,
+                                                 ptrdiff_t count) {
+  for (ptrdiff_t start = 0; start < count;) {
+    ptrdiff_t end = start + 1;
+    while (end < count && str_eq(gitmodules[end].path, gitmodules[start].path)) {
+      end++;
+    }
+    if (end - start > 1) {
+      struct Arena scratch = *walk->perm;
+      struct Buf printable = {.arena = &scratch};
+      append_printable(&printable, gitmodules[start].path);
+      const struct Str shown = buf_str(&printable);
+      log_warn(walk->log,
+               "submodules of '.gitmodules' share a path, so none of them has a link: '%.*s' (in "
+               "repo '%.*s', branch '%.*s')",
+               STR_FMT(shown), STR_FMT(walk->repository->name), STR_FMT(walk->branch->short_name));
+    }
+    start = end;
+  }
+}
+
+static struct Str filetree_load_gitmodules_url(const struct Gitmodule* gitmodules,
+                                               ptrdiff_t count,
+                                               struct Str path) {
+  ptrdiff_t low = 0;
+  ptrdiff_t high = count;
+  while (low < high) {
+    const ptrdiff_t middle = low + (high - low) / 2;
+    if (str_compare(gitmodules[middle].path, path) < 0) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  // `low` is the first submodule of the path, if any, and a second one makes the path ambiguous.
+  if (low == count || !str_eq(gitmodules[low].path, path) ||
+      (low + 1 < count && str_eq(gitmodules[low + 1].path, path))) {
+    return (struct Str){0};
+  }
+  return gitmodules[low].url;
 }
 
 static int filetree_load_dir(struct FiletreeWalk* walk, ptrdiff_t index) {

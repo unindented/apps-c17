@@ -80,3 +80,29 @@ M 120000 :10 absolute
 M 120000 :11 missing
 M 120000 :12 to-link
 
+blob
+mark :14
+data 259
+[submodule "three.js"]
+	path = vendor/three.js
+	url = https://github.com/mrdoob/three.js.git
+[submodule "showcase"]
+	path = vendor/showcase
+	url = ../showcase.git
+[submodule "elsewhere"]
+	path = vendor/elsewhere
+	url = ssh://git@git.example.com/elsewhere.git
+
+commit refs/heads/main
+mark :15
+author Ada Lovelace <ada@example.org> 1767960000 +0100
+committer Ada Lovelace <ada@example.org> 1767960000 +0100
+data 24
+Vendor three submodules
+
+from :13
+M 100644 :14 .gitmodules
+M 160000 4444444444444444444444444444444444444444 vendor/three.js
+M 160000 41fbd903fd4c50ffac2e0946a938d07f8c8e1457 vendor/showcase
+M 160000 5555555555555555555555555555555555555555 vendor/elsewhere
+

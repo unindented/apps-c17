@@ -42,6 +42,9 @@
 /** Number of each repo's own pages: its home and its branches and tags pages. */
 enum { REPO_PAGES_REPO_PAGE_COUNT = 3 };
 
+/** Index of the home among a repo's own pages, as `repo_page` orders them. */
+enum { REPO_PAGES_HOME_INDEX = 0 };
+
 /** Index of the branches page among a repo's own pages, as `repo_page` orders them. */
 enum { REPO_PAGES_BRANCHES_INDEX = 1 };
 
@@ -191,6 +194,7 @@ struct RepoPagesMake {
  * @param tree        Tree of the branch. Must not be `NULL`.
  * @param dir         The directory. Must not be `NULL`.
  * @param recipe_id   Id of the page recipe.
+ * @param repos_id    Id of the names of the site's repos, as `repos_key` gives it.
  * @param scratch     Arena for each path and its attributes before the manifest copies them.
  * @param log         Log that receives every refusal. Must not be `NULL`.
  * @return `0` when every path was recorded, or `-1` otherwise.
@@ -201,8 +205,9 @@ static int repo_pages_register_dir(struct ManifestBuilder* builder,
                                    const struct BranchTree* tree,
                                    const struct TreeDir* dir,
                                    struct Str recipe_id,
+                                   struct Str repos_id,
                                    struct Arena scratch,
-                                   struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 5, 8)));
+                                   struct Log* log) __attribute__((nonnull(1, 2, 3, 4, 5, 9)));
 
 /**
  * @brief Records one page with the attributes every page of its repo declares, `recipe=<id>` and
@@ -808,6 +813,17 @@ static struct Str tags_feed_key(const struct RepoScan* scan, struct Arena* arena
     __attribute__((nonnull(1, 2)));
 
 /**
+ * @brief Returns the id of the names of the site's repos, which the link of a submodule to a repo
+ *        of the site depends on.
+ *
+ * @param site_config Configuration of the build. Must not be `NULL`.
+ * @param arena       Arena that owns the id. Must not be `NULL`.
+ * @return The id.
+ */
+static struct Str repos_key(const struct SiteConfig* site_config, struct Arena* arena)
+    __attribute__((nonnull(1, 2)));
+
+/**
  * @brief Returns the id of a key's text, which lies in `scratch`, a copy of `perm` past its next
  *        bytes, in `perm`.
  *
@@ -823,18 +839,30 @@ static struct Str key_id(struct Str text, struct Arena* perm, struct Arena scrat
  * @brief Returns the attributes of what a tree page reads: `tree=` its tree, `root=` the branch's
  *        root tree when one of its documents is Markdown or Org or one of its entries is a symlink,
  *        whose links resolve against every path of the branch, and for the root's page `commit=`
- *        the branch's commit, whose summary it shows.
+ *        the branch's commit, whose summary it shows, and `repos=` the names of the site's repos
+ *        when one of its entries is a submodule with a URL, which may name one of them.
  *
  * @param tree         Tree of the branch. Must not be `NULL`.
  * @param dir          The directory. Must not be `NULL`.
  * @param blob_len_max Largest blob read for a page.
+ * @param repos_id     Id of the names of the site's repos, as `repos_key` gives it.
  * @param arena        Arena that owns the attributes. Must not be `NULL`.
  * @return The attributes.
  */
 static struct Str tree_attributes(const struct BranchTree* tree,
                                   const struct TreeDir* dir,
                                   ptrdiff_t blob_len_max,
-                                  struct Arena* arena) __attribute__((nonnull(1, 2, 4)));
+                                  struct Str repos_id,
+                                  struct Arena* arena) __attribute__((nonnull(1, 2, 5)));
+
+/**
+ * @brief Reports whether a directory holds a submodule with a URL, whose link may name a repo of
+ *        the site.
+ *
+ * @param dir The directory. Must not be `NULL`.
+ * @return `true` when one of its gitlinks has a URL.
+ */
+static bool has_submodule_url(const struct TreeDir* dir) __attribute__((nonnull(1)));
 
 /**
  * @brief Returns the attributes of what a blob page reads: `blob=` its blob, `mode=` its mode, and
@@ -914,9 +942,11 @@ int repo_pages_register(struct ManifestBuilder* builder,
                         struct Arena scratch,
                         struct Log* log) {
   int rc = 0;
+  const struct Str repos_id = repos_key(site_config, &scratch);
   for (ptrdiff_t i = 0; i < site_config->repo_count; i++) {
     const struct RepoScan* scan = &scans[i];
     const struct RepoModel* repo = &scan->model;
+    const struct BranchTree* default_tree = repo_scan_default_tree(repo);
     for (ptrdiff_t j = 0; j < REPO_PAGES_REPO_PAGE_COUNT; j++) {
       // The home and the refs pages show the repo and every ref, and the tags page links each tag's
       // release.
@@ -928,6 +958,11 @@ int repo_pages_register(struct ManifestBuilder* builder,
                  STR_FMT(scan->export.info_refs_id));
       if (j == REPO_PAGES_TAGS_INDEX) {
         buf_printf(&inputs, " releases=%.*s", STR_FMT(scan->releases_id));
+      }
+      // The home lists the default branch's root, whose submodules may link the site's repos.
+      if (j == REPO_PAGES_HOME_INDEX && default_tree != NULL &&
+          has_submodule_url(&default_tree->dirs[0])) {
+        buf_printf(&inputs, " repos=%.*s", STR_FMT(repos_id));
       }
       const struct Str text = buf_str(&inputs);
       if (repo_pages_register_page(builder, scan, &output, recipe_id, text, page_scratch, log) !=
@@ -952,7 +987,7 @@ int repo_pages_register(struct ManifestBuilder* builder,
       const struct BranchTree* tree = &repo->trees[j];
       for (ptrdiff_t k = 0; k < tree->dir_count; k++) {
         if (repo_pages_register_dir(builder, site_config, scan, tree, &tree->dirs[k], recipe_id,
-                                    scratch, log) != 0) {
+                                    repos_id, scratch, log) != 0) {
           rc = -1;
         }
       }
@@ -1044,6 +1079,7 @@ static int repo_pages_register_dir(struct ManifestBuilder* builder,
                                    const struct BranchTree* tree,
                                    const struct TreeDir* dir,
                                    struct Str recipe_id,
+                                   struct Str repos_id,
                                    struct Arena scratch,
                                    struct Log* log) {
   const struct RepoModel* repo = &scan->model;
@@ -1060,7 +1096,7 @@ static int repo_pages_register_dir(struct ManifestBuilder* builder,
       .label = dir_label,
   };
   const struct Str dir_inputs =
-      tree_attributes(tree, dir, site_config->limits.blob_len_max, &dir_scratch);
+      tree_attributes(tree, dir, site_config->limits.blob_len_max, repos_id, &dir_scratch);
   if (repo_pages_register_page(builder, scan, &dir_page, recipe_id, dir_inputs, dir_scratch, log) !=
       0) {
     rc = -1;
@@ -1916,6 +1952,16 @@ static struct Str tags_feed_key(const struct RepoScan* scan, struct Arena* arena
   return key_id(buf_str(&text), arena, scratch);
 }
 
+static struct Str repos_key(const struct SiteConfig* site_config, struct Arena* arena) {
+  // A repo's name holds no newline, so each ends at the newline after it.
+  struct Arena scratch = *arena;
+  struct Buf text = {.arena = &scratch};
+  for (ptrdiff_t i = 0; i < site_config->repo_count; i++) {
+    buf_printf(&text, "%.*s\n", STR_FMT(site_config->repos[i].name));
+  }
+  return key_id(buf_str(&text), arena, scratch);
+}
+
 static struct Str key_id(struct Str text, struct Arena* perm, struct Arena scratch) {
   const struct Str id = repository_text_id(text, &scratch);
   // The id sits in the copy, where `perm`'s next bytes are, so it moves through the stack.
@@ -1928,6 +1974,7 @@ static struct Str key_id(struct Str text, struct Arena* perm, struct Arena scrat
 static struct Str tree_attributes(const struct BranchTree* tree,
                                   const struct TreeDir* dir,
                                   ptrdiff_t blob_len_max,
+                                  struct Str repos_id,
                                   struct Arena* arena) {
   const struct TreeEntry* documents[DOCUMENT_KIND_COUNT] = {0};
   (void)readme_find_documents(tree, dir, blob_len_max, documents);
@@ -1946,7 +1993,19 @@ static struct Str tree_attributes(const struct BranchTree* tree,
   if (dir == &tree->dirs[0]) {
     buf_printf(&attributes, " commit=%.*s", STR_FMT(tree->branch->commit_oid));
   }
+  if (has_submodule_url(dir)) {
+    buf_printf(&attributes, " repos=%.*s", STR_FMT(repos_id));
+  }
   return buf_str(&attributes);
+}
+
+static bool has_submodule_url(const struct TreeDir* dir) {
+  for (ptrdiff_t i = 0; i < dir->entry_count; i++) {
+    if (dir->entries[i].kind == TREE_ENTRY_GITLINK && dir->entries[i].submodule_url.len > 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 static struct Str blob_attributes(const struct BranchTree* tree,

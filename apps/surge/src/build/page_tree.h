@@ -71,6 +71,8 @@ struct Str page_tree_home_path(struct Str repo_name, struct Arena* arena)
  * @brief Returns the list of a directory's entries as `page_tree_value` holds it, with links from a
  *        page whose way back to the output root is `path_to_root`.
  *
+ * @param site_config  Configuration of the build, whose repos a submodule can link. Must not be
+ *                     `NULL`.
  * @param repo         What the scan found for the repo. Must not be `NULL`.
  * @param tree         Tree of the branch. Must not be `NULL`.
  * @param dir          Directory to list. Must not be `NULL`.
@@ -78,12 +80,13 @@ struct Str page_tree_home_path(struct Str repo_name, struct Arena* arena)
  * @param arena        Arena that owns the list. Must not be `NULL`.
  * @return The list.
  */
-struct TemplateValue* page_tree_entries(const struct RepoModel* repo,
+struct TemplateValue* page_tree_entries(const struct SiteConfig* site_config,
+                                        const struct RepoModel* repo,
                                         const struct BranchTree* tree,
                                         const struct TreeDir* dir,
                                         struct Str path_to_root,
                                         struct Arena* arena)
-    __attribute__((nonnull(1, 2, 3, 5), returns_nonnull));
+    __attribute__((nonnull(1, 2, 3, 4, 6), returns_nonnull));
 
 /**
  * @brief Returns the breadcrumbs from the repo to `path`, the last one, `path` itself, with an
