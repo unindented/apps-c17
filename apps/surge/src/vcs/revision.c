@@ -3,8 +3,10 @@
 #include <git2.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <string.h>
 
 #include "core/arena.h"
+#include "core/ascii.h"
 #include "core/buf.h"
 #include "core/log.h"
 #include "core/str.h"
@@ -64,6 +66,29 @@ static int read_commit_date(struct TagNote* note,
                             struct Str commit_oid,
                             struct Arena* perm,
                             struct Log* log) __attribute__((nonnull(1, 2, 4, 5)));
+
+/**
+ * @brief Reads the trailers of a terminated commit message, as `revision_message_trailers` does.
+ *
+ * @param message           The whole message, terminated. Must not be `NULL`.
+ * @param perm              Arena that owns the trailers. Must not be `NULL`.
+ * @param trailers_out      Receives the trailers. Must not be `NULL`.
+ * @param trailer_count_out Receives the number of trailers. Must not be `NULL`.
+ */
+static void read_trailers(const char* message,
+                          struct Arena* perm,
+                          struct Trailer** trailers_out,
+                          ptrdiff_t* trailer_count_out) __attribute__((nonnull(1, 2, 3, 4)));
+
+/**
+ * @brief Returns a trailer value as libgit2 gives it with each continuation line joined to the line
+ *        before with one space, and the white space at its end dropped.
+ *
+ * @param value The value, whose continuation lines start after a newline.
+ * @param arena Arena that owns the result. Must not be `NULL`.
+ * @return The value.
+ */
+static struct Str unfold_value(struct Str value, struct Arena* arena) __attribute__((nonnull(2)));
 
 /**
  * @brief Returns where a tag's message ends and its signature starts, as git finds it: at the start
@@ -216,6 +241,8 @@ int revision_commit_detail(const struct Repository* repository,
   const git_signature* author = git_commit_author(commit);
   const git_signature* committer = git_commit_committer(commit);
   detail_out->body = str_clone(body, perm);
+  read_trailers(message != NULL ? message : "", perm, &detail_out->trailers,
+                &detail_out->trailer_count);
   detail_out->author_date =
       author != NULL ? timestamp_format_rfc3339(author->when.time, author->when.offset, perm)
                      : (struct Str){0};
@@ -228,6 +255,19 @@ int revision_commit_detail(const struct Repository* repository,
   }
   git_commit_free(commit);
   return 0;
+}
+
+void revision_message_trailers(struct Str message,
+                               struct Arena* perm,
+                               struct Arena scratch,
+                               struct Trailer** trailers_out,
+                               ptrdiff_t* trailer_count_out) {
+  char* text = arena_new(&scratch, message.len + 1, char);
+  if (message.len > 0) {
+    memcpy(text, message.data, (size_t)message.len);
+  }
+  text[message.len] = '\0';
+  read_trailers(text, perm, trailers_out, trailer_count_out);
 }
 
 int revision_tag_note(const struct Repository* repository,
@@ -344,6 +384,48 @@ static int summarize(const struct Repository* repository,
     return repository_fail(repository, S("failed to read commit signature"), log);
   }
   return 0;
+}
+
+static void read_trailers(const char* message,
+                          struct Arena* perm,
+                          struct Trailer** trailers_out,
+                          ptrdiff_t* trailer_count_out) {
+  git_message_trailer_array parsed = {0};
+  // libgit2 fails here only when an allocation fails, and `repository_setup` routes that to
+  // `os_oom`.
+  if (git_message_trailers(&parsed, message) != 0) {
+    os_oom();
+  }
+  struct Trailer* trailers = arena_new(perm, (ptrdiff_t)parsed.count, struct Trailer);
+  for (size_t i = 0; i < parsed.count; i++) {
+    trailers[i].key = str_clone(str_from_cstr(parsed.trailers[i].key), perm);
+    trailers[i].value = unfold_value(str_from_cstr(parsed.trailers[i].value), perm);
+  }
+  *trailers_out = trailers;
+  *trailer_count_out = (ptrdiff_t)parsed.count;
+  git_message_trailer_array_free(&parsed);
+}
+
+static struct Str unfold_value(struct Str value, struct Arena* arena) {
+  struct Buf text = {.arena = arena};
+  for (ptrdiff_t i = 0; i < value.len; i++) {
+    const char c = value.data[i];
+    if (c != '\n') {
+      buf_append_char(&text, c);
+      continue;
+    }
+    while (text.len > 0 && ascii_is_space((unsigned char)text.data[text.len - 1])) {
+      text.len--;
+    }
+    while (i + 1 < value.len && ascii_is_space((unsigned char)value.data[i + 1])) {
+      i++;
+    }
+    buf_append_char(&text, ' ');
+  }
+  while (text.len > 0 && ascii_is_space((unsigned char)text.data[text.len - 1])) {
+    text.len--;
+  }
+  return buf_str(&text);
 }
 
 static int read_commit_date(struct TagNote* note,

@@ -13,6 +13,7 @@ struct Ref;
 struct Refset;
 struct Repository;
 struct TagNote;
+struct Trailer;
 
 /**
  * @brief Resolves the default branch of a repository: `configured` when it is not empty, else the
@@ -61,7 +62,7 @@ int revision_commit_summary(const struct Repository* repository,
 
 /**
  * @brief Reads what a commit page shows of the commit `commit_oid`: its summary, the rest of its
- *        message, its author's date, its committer and its parents.
+ *        message, its trailers, its author's date, its committer and its parents.
  *
  * @param repository Open repository. Must not be `NULL`.
  * @param commit_oid Hex id of a commit, which the summary's `oid` keeps.
@@ -75,6 +76,24 @@ int revision_commit_detail(const struct Repository* repository,
                            struct Arena* perm,
                            struct CommitDetail* detail_out,
                            struct Log* log) __attribute__((nonnull(1, 3, 4, 5)));
+
+/**
+ * @brief Parses the trailers of a commit message with git's rules, which `git_message_trailers`
+ *        follows: the `Key: value` lines of its last paragraph, which cannot be its first.
+ *
+ * Each value joins its continuation lines with one space and drops the white space around it.
+ *
+ * @param message           The whole message, subject included.
+ * @param perm              Arena that owns the trailers. Must not be `NULL`.
+ * @param scratch           Arena for a terminated copy of the message.
+ * @param trailers_out      Receives the trailers, in message order. Must not be `NULL`.
+ * @param trailer_count_out Receives the number of trailers. Must not be `NULL`.
+ */
+void revision_message_trailers(struct Str message,
+                               struct Arena* perm,
+                               struct Arena scratch,
+                               struct Trailer** trailers_out,
+                               ptrdiff_t* trailer_count_out) __attribute__((nonnull(2, 4, 5)));
 
 /**
  * @brief Reads what a release page and the tags feed show of the tag `tag`: an annotated tag's

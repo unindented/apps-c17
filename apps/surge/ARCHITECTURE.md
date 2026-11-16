@@ -72,11 +72,12 @@ The header of each module documents its interface.
 - [grammar_path](src/domain/grammar_path.h): Maps a file path to a language name.
 - [semver](src/domain/semver.h): Parses and orders Semantic Versioning versions.
 - [timestamp](src/domain/timestamp.h): Formats a git time as RFC 3339.
+- [trailer](src/domain/trailer.h): The names in a commit's trailers, and its co-authors.
 - [url_segment](src/domain/url_segment.h): Percent-encodes a path segment.
 - [surge_version](src/domain/surge_version.h): The tool name and version, which CMake sets.
 - [repository](src/vcs/repository.h): The libgit2 setup, opening a repository, reading a blob, object ids, and `repository_fail`.
 - [refset](src/vcs/refset.h): Loads and checks every branch and tag, and formats `info/refs`.
-- [revision](src/vcs/revision.h): The default branch, commits, tag notes, a branch's log, and every commit that a ref reaches.
+- [revision](src/vcs/revision.h): The default branch, commits and their trailers, tag notes, a branch's log, and every commit that a ref reaches.
 - [filetree](src/vcs/filetree.h): Walks and checks a branch's tree.
 - [changeset](src/vcs/changeset.h): Diffs a commit against its first parent, with the caps.
 - [pack_export](src/vcs/pack_export.h): Writes the clone pack and its idx, and formats `objects/info/packs`.

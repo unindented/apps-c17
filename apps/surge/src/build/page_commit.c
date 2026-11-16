@@ -12,6 +12,7 @@
 #include "core/str.h"
 #include "domain/repo_model.h"
 #include "domain/site_config.h"
+#include "domain/trailer.h"
 #include "formats/html.h"
 #include "markup/body_html.h"
 
@@ -244,6 +245,24 @@ static struct TemplateValue* page_commit_value_commit(const struct RepoModel* re
                                                       struct Arena* perm) {
   struct TemplateValue* map = page_refs_commit(repo, detail->summary, path_to_root, perm);
   template_value_set_text(map, S("body"), detail->body, perm);
+  struct TemplateValue* trailers = template_value_list(detail->trailer_count, perm);
+  for (ptrdiff_t i = 0; i < detail->trailer_count; i++) {
+    struct TemplateValue* trailer = template_value_map(perm);
+    template_value_set_text(trailer, S("key"), detail->trailers[i].key, perm);
+    template_value_set_text(trailer, S("value"), detail->trailers[i].value, perm);
+    trailers->items[i] = trailer;
+  }
+  template_value_set(map, S("trailers"), trailers, perm);
+  struct Str* co_authors = NULL;
+  ptrdiff_t co_author_count = 0;
+  trailer_co_authors(detail->trailers, detail->trailer_count, perm, &co_authors, &co_author_count);
+  struct TemplateValue* co_author_list = template_value_list(co_author_count, perm);
+  for (ptrdiff_t i = 0; i < co_author_count; i++) {
+    struct TemplateValue* co_author = template_value_map(perm);
+    template_value_set_text(co_author, S("name"), co_authors[i], perm);
+    co_author_list->items[i] = co_author;
+  }
+  template_value_set(map, S("co_authors"), co_author_list, perm);
   template_value_set_text(map, S("author_date"), detail->author_date, perm);
   template_value_set_text(map, S("committer"), detail->committer, perm);
   template_value_set_bool(map, S("is_root"), detail->parent_count == 0, perm);

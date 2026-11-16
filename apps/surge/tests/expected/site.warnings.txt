@@ -1,4 +1,4 @@
-warning: clone export pack exceeds max pack length (4096 bytes) at 5851 bytes, so a host with that file limit cannot serve it: 'showcase.git/objects/pack/pack-a8cdc701fb34cfc907dfba87f1e900f056660e73.pack' (in repo 'showcase')
+warning: clone export pack exceeds max pack length (4096 bytes) at 6534 bytes, so a host with that file limit cannot serve it: 'showcase.git/objects/pack/pack-4530f8f57acab320f3d1d576eb92dd1011b294a4.pack' (in repo 'showcase')
 warning: release has no 'SHA256SUMS', so 'mise lock' records no checksums: 'alpha-v0.1.0' (in repo 'monorepo')
 warning: release version is not MAJOR.MINOR.PATCH[-PRE], so 'versions.txt' leaves it out: 'next' (in repo 'monorepo', tag 'alpha-vnext')
 warning: tree entry name cannot be a path, so it has no pages: '..' (in repo 'hostile', branch 'main')

@@ -64,6 +64,24 @@ static const struct Ref* find_tag(const struct Refset* refset, struct Str short_
   return NULL;
 }
 
+/**
+ * @brief Parses the trailers of `message` with `revision_message_trailers`.
+ *
+ * @param message   Terminated message. Must not be `NULL`.
+ * @param arena     Arena that owns the trailers. Must not be `NULL`.
+ * @param count_out Receives the number of trailers. Must not be `NULL`.
+ * @return The trailers.
+ */
+static struct Trailer* parse_trailers(const char* message,
+                                      struct Arena* arena,
+                                      ptrdiff_t* count_out) {
+  struct Log log = test_log();
+  TEST_ASSERT(repository_setup(&log) == 0);
+  struct Trailer* trailers = NULL;
+  revision_message_trailers(str_from_cstr(message), arena, test_arena(), &trailers, count_out);
+  return trailers;
+}
+
 // Without a configured branch, the default branch is the one `HEAD` names.
 static void test_resolve_uses_head(void) {
   struct Arena arena = test_arena();
@@ -141,9 +159,9 @@ static void test_commit_summary_reads_subject_author_and_date(void) {
   TEST_CHECK(
       revision_commit_summary(&repository, main_branch->commit_oid, &arena, &summary, &log) == 0);
   TEST_CHECK(str_eq(summary.oid, main_branch->commit_oid));
-  TEST_CHECK(test_text_is(summary.subject, "Reword the comment and bump the module"));
-  TEST_CHECK(test_text_is(summary.author, "Grace Hopper"));
-  TEST_CHECK(test_text_is(summary.date, "2026-01-11T12:00:00+01:00"));
+  TEST_CHECK(test_text_is(summary.subject, "Sign off the greeting"));
+  TEST_CHECK(test_text_is(summary.author, "Ada Lovelace"));
+  TEST_CHECK(test_text_is(summary.date, "2026-01-15T12:00:00+01:00"));
   repository_close(&repository);
 }
 
@@ -167,6 +185,31 @@ static void test_commit_detail_reads_the_committer_body_and_parents(void) {
   TEST_CHECK(test_text_is(detail.body, "Each of them is a blob next to the stream's entries."));
   TEST_ASSERT(detail.parent_count == 1);
   TEST_CHECK(test_text_is(detail.parents[0], "c2914601eb8581519ca31d8a4672eda4d420f5e1"));
+  repository_close(&repository);
+}
+
+// A commit's detail holds the trailers of its message, keys as written and values with their
+// addresses, while its body keeps them too.
+static void test_commit_detail_reads_the_trailers(void) {
+  struct Arena arena = test_arena();
+  struct Repository repository = {0};
+  struct Refset refset = {0};
+  TEST_ASSERT(open_with_refs(&repository, &refset, "showcase", &arena) == 0);
+  const struct Ref* main_branch = refset_find_branch(&refset, S("main"));
+  TEST_ASSERT(main_branch != NULL);
+  struct CommitDetail detail = {0};
+  struct Log log = test_log();
+  TEST_CHECK(revision_commit_detail(&repository, main_branch->commit_oid, &arena, &detail, &log) ==
+             0);
+  TEST_CHECK(test_text_is(detail.body,
+                          "Co-authored-by: Grace Hopper <grace@example.org>\n"
+                          "Signed-off-by: Ada Lovelace <ada@example.org>"));
+  TEST_ASSERT(detail.trailer_count == 2);
+  TEST_CHECK(test_text_is(detail.trailers[0].key, "Co-authored-by"));
+  TEST_CHECK(test_text_is(detail.trailers[0].value, "Grace Hopper <grace@example.org>"));
+  TEST_CHECK(test_text_is(detail.trailers[1].key, "Signed-off-by"));
+  TEST_CHECK(test_text_is(detail.trailers[1].value, "Ada Lovelace <ada@example.org>"));
+  TEST_CHECK(test_log_is_empty(&log));
   repository_close(&repository);
 }
 
@@ -225,12 +268,13 @@ static void test_tag_note_keeps_the_signature_apart(void) {
 
 /** The showcase fixture's commits on `main`, in `git log --date-order` order. */
 static const char* const SHOWCASE_MAIN_LOG[] = {
-    "63168a25b70d4f363faa8db3ffb0bd71d71af2c6", "9610f333d1531ef544206dc183d05fa2e612aa84",
-    "aa02d29453a240bab99ef9357b50480a5ada392e", "730686c20ef19f0b7e4fccd7f6ccde465f692e0b",
-    "f39d4f8eed9b346a0f6e4b51fa0ae919559bc871", "119edc43de569e78adf5af0a0608e005771ac3ca",
-    "f6dce922b2cca31b54d59ab58e19c2d71428e1b5", "f5ee58f15ba34190e53faee44824e024b57bf1c4",
-    "8d028c5c6a8323cf091b48aaf86542b633a9986f", "cb93aa52c5ad382bd8f4c2ad81d0356edf251e79",
-    "7ed6f9f821dad694bd213cde09fcf1558e505dee",
+    "41fbd903fd4c50ffac2e0946a938d07f8c8e1457", "0f9370311ea61a7719d764e70e44635013f92283",
+    "7040256583a8bd2313ea4c99c9c5a3c460627b56", "63168a25b70d4f363faa8db3ffb0bd71d71af2c6",
+    "9610f333d1531ef544206dc183d05fa2e612aa84", "aa02d29453a240bab99ef9357b50480a5ada392e",
+    "730686c20ef19f0b7e4fccd7f6ccde465f692e0b", "f39d4f8eed9b346a0f6e4b51fa0ae919559bc871",
+    "119edc43de569e78adf5af0a0608e005771ac3ca", "f6dce922b2cca31b54d59ab58e19c2d71428e1b5",
+    "f5ee58f15ba34190e53faee44824e024b57bf1c4", "8d028c5c6a8323cf091b48aaf86542b633a9986f",
+    "cb93aa52c5ad382bd8f4c2ad81d0356edf251e79", "7ed6f9f821dad694bd213cde09fcf1558e505dee",
 };
 
 /** Number of entries in `SHOWCASE_MAIN_LOG`. */
@@ -306,6 +350,54 @@ static void test_list_commits_lists_each_commit_once(void) {
   repository_close(&repository);
 }
 
+// A message without a trailer block has no trailers.
+static void test_message_trailers_of_a_message_without_any(void) {
+  struct Arena arena = test_arena();
+  ptrdiff_t count = -1;
+  parse_trailers("Fix the parser\n\nIt read one byte too many.\n", &arena, &count);
+  TEST_CHECK(count == 0);
+}
+
+// The trailer block is the last paragraph, after a blank line, each key as written and each value
+// with its address, and a `Key: value` line in an earlier paragraph is prose.
+static void test_message_trailers_reads_the_last_paragraph(void) {
+  struct Arena arena = test_arena();
+  ptrdiff_t count = 0;
+  const struct Trailer* trailers = parse_trailers(
+      "Fix the parser\n\nNote: it read one byte too many.\nNow it stops.\n\n"
+      "CO-AUTHORED-BY: Grace Hopper <grace@example.org>\n"
+      "Signed-off-by: Ada Lovelace <ada@example.org>\n",
+      &arena, &count);
+  TEST_ASSERT(count == 2);
+  TEST_CHECK(test_text_is(trailers[0].key, "CO-AUTHORED-BY"));
+  TEST_CHECK(test_text_is(trailers[0].value, "Grace Hopper <grace@example.org>"));
+  TEST_CHECK(test_text_is(trailers[1].key, "Signed-off-by"));
+  TEST_CHECK(test_text_is(trailers[1].value, "Ada Lovelace <ada@example.org>"));
+}
+
+// A continuation line joins its trailer's value with one space, and the white space at the end of a
+// value goes.
+static void test_message_trailers_joins_continuation_lines(void) {
+  struct Arena arena = test_arena();
+  ptrdiff_t count = 0;
+  const struct Trailer* trailers = parse_trailers(
+      "Tidy\n\nAssisted-by: Claude:claude-opus-5-5  \n   clang-format\n"
+      "Link: https://example.org/1 \r\n",
+      &arena, &count);
+  TEST_ASSERT(count == 2);
+  TEST_CHECK(test_text_is(trailers[0].value, "Claude:claude-opus-5-5 clang-format"));
+  TEST_CHECK(test_text_is(trailers[1].key, "Link"));
+  TEST_CHECK(test_text_is(trailers[1].value, "https://example.org/1"));
+}
+
+// A message of trailers alone has none, because its first paragraph is its subject.
+static void test_message_trailers_of_a_message_of_only_trailers(void) {
+  struct Arena arena = test_arena();
+  ptrdiff_t count = -1;
+  parse_trailers("Signed-off-by: Ada Lovelace <ada@example.org>\n", &arena, &count);
+  TEST_CHECK(count == 0);
+}
+
 TEST_LIST = {
     {"resolve uses head", test_resolve_uses_head},
     {"resolve uses configured branch", test_resolve_uses_configured_branch},
@@ -317,10 +409,16 @@ TEST_LIST = {
      test_commit_summary_reads_subject_author_and_date},
     {"commit detail reads the committer body and parents",
      test_commit_detail_reads_the_committer_body_and_parents},
+    {"commit detail reads the trailers", test_commit_detail_reads_the_trailers},
     {"tag note reads the message and the date", test_tag_note_reads_the_message_and_the_date},
     {"tag note keeps the signature apart", test_tag_note_keeps_the_signature_apart},
     {"commit summary reads the signature", test_commit_summary_reads_the_signature},
     {"walk log lists the branch newest first", test_walk_log_lists_the_branch_newest_first},
     {"list commits lists each commit once", test_list_commits_lists_each_commit_once},
+    {"message trailers of a message without any", test_message_trailers_of_a_message_without_any},
+    {"message trailers reads the last paragraph", test_message_trailers_reads_the_last_paragraph},
+    {"message trailers joins continuation lines", test_message_trailers_joins_continuation_lines},
+    {"message trailers of a message of only trailers",
+     test_message_trailers_of_a_message_of_only_trailers},
     {NULL, NULL},
 };

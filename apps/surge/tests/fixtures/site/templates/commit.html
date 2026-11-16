@@ -9,6 +9,10 @@
 {{#commit}}
 <h1>{{subject}}</h1>
 {{#body}}<pre class="message">{{body}}</pre>{{/body}}
+{{#trailers}}<p class="trailer"><b>{{key}}</b>: {{value}}</p>
+{{/trailers}}
+{{#co_authors}}<p class="co-author">Co-authored by {{name}}</p>
+{{/co_authors}}
 <p>{{author}} authored <time>{{author_date}}</time>{{#committer}}; {{committer}} committed <time>{{date}}</time>{{/committer}}</p>
 <p>commit <code>{{oid}}</code>{{>signed}}{{#is_root}} (root){{/is_root}}{{#is_merge}} (merge){{/is_merge}}{{#parents}} &middot; parent <a href="{{url}}">{{short_oid}}</a>{{/parents}}</p>
 {{/commit}}

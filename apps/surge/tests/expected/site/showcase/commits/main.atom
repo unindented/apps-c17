@@ -4,28 +4,37 @@
 <title>showcase: commits on main</title>
 <link rel="self" href="https://git.example.org/showcase/commits/main.atom"/>
 <link rel="alternate" type="text/html" href="https://git.example.org/showcase/commits/main/index.html"/>
-<updated>2026-01-11T12:00:00+01:00</updated>
+<updated>2026-01-15T12:00:00+01:00</updated>
 <generator>surge @PROJECT_VERSION@</generator>
 <author><name>Fixture author</name></author>
 <entry>
-<id>https://git.example.org/showcase/commit/63168a25b70d4f363faa8db3ffb0bd71d71af2c6/index.html</id>
-<title>Reword the comment and bump the module</title>
-<link href="https://git.example.org/showcase/commit/63168a25b70d4f363faa8db3ffb0bd71d71af2c6/index.html"/>
-<updated>2026-01-11T12:00:00+01:00</updated>
-<author><name>Grace Hopper</name></author>
-</entry>
-<entry>
-<id>https://git.example.org/showcase/commit/9610f333d1531ef544206dc183d05fa2e612aa84/index.html</id>
-<title>Explain main and vendor a script module</title>
-<link href="https://git.example.org/showcase/commit/9610f333d1531ef544206dc183d05fa2e612aa84/index.html"/>
-<updated>2026-01-10T12:00:00+01:00</updated>
+<id>https://git.example.org/showcase/commit/41fbd903fd4c50ffac2e0946a938d07f8c8e1457/index.html</id>
+<title>Sign off the greeting</title>
+<link href="https://git.example.org/showcase/commit/41fbd903fd4c50ffac2e0946a938d07f8c8e1457/index.html"/>
+<updated>2026-01-15T12:00:00+01:00</updated>
 <author><name>Ada Lovelace</name></author>
+<content type="text">Co-authored-by: Grace Hopper &lt;grace@example.org&gt;
+Signed-off-by: Ada Lovelace &lt;ada@example.org&gt;</content>
 </entry>
 <entry>
-<id>https://git.example.org/showcase/commit/aa02d29453a240bab99ef9357b50480a5ada392e/index.html</id>
-<title>Add a table over the diff caps</title>
-<link href="https://git.example.org/showcase/commit/aa02d29453a240bab99ef9357b50480a5ada392e/index.html"/>
-<updated>2026-01-09T12:00:00+01:00</updated>
+<id>https://git.example.org/showcase/commit/0f9370311ea61a7719d764e70e44635013f92283/index.html</id>
+<title>Tidy the greeting late at night</title>
+<link href="https://git.example.org/showcase/commit/0f9370311ea61a7719d764e70e44635013f92283/index.html"/>
+<updated>2026-01-13T23:30:00-08:00</updated>
 <author><name>Grace Hopper</name></author>
+<content type="text">Note: the greeting itself is unchanged.
+
+Assisted-by: Claude:claude-opus-5-5
+  clang-format</content>
+</entry>
+<entry>
+<id>https://git.example.org/showcase/commit/7040256583a8bd2313ea4c99c9c5a3c460627b56/index.html</id>
+<title>Plan the greeting&#39;s next change</title>
+<link href="https://git.example.org/showcase/commit/7040256583a8bd2313ea4c99c9c5a3c460627b56/index.html"/>
+<updated>2026-01-12T12:00:00+01:00</updated>
+<author><name>Ada Lovelace</name></author>
+<content type="text">An empty commit, which only its message tells apart.
+
+Co-Authored-By: Claude Opus 5.5 &lt;noreply@anthropic.com&gt;</content>
 </entry>
 </feed>

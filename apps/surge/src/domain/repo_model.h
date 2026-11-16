@@ -73,13 +73,31 @@ struct CommitSummary {
   struct Str signature;
 };
 
+/** One trailer of a commit message, such as `Signed-off-by: Ada Lovelace <ada@example.org>`. */
+struct Trailer {
+  /** Key as the message writes it, such as `Co-Authored-By`. */
+  struct Str key;
+
+  /**
+   * Value as the message writes it, address included, its continuation lines joined with one space
+   * and its white space trimmed.
+   */
+  struct Str value;
+};
+
 /** What a commit page shows of its commit. */
 struct CommitDetail {
   /** Id, subject, author's name and committer date. */
   struct CommitSummary summary;
 
-  /** The message after its subject line and the blank lines after it. */
+  /** The message after its subject line and the blank lines after it, its trailers included. */
   struct Str body;
+
+  /** The trailers of the message's last paragraph, as git finds them, in message order. */
+  struct Trailer* trailers;
+
+  /** Number of entries in `trailers`. */
+  ptrdiff_t trailer_count;
 
   /** RFC 3339 date of the author's time. */
   struct Str author_date;
