@@ -144,6 +144,34 @@ static void test_find_skips_links_unlinked_and_large_files(void) {
   TEST_CHECK(readme_find(&dir, DOCUMENT_README, 100) == &dir.entries[2]);
 }
 
+// `ACCESSIBILITY` is a document in any case, with a document's extension.
+static void test_find_matches_accessibility_in_any_case(void) {
+  struct Arena arena = test_arena();
+  const char* names[] = {"Accessibility.MD", "SECURITY.md"};
+  const struct TreeDir dir = make_dir(names, 2, &arena);
+  const struct TreeEntry* accessibility = readme_find(&dir, DOCUMENT_ACCESSIBILITY, 100);
+  TEST_ASSERT(accessibility != NULL);
+  TEST_CHECK(test_text_is(accessibility->name, "Accessibility.MD"));
+  TEST_CHECK(test_text_is(document_kind_name(DOCUMENT_ACCESSIBILITY), "accessibility"));
+}
+
+// The root's `ACCESSIBILITY` comes from `docs/` when the root has none, and sorts after `SECURITY`,
+// the last of the documents.
+static void test_find_documents_reads_accessibility_after_security_from_docs(void) {
+  struct Arena arena = test_arena();
+  const char* root_names[] = {"SECURITY.md"};
+  const char* docs_names[] = {"accessibility.txt"};
+  struct TreeDir dirs[2] = {make_dir(root_names, 1, &arena), make_dir(docs_names, 1, &arena)};
+  dirs[1].path = S("docs");
+  const struct BranchTree tree = {.dirs = dirs, .dir_count = 2};
+  const struct TreeEntry* entries[DOCUMENT_KIND_COUNT] = {0};
+  TEST_CHECK(readme_find_documents(&tree, &dirs[0], 100, entries) == 2);
+  TEST_CHECK(entries[DOCUMENT_SECURITY] == &dirs[0].entries[0]);
+  TEST_CHECK(entries[DOCUMENT_ACCESSIBILITY] == &dirs[1].entries[0]);
+  TEST_CHECK(DOCUMENT_ACCESSIBILITY == DOCUMENT_SECURITY + 1);
+  TEST_CHECK(DOCUMENT_KIND_COUNT == DOCUMENT_ACCESSIBILITY + 1);
+}
+
 // A relative link resolves against the document's directory, a `/`-rooted one against the root, and
 // each keeps its query and fragment.
 static void test_render_markup_resolves_relative_and_rooted_links(void) {
@@ -235,6 +263,9 @@ TEST_LIST = {
     {"is markup goes by extension", test_is_markup_goes_by_extension},
     {"find matches base names in any case", test_find_matches_base_names_in_any_case},
     {"find skips links unlinked and large files", test_find_skips_links_unlinked_and_large_files},
+    {"find matches accessibility in any case", test_find_matches_accessibility_in_any_case},
+    {"find documents reads accessibility after security from docs",
+     test_find_documents_reads_accessibility_after_security_from_docs},
     {"render markup resolves relative and rooted links",
      test_render_markup_resolves_relative_and_rooted_links},
     {"render markup finds md files directories and images",

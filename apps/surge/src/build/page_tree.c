@@ -31,6 +31,7 @@ static const struct Str PAGE_TREE_DOCUMENT_FIELDS[] = {
     [DOCUMENT_CODE_OF_CONDUCT] = STR_INIT("is_code_of_conduct"),
     [DOCUMENT_CONTRIBUTING] = STR_INIT("is_contributing"),
     [DOCUMENT_SECURITY] = STR_INIT("is_security"),
+    [DOCUMENT_ACCESSIBILITY] = STR_INIT("is_accessibility"),
 };
 
 _Static_assert(sizeof(PAGE_TREE_DOCUMENT_FIELDS) / sizeof(PAGE_TREE_DOCUMENT_FIELDS[0]) ==

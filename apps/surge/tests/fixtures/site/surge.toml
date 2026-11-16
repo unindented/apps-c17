@@ -59,3 +59,8 @@ path = "later"
 name = "hostile"
 path = "repos/hostile"
 description = "Names that git refuses, and a file over the limits"
+
+[[repo]]
+name = "links"
+path = "repos/links"
+description = "Documents and links of tree pages"

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<id>https://git.example.org/links/tags.atom</id>
+<title>links: tags</title>
+<link rel="self" href="https://git.example.org/links/tags.atom"/>
+<link rel="alternate" type="text/html" href="https://git.example.org/links/tags/index.html"/>
+<updated>1970-01-01T00:00:00Z</updated>
+<generator>surge @PROJECT_VERSION@</generator>
+<author><name>Fixture author</name></author>
+</feed>

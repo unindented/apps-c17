@@ -229,6 +229,9 @@ fixture_pack_refs(
   refs/heads/x/y
 )
 
+# Documents and links of a tree page.
+fixture_import(links links_git_dir)
+
 fixture_import(ref-prefix ref_prefix_git_dir)
 fixture_pack_refs(
   "${ref_prefix_git_dir}" refs/heads/feature refs/heads/feature/x refs/heads/main

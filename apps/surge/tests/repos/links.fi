@@ -1,0 +1,25 @@
+blob
+mark :1
+data 45
+# Links
+
+Documents and links of a tree page.
+
+blob
+mark :2
+data 57
+# Accessibility
+
+Every page works with a keyboard alone.
+
+commit refs/heads/main
+mark :3
+author Ada Lovelace <ada@example.org> 1767787200 +0100
+committer Ada Lovelace <ada@example.org> 1767787200 +0100
+data 40
+Start with a statement on accessibility
+
+deleteall
+M 100644 :1 README.md
+M 100644 :2 docs/ACCESSIBILITY.md
+

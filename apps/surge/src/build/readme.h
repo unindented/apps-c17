@@ -29,10 +29,13 @@ enum DocumentKind {
 
   /** `SECURITY`. */
   DOCUMENT_SECURITY,
+
+  /** `ACCESSIBILITY`. */
+  DOCUMENT_ACCESSIBILITY,
 };
 
 /** Number of document kinds. */
-enum { DOCUMENT_KIND_COUNT = DOCUMENT_SECURITY + 1 };
+enum { DOCUMENT_KIND_COUNT = DOCUMENT_ACCESSIBILITY + 1 };
 
 /**
  * HTML level of a level 1 heading in a document, a blob, release notes or a feed: `#` is `<h1>`, as

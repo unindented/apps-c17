@@ -40,6 +40,7 @@ static const struct DocumentSpec document_specs[DOCUMENT_KIND_COUNT] = {
     [DOCUMENT_CODE_OF_CONDUCT] = {STR_INIT("code-of-conduct"), {STR_INIT("CODE_OF_CONDUCT")}},
     [DOCUMENT_CONTRIBUTING] = {STR_INIT("contributing"), {STR_INIT("CONTRIBUTING")}},
     [DOCUMENT_SECURITY] = {STR_INIT("security"), {STR_INIT("SECURITY")}},
+    [DOCUMENT_ACCESSIBILITY] = {STR_INIT("accessibility"), {STR_INIT("ACCESSIBILITY")}},
 };
 
 /** Directory below a branch's root whose documents a repo home shows when the root has none. */

@@ -12,3 +12,5 @@
   Cache-Control: public, max-age=31536000, immutable
 /hostile.git/objects/pack/*
   Cache-Control: public, max-age=31536000, immutable
+/links.git/objects/pack/*
+  Cache-Control: public, max-age=31536000, immutable
