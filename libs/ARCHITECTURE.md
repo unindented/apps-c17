@@ -17,7 +17,7 @@ The `libs/` project holds the libraries that the apps share. This document is th
 | [`os`](#os) | The host interface and the out-of-memory report, with the POSIX host `os_posix` and the in-memory host `os_memory`. | sosig, fram, cwrap, surge |
 | [`runtime`](#runtime) | `build_run`, the worker pool, the jobs of a parallel phase, the check of the input directories, the directory walk, and `--verbose` output. | sosig, fram, surge |
 | [`cli`](#cli) | The command line of the site generators. | sosig, fram, surge |
-| [`formats`](#formats) | HTML escaping, front matter, TOML and the config helpers, RFC 3339 dates, and tab-separated fields. | sosig, fram, surge |
+| [`formats`](#formats) | HTML escaping, front matter, TOML and the config helpers, RFC 3339 dates, tab-separated fields, and JSON strings. | sosig, fram, surge |
 | [`markup`](#markup) | Markdown and Org to HTML, and the highlighting of code blocks with tree-sitter. | sosig, surge |
 | [`output`](#output) | The output manifest, the output writer, the prune and the output cache. | sosig, fram, surge |
 | [`templates`](#templates) | The template set of a build and its renders. | sosig, fram, surge |
@@ -187,6 +187,7 @@ The command line of sosig, fram and surge. cwrap has its own. Each app describes
 
 - [frontmatter](src/formats/frontmatter.h): Finds TOML front matter between `+++` lines, or YAML between `---` lines.
 - [html](src/formats/html.h): Escapes untrusted text for HTML.
+- [json](src/formats/json.h): Writes a JSON string, repaired as a page is, for the JSON files that an app writes without a template.
 - [rfc3339](src/formats/rfc3339.h): `RFC3339_EPOCH`, for a date that Atom requires and a value lacks. Every date that the apps write spells a zero offset `Z`.
 - [toml](src/formats/toml.h): Reads a config of at most `TOML_CONFIG_LEN_MAX` (1 MiB), parses TOML, and holds the config readers and printers of every app, so the apps word each config diagnostic the same way. `toml_require_known_keys` reports each unknown key.
 - [tsv](src/formats/tsv.h): Escapes a field of a tab-separated line, so a field cannot split its line and two texts never give the same field.

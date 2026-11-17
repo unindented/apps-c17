@@ -14,6 +14,7 @@
 #include "core/str.h"
 #include "domain/repo_model.h"
 #include "domain/site_config.h"
+#include "formats/json.h"
 
 /** Hex digits of a commit's short id, as git abbreviates one by default. */
 enum { PAGE_REFS_SHORT_OID_LEN = 7 };
@@ -84,6 +85,39 @@ struct TemplateValue* page_refs_branches_value(const struct SiteConfig* site_con
   }
   template_value_set(value, S("branches"), list, arena);
   return value;
+}
+
+struct Str page_refs_branches_json(const struct RepoModel* repo,
+                                   struct Arena* perm,
+                                   struct Arena scratch) {
+  const struct Str repo_name = repo->config->name;
+  struct Buf text = {.arena = perm};
+  buf_append_char(&text, '[');
+  bool is_first = true;
+  for (ptrdiff_t i = 0; i < repo->refset.count; i++) {
+    const struct Ref* ref = &repo->refset.refs[i];
+    if (ref->kind != REF_KIND_BRANCH) {
+      continue;
+    }
+    // The link from the output root starts with `<r>/`, which a repo's unreserved name keeps as it
+    // is.
+    struct Arena link_scratch = scratch;
+    const struct Str tree_url =
+        ref->commit_oid.len > 0
+            ? str_tail(page_path_link((struct Str){0}, PAGE_PATH_TREE, repo_name, ref->short_name,
+                                      (struct Str){0}, &link_scratch),
+                       repo_name.len + 1)
+            : (struct Str){0};
+    buf_append(&text, is_first ? S("{\"name\":") : S(",{\"name\":"));
+    json_string_append(&text, ref->short_name, link_scratch);
+    buf_printf(&text,
+               ",\"is_default\":%s,\"tree_url\":", ref == repo->default_ref ? "true" : "false");
+    json_string_append(&text, tree_url, link_scratch);
+    buf_append_char(&text, '}');
+    is_first = false;
+  }
+  buf_append(&text, S("]\n"));
+  return buf_str(&text);
 }
 
 struct TemplateValue* page_refs_tags_value(const struct SiteConfig* site_config,

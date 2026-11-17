@@ -15,6 +15,9 @@ struct TemplateValue;
 /** Output path of a branches page below the repo's directory. */
 #define PAGE_REFS_BRANCHES_PAGE S("branches/index.html")
 
+/** Output path of a repo's branch list for scripts below the repo's directory. */
+#define PAGE_REFS_BRANCHES_JSON_PAGE S("branches.json")
+
 /** Output path of a tags page below the repo's directory. */
 #define PAGE_REFS_TAGS_PAGE S("tags/index.html")
 
@@ -44,6 +47,22 @@ struct TemplateValue* page_refs_branches_value(const struct SiteConfig* site_con
                                                const struct RepoModel* repo,
                                                struct Arena* arena)
     __attribute__((nonnull(1, 2, 3), returns_nonnull));
+
+/**
+ * @brief Returns a repo's `<r>/branches.json`: an array of its branches in byte order of name, each
+ *        `{"name":…,"is_default":…,"tree_url":…}`, on one line and a newline.
+ *
+ * `is_default` is `true` or `false`, and `tree_url` is the link to the branch's root, relative to
+ * `<r>/`, or empty for a branch that names no commit.
+ *
+ * @param repo    What the scan found for the repo. Must not be `NULL`.
+ * @param perm    Arena that owns the text. Must not be `NULL`.
+ * @param scratch Arena for each name's repair.
+ * @return The text.
+ */
+struct Str page_refs_branches_json(const struct RepoModel* repo,
+                                   struct Arena* perm,
+                                   struct Arena scratch) __attribute__((nonnull(1, 2)));
 
 /**
  * @brief Returns the data tree of a repo's tags page, `<r>/tags/index.html`.

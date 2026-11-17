@@ -45,18 +45,20 @@ struct RepoPagesInputs {
 };
 
 /**
- * @brief Records the output path of every page of every repo: its home, its branches and tags
- *        pages, its tag feed and, with release projects, its release feed, and for each branch a
- *        tree page per directory, a blob page per file, a raw copy per file up to `raw_len_max`,
- *        its log pages and its commit feed, and a commit page per commit that a ref reaches.
+ * @brief Records the output path of every page of every repo: its home, its branches page and
+ *        `branches.json`, its tags page, its tag feed and, with release projects, its release feed,
+ *        and for each branch a tree page per directory, a blob page per file, a raw copy per file
+ *        up to `raw_len_max`, its log pages and its commit feed, and a commit page per commit that
+ *        a ref reaches.
  *
  * Each output declares the ids of what it reads as its attributes, so the output writer keeps it
  * while they hold. Every page declares the page recipe and its repo's `repo` map, as
- * `recipe=<id> map=<id>`, and then its own inputs: `repo=` and `refs=` for the home and the refs
- * pages, with `releases=` for the tags page, `feed=` for a feed, or `releases=` for the release
- * feed, `tree=`, with `root=` and `commit=` when they decide it, for a tree page, `blob=` and
- * `mode=`, with `root=`, for a blob page, `log=` for a log page, and `commit=` for a commit page. A
- * raw copy declares only `blob=`.
+ * `recipe=<id> map=<id>`, and then its own inputs: `repo=` and `refs=` for the home, the refs pages
+ * and `branches.json`, with `releases=` for the tags page, `feed=` for a feed, or `releases=` for
+ * the release feed, `tree=`, with `root=` and `commit=` when they decide it, for a tree page, and
+ * `repos=` for a tree page or a home that lists a submodule with a URL, `blob=` and `mode=`, with
+ * `root=`, for a blob page, `log=` for a log page, and `commit=` for a commit page. A raw copy
+ * declares only `blob=`.
  *
  * @param builder     Manifest being built. Must not be `NULL`.
  * @param site_config Configuration of the build. Must not be `NULL`.

@@ -80,6 +80,9 @@ struct TemplateValue* page_context_repo(const struct SiteConfig* site_config,
   template_value_set_text(
       map, S("branches_url"),
       page_context_repo_link(path_to_root, name, PAGE_REFS_BRANCHES_PAGE, arena), arena);
+  template_value_set_text(
+      map, S("branches_json_url"),
+      page_context_repo_link(path_to_root, name, PAGE_REFS_BRANCHES_JSON_PAGE, arena), arena);
   template_value_set_text(map, S("tags_url"),
                           page_context_repo_link(path_to_root, name, PAGE_REFS_TAGS_PAGE, arena),
                           arena);

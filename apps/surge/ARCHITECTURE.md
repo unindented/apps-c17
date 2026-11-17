@@ -36,7 +36,7 @@ A module can skip a layer, and modules in one directory can depend on each other
 5. **Manifest** (`populate_output_manifest`): Record every output path with its attributes, and reject every conflict.
 6. **Prepare output** (`prepare_output_dir`): Create `output_dir`, the first write.
 7. **Keep previous packs** (`keep_previous_packs`): Keep the pack that a changed clone export replaces, for one more build.
-8. **Pages** (`write_repo_pages`): On the worker pool, make or keep every page, feed and raw copy of every repo.
+8. **Pages** (`write_repo_pages`): On the worker pool, make or keep every page, feed and raw copy of every repo, and its `branches.json`.
 9. **Clone exports** (`write_clone_exports`): Copy each new pack and idx, then make `HEAD`, `info/refs` and `objects/info/packs`, and `_headers` when `headers_file` is set.
 10. **Releases** (`write_release_outputs`): Make or keep the release pages, version lists and assets of each repo.
 11. **Site pages** (`write_site_pages`): Make or keep the site index, `index.html`, and the not-found page, at `not_found_path`.
@@ -67,7 +67,7 @@ The header of each module documents its interface.
 - [submodule_link](src/build/submodule_link.h): Shows a submodule's URL without its credentials, and links its commit in a repo of the site or on a known forge.
 - [highlight_diff](src/build/highlight_diff.h): Highlights the two sides of a changed file for its diff.
 - [page_context](src/build/page_context.h), [page_paths](src/build/page_paths.h): The maps that every page shares, and the output paths and links of the pages of a branch.
-- [page_index](src/build/page_index.h), [page_tree](src/build/page_tree.h), [page_blob](src/build/page_blob.h), [page_log](src/build/page_log.h), [page_commit](src/build/page_commit.h), [page_refs](src/build/page_refs.h), [page_release](src/build/page_release.h), [page_feed](src/build/page_feed.h): The data tree of each kind of page. [README.md](README.md#data-trees) lists their keys.
+- [page_index](src/build/page_index.h), [page_tree](src/build/page_tree.h), [page_blob](src/build/page_blob.h), [page_log](src/build/page_log.h), [page_commit](src/build/page_commit.h), [page_refs](src/build/page_refs.h), [page_release](src/build/page_release.h), [page_feed](src/build/page_feed.h): The data tree of each kind of page. [README.md](README.md#data-trees) lists their keys. `page_refs` also writes a repo's `branches.json`.
 - [template_value](src/build/template_value.h): The data tree of a page, and its render.
 - [site_config](src/domain/site_config.h): Loads, validates and prints `SiteConfig`.
 - [repo_model](src/domain/repo_model.h): The types that the scan fills and the pages read.

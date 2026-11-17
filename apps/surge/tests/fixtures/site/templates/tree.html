@@ -14,7 +14,11 @@
 <p>No commits yet on {{ref.name}}.</p>
 {{/is_empty}}
 {{^is_empty}}
-<p>Branch <a href="{{ref.tree_url}}">{{ref.name}}</a> &middot; <a href="{{ref.commits_url}}">commits</a></p>
+<surge-branches data-src="{{repo.branches_json_url}}"><details><summary>Branch {{ref.name}}</summary>
+<ul><li><a href="{{ref.tree_url}}">{{ref.name}}</a></li></ul>
+<p><a href="{{repo.branches_url}}">All branches</a></p>
+</details></surge-branches>
+<p><a href="{{ref.commits_url}}">Commits</a></p>
 {{>breadcrumbs}}
 {{#commit}}<p class="commit"><a href="{{url}}">{{short_oid}}</a> {{subject}} &mdash; {{author}}, <time>{{date}}</time>{{>llm}}</p>{{/commit}}
 {{>tree-entries}}
@@ -26,5 +30,6 @@
 </section>
 {{/documents}}
 {{/is_empty}}
+<script src="{{path_to_root}}surge-branches.js"></script>
 </body>
 </html>

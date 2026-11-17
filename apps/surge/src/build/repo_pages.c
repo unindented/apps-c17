@@ -300,6 +300,36 @@ static int repo_pages_job_repo_value(const struct RepoPagesRun* run,
                                      struct Log* log) __attribute__((nonnull(1, 2, 4, 5, 6, 8, 9)));
 
 /**
+ * @brief Writes a repo's `branches.json`, or keeps it.
+ *
+ * @param run    The run. Must not be `NULL`.
+ * @param job    The job. Must not be `NULL`.
+ * @param arenas Arenas of the worker. Must not be `NULL`.
+ * @param log    Log of the job. Must not be `NULL`.
+ * @return `0` on success, or `-1` when the write fails.
+ */
+static int repo_pages_job_repo_branches(const struct RepoPagesRun* run,
+                                        const struct RepoPageJob* job,
+                                        struct JobArenas* arenas,
+                                        struct Log* log) __attribute__((nonnull(1, 2, 3, 4)));
+
+/**
+ * @brief Makes a repo's `branches.json`, as `OutputWriterMakeFn`.
+ *
+ * @param perm      Arena the file grows in. Must not be `NULL`.
+ * @param scratch   Arena for each name's repair.
+ * @param bytes_out Receives the file. Must not be `NULL`.
+ * @param log       Unused, as the make cannot fail.
+ * @param userdata  The `struct RepoPagesMake` of the file.
+ * @return `0` always.
+ */
+static int repo_pages_job_repo_branches_make(struct Arena* perm,
+                                             struct Arena scratch,
+                                             struct Str* bytes_out,
+                                             struct Log* log,
+                                             void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
+
+/**
  * @brief Writes a repo's tag feed, and its release feed when it has release projects, or keeps each
  *        one.
  *
@@ -969,6 +999,15 @@ int repo_pages_register(struct ManifestBuilder* builder,
           0) {
         rc = -1;
       }
+      // `branches.json` lists what the branch list does, so it declares the same inputs.
+      if (j == REPO_PAGES_BRANCHES_INDEX) {
+        const struct RepoPagesOutput json_output =
+            repo_output(site_config, repo, PAGE_REFS_BRANCHES_JSON_PAGE, &page_scratch);
+        if (repo_pages_register_page(builder, scan, &json_output, recipe_id, text, page_scratch,
+                                     log) != 0) {
+          rc = -1;
+        }
+      }
     }
     const ptrdiff_t feed_count = repo_feed_count(repo);
     for (ptrdiff_t j = 0; j < feed_count; j++) {
@@ -1186,6 +1225,10 @@ static int repo_pages_job_repo(const struct RepoPagesRun* run,
     if (produce_page(&make, repo_pages_job_repo_make, scratch, log) != 0) {
       rc = -1;
     }
+    if (i == REPO_PAGES_BRANCHES_INDEX &&
+        repo_pages_job_repo_branches(run, job, arenas, log) != 0) {
+      rc = -1;
+    }
   }
   if (repo_pages_job_repo_feeds(run, job, arenas, log) != 0) {
     rc = -1;
@@ -1241,6 +1284,30 @@ static int repo_pages_job_repo_value(const struct RepoPagesRun* run,
     return -1;
   }
   *value_out = page_tree_value(site_config, repo, tree, dir, true, documents, document_count, perm);
+  return 0;
+}
+
+static int repo_pages_job_repo_branches(const struct RepoPagesRun* run,
+                                        const struct RepoPageJob* job,
+                                        struct JobArenas* arenas,
+                                        struct Log* log) {
+  const struct RepoModel* repo = &run->inputs->scans[job->repo_index].model;
+  struct Arena scratch = arenas->scratch;
+  const struct RepoPagesOutput output =
+      repo_output(run->inputs->site_config, repo, PAGE_REFS_BRANCHES_JSON_PAGE, &scratch);
+  struct RepoPagesMake make = {.run = run, .job = job, .arenas = arenas, .output = &output};
+  return produce_page(&make, repo_pages_job_repo_branches_make, scratch, log);
+}
+
+static int repo_pages_job_repo_branches_make(struct Arena* perm,
+                                             struct Arena scratch,
+                                             struct Str* bytes_out,
+                                             struct Log* log,
+                                             void* userdata) {
+  (void)log;
+  const struct RepoPagesMake* make = userdata;
+  const struct RepoModel* repo = &make->run->inputs->scans[make->job->repo_index].model;
+  *bytes_out = page_refs_branches_json(repo, perm, scratch);
   return 0;
 }
 

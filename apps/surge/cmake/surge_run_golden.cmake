@@ -12,7 +12,8 @@
 # `git for-each-ref` of its source. Before the comparison, a dry run must keep every output. After
 # it, a config that renames three templates in a `[templates]` table, the not-found page's into a
 # directory, must make every page again and give the same output. Then a commit moves a branch: a dry run must write only what the move decides, and after a build
-# that fails at a page, the next two builds must keep the previous pack one build. Then limits that
+# that fails at a page, the next two builds must keep the previous pack one build. A branch added
+# beside it must rewrite no page of another branch. Then limits that
 # give a blob a raw copy but no shown page, and a `base_url` with a path, check that copy and the
 # paths of `_headers` and of the not-found page's links, and last a changed blob must make only what it decides again. The first
 # build's `stderr` must be the warnings in `<expected>.warnings.txt`, or empty without that file.
@@ -341,9 +342,9 @@ if(NOT commit_result EQUAL 0)
 endif()
 set(pack_dir "${actual_dir}/showcase.git/objects/pack")
 
-# A dry run after the move writes only what the moved ref decides: the repo's home and refs pages,
-# the site index, the moved branch's log pages and feed, the page of its root, which shows its newest
-# commit, the new commit's page, the clone export's changed files and new pack, and the output cache.
+# A dry run after the move writes only what the moved ref decides: the repo's home, refs pages and
+# `branches.json`, the site index, the moved branch's log pages and feed, the page of its root, which
+# shows its newest commit, the new commit's page, the clone export's changed files and new pack, and the output cache.
 # The commit changes no tree, so every other tree page, every blob page and raw copy, and every
 # other commit page, is kept. The dry run makes no pack, so it names the new one by its refs.
 execute_process(
@@ -370,6 +371,7 @@ set(moved_writes
     "public/showcase/index.html"
     "public/showcase/tree/main/index.html"
     "public/showcase/branches/index.html"
+    "public/showcase/branches.json"
     "public/showcase/tags/index.html"
     "public/showcase.git/info/refs"
     "public/showcase.git/objects/info/packs"
@@ -430,6 +432,52 @@ foreach(build IN ITEMS moved settled)
     message(FATAL_ERROR "the second build after a move kept the previous pack '${old_pack}'")
   endif()
 endforeach()
+
+# A branch added at a commit that `main` already has changes only the refs: a dry run writes the
+# repo's home, its branch and tag lists and `branches.json`, and keeps every tree and blob page of
+# the other branches, which list no branch but their own. The branch goes again afterwards, and the
+# output cache still records the settled build.
+execute_process(
+  COMMAND "${SURGE_GIT}" branch added main
+  WORKING_DIRECTORY "${SURGE_SCRATCH_DIR}/repos/showcase"
+  RESULT_VARIABLE branch_result
+  ERROR_VARIABLE branch_error
+)
+if(NOT branch_result EQUAL 0)
+  message(FATAL_ERROR "adding a branch to showcase failed:\n${branch_error}")
+endif()
+apps_golden_run_build(
+  EXECUTABLE "${SURGE_EXECUTABLE}"
+  EMULATOR ${SURGE_EMULATOR}
+  WORKING_DIRECTORY "${SURGE_SCRATCH_DIR}"
+  LABEL "dry run with an added branch"
+  ARGS --dry-run
+  STDOUT added_stdout
+)
+string(REGEX MATCHALL "write\t[^\n]+" written_lines "${added_stdout}")
+foreach(line IN LISTS written_lines)
+  if(line MATCHES "^write\tpublic/showcase/(tree|blob|raw)/(main|feature/x)/")
+    message(FATAL_ERROR "the dry run with an added branch would write a page of another branch: "
+                        "'${line}'")
+  endif()
+endforeach()
+foreach(written IN ITEMS "public/showcase/branches.json" "public/showcase/branches/index.html"
+                         "public/showcase/tags/index.html" "public/showcase/index.html"
+                         "public/showcase/tree/added/index.html"
+)
+  if(NOT "write\t${written}" IN_LIST written_lines)
+    message(FATAL_ERROR "the dry run with an added branch would keep '${written}'")
+  endif()
+endforeach()
+execute_process(
+  COMMAND "${SURGE_GIT}" branch --delete added
+  WORKING_DIRECTORY "${SURGE_SCRATCH_DIR}/repos/showcase"
+  RESULT_VARIABLE branch_result
+  ERROR_VARIABLE branch_error
+)
+if(NOT branch_result EQUAL 0)
+  message(FATAL_ERROR "removing the added branch of showcase failed:\n${branch_error}")
+endif()
 
 # A release directory added for an old tag, and one removed, change only the repo's releases: the
 # dry run writes its release outputs, its tag and release feeds and the tags page that links them, removes the removed
@@ -661,6 +709,7 @@ set(blob_writes
     "public/showcase.git/objects/info/packs"
     "public/showcase/index.html"
     "public/showcase/branches/index.html"
+    "public/showcase/branches.json"
     "public/showcase/tags/index.html"
     "public/showcase/tree/main/index.html"
     "public/showcase/tree/main/docs/index.html"

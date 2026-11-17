@@ -220,6 +220,7 @@ _surge/output-cache.tsv                        output cache
 <static files>
 <r>/index.html                                 repo home
 <r>/branches/index.html                        branch list
+<r>/branches.json                              branches, for a script
 <r>/tags/index.html                            tag list
 <r>/tags.atom                                  tag feed
 <r>/releases.atom                              release feed, with a release project
@@ -293,7 +294,7 @@ remove	public/apps-c17/tree/old-branch/index.html
 The `write` and `keep` lines come first, in this order:
 
 1. The clone export of each repository, in config order.
-2. The pages of each repository: the home, the branch and tag lists, the tag feed and the release feed, then for each branch its tree, blob and raw outputs, its commit list pages and its commit feed, and then the commit pages.
+2. The pages of each repository: the home, the branch list, `branches.json`, the tag list, the tag feed and the release feed, then for each branch its tree, blob and raw outputs, its commit list pages and its commit feed, and then the commit pages.
 3. `_headers`.
 4. The release outputs of each repository.
 5. `index.html` and the not-found page.
@@ -318,10 +319,10 @@ The inputs of each output are these:
 - Every page depends on the page recipe: the `surge` version, the grammars of the binary, `title`, `description`, `author`, `base_url`, `log_page_size`, `feed_count`, `llm_trailer_keys`, `llm_trailer_values`, every limit but `pack_len_max`, every name of the `[templates]` table, and the path, size and modification time of every file below `templates_dir`. A change to any of them, a partial included, makes every page again.
 - Every page of a repository depends on what its `repo` map shows: the default branch, whether the branch names a commit, the description, and whether the repository has a release project.
 - A commit page depends on its commit. A blob page depends on its blob and mode, and a tree page on its tree. Both also depend on the branch's root tree when they show Markdown or Org, and a tree page also when it lists a symlink, because their links resolve against every path of the branch. A tree page or a home that lists a submodule with a URL also depends on the names of the site's repositories, which its link can name. The page of a branch's root also depends on the branch's newest commit. A commit list page depends on its commits and the refs that name them, and a feed on its entries.
-- The home, the branch and tag lists and the site index depend on every ref, and on the repository's place in the config, description, newest commit date and projects. The tag list and the release outputs also depend on the releases. The site index's contributions calendar depends on the history of each default branch, which the refs and the default branch decide.
+- The home, the branch and tag lists, `branches.json` and the site index depend on every ref, and on the repository's place in the config, description, newest commit date and projects. The tag list and the release outputs also depend on the releases. The site index's contributions calendar depends on the history of each default branch, which the refs and the default branch decide.
 - A raw copy depends only on its blob. A static file and a release asset depend on their path, size and modification time. A clone pack depends on `info/refs`.
 
-So a new commit on a branch makes these outputs again: the branch's commit list pages and feed, the new commit's page, the tree and blob pages and raw copies of the paths that it changes, the pages that show Markdown or Org, the tree pages that list a symlink, the page of the branch's root, the repository's home and its branch and tag lists, the site index, and the changed files and new pack of the clone export. `--force` ignores the output cache and writes every output.
+So a new commit on a branch makes these outputs again: the branch's commit list pages and feed, the new commit's page, the tree and blob pages and raw copies of the paths that it changes, the pages that show Markdown or Org, the tree pages that list a symlink, the page of the branch's root, the repository's home, its branch and tag lists and `branches.json`, the site index, and the changed files and new pack of the clone export. `--force` ignores the output cache and writes every output.
 
 The output cache does not see two kinds of change. Run `surge build --force` once after either:
 
@@ -641,7 +642,7 @@ The templates share these maps:
 
 | Map | Keys |
 | --- | --- |
-| `repo` | Every page of a repository: `name`, `description`, `default_branch`, `url` (the home), `clone_url` (`<base_url>/<r>.git`), `branches_url`, `tags_url`, `tags_feed_url`, `commits_url` (the default branch's first commit list page, empty when it names no commit), `has_releases` (whether the repository has a [release project](#release-directories)), `releases_url` and `releases_feed_url` (each empty without one). |
+| `repo` | Every page of a repository: `name`, `description`, `default_branch`, `url` (the home), `clone_url` (`<base_url>/<r>.git`), `branches_url`, `branches_json_url` (the repository's [`branches.json`](#branch-menus)), `tags_url`, `tags_feed_url`, `commits_url` (the default branch's first commit list page, empty when it names no commit), `has_releases` (whether the repository has a [release project](#release-directories)), `releases_url` and `releases_feed_url` (each empty without one). |
 | `ref` | The pages of a branch: `name`, `tree_url` (its root's tree page), `commits_url` (its first commit list page) and `commits_feed_url`. |
 | Commit summary | `oid`, `short_oid` (7 hex digits), `subject`, `author` (a name), `date` (the committer date), `signature` (of a signed commit, or empty), `signature_kind` (`PGP`, `SSH` or `X.509`, from the line that opens the signature, or empty), `is_llm_assisted` (whether its trailers mark it, as [LLM-assisted commits](#llm-assisted-commits) describes), `llm_tools` (each with `name`: the value of each trailer that marks it, in message order, without the `<…>` at its end unless it is only that, once for each different value) and `url` (its commit page). It is `false` for a ref that names no commit, so `{{#commit}}…{{/commit}}` shows its contents only for a commit. |
 | Entry | One row of a directory: `name`, `kind` (`dir`, `file`, `executable`, `symlink` or `gitlink`), `is_dir`, `is_file`, `is_executable`, `is_symlink`, `is_gitlink`, `url` (empty without a page), `is_linked`, `link_target` (a symlink's target), `link_url` (the page of a symlink's target, as [Files](#files) describes, or empty), `submodule_url` (a submodule's URL without its credentials, or empty), `submodule_commit_url` (the link to a submodule's commit, or empty), `oid` and `size` (empty for a directory or a submodule). |
@@ -682,6 +683,16 @@ Each kind of page also gets these keys, by the key of its template:
 A code line, in `source_html` and `diff_html`, has the markup of a line of an Org code block with line numbers. It is a `<span class="code-line">` that holds a `<span class="code-line-numbers">` with a `code-line-number` for each number, and then the line's text with its line end in a `<span class="code-line-text">`. A stylesheet can lay out the lines as grid rows, with a column for each number and one for the text.
 
 The fixture templates also give each feed an `<author>`, the site's `author`, because Atom needs one for an entry without one.
+
+### Branch menus
+
+No page of a branch lists the other branches, so pushing or deleting a branch rewrites none of the pages of another branch. For a branch menu, the build writes `<r>/branches.json` instead. It is an array of the branches in byte order of name, each with `name`, `is_default` (`true` or `false`) and `tree_url`: the tree page of the branch's root, relative to `<r>/`, or empty for a branch that names a tree or a blob. A name is valid UTF-8, repaired as in a page. For the repository `showcase` of the fixture site, it is this:
+
+```json
+[{"name":"feature/x","is_default":false,"tree_url":"tree/feature/x/index.html"},{"name":"main","is_default":true,"tree_url":"tree/main/index.html"}]
+```
+
+A template fetches the file from `repo.branches_json_url` and resolves each `tree_url` against the file's URL. Without JavaScript, it links `repo.branches_url`. The fixture's [surge-branches.js](tests/fixtures/site/static/surge-branches.js) fills a `<details>` menu this way. A link to the same path on another branch is for the script to build, because only the script can ask whether the path exists there.
 
 ### Syntax highlighting
 
