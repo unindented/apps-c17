@@ -545,9 +545,8 @@ static void test_load_rejects_reserved_names(void) {
     const char* name;
     const char* reserved;
   } repo_cases[] = {
-      {"Index.HTML", "index.html"},
-      {"_Headers", "_headers"},
-      {"_SURGE", "_surge"},
+      {"Index.HTML", "index.html"},       {"_Headers", "_headers"},           {"_SURGE", "_surge"},
+      {"contributions", "contributions"}, {"Contributions", "contributions"},
   };
   for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(repo_cases) / sizeof(repo_cases[0])); i++) {
     struct Arena text_arena = test_arena();

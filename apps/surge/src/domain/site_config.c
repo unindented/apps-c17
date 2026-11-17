@@ -151,6 +151,7 @@ static const struct Str REPO_NAMES_RESERVED[] = {
     STR_INIT("index.html"),
     STR_INIT("_surge"),
     STR_INIT("_headers"),
+    STR_INIT("contributions"),
 };
 
 /**

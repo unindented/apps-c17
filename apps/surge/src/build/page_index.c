@@ -1,8 +1,11 @@
 #include "build/page_index.h"
 
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
+#include "build/contribution_writer.h"
 #include "build/contributions.h"
 #include "build/page_context.h"
 #include "build/page_paths.h"
@@ -20,17 +23,18 @@
 /**
  * @brief Returns the `contributions` map of the site index, or `false` when no commit counts.
  *
- * @param repos      What the scan found. Must not be `NULL` unless `repo_count` is `0`.
- * @param repo_count Number of entries in `repos`.
- * @param perm       Arena that owns the map. Must not be `NULL`.
- * @param scratch    Arena for the calendar and the commits it merges.
+ * @param commits      Every commit that counts, from `contributions_merge`. Must not be `NULL`
+ *                     unless `commit_count` is `0`.
+ * @param commit_count Number of entries in `commits`.
+ * @param perm         Arena that owns the map. Must not be `NULL`.
+ * @param scratch      Arena for the calendar.
  * @return The map.
  */
-static struct TemplateValue* page_index_value_contributions(const struct RepoModel* repos,
-                                                            ptrdiff_t repo_count,
-                                                            struct Arena* perm,
-                                                            struct Arena scratch)
-    __attribute__((nonnull(3), returns_nonnull));
+static struct TemplateValue* page_index_value_contributions(
+    const struct ContributionCommit* commits,
+    ptrdiff_t commit_count,
+    struct Arena* perm,
+    struct Arena scratch) __attribute__((nonnull(3), returns_nonnull));
 
 /**
  * @brief Returns the map of one day of the contributions calendar.
@@ -44,6 +48,23 @@ static struct TemplateValue* page_index_value_contributions_day(const struct Con
                                                                 ptrdiff_t weekday,
                                                                 struct Arena* arena)
     __attribute__((nonnull(1, 3), returns_nonnull));
+
+/**
+ * @brief Returns the `contribution_years` list of the site index: each calendar year with commits,
+ *        newest first, with its totals and the link to its contributions file.
+ *
+ * @param commits      Every commit that counts, from `contributions_merge`. Must not be `NULL`
+ *                     unless `commit_count` is `0`.
+ * @param commit_count Number of entries in `commits`.
+ * @param perm         Arena that owns the list. Must not be `NULL`.
+ * @param scratch      Arena for the years.
+ * @return The list, empty when no commit counts.
+ */
+static struct TemplateValue* page_index_value_contribution_years(
+    const struct ContributionCommit* commits,
+    ptrdiff_t commit_count,
+    struct Arena* perm,
+    struct Arena scratch) __attribute__((nonnull(3), returns_nonnull));
 
 /**
  * @brief Returns a decimal number as text.
@@ -91,8 +112,14 @@ struct TemplateValue* page_index_value(const struct SiteConfig* site_config,
     list->items[i] = page_index_value_repo(site_config, &repos[i], perm);
   }
   template_value_set(root, S("repos"), list, perm);
+  ptrdiff_t commit_count = 0;
+  const struct ContributionCommit* commits =
+      contributions_merge(repos, repo_count, &scratch, &commit_count);
   template_value_set(root, S("contributions"),
-                     page_index_value_contributions(repos, repo_count, perm, scratch), perm);
+                     page_index_value_contributions(commits, commit_count, perm, scratch), perm);
+  template_value_set(root, S("contribution_years"),
+                     page_index_value_contribution_years(commits, commit_count, perm, scratch),
+                     perm);
   return root;
 }
 
@@ -102,13 +129,11 @@ struct TemplateValue* page_index_not_found_value(const struct SiteConfig* site_c
       site_config, output_path_not_found_root(site_config->base_url, arena), arena);
 }
 
-static struct TemplateValue* page_index_value_contributions(const struct RepoModel* repos,
-                                                            ptrdiff_t repo_count,
-                                                            struct Arena* perm,
-                                                            struct Arena scratch) {
-  ptrdiff_t commit_count = 0;
-  const struct ContributionCommit* commits =
-      contributions_merge(repos, repo_count, &scratch, &commit_count);
+static struct TemplateValue* page_index_value_contributions(
+    const struct ContributionCommit* commits,
+    ptrdiff_t commit_count,
+    struct Arena* perm,
+    struct Arena scratch) {
   struct ContributionCalendar* calendar = arena_new(&scratch, 1, struct ContributionCalendar);
   contributions_tally(commits, commit_count, scratch, calendar);
   if (calendar->count == 0) {
@@ -156,7 +181,31 @@ static struct TemplateValue* page_index_value_contributions_day(const struct Con
   template_value_set_text(map, S("level"), number_text(day->level, arena), arena);
   template_value_set_bool(map, S("has_llm"), day->llm_count > 0, arena);
   template_value_set_bool(map, S("is_outside"), day->is_outside, arena);
+  template_value_set_bool(map, S("is_after_end"), day->is_after_end, arena);
   return map;
+}
+
+static struct TemplateValue* page_index_value_contribution_years(
+    const struct ContributionCommit* commits,
+    ptrdiff_t commit_count,
+    struct Arena* perm,
+    struct Arena scratch) {
+  ptrdiff_t year_count = 0;
+  const struct ContributionYear* years =
+      contributions_years(commits, commit_count, &scratch, &year_count);
+  struct TemplateValue* list = template_value_list(year_count, perm);
+  for (ptrdiff_t i = 0; i < year_count; i++) {
+    struct TemplateValue* map = template_value_map(perm);
+    struct Buf year = {.arena = perm};
+    buf_printf(&year, "%04" PRId64, years[i].year);
+    template_value_set_text(map, S("year"), buf_str(&year), perm);
+    template_value_set_text(map, S("count"), number_text(years[i].count, perm), perm);
+    template_value_set_text(map, S("llm_count"), number_text(years[i].llm_count, perm), perm);
+    // The index is at the output root, so a file's output path links it.
+    template_value_set_text(map, S("url"), contribution_writer_path(years[i].year, perm), perm);
+    list->items[i] = map;
+  }
+  return list;
 }
 
 static struct Str number_text(ptrdiff_t number, struct Arena* arena) {

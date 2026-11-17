@@ -454,6 +454,25 @@ static void test_writes_a_contributions_file_for_each_year(void) {
   remove_site(str_cstr(site, &arena));
 }
 
+// The site index lists the years with commits newest first, each with its commits, its LLM-assisted
+// ones and the link to its file.
+static void test_lists_the_contribution_years_on_the_index(void) {
+  struct Arena arena = test_arena();
+  const struct Str site = make_site_of_repo(NULL, "years", NULL, &arena);
+  write_years_config(site, "main");
+  write_below(site, "templates/index.html",
+              "{{#contribution_years}}{{year}} {{count}} {{llm_count}} {{url}}\n"
+              "{{/contribution_years}}");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(is_file_below(site, "public/index.html",
+                           "2026 1 0 contributions/2026.json\n"
+                           "2025 2 1 contributions/2025.json\n"
+                           "2024 1 0 contributions/2024.json\n"));
+  remove_site(str_cstr(site, &arena));
+}
+
 // A new commit in the newest year changes only that year's cache row, so the build makes that
 // year's file again and keeps the others.
 static void test_new_commit_rewrites_only_the_newest_year(void) {
@@ -688,6 +707,7 @@ TEST_LIST = {
     {"renders a nested not found page from the root",
      test_renders_a_nested_not_found_page_from_the_root},
     {"writes a contributions file for each year", test_writes_a_contributions_file_for_each_year},
+    {"lists the contribution years on the index", test_lists_the_contribution_years_on_the_index},
     {"new commit rewrites only the newest year", test_new_commit_rewrites_only_the_newest_year},
     {"prunes the file of a year without commits", test_prunes_the_file_of_a_year_without_commits},
     {"dry run creates nothing", test_dry_run_creates_nothing},
