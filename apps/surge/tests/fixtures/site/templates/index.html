@@ -13,6 +13,9 @@
 <table class="calendar">
 {{#weeks}}<tr><th>{{month}}</th>{{#days}}<td class="level-{{level}}{{#has_llm}} llm{{/has_llm}}{{#is_outside}} outside{{/is_outside}}" data-weekday="{{weekday}}" title="{{date}}: {{count}} ({{llm_count}} LLM)"></td>{{/days}}</tr>
 {{/weeks}}</table>
+<ul class="contribution-years">
+{{#contribution_years}}<li><a href="{{path_to_root}}{{url}}">{{year}}</a>: {{count}} commits, {{llm_count}} LLM-assisted</li>
+{{/contribution_years}}</ul>
 </section>
 {{/contributions}}
 <ul>
