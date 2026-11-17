@@ -91,6 +91,23 @@ struct CivilDate timestamp_civil_date(int64_t days) {
   return (struct CivilDate){.year = year, .month = month, .day = day};
 }
 
+int64_t timestamp_civil_day(struct CivilDate date) {
+  const int64_t year = date.month <= 2 ? date.year - 1 : date.year;
+  const int64_t era = (year >= 0 ? year : year - 399) / 400;
+  const int64_t year_of_era = year - era * 400;
+  const int64_t month_index = date.month > 2 ? date.month - 3 : date.month + 9;
+  const int64_t day_of_year = (153 * month_index + 2) / 5 + date.day - 1;
+  const int64_t day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+  return era * 146097 + day_of_era - 719468;
+}
+
+struct Str timestamp_format_date(int64_t days, struct Arena* arena) {
+  const struct CivilDate date = timestamp_civil_date(days);
+  struct Buf text = {.arena = arena};
+  buf_printf(&text, "%04" PRId64 "-%02d-%02d", date.year, date.month, date.day);
+  return buf_str(&text);
+}
+
 static int64_t split_day(int64_t local, int64_t* second_of_day_out) {
   // Floor division, so a time before the epoch falls on the day before, not the day after.
   int64_t days = local / TIMESTAMP_DAY_SECONDS;

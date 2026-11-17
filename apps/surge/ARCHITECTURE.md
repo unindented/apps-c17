@@ -59,7 +59,7 @@ The header of each module documents its interface.
 - [cmd_config](src/app/cmd_config.h): Loads the config and prints it resolved.
 - [repo_scan](src/build/repo_scan.h): The scan phase.
 - [repo_pages](src/build/repo_pages.h): The pages phase.
-- [contributions](src/build/contributions.h): Counts the commits of every default branch into the site index's contributions calendar, each commit once.
+- [contributions](src/build/contributions.h): Merges the commits of every default branch, each commit once, and counts them into the site index's rolling window or into one calendar year.
 - [export_writer](src/build/export_writer.h): The outputs of the clone export, and `_headers`.
 - [release_scan](src/build/release_scan.h): The release projects, releases and assets of a repo, and their warnings.
 - [release_writer](src/build/release_writer.h): The release outputs of a repo.
@@ -73,7 +73,7 @@ The header of each module documents its interface.
 - [repo_model](src/domain/repo_model.h): The types that the scan fills and the pages read.
 - [grammar_path](src/domain/grammar_path.h): Maps a file path to a language name.
 - [semver](src/domain/semver.h): Parses and orders Semantic Versioning versions.
-- [timestamp](src/domain/timestamp.h): Formats a git time as RFC 3339, and gives its local day and that day's date.
+- [timestamp](src/domain/timestamp.h): Formats a git time as RFC 3339 and a day as `YYYY-MM-DD`, gives a time's local day, and converts between a day number and its date.
 - [trailer](src/domain/trailer.h): The names in a commit's trailers, its co-authors, and the LLM tools that its trailers name.
 - [tree_path](src/domain/tree_path.h): Resolves a path against a directory of a branch's tree, and finds the file, symlink or directory at a path, for the links of documents and symlinks.
 - [url_segment](src/domain/url_segment.h): Percent-encodes a path segment.
@@ -113,7 +113,7 @@ The templates load before the scan, so a template that does not compile stops th
 
 ### The scan reads every commit of each default branch
 
-The contributions calendar needs the author time and the trailers of every commit that a default branch reaches. Each scan job reads them on the worker pool, into a `Contribution` per commit of `RepoModel`, and `contributions_tally` merges the repos only when the site index is made. So the index is a render of what the scan found, like every other page, and no repository opens on the main thread. The revwalk of a log reads only commit headers, so the cost is one commit lookup for each commit of each default branch on every build, also one that keeps the index, and a parse of its trailers when `llm_trailer_values` names a value. On a synthetic repository of 100,000 commits, the scan took 0.69 s with no value and 0.75 s with one, against 0.59 s without the calendar, in a build of about 10 s that kept every page.
+The contributions calendar needs the author time and the trailers of every commit that a default branch reaches. Each scan job reads them on the worker pool, into a `Contribution` per commit of `RepoModel`, and `contributions_merge` merges the repos only when the site index is made. So the index is a render of what the scan found, like every other page, and no repository opens on the main thread. The revwalk of a log reads only commit headers, so the cost is one commit lookup for each commit of each default branch on every build, also one that keeps the index, and a parse of its trailers when `llm_trailer_values` names a value. On a synthetic repository of 100,000 commits, the scan took 0.69 s with no value and 0.75 s with one, against 0.59 s without the calendar, in a build of about 10 s that kept every page.
 
 ### A perm and a scratch for each worker
 

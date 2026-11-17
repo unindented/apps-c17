@@ -1,4 +1,5 @@
 #include <acutest.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stdint.h>
 
@@ -105,6 +106,30 @@ static void test_civil_date_names_the_date(void) {
   TEST_CHECK(before.year == 1969 && before.month == 12 && before.day == 31);
 }
 
+// A date names its day number, the inverse of `timestamp_civil_date`, across leap days, the epoch,
+// and the ends of the years RFC 3339 writes.
+static void test_civil_day_inverts_the_civil_date(void) {
+  TEST_CHECK(timestamp_civil_day((struct CivilDate){.year = 2000, .month = 2, .day = 29}) == 11016);
+  TEST_CHECK(timestamp_civil_day((struct CivilDate){.year = 1969, .month = 12, .day = 31}) == -1);
+  TEST_CHECK(timestamp_civil_day((struct CivilDate){.year = 1970, .month = 1, .day = 1}) == 0);
+  const int64_t first_day =
+      timestamp_civil_day((struct CivilDate){.year = 0, .month = 1, .day = 1});
+  const int64_t last_day =
+      timestamp_civil_day((struct CivilDate){.year = 9999, .month = 12, .day = 31});
+  TEST_CHECK(first_day == -719528 && last_day == 2932896);
+  for (int64_t day = first_day; day <= last_day; day += 97) {
+    TEST_CHECK(timestamp_civil_day(timestamp_civil_date(day)) == day);
+    TEST_MSG("day: %" PRId64, day);
+  }
+}
+
+// A day number is written as its date, with four digits of year, also for a year before 1000.
+static void test_format_date_writes_the_date(void) {
+  struct Arena arena = test_arena();
+  TEST_CHECK(test_text_is(timestamp_format_date(11016, &arena), "2000-02-29"));
+  TEST_CHECK(test_text_is(timestamp_format_date(-719528, &arena), "0000-01-01"));
+}
+
 TEST_LIST = {
     {"format writes local time and offset", test_format_writes_local_time_and_offset},
     {"format writes utc offset", test_format_writes_utc_offset},
@@ -117,5 +142,7 @@ TEST_LIST = {
     {"local day is the date in the offset", test_local_day_is_the_date_in_the_offset},
     {"is writable bounds the local time", test_is_writable_bounds_the_local_time},
     {"civil date names the date", test_civil_date_names_the_date},
+    {"civil day inverts the civil date", test_civil_day_inverts_the_civil_date},
+    {"format date writes the date", test_format_date_writes_the_date},
     {NULL, NULL},
 };

@@ -73,4 +73,23 @@ int64_t timestamp_local_day(int64_t seconds, int offset_minutes);
  */
 struct CivilDate timestamp_civil_date(int64_t days);
 
+/**
+ * @brief Returns the day number of a calendar date, the inverse of `timestamp_civil_date`.
+ *
+ * This is Howard Hinnant's `days_from_civil`.
+ *
+ * @param date The date, with `month` from `1` to `12` and `day` from `1` to that month's last.
+ * @return The day number, counted from 1970-01-01, negative before it.
+ */
+int64_t timestamp_civil_day(struct CivilDate date);
+
+/**
+ * @brief Formats a day number as a `YYYY-MM-DD` date.
+ *
+ * @param days  Days since 1970-01-01, of a date in the years 0000 to 9999.
+ * @param arena Arena that owns the text. Must not be `NULL`.
+ * @return The date.
+ */
+struct Str timestamp_format_date(int64_t days, struct Arena* arena) __attribute__((nonnull(2)));
+
 #endif
