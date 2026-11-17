@@ -167,6 +167,7 @@ struct ContributionYear* contributions_years(const struct ContributionCommit* co
         .year = timestamp_civil_date(commits[i].day).year,
         .count = 1,
         .llm_count = commits[i].is_llm_assisted,
+        .end_day = commits[i].day,
     };
   }
   if (commit_count > 1) {
@@ -177,9 +178,17 @@ struct ContributionYear* contributions_years(const struct ContributionCommit* co
     if (year_count > 0 && years[year_count - 1].year == years[i].year) {
       years[year_count - 1].count++;
       years[year_count - 1].llm_count += years[i].llm_count;
+      if (years[i].end_day > years[year_count - 1].end_day) {
+        years[year_count - 1].end_day = years[i].end_day;
+      }
     } else {
       years[year_count++] = years[i];
     }
+  }
+  // Only the newest year ends on its newest commit's day.
+  for (ptrdiff_t i = 1; i < year_count; i++) {
+    years[i].end_day =
+        timestamp_civil_day((struct CivilDate){.year = years[i].year, .month = 12, .day = 31});
   }
   *count_out = year_count;
   return years;

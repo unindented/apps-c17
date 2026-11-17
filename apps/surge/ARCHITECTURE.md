@@ -39,7 +39,7 @@ A module can skip a layer, and modules in one directory can depend on each other
 8. **Pages** (`write_repo_pages`): On the worker pool, make or keep every page, feed and raw copy of every repo, and its `branches.json`.
 9. **Clone exports** (`write_clone_exports`): Copy each new pack and idx, then make `HEAD`, `info/refs` and `objects/info/packs`, and `_headers` when `headers_file` is set.
 10. **Releases** (`write_release_outputs`): Make or keep the release pages, version lists and assets of each repo.
-11. **Site pages** (`write_site_pages`): Make or keep the site index, `index.html`, and the not-found page, at `not_found_path`.
+11. **Site pages** (`write_site_pages`): Make or keep the site index, `index.html`, the contributions file of each year with commits, oldest first, and the not-found page, at `not_found_path`.
 12. **Static files** (`copy_static_files`): Copy or keep each static file.
 13. **Write the output cache** (`write_output_cache`): Write a row for each output that the build wrote or kept, also when an earlier write phase failed.
 14. **Remove stale outputs** (`prune_stale_outputs`): Remove every entry below `output_dir` that is not an output, only when every write succeeded.
@@ -63,6 +63,7 @@ The header of each module documents its interface.
 - [export_writer](src/build/export_writer.h): The outputs of the clone export, and `_headers`.
 - [release_scan](src/build/release_scan.h): The release projects, releases and assets of a repo, and their warnings.
 - [release_writer](src/build/release_writer.h): The release outputs of a repo.
+- [contribution_writer](src/build/contribution_writer.h): The contributions file of each calendar year with commits, `contributions/<year>.json`.
 - [readme](src/build/readme.h): Finds and renders the documents of a directory, and resolves their links.
 - [submodule_link](src/build/submodule_link.h): Shows a submodule's URL without its credentials, and links its commit in a repo of the site or on a known forge.
 - [highlight_diff](src/build/highlight_diff.h): Highlights the two sides of a changed file for its diff.
@@ -99,7 +100,7 @@ The header of each module documents its interface.
 
 `surge` adds these parts of its own:
 
-- Each output declares its inputs as attributes, such as `recipe=`, `map=`, `refs=`, `tree=`, `blob=`, `commit=` and `releases=`. [README.md](README.md#output-cache) lists what each output depends on.
+- Each output declares its inputs as attributes, such as `recipe=`, `map=`, `refs=`, `tree=`, `blob=`, `commit=`, `releases=`, and a contributions file's `commits=` and `end=`. [README.md](README.md#output-cache) lists what each output depends on.
 - The page recipe is the generator string, the grammars, the site keys, `llm_trailer_keys` and `llm_trailer_values`, every limit but `pack_len_max`, every name of the `[templates]` table, and the path, size and modification time of every template. A code change to what a page holds needs a new version before a release, because the version is the only part of the recipe that a code change moves.
 - A failure inside libgit2 reads `<operation>: <libgit2 message> (in repo '<repo>')`, and only `repository_fail` writes it. A message about a branch ends with `(in repo '<repo>', branch '<branch>')`.
 
@@ -167,7 +168,7 @@ mustache4c looks up a name that a map does not hold in the enclosing scopes. So 
 
 [BUILD.md](../../BUILD.md#surge-tests) describes how CTest runs the tests.
 
-- **Unit tests.** Most modules have an acutest file. Six of the seven `vcs/` suites and `cmd_build` read real fixture repositories through libgit2, so they run on the POSIX host. `page_context`, `page_index`, `release_scan`, `release_writer`, `repo_pages` and `repo_scan` have no suite of their own, and the golden tests run them.
+- **Unit tests.** Most modules have an acutest file. Six of the seven `vcs/` suites and `cmd_build` read real fixture repositories through libgit2, so they run on the POSIX host. `page_context`, `page_index`, `release_scan`, `release_writer`, `contribution_writer`, `repo_pages` and `repo_scan` have no suite of their own, and the golden tests run them. `cmd_build`'s suite also checks which contributions files a change of history makes again.
 - **Fixture repositories.** [tests/repos/](tests/repos/) holds hand-written `git fast-import` streams with fixed dates, so their object ids never change. [cmake/surge_make_fixture_repos.cmake](cmake/surge_make_fixture_repos.cmake) replays them and adds what `git fast-import` refuses, such as nested tags, hostile tree names, an empty repository, and refs that collide in case or by prefix.
 - **Golden tests.** [cmake/surge_run_golden.cmake](cmake/surge_run_golden.cmake) builds [tests/fixtures/site/](tests/fixtures/site/) with one, two and eight workers, compares the output with [tests/expected/site/](tests/expected/site/) byte for byte, and checks what dry runs write, keep and remove after it changes the inputs. Each `tests/fixtures/refuse-*` site must fail with the exact `stderr` in `tests/expected/refuse-*/stderr.txt`. The refusals are case-colliding branches, a ref prefix, a project `path` that names no directory, a `releases_dir` that is a file, static entries named like a repo, and an empty `templates_dir`.
 - **Clone and mise tests.** [tests/clone_test.py](tests/clone_test.py) clones every `<r>.git` over dumb HTTP from a host that answers a missing path with 404. It then checks the corrupt-object errors of a clone from a host that answers with 200. [tests/mise_test.py](tests/mise_test.py) installs the fixture's `alpha` project with mise, and checks that a tampered `SHA256SUMS` or archive fails.

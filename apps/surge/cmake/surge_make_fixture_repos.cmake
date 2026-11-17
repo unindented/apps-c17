@@ -232,6 +232,10 @@ fixture_pack_refs(
 # Documents and links of a tree page.
 fixture_import(links links_git_dir)
 
+# Commits in three calendar years, one late on December 31 at `-08:00`, with a branch that adds a
+# commit and one that drops the newest, which the contributions files of `cmd_build`'s tests read.
+fixture_import(years years_git_dir)
+
 fixture_import(ref-prefix ref_prefix_git_dir)
 fixture_pack_refs(
   "${ref_prefix_git_dir}" refs/heads/feature refs/heads/feature/x refs/heads/main

@@ -343,8 +343,10 @@ endif()
 set(pack_dir "${actual_dir}/showcase.git/objects/pack")
 
 # A dry run after the move writes only what the moved ref decides: the repo's home, refs pages and
-# `branches.json`, the site index, the moved branch's log pages and feed, the page of its root, which
-# shows its newest commit, the new commit's page, the clone export's changed files and new pack, and the output cache.
+# `branches.json`, the site index and the contributions file of 2026, the new commit's year, the moved
+# branch's log pages and feed, the page of its root, which shows its newest commit, the new commit's
+# page, the clone export's changed files and new pack, and the output cache. The contributions files
+# of 2024 and 2025 are kept.
 # The commit changes no tree, so every other tree page, every blob page and raw copy, and every
 # other commit page, is kept. The dry run makes no pack, so it names the new one by its refs.
 execute_process(
@@ -368,6 +370,7 @@ set(moved_writes
     "public/showcase/commits/main.atom"
     "public/showcase/commit/${moved_oid}/index.html"
     "public/index.html"
+    "public/contributions/2026.json"
     "public/showcase/index.html"
     "public/showcase/tree/main/index.html"
     "public/showcase/branches/index.html"
@@ -685,7 +688,8 @@ endif()
 # Last, a commit that changes one blob of showcase's `main`: a dry run writes that file's blob page
 # and raw copy, the tree pages of the directories above it, the pages that show Markdown or Org,
 # whose links resolve against the branch's root tree, the pages that the new commit moves, as after
-# the move above, and the clone export, and keeps every other output.
+# the move above, the contributions file of 2026, and the clone export, and keeps every other
+# output.
 set(changed_blob "${SURGE_SCRATCH_DIR}/repos/showcase/lib/main.c")
 file(APPEND "${changed_blob}" "/* changed */\n")
 execute_process(
@@ -726,6 +730,7 @@ set(blob_writes
     "public/showcase/commits/main.atom"
     "public/showcase/commit/${changed_oid}/index.html"
     "public/index.html"
+    "public/contributions/2026.json"
     "public/_surge/output-cache.tsv"
 )
 string(REGEX MATCHALL "[^\n]+" blob_lines "${blob_stdout}")

@@ -1,6 +1,7 @@
 target_sources(
   surge_app
-  PRIVATE contributions.c
+  PRIVATE contribution_writer.c
+          contributions.c
           export_writer.c
           highlight_diff.c
           page_blob.c
@@ -22,7 +23,8 @@ target_sources(
           template_value.c
   PUBLIC FILE_SET HEADERS
          BASE_DIRS "${PROJECT_SOURCE_DIR}/src"
-         FILES contributions.h
+         FILES contribution_writer.h
+               contributions.h
                export_writer.h
                highlight_diff.h
                page_blob.h

@@ -104,6 +104,12 @@ struct ContributionYear {
 
   /** LLM-assisted commits in the year. */
   ptrdiff_t llm_count;
+
+  /**
+   * Last day of the year that counts, as `contributions_tally_year` gives it: December 31, or for
+   * the newest year, the newest commit's day.
+   */
+  int64_t end_day;
 };
 
 /**
@@ -168,7 +174,7 @@ void contributions_tally_year(const struct ContributionCommit* commits,
     __attribute__((nonnull(1, 5)));
 
 /**
- * @brief Lists the calendar years with commits, newest first, with their totals.
+ * @brief Lists the calendar years with commits, newest first, with their totals and last days.
  *
  * @param commits      Commits from `contributions_merge`. Must not be `NULL` unless `commit_count`
  *                     is `0`.

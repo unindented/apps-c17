@@ -64,3 +64,9 @@ description = "Names that git refuses, and a file over the limits"
 name = "links"
 path = "repos/links"
 description = "Documents and links of tree pages"
+
+# Commits in 2024, 2025 and 2026, so the site gets a contributions file for each year.
+[[repo]]
+name = "years"
+path = "repos/years"
+description = "A history across three calendar years"

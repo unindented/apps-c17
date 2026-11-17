@@ -54,7 +54,7 @@ foreach(expected_refs_file IN LISTS expected_refs_files)
   endif()
 endforeach()
 
-foreach(name IN ITEMS showcase monorepo links)
+foreach(name IN ITEMS showcase monorepo links years)
   execute_process(
     COMMAND "${SURGE_GIT}" fsck --strict --no-dangling
     WORKING_DIRECTORY "${repos_dir}/${name}"

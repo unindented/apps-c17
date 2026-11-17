@@ -58,17 +58,57 @@ static void remove_site(const char* site_dir) {
 }
 
 /**
+ * @brief Writes a site's config: `config_extra` and one repo, the fixture repository `repo_name`,
+ *        with `repo_extra`.
+ *
+ * @param site_dir     Directory of the site.
+ * @param config_extra Terminated keys that lead the config, or `NULL` for none.
+ * @param repo_name    Terminated name of the fixture repository. Must not be `NULL`.
+ * @param repo_extra   Terminated keys that end the repo's table, or `NULL` for none.
+ */
+static void write_config(struct Str site_dir,
+                         const char* config_extra,
+                         const char* repo_name,
+                         const char* repo_extra) {
+  const char* repos_dir = getenv("SURGE_FIXTURE_REPOS_DIR");
+  TEST_ASSERT(repos_dir != NULL);
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  struct Buf config = {.arena = &arena};
+  if (config_extra != NULL) {
+    buf_append(&config, str_from_cstr(config_extra));
+  }
+  buf_printf(&config,
+             "title = \"Code\"\n"
+             "description = \"Repositories\"\n"
+             "author = \"Ada\"\n"
+             "base_url = \"https://git.example.org\"\n"
+             "\n"
+             "[[repo]]\n"
+             "name = \"%s\"\n"
+             "path = \"%s/%s\"\n"
+             "%s",
+             repo_name, repos_dir, repo_name, repo_extra != NULL ? repo_extra : "");
+  const struct Str config_text = buf_str(&config);
+  TEST_ASSERT(os_write(os_posix(), path_join(site_dir, S("surge.toml"), &arena),
+                       (struct OsSource){.bytes = config_text}, S("failed to write config"),
+                       &log) == 0);
+}
+
+/**
  * @brief Makes a site below the temporary directory: the golden site's templates, and a config of
- *        `config_extra` and one repo, the fixture repository `showcase`, with `repo_extra`.
+ *        `config_extra` and one repo, the fixture repository `repo_name`, with `repo_extra`.
  *
  * @param config_extra Terminated keys that lead the config, or `NULL` for none.
+ * @param repo_name    Terminated name of the fixture repository. Must not be `NULL`.
  * @param repo_extra   Terminated keys that end the repo's table, or `NULL` for none.
  * @param arena        Arena that owns the returned path. Must not be `NULL`.
  * @return The site's directory.
  */
-static struct Str make_site(const char* config_extra, const char* repo_extra, struct Arena* arena) {
-  const char* repos_dir = getenv("SURGE_FIXTURE_REPOS_DIR");
-  TEST_ASSERT(repos_dir != NULL);
+static struct Str make_site_of_repo(const char* config_extra,
+                                    const char* repo_name,
+                                    const char* repo_extra,
+                                    struct Arena* arena) {
   const char* tmp_dir = getenv("TMPDIR");
   struct Buf site_template = {.arena = arena};
   buf_printf(&site_template, "%s/surge-test-XXXXXX", tmp_dir != NULL ? tmp_dir : "/tmp");
@@ -94,26 +134,79 @@ static struct Str make_site(const char* config_extra, const char* repo_extra, st
     TEST_ASSERT(os_write(os, copy, (struct OsSource){.bytes = text}, S("failed to write template"),
                          &log) == 0);
   }
-  struct Buf config = {.arena = arena};
-  if (config_extra != NULL) {
-    buf_append(&config, str_from_cstr(config_extra));
-  }
-  buf_printf(&config,
-             "title = \"Code\"\n"
-             "description = \"Repositories\"\n"
-             "author = \"Ada\"\n"
-             "base_url = \"https://git.example.org\"\n"
-             "\n"
-             "[[repo]]\n"
-             "name = \"showcase\"\n"
-             "path = \"%s/showcase\"\n"
-             "%s",
-             repos_dir, repo_extra != NULL ? repo_extra : "");
-  TEST_ASSERT(os_write(os, path_join(site, S("surge.toml"), arena),
-                       (struct OsSource){.bytes = buf_str(&config)}, S("failed to write config"),
-                       &log) == 0);
+  write_config(site, config_extra, repo_name, repo_extra);
   TEST_CHECK(test_log_is_empty(&log));
   return site;
+}
+
+/**
+ * @brief Makes a site below the temporary directory: the golden site's templates, and a config of
+ *        `config_extra` and one repo, the fixture repository `showcase`, with `repo_extra`.
+ *
+ * @param config_extra Terminated keys that lead the config, or `NULL` for none.
+ * @param repo_extra   Terminated keys that end the repo's table, or `NULL` for none.
+ * @param arena        Arena that owns the returned path. Must not be `NULL`.
+ * @return The site's directory.
+ */
+static struct Str make_site(const char* config_extra, const char* repo_extra, struct Arena* arena) {
+  return make_site_of_repo(config_extra, "showcase", repo_extra, arena);
+}
+
+/**
+ * @brief Writes the config of a site of the fixture repository `years` on its branch `branch`, with
+ *        `Claude` as an LLM trailer value, as the golden site has it.
+ *
+ * @param site_dir Directory of the site.
+ * @param branch   Terminated name of the default branch: `main`, `next` or `old`. Must not be
+ *                 `NULL`.
+ */
+static void write_years_config(struct Str site_dir, const char* branch) {
+  struct Arena arena = test_arena();
+  struct Buf repo_extra = {.arena = &arena};
+  buf_printf(&repo_extra, "default_branch = \"%s\"\n", branch);
+  write_config(site_dir, "llm_trailer_values = [\"Claude\"]\n", "years", buf_cstr(&repo_extra));
+}
+
+/**
+ * @brief Returns the attributes that the output cache of the site's last build records for
+ *        `relative_path`, or empty when it has no row.
+ *
+ * @param site_dir      Directory of the site.
+ * @param relative_path Terminated output path below `output_dir`. Must not be `NULL`.
+ * @param arena         Arena that owns the attributes. Must not be `NULL`.
+ * @return The attributes.
+ */
+static struct Str cached_attributes(struct Str site_dir,
+                                    const char* relative_path,
+                                    struct Arena* arena) {
+  struct OutputCache cache = {0};
+  struct Str reason = {0};
+  TEST_ASSERT(output_cache_load(path_join(site_dir, S("public/_surge/output-cache.tsv"), arena),
+                                os_posix(), arena, test_arena(), &cache,
+                                &reason) == BUILD_CACHE_FILE_LOADED);
+  const struct OutputCacheRow* row = output_cache_find(&cache, str_from_cstr(relative_path));
+  return row != NULL ? row->attributes : (struct Str){0};
+}
+
+/**
+ * @brief Reports whether `name` below `site_dir` starts with `prefix`.
+ *
+ * @param site_dir Directory of the site.
+ * @param name     Terminated path below it. Must not be `NULL`.
+ * @param prefix   Terminated text the file must start with. Must not be `NULL`.
+ * @return `true` when the file is read and starts with `prefix`.
+ */
+static bool is_file_below_with_prefix(struct Str site_dir, const char* name, const char* prefix) {
+  struct Arena arena = test_arena();
+  struct Log log = test_log();
+  struct Str text = {0};
+  if (os_read(os_posix(), path_join(site_dir, str_from_cstr(name), &arena), 1024 * 1024,
+              OS_READ_TEXT, &arena, &text, S("failed to read"), &log) != 0) {
+    return false;
+  }
+  const struct Str head = str_head(text, text.len < 200 ? text.len : 200);
+  TEST_MSG("'%s' starts with: '%.*s'", name, STR_FMT(head));
+  return str_startswith(text, str_from_cstr(prefix));
 }
 
 /**
@@ -317,6 +410,101 @@ static void test_renders_a_nested_not_found_page_from_the_root(void) {
   remove_site(str_cstr(site, &arena));
 }
 
+// Each calendar year with commits gets a contributions file, whose cache row names the recipe, the
+// year's commits and its last counted day: December 31 for a past year, and the newest commit's day
+// for the newest. The commit at 23:30 at `-08:00` on 2025-12-31 counts in 2025. The golden test
+// `surge.golden.site` compares the files byte for byte.
+static void test_writes_a_contributions_file_for_each_year(void) {
+  struct Arena arena = test_arena();
+  const struct Str site = make_site_of_repo(NULL, "years", NULL, &arena);
+  write_years_config(site, "main");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  static const struct {
+    const char* path;
+    const char* head;
+    const char* end;
+  } files[] = {
+      {"contributions/2024.json",
+       "{\"year\":2024,\"count\":1,\"llm_count\":0,\"day_count\":1,\"llm_day_count\":0,"
+       "\"start_date\":\"2024-01-01\",\"end_date\":\"2024-12-31\",\"weeks\":[",
+       " end=2024-12-31"},
+      {"contributions/2025.json",
+       "{\"year\":2025,\"count\":2,\"llm_count\":1,\"day_count\":2,\"llm_day_count\":1,"
+       "\"start_date\":\"2025-01-01\",\"end_date\":\"2025-12-31\",\"weeks\":[",
+       " end=2025-12-31"},
+      {"contributions/2026.json",
+       "{\"year\":2026,\"count\":1,\"llm_count\":0,\"day_count\":1,\"llm_day_count\":0,"
+       "\"start_date\":\"2026-01-01\",\"end_date\":\"2026-01-05\",\"weeks\":[",
+       " end=2026-01-05"},
+  };
+  for (ptrdiff_t i = 0; i < (ptrdiff_t)(sizeof(files) / sizeof(files[0])); i++) {
+    struct Buf output_path = {.arena = &arena};
+    buf_printf(&output_path, "public/%s", files[i].path);
+    TEST_CHECK(is_file_below_with_prefix(site, buf_cstr(&output_path), files[i].head));
+    const struct Str attributes = cached_attributes(site, files[i].path, &arena);
+    TEST_CHECK(str_eq(mask_ids(attributes, &arena), S("recipe=# commits=# end=#")));
+    TEST_CHECK(str_endswith(attributes, str_from_cstr(files[i].end)));
+    TEST_MSG("attributes of '%s': '%.*s'", files[i].path, STR_FMT(attributes));
+  }
+  bool is_found = true;
+  (void)stat_below(site, "public/contributions/2023.json", &is_found);
+  TEST_CHECK(!is_found);
+  remove_site(str_cstr(site, &arena));
+}
+
+// A new commit in the newest year changes only that year's cache row, so the build makes that
+// year's file again and keeps the others.
+static void test_new_commit_rewrites_only_the_newest_year(void) {
+  struct Arena arena = test_arena();
+  const struct Str site = make_site_of_repo(NULL, "years", NULL, &arena);
+  write_years_config(site, "main");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
+  const struct Str before_2024 = cached_attributes(site, "contributions/2024.json", &arena);
+  const struct Str before_2025 = cached_attributes(site, "contributions/2025.json", &arena);
+  const struct Str before_2026 = cached_attributes(site, "contributions/2026.json", &arena);
+  // `next` is `main` and one more commit, on 2026-01-12.
+  write_years_config(site, "next");
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  TEST_CHECK(str_eq(cached_attributes(site, "contributions/2024.json", &arena), before_2024));
+  TEST_CHECK(str_eq(cached_attributes(site, "contributions/2025.json", &arena), before_2025));
+  const struct Str after_2026 = cached_attributes(site, "contributions/2026.json", &arena);
+  TEST_CHECK(before_2026.len > 0 && !str_eq(after_2026, before_2026));
+  TEST_CHECK(str_endswith(after_2026, S(" end=2026-01-12")));
+  TEST_CHECK(is_file_below_with_prefix(
+      site, "public/contributions/2026.json",
+      "{\"year\":2026,\"count\":2,\"llm_count\":0,\"day_count\":2,\"llm_day_count\":0,"
+      "\"start_date\":\"2026-01-01\",\"end_date\":\"2026-01-12\","));
+  remove_site(str_cstr(site, &arena));
+}
+
+// A year that no longer has a commit has no file, which the build prunes, and the year before it,
+// now the newest, keeps its file, because it still counts to December 31.
+static void test_prunes_the_file_of_a_year_without_commits(void) {
+  struct Arena arena = test_arena();
+  const struct Str site = make_site_of_repo(NULL, "years", NULL, &arena);
+  write_years_config(site, "main");
+  struct Log log = test_log();
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
+  const struct Str before_2025 = cached_attributes(site, "contributions/2025.json", &arena);
+  // `old` is `main` without its commit of 2026.
+  write_years_config(site, "old");
+  TEST_CHECK(execute_build(site, (struct BuildOptions){0}, &log) == 0);
+  TEST_CHECK(test_log_is_empty(&log));
+  bool is_found = true;
+  (void)stat_below(site, "public/contributions/2026.json", &is_found);
+  TEST_CHECK(!is_found);
+  TEST_CHECK(cached_attributes(site, "contributions/2026.json", &arena).len == 0);
+  TEST_CHECK(before_2025.len > 0);
+  TEST_CHECK(str_eq(cached_attributes(site, "contributions/2025.json", &arena), before_2025));
+  (void)stat_below(site, "public/contributions/2024.json", &is_found);
+  TEST_CHECK(is_found);
+  remove_site(str_cstr(site, &arena));
+}
+
 // A dry run of a site that was never built creates nothing, not even `output_dir`.
 static void test_dry_run_creates_nothing(void) {
   struct Arena arena = test_arena();
@@ -499,6 +687,9 @@ TEST_LIST = {
      test_changed_template_key_makes_every_page_again},
     {"renders a nested not found page from the root",
      test_renders_a_nested_not_found_page_from_the_root},
+    {"writes a contributions file for each year", test_writes_a_contributions_file_for_each_year},
+    {"new commit rewrites only the newest year", test_new_commit_rewrites_only_the_newest_year},
+    {"prunes the file of a year without commits", test_prunes_the_file_of_a_year_without_commits},
     {"dry run creates nothing", test_dry_run_creates_nothing},
     {"reports an output dir that is a file", test_reports_an_output_dir_that_is_a_file},
     {"failed build records what it wrote", test_failed_build_records_what_it_wrote},

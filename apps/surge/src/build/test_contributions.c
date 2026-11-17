@@ -448,8 +448,8 @@ static void test_week_month_names_the_months_of_the_range(void) {
   TEST_CHECK(test_text_is(contributions_week_month(&calendar, 2), "Feb"));
 }
 
-// The years with commits are listed newest first, each with its commits and LLM-assisted ones, and
-// a commit that two repos reach counts once.
+// The years with commits are listed newest first, each with its commits, LLM-assisted ones and last
+// day, and a commit that two repos reach counts once.
 static void test_years_lists_the_years_newest_first(void) {
   struct Contribution first[] = {
       at_noon("aa", day_of(2025, 3, 1), true),
@@ -475,6 +475,10 @@ static void test_years_lists_the_years_newest_first(void) {
   TEST_CHECK(years[0].year == 2026 && years[0].count == 1 && years[0].llm_count == 0);
   TEST_CHECK(years[1].year == 2025 && years[1].count == 2 && years[1].llm_count == 1);
   TEST_CHECK(years[2].year == 2024 && years[2].count == 1 && years[2].llm_count == 0);
+  // The newest year ends on its newest commit's day, and every other on December 31.
+  TEST_CHECK(years[0].end_day == DAY_2026_01_15);
+  TEST_CHECK(years[1].end_day == day_of(2025, 12, 31));
+  TEST_CHECK(years[2].end_day == day_of(2024, 12, 31));
 }
 
 // With no commit at all, nothing counts.

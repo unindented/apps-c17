@@ -1,0 +1,88 @@
+blob
+mark :1
+data 48
+# Years
+
+A history across three calendar years.
+
+commit refs/heads/main
+mark :2
+author Ada Lovelace <ada@example.org> 1717412400 +0100
+committer Ada Lovelace <ada@example.org> 1717412400 +0100
+data 26
+Start the history in 2024
+
+deleteall
+M 100644 :1 README.md
+
+blob
+mark :3
+data 5
+2025
+
+commit refs/heads/main
+mark :4
+author Grace Hopper <grace@example.org> 1741604400 +0100
+committer Grace Hopper <grace@example.org> 1741604400 +0100
+data 63
+Note 2025
+
+Co-Authored-By: Claude Opus <noreply@anthropic.com>
+
+from :2
+M 100644 :3 notes.txt
+
+blob
+mark :5
+data 20
+2025
+New Year's Eve
+
+commit refs/heads/main
+mark :6
+author Ada Lovelace <ada@example.org> 1767252600 -0800
+committer Ada Lovelace <ada@example.org> 1767252600 -0800
+data 31
+Close 2025 on its last evening
+
+from :4
+M 100644 :5 notes.txt
+
+blob
+mark :7
+data 25
+2025
+New Year's Eve
+2026
+
+commit refs/heads/main
+mark :8
+author Grace Hopper <grace@example.org> 1767610800 +0100
+committer Grace Hopper <grace@example.org> 1767610800 +0100
+data 10
+Note 2026
+
+from :6
+M 100644 :7 notes.txt
+
+blob
+mark :9
+data 30
+2025
+New Year's Eve
+2026
+Next
+
+commit refs/heads/next
+mark :10
+author Ada Lovelace <ada@example.org> 1768215600 +0100
+committer Ada Lovelace <ada@example.org> 1768215600 +0100
+data 14
+Go on in 2026
+
+from :8
+M 100644 :9 notes.txt
+
+reset refs/heads/old
+from :6
+

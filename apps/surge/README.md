@@ -214,6 +214,7 @@ The build writes this tree to `output_dir`. `<r>` is a repository name, `<ref>` 
 
 ```text
 index.html                                     site index
+contributions/<year>.json                      contributions of a year with commits
 <not_found_path>                               not-found page, 404.html by default
 _headers                                       with headers_file = true
 _surge/output-cache.tsv                        output cache
@@ -297,7 +298,7 @@ The `write` and `keep` lines come first, in this order:
 2. The pages of each repository: the home, the branch list, `branches.json`, the tag list, the tag feed and the release feed, then for each branch its tree, blob and raw outputs, its commit list pages and its commit feed, and then the commit pages.
 3. `_headers`.
 4. The release outputs of each repository.
-5. `index.html` and the not-found page.
+5. `index.html`, the contributions files, oldest year first, and the not-found page.
 6. The static files.
 7. The output cache.
 
@@ -320,9 +321,10 @@ The inputs of each output are these:
 - Every page of a repository depends on what its `repo` map shows: the default branch, whether the branch names a commit, the description, and whether the repository has a release project.
 - A commit page depends on its commit. A blob page depends on its blob and mode, and a tree page on its tree. Both also depend on the branch's root tree when they show Markdown or Org, and a tree page also when it lists a symlink, because their links resolve against every path of the branch. A tree page or a home that lists a submodule with a URL also depends on the names of the site's repositories, which its link can name. The page of a branch's root also depends on the branch's newest commit. A commit list page depends on its commits and the refs that name them, and a feed on its entries.
 - The home, the branch and tag lists, `branches.json` and the site index depend on every ref, and on the repository's place in the config, description, newest commit date and projects. The tag list and the release outputs also depend on the releases. The site index's contributions calendar depends on the history of each default branch, which the refs and the default branch decide.
+- A year's contributions file depends on the page recipe, the commits of its year with their days and LLM flags, and the last day of the year that counts. So a commit in the newest year makes only that year's file again, and a commit in a new year also makes the year before it again, which then counts to December 31.
 - A raw copy depends only on its blob. A static file and a release asset depend on their path, size and modification time. A clone pack depends on `info/refs`.
 
-So a new commit on a branch makes these outputs again: the branch's commit list pages and feed, the new commit's page, the tree and blob pages and raw copies of the paths that it changes, the pages that show Markdown or Org, the tree pages that list a symlink, the page of the branch's root, the repository's home, its branch and tag lists and `branches.json`, the site index, and the changed files and new pack of the clone export. `--force` ignores the output cache and writes every output.
+So a new commit on a branch makes these outputs again: the branch's commit list pages and feed, the new commit's page, the tree and blob pages and raw copies of the paths that it changes, the pages that show Markdown or Org, the tree pages that list a symlink, the page of the branch's root, the repository's home, its branch and tag lists and `branches.json`, the site index, on the default branch the contributions file of the commit's year, and the changed files and new pack of the clone export. `--force` ignores the output cache and writes every output.
 
 The output cache does not see two kinds of change. Run `surge build --force` once after either:
 
@@ -381,6 +383,14 @@ The site index also gets a contributions calendar, as a GitHub profile shows one
 - The window is the 365 days that end on the newest day with a commit, drawn as 53 weeks from Sunday to Saturday. The days of the first week before the window and the days of the last week after it are outside it, and count nothing. The window ends at the newest commit, not on the day of the build, so the same repositories always give the same index. A commit dated in the future moves the window to its day.
 - A day's level is 0 without commits. Otherwise it is 1 plus the number of quartiles of the window's days with commits that are less than its count. The quartiles are nearest-rank: of the `n` counts in ascending order, the `k`th, for `k` from 1 to 3, is the one at position `ceil(k × n / 4)`, counted from 1. So a single day with commits, or days that all have the same count, are all level 1.
 - A day has an LLM-assisted commit when its trailers mark it, as [LLM-assisted commits](#llm-assisted-commits) describes, so a template can color those days apart. The calendar shows the help that the trailers disclose, and nothing else.
+
+Each calendar year with a commit also gets a file, `contributions/<year>.json`, with four digits of year, so a script can fetch a year and draw it as the template draws the window. A year without commits has no file.
+
+- A year runs from January 1 to December 31, drawn as the Sunday-to-Saturday weeks that hold them: 53 weeks, or 54 for a leap year that starts on a Saturday, such as 2028. The days of the first week before January 1 and of the last week after December 31 are outside the year.
+- The newest year ends on the newest day with a commit, as the window does, and is still drawn to December 31. Its days after that day are after its end: they count nothing and have level 0, so a template can mute them. A day outside the year is never after its end. So when the newest commit is on March 10, March 11 to December 31 are after the end, whatever day the site is built.
+- A year's levels come from the quartiles of its own days with commits, so a busy year does not mute the days of a quiet one.
+
+A file is one line of JSON and a newline. It holds `year`, `count`, `llm_count`, `day_count`, `llm_day_count`, `start_date` (January 1), `end_date` (December 31, or the newest year's newest day with a commit) and `weeks`, in that order, with the meanings that the index's `contributions` map gives them in [Data trees](#data-trees). A week has `month`, which names a month whose 1st the week holds inside the year, after its end included, and `days`. A day has `date`, `weekday`, `count`, `llm_count`, `level`, `has_llm`, `is_outside` and `is_after_end`. `year`, `weekday`, `level` and the counts are JSON numbers, and the flags are `true` or `false`, where a template's data holds text, and a flag as `true` or empty text.
 
 To build the calendar, the scan reads the author and the trailers of every commit of each default branch on every build, also when it keeps the index.
 

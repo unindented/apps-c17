@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "build/contribution_writer.h"
 #include "build/export_writer.h"
 #include "build/page_index.h"
 #include "build/release_scan.h"
@@ -331,13 +332,14 @@ static struct PathList populate_output_manifest_inputs(struct BuildState* state)
     __attribute__((nonnull(1)));
 
 /**
- * @brief Records `index.html` and the not-found page, labelled `not_found_path`: the site index
- *        declares the page recipe and every repo and ref, and the not-found page the recipe.
+ * @brief Records `index.html`, the contributions file of each year and the not-found page, labelled
+ *        `not_found_path`: the site index declares the page recipe and every repo and ref, a
+ *        contributions file the recipe and its year's commits, and the not-found page the recipe.
  *
  * @param state   Build state whose repos are scanned. Must not be `NULL`.
  * @param builder Prepared manifest builder. Must not be `NULL`.
  * @param log     Log that receives every refusal. Must not be `NULL`.
- * @return `0` when both paths were recorded, or `-1` otherwise.
+ * @return `0` when every path was recorded, or `-1` otherwise.
  */
 static int populate_output_manifest_site_pages(const struct BuildState* state,
                                                struct ManifestBuilder* builder,
@@ -422,8 +424,8 @@ static int write_release_outputs(const struct BuildState* state, struct Log* log
     __attribute__((nonnull(1, 2)));
 
 /**
- * @brief Renders and writes the site index and the not-found page, or keeps each one the build
- *        cache vouches for.
+ * @brief Renders and writes the site index, the contributions file of each year and the not-found
+ *        page, or keeps each one the build cache vouches for.
  *
  * @param state Build state whose repos are scanned. Must not be `NULL`.
  * @param log   Log that receives the failure. Must not be `NULL`.
@@ -464,6 +466,16 @@ static int write_site_page_make(struct Arena* perm,
                                 struct Str* bytes_out,
                                 struct Log* log,
                                 void* userdata) __attribute__((nonnull(1, 3, 4, 5)));
+
+/**
+ * @brief Returns what the scan found for each repo, in config order, as one array.
+ *
+ * @param state Build state whose repos are scanned. Must not be `NULL`.
+ * @param arena Arena that owns the array. Must not be `NULL`.
+ * @return The models, which share what the scans hold.
+ */
+static struct RepoModel* repo_models(const struct BuildState* state, struct Arena* arena)
+    __attribute__((nonnull(1, 2), returns_nonnull));
 
 /**
  * @brief Copies every static file into the output, or keeps each copy whose source did not change.
@@ -932,6 +944,11 @@ static int populate_output_manifest_site_pages(const struct BuildState* state,
       rc = -1;
     }
   }
+  const struct RepoModel* models = repo_models(state, &scratch);
+  if (contribution_writer_register(builder, models, state->site_config.repo_count, state->recipe_id,
+                                   scratch, log) != 0) {
+    rc = -1;
+  }
   return rc;
 }
 
@@ -1071,6 +1088,12 @@ static int write_site_pages(const struct BuildState* state, struct Log* log) {
   if (write_site_page(state, templates->index, PAGE_INDEX_PAGE, state->scratch, log) != 0) {
     return -1;
   }
+  struct Arena scratch = state->scratch;
+  const struct RepoModel* models = repo_models(state, &scratch);
+  if (contribution_writer_write(&state->writer, state->site_config.output_dir, models,
+                                state->site_config.repo_count, &state->cache, scratch, log) != 0) {
+    return -1;
+  }
   return write_site_page(state, templates->not_found, state->site_config.not_found_path,
                          state->scratch, log);
 }
@@ -1101,10 +1124,7 @@ static int write_site_page_make(struct Arena* perm,
   const struct BuildState* state = make->state;
   const struct TemplateValue* value = NULL;
   if (str_eq(make->page, PAGE_INDEX_PAGE)) {
-    struct RepoModel* models = arena_new(perm, state->site_config.repo_count, struct RepoModel);
-    for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
-      models[i] = state->scans[i].model;
-    }
+    const struct RepoModel* models = repo_models(state, perm);
     value =
         page_index_value(&state->site_config, models, state->site_config.repo_count, perm, scratch);
   } else {
@@ -1112,6 +1132,14 @@ static int write_site_page_make(struct Arena* perm,
   }
   return template_value_render(state->template_set, make->template_name, value, make->page, perm,
                                scratch, bytes_out, log);
+}
+
+static struct RepoModel* repo_models(const struct BuildState* state, struct Arena* arena) {
+  struct RepoModel* models = arena_new(arena, state->site_config.repo_count, struct RepoModel);
+  for (ptrdiff_t i = 0; i < state->site_config.repo_count; i++) {
+    models[i] = state->scans[i].model;
+  }
+  return models;
 }
 
 static int copy_static_files(const struct BuildState* state, struct Log* log) {

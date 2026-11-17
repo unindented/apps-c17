@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<id>https://git.example.org/years/commits/main.atom</id>
+<title>years: commits on main</title>
+<link rel="self" href="https://git.example.org/years/commits/main.atom"/>
+<link rel="alternate" type="text/html" href="https://git.example.org/years/commits/main/index.html"/>
+<updated>2026-01-05T12:00:00+01:00</updated>
+<generator>surge @PROJECT_VERSION@</generator>
+<author><name>Fixture author</name></author>
+<entry>
+<id>https://git.example.org/years/commit/fec96f55abac5c4506acb346a269ea9f139d78ae/index.html</id>
+<title>Note 2026</title>
+<link href="https://git.example.org/years/commit/fec96f55abac5c4506acb346a269ea9f139d78ae/index.html"/>
+<updated>2026-01-05T12:00:00+01:00</updated>
+<author><name>Grace Hopper</name></author>
+</entry>
+<entry>
+<id>https://git.example.org/years/commit/a3dc94bbe02e88daaa83f1a0b768385becc67b53/index.html</id>
+<title>Close 2025 on its last evening</title>
+<link href="https://git.example.org/years/commit/a3dc94bbe02e88daaa83f1a0b768385becc67b53/index.html"/>
+<updated>2025-12-31T23:30:00-08:00</updated>
+<author><name>Ada Lovelace</name></author>
+</entry>
+<entry>
+<id>https://git.example.org/years/commit/c9ae409aca2aee385625c3f12c0cca0b4d80fe45/index.html</id>
+<title>Note 2025</title>
+<link href="https://git.example.org/years/commit/c9ae409aca2aee385625c3f12c0cca0b4d80fe45/index.html"/>
+<updated>2025-03-10T12:00:00+01:00</updated>
+<author><name>Grace Hopper</name></author>
+<content type="text">Co-Authored-By: Claude Opus &lt;noreply@anthropic.com&gt;</content>
+<category term="llm-assisted"/>
+</entry>
+</feed>
